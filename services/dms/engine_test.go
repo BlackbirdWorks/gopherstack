@@ -109,12 +109,18 @@ func (stubTarget) Apply(context.Context, dmsengine.TargetTable, dmsengine.Change
 func (stubTarget) Commit(context.Context) error                                         { return nil }
 
 type stubOpener struct {
-	src      *stubSource
 	tgt      stubTarget
+	src      *stubSource
 	released chan string
+	seen     dmsengine.EndpointConfig
+	mu       sync.Mutex
 }
 
-func (o *stubOpener) OpenSource(context.Context, dmsengine.EndpointConfig) (dmsengine.Source, error) {
+func (o *stubOpener) OpenSource(_ context.Context, ep dmsengine.EndpointConfig) (dmsengine.Source, error) {
+	o.mu.Lock()
+	o.seen = ep
+	o.mu.Unlock()
+
 	return o.src, nil
 }
 
@@ -507,6 +513,51 @@ func TestEngineDeleteReleasesPostgresSlot(t *testing.T) {
 			case <-time.After(10 * time.Second):
 				require.FailNow(t, "slot was not released")
 			}
+		})
+	}
+}
+
+func TestEngineEndpointCertificateReachesTheEngine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		sslMode string
+		wantPEM string
+		cert    bool
+	}{
+		{name: "require with certificate", sslMode: "require", cert: true, wantPEM: "PEM-DATA"},
+		{name: "none with certificate still passes it along", sslMode: "none", cert: true, wantPEM: "PEM-DATA"},
+		{name: "require without certificate", sslMode: "require"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEngineEnv(t, "mysql", "full-load")
+			settings := dms.EndpointConnectionSettings{SslMode: tt.sslMode}
+
+			if tt.cert {
+				cert, err := e.b.ImportCertificate(t.Context(), "ca", "PEM-DATA", "", "", nil)
+				require.NoError(t, err)
+
+				settings.CertificateArn = cert.CertificateArn
+			}
+
+			ep, err := e.b.CreateEndpoint(t.Context(), "tls-src", "source", "mysql", "db.local", "app", "u", "p", 3306,
+				nil, settings)
+			require.NoError(t, err)
+
+			conn, err := e.b.TestConnection(t.Context(), e.ri, ep.EndpointArn)
+			require.NoError(t, err)
+			assert.Equal(t, "successful", conn.Status)
+
+			e.op.mu.Lock()
+			defer e.op.mu.Unlock()
+
+			assert.Equal(t, tt.sslMode, e.op.seen.SSLMode)
+			assert.Equal(t, tt.wantPEM, e.op.seen.CertificatePEM)
 		})
 	}
 }

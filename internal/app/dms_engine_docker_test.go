@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
+	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -99,15 +100,39 @@ type dbEndpoint struct {
 	port int32
 }
 
-func (h *dmsHarness) createDB(t *testing.T, id, engine, version string) dbEndpoint {
+func (h *dmsHarness) logicalGroup(t *testing.T, name string) {
+	t.Helper()
+
+	_, err := h.rds.CreateDBParameterGroup(t.Context(), &rds.CreateDBParameterGroupInput{
+		DBParameterGroupName: aws.String(name), DBParameterGroupFamily: aws.String("postgres16"),
+		Description: aws.String("logical replication for DMS"),
+	})
+	require.NoError(t, err)
+
+	_, err = h.rds.ModifyDBParameterGroup(t.Context(), &rds.ModifyDBParameterGroupInput{
+		DBParameterGroupName: aws.String(name),
+		Parameters: []rdstypes.Parameter{{
+			ParameterName: aws.String("rds.logical_replication"), ParameterValue: aws.String("1"),
+			ApplyMethod: rdstypes.ApplyMethodPendingReboot,
+		}},
+	})
+	require.NoError(t, err)
+}
+
+func (h *dmsHarness) createDB(t *testing.T, id, engine, version string, group ...string) dbEndpoint {
 	t.Helper()
 
 	ctx := t.Context()
-	_, err := h.rds.CreateDBInstance(ctx, &rds.CreateDBInstanceInput{
+	in := &rds.CreateDBInstanceInput{
 		DBInstanceIdentifier: aws.String(id), Engine: aws.String(engine), EngineVersion: aws.String(version),
 		DBInstanceClass: aws.String("db.t3.micro"), AllocatedStorage: aws.Int32(20), DBName: aws.String("appdb"),
 		MasterUsername: aws.String("master"), MasterUserPassword: aws.String(dmsMasterPass),
-	})
+	}
+	if len(group) > 0 {
+		in.DBParameterGroupName = aws.String(group[0])
+	}
+
+	_, err := h.rds.CreateDBInstance(ctx, in)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		bg := context.WithoutCancel(ctx)
@@ -471,7 +496,9 @@ func TestDMSDockerPostgresToMySQL(t *testing.T) {
 	requireDMSDocker(t, "mysql:8.4", "postgres:16")
 
 	h := newDMSHarness(t)
-	srcEP, tgtEP := h.createDB(t, "src", "postgres", "16"), h.createDB(t, "tgt", "mysql", "8.4")
+	h.logicalGroup(t, "pg-logical")
+
+	srcEP, tgtEP := h.createDB(t, "src", "postgres", "16", "pg-logical"), h.createDB(t, "tgt", "mysql", "8.4")
 	src, tgt := openDB(t, "postgres", srcEP), openDB(t, "mysql", tgtEP)
 
 	mustExec(t, src,
@@ -724,4 +751,38 @@ func lastWithOp(recs []dmsKinesisRec, op string) dmsKinesisRec {
 	}
 
 	return out
+}
+
+func TestDMSDockerPostgresCDCNeedsLogicalReplication(t *testing.T) {
+	t.Parallel()
+	requireDMSDocker(t, "postgres:16")
+
+	h := newDMSHarness(t)
+	srcEP := h.createDB(t, "src", "postgres", "16")
+	mustExec(t, openDB(t, "postgres", srcEP), "CREATE TABLE items (id integer PRIMARY KEY)")
+
+	s3c := s3.NewFromConfig(h.cfg, func(o *s3.Options) { o.UsePathStyle = true })
+	_, err := s3c.CreateBucket(t.Context(), &s3.CreateBucketInput{Bucket: aws.String("dms-out")})
+	require.NoError(t, err)
+
+	ri := h.instance(t)
+	srcARN := h.endpoint(t, "src-ep", dmstypes.ReplicationEndpointTypeValueSource, "postgres", &srcEP, nil)
+	tgt := h.endpoint(t, "s3-ep", dmstypes.ReplicationEndpointTypeValueTarget, "s3", nil,
+		func(in *databasemigrationservice.CreateEndpointInput) {
+			in.S3Settings = &dmstypes.S3Settings{
+				BucketName: aws.String("dms-out"), ServiceAccessRoleArn: aws.String(dmsRoleARN),
+			}
+		})
+	arn := h.task(t, "pg-cdc", srcARN, tgt, ri, "full-load-and-cdc", mappingRules(fmt.Sprintf(selectItems, "public")))
+
+	var task dmstypes.ReplicationTask
+
+	require.Eventually(t, func() bool {
+		task = h.describe(t, arn)
+
+		return aws.ToString(task.Status) == "failed"
+	}, dmsDockerWait, dmsPoll)
+
+	assert.Contains(t, aws.ToString(task.LastFailureMessage), "wal_level is replica, logical is required")
+	assert.Equal(t, "Stop Reason FATAL_ERROR", aws.ToString(task.StopReason))
 }

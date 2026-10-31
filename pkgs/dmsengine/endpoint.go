@@ -3,6 +3,7 @@ package dmsengine
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -26,6 +27,8 @@ type EndpointConfig struct {
 	User     string
 	Password string
 	SSLMode  string
+	// CertificatePEM is the endpoint's CertificateArn contents, trusted when SslMode asks for TLS.
+	CertificatePEM string
 	// SlotName names the PostgreSQL logical replication slot for source endpoints.
 	SlotName string
 	// S3Settings, KinesisSettings and DynamoDBSettings carry the raw settings JSON objects.
@@ -174,15 +177,51 @@ func TestEndpoint(ctx context.Context, o Opener, ep EndpointConfig, source bool)
 }
 
 func tlsRequired(mode string) bool {
-	m := strings.ToLower(mode)
+	switch strings.ToLower(mode) {
+	case sslRequire, sslVerifyCA, sslVerifyFull:
+		return true
+	}
 
-	return m == "require" || m == "verify-ca" || m == "verify-full"
+	return false
 }
 
-// skipVerifyTLS encrypts without verifying the server, as the emulator's database certificates are self-signed.
-func skipVerifyTLS() *tls.Config {
-	return &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // local emulator CA
-		MinVersion:         tls.VersionTLS12,
+const (
+	sslRequire    = "require"
+	sslVerifyCA   = "verify-ca"
+	sslVerifyFull = "verify-full"
+)
+
+// ErrCertificate reports an endpoint CertificateArn whose PEM holds no usable certificate.
+var ErrCertificate = errors.New("endpoint certificate is not a valid PEM CA bundle")
+
+// tlsConfigFor builds the client TLS settings for the endpoint's SslMode: nil for none, otherwise a verified
+// connection trusting the endpoint's CertificatePEM, or the system roots when none was supplied. The server
+// certificate must match the endpoint's server name in every TLS mode.
+func tlsConfigFor(ep EndpointConfig) (*tls.Config, error) {
+	if !tlsRequired(ep.SSLMode) {
+		return nil, nil //nolint:nilnil // nil config means plaintext
 	}
+
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: ep.Server}
+
+	if strings.TrimSpace(ep.CertificatePEM) != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(ep.CertificatePEM)) {
+			return nil, ErrCertificate
+		}
+
+		cfg.RootCAs = pool
+	}
+
+	return cfg, nil
+}
+
+// explainTLS adds guidance to a certificate-verification failure.
+func explainTLS(ep EndpointConfig, err error) error {
+	if err == nil || !tlsRequired(ep.SSLMode) || !strings.Contains(err.Error(), "x509:") {
+		return err
+	}
+
+	return fmt.Errorf("SslMode %s needs a trusted server certificate: attach a certificate (CertificateArn) "+
+		"that signed the server's certificate, or use a publicly trusted one: %w", ep.SSLMode, err)
 }

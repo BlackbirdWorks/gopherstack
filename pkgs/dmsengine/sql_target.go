@@ -20,6 +20,7 @@ var errNoRowImage = errors.New("delete has no row image")
 
 type sqlTarget struct {
 	db  *sql.DB
+	ep  EndpointConfig
 	fam Family
 	src Family
 }
@@ -40,10 +41,12 @@ func openSQLTarget(_ context.Context, ep EndpointConfig, fam, src Family) (Targe
 		return nil, err
 	}
 
-	return &sqlTarget{db: db, fam: fam, src: src}, nil
+	return &sqlTarget{db: db, fam: fam, src: src, ep: ep}, nil
 }
 
-func (t *sqlTarget) Ping(ctx context.Context) error { return t.db.PingContext(ctx) }
+func (t *sqlTarget) Ping(ctx context.Context) error {
+	return explainTLS(t.ep, t.db.PingContext(ctx))
+}
 
 func (t *sqlTarget) Close() error { return t.db.Close() }
 

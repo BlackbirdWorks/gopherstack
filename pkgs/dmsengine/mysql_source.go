@@ -38,9 +38,12 @@ func mysqlDB(ep EndpointConfig, clientFound bool) (*sql.DB, error) {
 	c.ClientFoundRows = clientFound
 	c.Loc = time.UTC
 
-	if tlsRequired(ep.SSLMode) {
-		c.TLS = skipVerifyTLS()
+	tc, err := tlsConfigFor(ep)
+	if err != nil {
+		return nil, err
 	}
+
+	c.TLS = tc
 
 	conn, err := sqldriver.NewConnector(c)
 	if err != nil {
@@ -59,7 +62,9 @@ func openMySQLSource(_ context.Context, ep EndpointConfig) (Source, error) {
 	return &mysqlSource{db: db, cfg: ep}, nil
 }
 
-func (s *mysqlSource) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+func (s *mysqlSource) Ping(ctx context.Context) error {
+	return explainTLS(s.cfg, s.db.PingContext(ctx))
+}
 
 func (s *mysqlSource) Close() error { return s.db.Close() }
 
@@ -334,9 +339,12 @@ func (s *mysqlSource) syncerConfig(ctx context.Context) (replication.BinlogSynce
 		UseDecimal: true, TimestampStringLocation: time.UTC,
 	}
 
-	if tlsRequired(s.cfg.SSLMode) {
-		cfg.TLSConfig = skipVerifyTLS()
+	tc, err := tlsConfigFor(s.cfg)
+	if err != nil {
+		return cfg, err
 	}
+
+	cfg.TLSConfig = tc
 
 	return cfg, nil
 }

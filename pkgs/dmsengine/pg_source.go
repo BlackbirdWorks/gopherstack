@@ -31,17 +31,17 @@ type pgSource struct {
 }
 
 func pgDB(ep EndpointConfig) (*sql.DB, error) {
-	mode := "disable"
-	if tlsRequired(ep.SSLMode) {
-		mode = "require"
-	}
-
-	c, err := pgx.ParseConfig(
-		"sslmode=" + mode + " connect_timeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())),
-	)
+	tc, err := tlsConfigFor(ep)
 	if err != nil {
 		return nil, err
 	}
+
+	c, err := pgx.ParseConfig("sslmode=disable connect_timeout=" + strconv.Itoa(int(DefaultConnectTimeout.Seconds())))
+	if err != nil {
+		return nil, err
+	}
+
+	c.TLSConfig = tc
 
 	c.Host, c.User, c.Password, c.Database = ep.Server, ep.User, ep.Password, ep.Database
 	if ep.Port > 0 && ep.Port <= math.MaxUint16 {
@@ -60,7 +60,9 @@ func openPGSource(_ context.Context, ep EndpointConfig) (*pgSource, error) {
 	return &pgSource{db: db, cfg: ep}, nil
 }
 
-func (s *pgSource) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+func (s *pgSource) Ping(ctx context.Context) error {
+	return explainTLS(s.cfg, s.db.PingContext(ctx))
+}
 
 func (s *pgSource) Close() error { return s.db.Close() }
 

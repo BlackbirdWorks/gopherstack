@@ -114,6 +114,19 @@ func (b *InMemoryBackend) clock() time.Time {
 	return time.Now().UTC()
 }
 
+// endpointConfigLocked is endpointConfig plus the PEM of the endpoint's certificate; the caller holds b.mu.
+func (b *InMemoryBackend) endpointConfigLocked(region string, ep *Endpoint) dmsengine.EndpointConfig {
+	cfg := endpointConfig(ep)
+
+	if ep.CertificateArn != "" {
+		if cert, ok := lookupUnique(b.certificatesByARN, regionKey(region, ep.CertificateArn)); ok {
+			cfg.CertificatePEM = cert.CertificatePem
+		}
+	}
+
+	return cfg
+}
+
 func endpointConfig(ep *Endpoint) dmsengine.EndpointConfig {
 	cfg := dmsengine.EndpointConfig{
 		Engine: ep.EngineName, Server: ep.ServerName, Port: int(ep.Port), Database: ep.DatabaseName,
@@ -173,10 +186,20 @@ func (b *InMemoryBackend) taskEndpoints(region string, rt *ReplicationTask) (*En
 // launchLocked starts the engine goroutine for rt; the caller holds b.mu and has set the status to starting.
 func (b *InMemoryBackend) launchLocked(region string, rt *ReplicationTask, src, tgt *Endpoint, startType string) {
 	p := runParams{
-		taskARN: rt.ReplicationTaskArn, region: region, slot: slotName(rt.ReplicationTaskArn),
-		migration: rt.MigrationType, mappings: rt.TableMappings, settings: rt.ReplicationTaskSettings,
-		cdcStart: rt.CdcStartPosition, cdcStop: rt.CdcStopPosition,
-		source: endpointConfig(src), target: endpointConfig(tgt), sourceEngine: src.EngineName,
+		taskARN:   rt.ReplicationTaskArn,
+		region:    region,
+		slot:      slotName(rt.ReplicationTaskArn),
+		migration: rt.MigrationType,
+		mappings:  rt.TableMappings,
+		settings:  rt.ReplicationTaskSettings,
+		cdcStart:  rt.CdcStartPosition,
+		cdcStop:   rt.CdcStopPosition,
+		source: b.endpointConfigLocked(
+			region,
+			src,
+		),
+		target:       b.endpointConfigLocked(region, tgt),
+		sourceEngine: src.EngineName,
 	}
 	p.source.SlotName = p.slot
 
@@ -371,7 +394,7 @@ func (b *InMemoryBackend) releaseSlotAsync(src *Endpoint, taskARN string) {
 		return
 	}
 
-	cfg := endpointConfig(src)
+	cfg := b.endpointConfigLocked(src.Region, src)
 	cfg.SlotName = slotName(taskARN)
 
 	b.eng.wg.Go(func() {

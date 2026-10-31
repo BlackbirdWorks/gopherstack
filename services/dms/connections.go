@@ -51,7 +51,7 @@ func (b *InMemoryBackend) TestConnection(
 
 	if b.eng != nil && b.eng.opener != nil && dmsengine.SupportedTarget(ep.EngineName) &&
 		(ep.EndpointType != endpointTypeSource || dmsengine.SupportedSource(ep.EngineName)) {
-		probe, opener, source = endpointConfig(ep), b.eng.opener, ep.EndpointType == endpointTypeSource
+		probe, opener, source = b.endpointConfigLocked(region, ep), b.eng.opener, ep.EndpointType == endpointTypeSource
 	}
 	b.mu.Unlock()
 

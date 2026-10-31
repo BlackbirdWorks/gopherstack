@@ -203,7 +203,7 @@ func TestEngineStreamingReplicaContainers(t *testing.T) {
 			}
 
 			if tt.engine == "postgres" {
-				assert.Contains(t, src.Cmd, "wal_level=logical")
+				assert.Contains(t, src.Cmd, "wal_level=replica")
 				assert.Contains(t, src.Cmd, "max_wal_senders=10")
 				require.GreaterOrEqual(t, len(rep.Entrypoint), 5)
 				assert.Contains(t, rep.Entrypoint[2], "pg_basebackup")
@@ -392,4 +392,54 @@ func TestEngineReplicaFallsBackToCopyWithoutNetworks(t *testing.T) {
 	assert.Empty(t, f.rt.spec(1).Network)
 	assert.Empty(t, f.rt.spec(1).Entrypoint)
 	assert.Empty(t, f.instance(t, "rep").StatusInfos)
+}
+
+func TestEnginePostgresWalLevelFollowsParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		param string
+		want  string
+		group bool
+	}{
+		{name: "no group is replica", want: "wal_level=replica"},
+		{name: "group without the parameter is replica", group: true, want: "wal_level=replica"},
+		{name: "logical replication off", group: true, param: "0", want: "wal_level=replica"},
+		{name: "logical replication on", group: true, param: "1", want: "wal_level=logical"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newStreamFixture(t)
+			opts := rds.DBInstanceOptions{MasterUserPassword: "pw"}
+			group := ""
+
+			if tt.group {
+				_, err := f.b.CreateDBParameterGroup("pg-logical", "postgres16", "d")
+				require.NoError(t, err)
+
+				if tt.param != "" {
+					_, err = f.b.ModifyDBParameterGroup("pg-logical", []rds.DBParameter{
+						{
+							ParameterName:  "rds.logical_replication",
+							ParameterValue: tt.param,
+							ApplyMethod:    "pending-reboot",
+						},
+					})
+					require.NoError(t, err)
+				}
+
+				group = "pg-logical"
+			}
+
+			_, err := f.b.CreateDBInstance("src", "postgres", "db.t3.micro", "appdb", "master", group, 20, opts)
+			require.NoError(t, err)
+			f.waitAvailable(t, "src")
+
+			assert.Contains(t, f.rt.spec(0).Cmd, tt.want)
+		})
+	}
 }
