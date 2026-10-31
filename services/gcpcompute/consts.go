@@ -17,3 +17,25 @@ const (
 	dateUbuntu    = "2026-01-08"
 	dateRocky     = "2026-01-12"
 )
+
+const (
+	platCascade    = "Intel Cascade Lake"
+	fieldPriority  = "Priority"
+	provSpot       = "SPOT"
+	keyAll         = "ALL"
+	keyHTTPCookie  = "HTTP_COOKIE"
+	keyHTTPHeader  = "HTTP_HEADER"
+	stratUnspec    = "UNSPECIFIED"
+	kindRoute      = "compute#route"
+	jsonName       = "name"
+	jsonSelfLink   = "selfLink"
+	jsonLabels     = "labels"
+	jsonUpdateStrt = "updateStrategy"
+	jsonKind       = "kind"
+	jsonDesc       = "description"
+	jsonCreated    = "creationTimestamp"
+	jsonFingerp    = "fingerprint"
+	jsonStackType  = "stackType"
+	verbAddResPols = "addResourcePolicies"
+	verbDelResPols = "removeResourcePolicies"
+)

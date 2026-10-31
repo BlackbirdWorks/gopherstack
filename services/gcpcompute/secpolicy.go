@@ -30,16 +30,36 @@ const (
 	redirectRecaptch = "GOOGLE_RECAPTCHA"
 )
 
-var (
+var ( //nolint:gochecknoglobals // read-only lookup tables
 	denyActionRE   = regexp.MustCompile(`^deny\((403|404|502)\)$`)
 	exceedDenyRE   = regexp.MustCompile(`^deny\((403|404|429|502)\)$`)
-	secPolicyTypes = map[string]bool{spTypeArmor: true, spTypeEdge: true, spTypeNetwork: true}          //nolint:gochecknoglobals // lookup
-	jsonParsings   = map[string]bool{"DISABLED": true, "STANDARD": true, "STANDARD_WITH_GRAPHQL": true} //nolint:gochecknoglobals // lookup
-	logLevels      = map[string]bool{"NORMAL": true, "VERBOSE": true}                                   //nolint:gochecknoglobals // lookup
-	enforceKeys    = map[string]bool{                                                                   //nolint:gochecknoglobals // read-only lookup table
-		"ALL": true, "ASN": true, "HTTP_COOKIE": true, "HTTP_HEADER": true, "HTTP_PATH": true, "IP": true,
-		"REGION_CODE": true, "SNI": true, "TLS_JA3_FINGERPRINT": true, "TLS_JA4_FINGERPRINT": true,
-		"USER_IP": true, "XFF_IP": true,
+	secPolicyTypes = map[string]bool{
+		spTypeArmor:   true,
+		spTypeEdge:    true,
+		spTypeNetwork: true,
+	}
+	jsonParsings = map[string]bool{
+		"DISABLED":              true,
+		"STANDARD":              true,
+		"STANDARD_WITH_GRAPHQL": true,
+	}
+	logLevels = map[string]bool{
+		"NORMAL":  true,
+		"VERBOSE": true,
+	}
+	enforceKeys = map[string]bool{
+		keyAll:                true,
+		"ASN":                 true,
+		keyHTTPCookie:         true,
+		keyHTTPHeader:         true,
+		"HTTP_PATH":           true,
+		"IP":                  true,
+		"REGION_CODE":         true,
+		"SNI":                 true,
+		"TLS_JA3_FINGERPRINT": true,
+		"TLS_JA4_FINGERPRINT": true,
+		"USER_IP":             true,
+		"XFF_IP":              true,
 	}
 )
 
@@ -56,7 +76,7 @@ func secPolicySpec() lbSpec[computeapi.SecurityPolicy] {
 		prep: prepSecurityPolicy,
 		view: func(v *computeapi.SecurityPolicy) {
 			for _, r := range v.Rules {
-				r.ForceSendFields = []string{"Priority", "Preview"}
+				r.ForceSendFields = []string{fieldPriority, "Preview"}
 			}
 		},
 	}
@@ -261,11 +281,19 @@ func validRateLimit(action string, o *computeapi.SecurityPolicyRuleRateLimitOpti
 	}
 
 	if o.ExceedAction != actionRedirect && !exceedDenyRE.MatchString(o.ExceedAction) {
-		return errField(field+".exceedAction", o.ExceedAction, "Must be deny(403), deny(404), deny(429), deny(502) or redirect.")
+		return errField(
+			field+".exceedAction",
+			o.ExceedAction,
+			"Must be deny(403), deny(404), deny(429), deny(502) or redirect.",
+		)
 	}
 
 	if (o.ExceedAction == actionRedirect) != (o.ExceedRedirectOptions != nil) {
-		return errField(field+".exceedRedirectOptions", "", "Required with, and only valid for, the redirect exceed action.")
+		return errField(
+			field+".exceedRedirectOptions",
+			"",
+			"Required with, and only valid for, the redirect exceed action.",
+		)
 	}
 
 	if o.ExceedRedirectOptions != nil {
@@ -275,7 +303,11 @@ func validRateLimit(action string, o *computeapi.SecurityPolicyRuleRateLimitOpti
 	}
 
 	if action != actionRateBan && (o.BanDurationSec != 0 || o.BanThreshold != nil) {
-		return errField(field+".banDurationSec", "", "banDurationSec and banThreshold are only valid with rate_based_ban.")
+		return errField(
+			field+".banDurationSec",
+			"",
+			"banDurationSec and banThreshold are only valid with rate_based_ban.",
+		)
 	}
 
 	return validEnforceKey(o, field)
@@ -294,7 +326,7 @@ func validEnforceKey(o *computeapi.SecurityPolicyRuleRateLimitOptions, field str
 		return errField(field+".enforceOnKey", o.EnforceOnKey, "")
 	}
 
-	named := o.EnforceOnKey == "HTTP_HEADER" || o.EnforceOnKey == "HTTP_COOKIE"
+	named := o.EnforceOnKey == keyHTTPHeader || o.EnforceOnKey == keyHTTPCookie
 	if o.EnforceOnKeyName != "" && !named {
 		return errField(field+".enforceOnKeyName", o.EnforceOnKeyName, "Only valid for HTTP_HEADER and HTTP_COOKIE.")
 	}
@@ -326,7 +358,10 @@ func validateRuleMatch(policyType string, r *computeapi.SecurityPolicyRule, fiel
 
 	hasExpr := m.Expr != nil
 	if hasExpr == (m.VersionedExpr != "") {
-		return errInvalid("Invalid value for field '%s.match': exactly one of versionedExpr and expr must be set.", field)
+		return errInvalid(
+			"Invalid value for field '%s.match': exactly one of versionedExpr and expr must be set.",
+			field,
+		)
 	}
 
 	if hasExpr {
@@ -408,7 +443,11 @@ func validateDefaultRule(policyType string, r *computeapi.SecurityPolicyRule, fi
 	m := r.Match
 	if m.VersionedExpr != versionedSrcIPs || m.Config == nil ||
 		!slices.Equal(m.Config.SrcIpRanges, []string{wildcard}) {
-		return errField(field+".match", "", "The default rule (priority 2147483647) must match all source IP ranges (*).")
+		return errField(
+			field+".match",
+			"",
+			"The default rule (priority 2147483647) must match all source IP ranges (*).",
+		)
 	}
 
 	return nil

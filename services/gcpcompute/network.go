@@ -87,7 +87,7 @@ func (b *InMemoryBackend) systemRouteLocked(project string, n *computeapi.Networ
 
 	name := sysRoutePrefix + hex.EncodeToString(buf[:])
 	b.routes[key(project, name)] = &computeapi.Route{
-		Kind: "compute#route", Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
+		Kind: kindRoute, Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
 		Description: "Default route to the Internet.", DestRange: "0.0.0.0/0", Priority: defaultRoutePrio,
 		NextHopGateway: globalLink(project, "gateways", defaultGateway), SelfLink: globalLink(project, "routes", name),
 	}
@@ -272,9 +272,9 @@ func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Opera
 }
 
 var networkPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-	"name": true, "routingConfig": true, "mtu": true, "description": true,
-	"networkFirewallPolicyEnforcementOrder": true, "kind": true, "id": true, "selfLink": true,
-	"creationTimestamp": true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
+	jsonName: true, "routingConfig": true, "mtu": true, jsonDesc: true,
+	"networkFirewallPolicyEnforcementOrder": true, jsonKind: true, "id": true, jsonSelfLink: true,
+	jsonCreated: true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
 	"peerings": true,
 }
 

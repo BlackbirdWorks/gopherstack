@@ -36,7 +36,9 @@ func daily(start string) *computepb.ResourcePolicy {
 		Schedule: &computepb.ResourcePolicySnapshotSchedulePolicySchedule{
 			DailySchedule: &computepb.ResourcePolicyDailyCycle{DaysInCycle: proto.Int32(1), StartTime: s(start)},
 		},
-		RetentionPolicy: &computepb.ResourcePolicySnapshotSchedulePolicyRetentionPolicy{MaxRetentionDays: proto.Int32(7)},
+		RetentionPolicy: &computepb.ResourcePolicySnapshotSchedulePolicyRetentionPolicy{
+			MaxRetentionDays: proto.Int32(7),
+		},
 	}}
 }
 
@@ -59,7 +61,8 @@ func TestResourcePolicyCRUD(t *testing.T) {
 	require.NoError(t, e.resPolicy(t, named(daily("13:00-5"), "snap")))
 	require.NoError(t, e.resPolicy(t, named(instanceSchedule("0 8 * * 1-5"), "sched")))
 
-	p, err := e.resPolicies(t).Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
+	p, err := e.resPolicies(t).
+		Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
 	require.NoError(t, err)
 	assert.Equal(t, "READY", p.GetStatus())
 	assert.Equal(t, "compute#resourcePolicy", p.GetKind())
@@ -81,21 +84,26 @@ func TestResourcePolicyCRUD(t *testing.T) {
 
 	op, err := e.resPolicies(t).Patch(t.Context(), &computepb.PatchResourcePolicyRequest{
 		Project: project, Region: region, ResourcePolicy: "sched",
-		ResourcePolicyResource: &computepb.ResourcePolicy{InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{
-			VmStopSchedule: &computepb.ResourcePolicyInstanceSchedulePolicySchedule{Schedule: s("0 20 * * *")},
-		}},
+		ResourcePolicyResource: &computepb.ResourcePolicy{
+			InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{
+				VmStopSchedule: &computepb.ResourcePolicyInstanceSchedulePolicySchedule{Schedule: s("0 20 * * *")},
+			},
+		},
 	})
 	require.NoError(t, e.finish(t, op, err))
 
-	p, err = e.resPolicies(t).Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "sched"})
+	p, err = e.resPolicies(t).
+		Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "sched"})
 	require.NoError(t, err)
 	assert.Equal(t, "0 20 * * *", p.GetInstanceSchedulePolicy().GetVmStopSchedule().GetSchedule())
 	assert.Equal(t, "0 8 * * 1-5", p.GetInstanceSchedulePolicy().GetVmStartSchedule().GetSchedule())
 
-	op, err = e.resPolicies(t).Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
+	op, err = e.resPolicies(t).
+		Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
 	require.NoError(t, e.finish(t, op, err))
 
-	_, err = e.resPolicies(t).Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
+	_, err = e.resPolicies(t).
+		Get(t.Context(), &computepb.GetResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -105,16 +113,21 @@ func TestResourcePolicyValidation(t *testing.T) {
 	weekly := func(day, start string) *computepb.ResourcePolicy {
 		return &computepb.ResourcePolicy{SnapshotSchedulePolicy: &computepb.ResourcePolicySnapshotSchedulePolicy{
 			Schedule: &computepb.ResourcePolicySnapshotSchedulePolicySchedule{
-				WeeklySchedule: &computepb.ResourcePolicyWeeklyCycle{DayOfWeeks: []*computepb.ResourcePolicyWeeklyCycleDayOfWeek{
-					{Day: s(day), StartTime: s(start)},
-				}},
+				WeeklySchedule: &computepb.ResourcePolicyWeeklyCycle{
+					DayOfWeeks: []*computepb.ResourcePolicyWeeklyCycleDayOfWeek{
+						{Day: s(day), StartTime: s(start)},
+					},
+				},
 			},
 		}}
 	}
 	hourly := func(n int32) *computepb.ResourcePolicy {
 		return &computepb.ResourcePolicy{SnapshotSchedulePolicy: &computepb.ResourcePolicySnapshotSchedulePolicy{
 			Schedule: &computepb.ResourcePolicySnapshotSchedulePolicySchedule{
-				HourlySchedule: &computepb.ResourcePolicyHourlyCycle{HoursInCycle: proto.Int32(n), StartTime: s("04:00")},
+				HourlySchedule: &computepb.ResourcePolicyHourlyCycle{
+					HoursInCycle: new(n),
+					StartTime:    s("04:00"),
+				},
 			},
 		}}
 	}
@@ -135,19 +148,37 @@ func TestResourcePolicyValidation(t *testing.T) {
 			SnapshotSchedulePolicy: daily("00:00").GetSnapshotSchedulePolicy(),
 			InstanceSchedulePolicy: instanceSchedule("0 8 * * *").GetInstanceSchedulePolicy(),
 		}},
-		{name: "snapshot without schedule", pol: &computepb.ResourcePolicy{SnapshotSchedulePolicy: &computepb.ResourcePolicySnapshotSchedulePolicy{}}},
+		{
+			name: "snapshot without schedule",
+			pol:  &computepb.ResourcePolicy{SnapshotSchedulePolicy: &computepb.ResourcePolicySnapshotSchedulePolicy{}},
+		},
 		{name: "bad cron", pol: instanceSchedule("0 8 * *")},
 		{name: "bad cron chars", pol: instanceSchedule("0 8 * * $")},
-		{name: "no schedule", pol: &computepb.ResourcePolicy{InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{}}},
-		{name: "bad time zone", pol: &computepb.ResourcePolicy{InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{
-			VmStopSchedule: &computepb.ResourcePolicyInstanceSchedulePolicySchedule{Schedule: s("0 8 * * *")}, TimeZone: s("Mars/Base"),
-		}}},
-		{name: "placement", valid: true, pol: &computepb.ResourcePolicy{GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{
-			Collocation: s("COLLOCATED"), VmCount: proto.Int32(2),
-		}}},
-		{name: "placement bad collocation", pol: &computepb.ResourcePolicy{GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{
-			Collocation: s("SPREAD"),
-		}}},
+		{
+			name: "no schedule",
+			pol:  &computepb.ResourcePolicy{InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{}},
+		},
+		{
+			name: "bad time zone",
+			pol: &computepb.ResourcePolicy{InstanceSchedulePolicy: &computepb.ResourcePolicyInstanceSchedulePolicy{
+				VmStopSchedule: &computepb.ResourcePolicyInstanceSchedulePolicySchedule{
+					Schedule: s("0 8 * * *"),
+				}, TimeZone: s("Mars/Base"),
+			}},
+		},
+		{
+			name:  "placement",
+			valid: true,
+			pol: &computepb.ResourcePolicy{GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{
+				Collocation: s("COLLOCATED"), VmCount: proto.Int32(2),
+			}},
+		},
+		{
+			name: "placement bad collocation",
+			pol: &computepb.ResourcePolicy{GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{
+				Collocation: s("SPREAD"),
+			}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -200,7 +231,7 @@ func (e *env) changeDisk(t *testing.T, disk string, add bool, refs ...string) er
 	return e.finish(t, op, err)
 }
 
-func (e *env) changeVM(t *testing.T, vm string, add bool, refs ...string) error {
+func (e *env) changeVM(t *testing.T, add bool, refs ...string) error {
 	t.Helper()
 
 	var (
@@ -210,13 +241,17 @@ func (e *env) changeVM(t *testing.T, vm string, add bool, refs ...string) error 
 
 	if add {
 		op, err = e.instances(t).AddResourcePolicies(t.Context(), &computepb.AddResourcePoliciesInstanceRequest{
-			Project: project, Zone: zone, Instance: vm,
-			InstancesAddResourcePoliciesRequestResource: &computepb.InstancesAddResourcePoliciesRequest{ResourcePolicies: refs},
+			Project: project, Zone: zone, Instance: "vm1",
+			InstancesAddResourcePoliciesRequestResource: &computepb.InstancesAddResourcePoliciesRequest{
+				ResourcePolicies: refs,
+			},
 		})
 	} else {
 		op, err = e.instances(t).RemoveResourcePolicies(t.Context(), &computepb.RemoveResourcePoliciesInstanceRequest{
-			Project: project, Zone: zone, Instance: vm,
-			InstancesRemoveResourcePoliciesRequestResource: &computepb.InstancesRemoveResourcePoliciesRequest{ResourcePolicies: refs},
+			Project: project, Zone: zone, Instance: "vm1",
+			InstancesRemoveResourcePoliciesRequestResource: &computepb.InstancesRemoveResourcePoliciesRequest{
+				ResourcePolicies: refs,
+			},
 		})
 	}
 
@@ -250,35 +285,37 @@ func TestResourcePolicyAttachToDisk(t *testing.T) {
 	assertAPIError(t, e.changeDisk(t, "d1", true, rpRef("snap")), http.StatusBadRequest, "invalid")
 	assertAPIError(t, e.changeDisk(t, "d1", true, rpRef("snap2")), http.StatusBadRequest, "invalid")
 
-	_, err := e.resPolicies(t).Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
+	_, err := e.resPolicies(t).
+		Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	require.NoError(t, e.changeDisk(t, "d1", false, rpRef("snap")))
 	assert.Empty(t, getDisk().GetResourcePolicies())
 
-	op, err := e.resPolicies(t).Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
+	op, err := e.resPolicies(t).
+		Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "snap"})
 	require.NoError(t, e.finish(t, op, err))
 
 	t.Run("create time", func(t *testing.T) {
 		t.Parallel()
 
-		op, err := e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{
+		cop, cerr := e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{
 			Project: project, Zone: zone, DiskResource: &computepb.Disk{
 				Name: s("d2"), SizeGb: proto.Int64(10), ResourcePolicies: []string{rpRef("snap2")},
 			},
 		})
-		require.NoError(t, e.finish(t, op, err))
+		require.NoError(t, e.finish(t, cop, cerr))
 
-		d, err := e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "d2"})
-		require.NoError(t, err)
+		d, gerr := e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "d2"})
+		require.NoError(t, gerr)
 		assert.Len(t, d.GetResourcePolicies(), 1)
 
-		_, err = e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{
+		_, ierr := e.disks(t).Insert(t.Context(), &computepb.InsertDiskRequest{
 			Project: project, Zone: zone, DiskResource: &computepb.Disk{
 				Name: s("d3"), SizeGb: proto.Int64(10), ResourcePolicies: []string{rpRef("ghost")},
 			},
 		})
-		assertAPIError(t, err, http.StatusNotFound, "notFound")
+		assertAPIError(t, ierr, http.StatusNotFound, "notFound")
 	})
 }
 
@@ -294,17 +331,18 @@ func TestResourcePolicyAttachToInstance(t *testing.T) {
 		GroupPlacementPolicy: &computepb.ResourcePolicyGroupPlacementPolicy{Collocation: s("COLLOCATED")},
 	}, "place")))
 
-	assertAPIError(t, e.changeVM(t, "vm1", true, rpRef("snap")), http.StatusBadRequest, "invalid")
-	require.NoError(t, e.changeVM(t, "vm1", true, rpRef("sched"), rpRef("place")))
+	assertAPIError(t, e.changeVM(t, true, rpRef("snap")), http.StatusBadRequest, "invalid")
+	require.NoError(t, e.changeVM(t, true, rpRef("sched"), rpRef("place")))
 	assert.Len(t, e.getVM(t, "vm1").GetResourcePolicies(), 2)
 
-	_, err := e.resPolicies(t).Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "sched"})
+	_, err := e.resPolicies(t).
+		Delete(t.Context(), &computepb.DeleteResourcePolicyRequest{Project: project, Region: region, ResourcePolicy: "sched"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
-	assertAPIError(t, e.changeVM(t, "vm1", true, rpRef("sched")), http.StatusBadRequest, "invalid")
+	assertAPIError(t, e.changeVM(t, true, rpRef("sched")), http.StatusBadRequest, "invalid")
 
-	require.NoError(t, e.changeVM(t, "vm1", false, rpRef("sched")))
+	require.NoError(t, e.changeVM(t, false, rpRef("sched")))
 	assert.Len(t, e.getVM(t, "vm1").GetResourcePolicies(), 1)
-	assertAPIError(t, e.changeVM(t, "vm1", false, rpRef("sched")), http.StatusBadRequest, "invalid")
+	assertAPIError(t, e.changeVM(t, false, rpRef("sched")), http.StatusBadRequest, "invalid")
 
 	spec := vmSpec("vm2")
 	spec.ResourcePolicies = []string{rpRef("sched")}

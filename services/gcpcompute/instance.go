@@ -62,7 +62,7 @@ func instRunning(r *instRec, now time.Time, t Timing) bool { return r.status(now
 func cpuPlatformFor(machine string) string {
 	switch {
 	case strings.HasPrefix(machine, "n2-"):
-		return "Intel Cascade Lake"
+		return platCascade
 	case strings.HasPrefix(machine, "n1-"):
 		return "Intel Haswell"
 	}
@@ -221,7 +221,7 @@ func defaultScheduling(in *computeapi.Scheduling) (*computeapi.Scheduling, *APIE
 		*s = *clone(in)
 	}
 
-	spot := s.Preemptible || s.ProvisioningModel == "SPOT"
+	spot := s.Preemptible || s.ProvisioningModel == provSpot
 
 	if spot && s.AutomaticRestart != nil && *s.AutomaticRestart {
 		return nil, errInvalid(
@@ -233,7 +233,7 @@ func defaultScheduling(in *computeapi.Scheduling) (*computeapi.Scheduling, *APIE
 	if s.ProvisioningModel == "" {
 		s.ProvisioningModel = tierStandard
 		if s.Preemptible {
-			s.ProvisioningModel = "SPOT"
+			s.ProvisioningModel = provSpot
 		}
 	}
 

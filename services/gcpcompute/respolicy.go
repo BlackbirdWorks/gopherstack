@@ -17,12 +17,27 @@ const (
 	hoursPerDay    = 24
 )
 
-var (
+var ( //nolint:gochecknoglobals // read-only lookup tables
 	hhmmRE        = regexp.MustCompile(`^(\d{2}):(\d{2})(?:([+-]\d{1,2}))?$`)
 	cronFieldRE   = regexp.MustCompile(`^[0-9A-Za-z*,/\-?]+$`)
-	snapStartHour = map[int]bool{0: true, 4: true, 8: true, 12: true, 16: true, 20: true} //nolint:gochecknoglobals // lookup
-	weekDays      = []string{"MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"}
-	onDiskDelete  = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
+	snapStartHour = map[int]bool{
+		0:  true,
+		4:  true,
+		8:  true,
+		12: true,
+		16: true,
+		20: true,
+	}
+	weekDays = []string{
+		"MONDAY",
+		"TUESDAY",
+		"WEDNESDAY",
+		"THURSDAY",
+		"FRIDAY",
+		"SATURDAY",
+		"SUNDAY",
+	}
+	onDiskDelete = map[string]bool{
 		"APPLY_RETENTION_POLICY": true, keepSnapshots: true, "UNSPECIFIED_ON_SOURCE_DISK_DELETE": true,
 	}
 )

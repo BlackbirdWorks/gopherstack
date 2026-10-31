@@ -9,7 +9,7 @@ import (
 )
 
 var secPolicyPatchDrop = []string{ //nolint:gochecknoglobals // read-only lookup table
-	"rules", "type", "labels", "labelFingerprint", "associations", "id", "kind", "selfLink", "creationTimestamp",
+	"rules", "type", jsonLabels, "labelFingerprint", "associations", "id", jsonKind, jsonSelfLink, jsonCreated,
 	"region", "parent", "shortName",
 }
 
@@ -46,7 +46,7 @@ func maskedBody(raw map[string]any, mask string, drop []string) map[string]any {
 		}
 	}
 
-	for _, path := range strings.Split(mask, ",") {
+	for path := range strings.SplitSeq(mask, ",") {
 		top, _, _ := strings.Cut(strings.TrimSpace(path), ".")
 		if _, set := raw[top]; top != "" && !set && !slices.Contains(drop, top) {
 			out[top] = nil
@@ -82,7 +82,11 @@ func (b *InMemoryBackend) validateSecPolicyEdit(
 		return nil, err
 	}
 
-	return b.newOpLocked(opPrefix+collSecPolicy+".addRule", lbTargetOf(c, collSecPolicy, name, cur.Id), b.timing.Done), nil
+	return b.newOpLocked(
+		opPrefix+collSecPolicy+".addRule",
+		lbTargetOf(c, collSecPolicy, name, cur.Id),
+		b.timing.Done,
+	), nil
 }
 
 func (b *InMemoryBackend) addSecPolicyRule(
@@ -118,64 +122,84 @@ func (b *InMemoryBackend) getSecPolicyRule(c lbCtx, name string, prio int64) (*c
 func (b *InMemoryBackend) patchSecPolicyRule(
 	c lbCtx, name string, prio int64, raw map[string]any, mask string,
 ) (*computeapi.Operation, error) {
-	return b.mutateSecPolicy(c, name, "patchRule", func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
-		i, err := ruleIndex(cur, prio)
-		if err != nil {
-			return nil, err
-		}
+	return b.mutateSecPolicy(
+		c,
+		name,
+		"patchRule",
+		func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
+			i, err := ruleIndex(cur, prio)
+			if err != nil {
+				return nil, err
+			}
 
-		next, merr := mergeInto(cur.Rules[i], maskedBody(raw, mask, []string{"priority", "kind"}))
-		if merr != nil {
-			return nil, merr
-		}
+			next, merr := mergeInto(cur.Rules[i], maskedBody(raw, mask, []string{"priority", jsonKind}))
+			if merr != nil {
+				return nil, merr
+			}
 
-		next.Priority = prio
-		cur.Rules[i] = next
+			next.Priority = prio
+			cur.Rules[i] = next
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) removeSecPolicyRule(c lbCtx, name string, prio int64) (*computeapi.Operation, error) {
-	return b.mutateSecPolicy(c, name, "removeRule", func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
-		i, err := ruleIndex(cur, prio)
-		if err != nil {
-			return nil, err
-		}
+	return b.mutateSecPolicy(
+		c,
+		name,
+		"removeRule",
+		func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
+			i, err := ruleIndex(cur, prio)
+			if err != nil {
+				return nil, err
+			}
 
-		if prio == defaultRulePrio {
-			return nil, errField("priority", strconv.FormatInt(prio, 10), "The default rule cannot be removed.")
-		}
+			if prio == defaultRulePrio {
+				return nil, errField("priority", strconv.FormatInt(prio, 10), "The default rule cannot be removed.")
+			}
 
-		cur.Rules = slices.Delete(cur.Rules, i, i+1)
+			cur.Rules = slices.Delete(cur.Rules, i, i+1)
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (b *InMemoryBackend) patchSecPolicy(
 	c lbCtx, name string, raw map[string]any, mask string,
 ) (*computeapi.Operation, error) {
-	return b.mutateSecPolicy(c, name, "patch", func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
-		if fp, ok := raw["fingerprint"].(string); ok && fp != "" && fp != cur.Fingerprint {
-			return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
-		}
+	return b.mutateSecPolicy(
+		c,
+		name,
+		"patch",
+		func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
+			if fp, ok := raw[jsonFingerp].(string); ok && fp != "" && fp != cur.Fingerprint {
+				return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
+			}
 
-		return mergeInto(cur, maskedBody(raw, mask, append([]string{"fingerprint", "name"}, secPolicyPatchDrop...)))
-	})
+			return mergeInto(cur, maskedBody(raw, mask, append([]string{jsonFingerp, jsonName}, secPolicyPatchDrop...)))
+		},
+	)
 }
 
 func (b *InMemoryBackend) setSecPolicyLabels(c lbCtx, name string, req labelsRequest) (*computeapi.Operation, error) {
-	return b.mutateSecPolicy(c, name, "setLabels", func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
-		labels, fp, err := applyLabels(cur.Labels, cur.LabelFingerprint, req)
-		if err != nil {
-			return nil, err
-		}
+	return b.mutateSecPolicy(
+		c,
+		name,
+		"setLabels",
+		func(cur *computeapi.SecurityPolicy) (*computeapi.SecurityPolicy, *APIError) {
+			labels, fp, err := applyLabels(cur.Labels, cur.LabelFingerprint, req)
+			if err != nil {
+				return nil, err
+			}
 
-		cur.Labels, cur.LabelFingerprint = labels, fp
+			cur.Labels, cur.LabelFingerprint = labels, fp
 
-		return cur, nil
-	})
+			return cur, nil
+		},
+	)
 }
 
 func (h *Handler) registerSecurityOps() {

@@ -1,6 +1,7 @@
 package gcpcompute
 
 import (
+	"net/url"
 	"strconv"
 
 	computeapi "google.golang.org/api/compute/v1"
@@ -197,24 +198,9 @@ func (h *Handler) registerInstanceStateOps() {
 		return opResult(h.Backend.resumeInstance(rq.rt.project, rq.rt.loc, rq.rt.name))
 	})
 	h.reg("instances", z, "serialPort", func(h *Handler, rq *request) (any, error) {
-		port, start := int64(1), int64(0)
-
-		if v := rq.q.Get("port"); v != "" {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return nil, errField("port", v, "")
-			}
-
-			port = n
-		}
-
-		if v := rq.q.Get("start"); v != "" {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return nil, errField("start", v, "")
-			}
-
-			start = n
+		port, start, err := serialArgs(rq.q)
+		if err != nil {
+			return nil, err
 		}
 
 		return h.Backend.serialPortOutput(rq.rt.project, rq.rt.loc, rq.rt.name, port, start)
@@ -222,4 +208,24 @@ func (h *Handler) registerInstanceStateOps() {
 	h.reg("instances", z, "getGuestAttributes", func(h *Handler, rq *request) (any, error) {
 		return h.Backend.guestAttributes(rq.rt.project, rq.rt.loc, rq.rt.name)
 	})
+}
+
+func serialArgs(q url.Values) (int64, int64, *APIError) {
+	port, start := int64(1), int64(0)
+
+	for name, dst := range map[string]*int64{"port": &port, "start": &start} {
+		v := q.Get(name)
+		if v == "" {
+			continue
+		}
+
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0, 0, errField(name, v, "")
+		}
+
+		*dst = n
+	}
+
+	return port, start, nil
 }

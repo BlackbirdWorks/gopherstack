@@ -21,19 +21,19 @@ const (
 
 var (
 	emailRE         = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
-	actionRank      = map[string]int{actNoEffect: 0, actRefresh: 1, actRestart: 2} //nolint:gochecknoglobals // lookup
-	minCPUPlatforms = []string{                                                    //nolint:gochecknoglobals // read-only lookup table
+	actionOrder     = []string{actNoEffect, actRefresh, actRestart} //nolint:gochecknoglobals // lookup
+	minCPUPlatforms = []string{                                     //nolint:gochecknoglobals // read-only lookup table
 		"Automatic", "Intel Sandy Bridge", "Intel Ivy Bridge", "Intel Haswell", "Intel Broadwell", "Intel Skylake",
-		"Intel Cascade Lake", "Intel Ice Lake", "Intel Sapphire Rapids", "AMD Rome", "AMD Milan", "AMD Genoa",
+		platCascade, "Intel Ice Lake", "Intel Sapphire Rapids", "AMD Rome", "AMD Milan", "AMD Genoa",
 	}
 	updateSkip = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		"kind": true, "id": true, "selfLink": true, "selfLinkWithId": true, "creationTimestamp": true, "status": true,
+		jsonKind: true, "id": true, jsonSelfLink: true, "selfLinkWithId": true, jsonCreated: true, "status": true,
 		"statusMessage": true, "cpuPlatform": true, "lastStartTimestamp": true, "lastStopTimestamp": true,
 		"lastSuspendedTimestamp": true, "zone": true, "resourceStatus": true, "satisfiesPzi": true,
-		"satisfiesPzs": true, "startRestricted": true, "fingerprint": true, "labelFingerprint": true,
+		"satisfiesPzs": true, "startRestricted": true, jsonFingerp: true, "labelFingerprint": true,
 	}
 	updateNoEffect = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-		"description": true, "deletionProtection": true, "labels": true, "metadata": true, "tags": true,
+		jsonDesc: true, "deletionProtection": true, jsonLabels: true, "metadata": true, "tags": true,
 	}
 	updateRestart = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 		"canIpForward": true, "shieldedInstanceConfig": true, "displayDevice": true, "minCpuPlatform": true,
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) suspendInstance(project, zone, name string) (*computea
 		return nil, errNotReady(path, "the instance must be RUNNING to be suspended")
 	}
 
-	if s := r.Inst.Scheduling; s != nil && (s.Preemptible || s.ProvisioningModel == "SPOT") {
+	if s := r.Inst.Scheduling; s != nil && (s.Preemptible || s.ProvisioningModel == provSpot) {
 		return nil, errInvalid("Invalid value for field 'resource.scheduling': Spot and preemptible instances " +
 			"cannot be suspended.")
 	}
@@ -334,7 +334,7 @@ func actionOf(raw, field string) (string, *APIError) {
 		return "", nil
 	}
 
-	if _, ok := actionRank[raw]; !ok {
+	if !slices.Contains(actionOrder, raw) {
 		return "", errField(field, raw, "Must be NO_EFFECT, REFRESH or RESTART.")
 	}
 
@@ -369,11 +369,11 @@ func (b *InMemoryBackend) updateInstance(
 		return nil, aerr
 	}
 
-	if actionRank[minimal] > actionRank[need] {
+	if actionRank(minimal) > actionRank(need) {
 		need = minimal
 	}
 
-	if most != "" && actionRank[need] > actionRank[most] {
+	if most != "" && actionRank(need) > actionRank(most) {
 		return nil, errField("mostDisruptiveAllowedAction", most,
 			"The update requires the "+need+" action, which is more disruptive than allowed.")
 	}
@@ -399,7 +399,7 @@ func (b *InMemoryBackend) updateInstance(
 func (b *InMemoryBackend) applyInstanceUpdate(
 	cur, next, in *computeapi.Instance, raw map[string]any,
 ) (string, *APIError) {
-	if fp, ok := raw["fingerprint"].(string); ok && fp != "" && fp != cur.Fingerprint {
+	if fp, ok := raw[jsonFingerp].(string); ok && fp != "" && fp != cur.Fingerprint {
 		return "", errPrecondition("Supplied fingerprint does not match current fingerprint.")
 	}
 
@@ -423,13 +423,13 @@ func (b *InMemoryBackend) applyInstanceUpdate(
 			return "", err
 		}
 
-		if actionRank[act] > actionRank[need] {
+		if actionRank(act) > actionRank(need) {
 			need = act
 		}
 	}
 
 	if lf, ok := raw["labelFingerprint"].(string); ok && lf != "" && lf != cur.LabelFingerprint {
-		if _, labelsGiven := raw["labels"]; labelsGiven {
+		if _, labelsGiven := raw[jsonLabels]; labelsGiven {
 			return "", errPrecondition("%s", labelsStaleDetail)
 		}
 	}
@@ -453,7 +453,7 @@ func (b *InMemoryBackend) updateField(
 	}
 
 	switch k {
-	case "description":
+	case jsonDesc:
 		next.Description = in.Description
 	case "deletionProtection":
 		next.DeletionProtection = in.DeletionProtection
@@ -461,7 +461,18 @@ func (b *InMemoryBackend) updateField(
 		next.CanIpForward = in.CanIpForward
 	case "displayDevice":
 		next.DisplayDevice = in.DisplayDevice
-	case "labels":
+	default:
+		return updateComplexField(k, act, cur, next, in, raw)
+	}
+
+	return act, nil
+}
+
+func updateComplexField(
+	k, act string, cur, next, in *computeapi.Instance, raw map[string]any,
+) (string, *APIError) {
+	switch k {
+	case jsonLabels:
 		return act, applyUpdateLabels(next, in, raw)
 	case "metadata":
 		return act, applyUpdateMetadata(cur, next, in)
@@ -469,11 +480,9 @@ func (b *InMemoryBackend) updateField(
 		return act, applyUpdateTags(cur, next, in)
 	case "scheduling":
 		return applyUpdateScheduling(cur, next, in)
-	default:
-		return act, applyUpdateRestartField(k, next, in)
 	}
 
-	return act, nil
+	return act, applyUpdateRestartField(k, next, in)
 }
 
 func applyUpdateLabels(next, in *computeapi.Instance, raw map[string]any) *APIError {
@@ -580,3 +589,5 @@ func applyUpdateRestartField(k string, next, in *computeapi.Instance) *APIError 
 
 	return nil
 }
+
+func actionRank(a string) int { return slices.Index(actionOrder, a) }

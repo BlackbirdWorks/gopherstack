@@ -12,18 +12,19 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (e *env) runningVM(t *testing.T, name string) {
+func (e *env) runningVM(t *testing.T) {
 	t.Helper()
 	e.baseNet(t)
-	e.vm(t, vmSpec(name))
+	e.vm(t, vmSpec("vm1"))
 }
 
-func (e *env) stopVM(t *testing.T, name string) {
+func (e *env) stopVM(t *testing.T) {
 	t.Helper()
 
-	op, err := e.instances(t).Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: name})
+	op, err := e.instances(t).
+		Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	e.done(t, op, err)
-	require.Equal(t, stTerm, e.getVM(t, name).GetStatus())
+	require.Equal(t, stTerm, e.getVM(t, "vm1").GetStatus())
 }
 
 func (e *env) update(t *testing.T, name string, res *computepb.Instance, minimal, most string) error {
@@ -47,12 +48,13 @@ func TestInstanceSuspendResume(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
+	e.runningVM(t)
 	timing := gcpcomputeTiming()
 
 	assertAPIError(t, e.resumeErr(t, "vm1"), http.StatusBadRequest, "resourceNotReady")
 
-	op, err := e.instances(t).Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	op, err := e.instances(t).
+		Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	require.NoError(t, err)
 	assert.Equal(t, "suspend", op.Proto().GetOperationType())
 	assert.Equal(t, "SUSPENDING", e.getVM(t, "vm1").GetStatus())
@@ -62,9 +64,11 @@ func TestInstanceSuspendResume(t *testing.T) {
 	assert.Equal(t, "SUSPENDED", e.getVM(t, "vm1").GetStatus())
 	assert.NotEmpty(t, e.getVM(t, "vm1").GetLastSuspendedTimestamp())
 
-	_, err = e.instances(t).Start(t.Context(), &computepb.StartInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	_, err = e.instances(t).
+		Start(t.Context(), &computepb.StartInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
-	_, err = e.instances(t).Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	_, err = e.instances(t).
+		Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 
 	require.NoError(t, e.resumeErr(t, "vm1"))
@@ -85,7 +89,8 @@ func TestInstanceSuspendResume(t *testing.T) {
 func (e *env) resumeErr(t *testing.T, name string) error {
 	t.Helper()
 
-	op, err := e.instances(t).Resume(t.Context(), &computepb.ResumeInstanceRequest{Project: project, Zone: zone, Instance: name})
+	op, err := e.instances(t).
+		Resume(t.Context(), &computepb.ResumeInstanceRequest{Project: project, Zone: zone, Instance: name})
 	if err != nil {
 		return err
 	}
@@ -103,7 +108,7 @@ func TestInstanceSuspendPreconditions(t *testing.T) {
 		name string
 		spot bool
 	}{
-		{name: "terminated", prep: func(t *testing.T, e *env) { t.Helper(); e.stopVM(t, "vm1") }},
+		{name: "terminated", prep: func(t *testing.T, e *env) { t.Helper(); e.stopVM(t) }},
 		{name: "spot", spot: true, prep: func(*testing.T, *env) {}},
 	}
 
@@ -116,13 +121,17 @@ func TestInstanceSuspendPreconditions(t *testing.T) {
 
 			spec := vmSpec("vm1")
 			if tt.spot {
-				spec.Scheduling = &computepb.Scheduling{ProvisioningModel: s("SPOT"), InstanceTerminationAction: s("STOP")}
+				spec.Scheduling = &computepb.Scheduling{
+					ProvisioningModel:         s("SPOT"),
+					InstanceTerminationAction: s("STOP"),
+				}
 			}
 
 			e.vm(t, spec)
 			tt.prep(t, e)
 
-			_, err := e.instances(t).Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+			_, err := e.instances(t).
+				Suspend(t.Context(), &computepb.SuspendInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 			assertAPIError(t, err, http.StatusBadRequest, "")
 		})
 	}
@@ -131,9 +140,9 @@ func TestInstanceSuspendPreconditions(t *testing.T) {
 func TestInstanceStoppedOnlyMutations(t *testing.T) {
 	t.Parallel()
 
-	type call func(e *env, t *testing.T) error
+	type call func(t *testing.T, e *env) error
 
-	do := func(e *env, t *testing.T, mk func(c *compute.InstancesClient) (*compute.Operation, error)) error {
+	do := func(t *testing.T, e *env, mk func(c *compute.InstancesClient) (*compute.Operation, error)) error {
 		t.Helper()
 
 		op, err := mk(e.instances(t))
@@ -148,12 +157,16 @@ func TestInstanceStoppedOnlyMutations(t *testing.T) {
 	}{
 		{
 			name: "service account",
-			call: func(e *env, t *testing.T) error {
-				return do(e, t, func(c *compute.InstancesClient) (*compute.Operation, error) {
+			call: func(t *testing.T, e *env) error {
+				t.Helper()
+
+				return do(t, e, func(c *compute.InstancesClient) (*compute.Operation, error) {
 					return c.SetServiceAccount(t.Context(), &computepb.SetServiceAccountInstanceRequest{
 						Project: project, Zone: zone, Instance: "vm1",
 						InstancesSetServiceAccountRequestResource: &computepb.InstancesSetServiceAccountRequest{
-							Email: s("sa@proj.iam.gserviceaccount.com"), Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+							Email: s(
+								"sa@proj.iam.gserviceaccount.com",
+							), Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
 						},
 					})
 				})
@@ -166,11 +179,15 @@ func TestInstanceStoppedOnlyMutations(t *testing.T) {
 		},
 		{
 			name: "min cpu platform",
-			call: func(e *env, t *testing.T) error {
-				return do(e, t, func(c *compute.InstancesClient) (*compute.Operation, error) {
+			call: func(t *testing.T, e *env) error {
+				t.Helper()
+
+				return do(t, e, func(c *compute.InstancesClient) (*compute.Operation, error) {
 					return c.SetMinCpuPlatform(t.Context(), &computepb.SetMinCpuPlatformInstanceRequest{
 						Project: project, Zone: zone, Instance: "vm1",
-						InstancesSetMinCpuPlatformRequestResource: &computepb.InstancesSetMinCpuPlatformRequest{MinCpuPlatform: s("Intel Skylake")},
+						InstancesSetMinCpuPlatformRequestResource: &computepb.InstancesSetMinCpuPlatformRequest{
+							MinCpuPlatform: s("Intel Skylake"),
+						},
 					})
 				})
 			},
@@ -181,18 +198,30 @@ func TestInstanceStoppedOnlyMutations(t *testing.T) {
 		},
 		{
 			name: "shielded config",
-			call: func(e *env, t *testing.T) error {
-				return do(e, t, func(c *compute.InstancesClient) (*compute.Operation, error) {
-					return c.UpdateShieldedInstanceConfig(t.Context(), &computepb.UpdateShieldedInstanceConfigInstanceRequest{
-						Project: project, Zone: zone, Instance: "vm1",
-						ShieldedInstanceConfigResource: &computepb.ShieldedInstanceConfig{EnableSecureBoot: new(true), EnableVtpm: new(true)},
-					})
+			call: func(t *testing.T, e *env) error {
+				t.Helper()
+
+				return do(t, e, func(c *compute.InstancesClient) (*compute.Operation, error) {
+					return c.UpdateShieldedInstanceConfig(
+						t.Context(),
+						&computepb.UpdateShieldedInstanceConfigInstanceRequest{
+							Project: project, Zone: zone, Instance: "vm1",
+							ShieldedInstanceConfigResource: &computepb.ShieldedInstanceConfig{
+								EnableSecureBoot: new(true),
+								EnableVtpm:       new(true),
+							},
+						},
+					)
 				})
 			},
 			verify: func(t *testing.T, i *computepb.Instance) {
 				t.Helper()
 				assert.True(t, i.GetShieldedInstanceConfig().GetEnableSecureBoot())
-				assert.True(t, i.GetShieldedInstanceConfig().GetEnableIntegrityMonitoring(), "PATCH keeps unspecified fields")
+				assert.True(
+					t,
+					i.GetShieldedInstanceConfig().GetEnableIntegrityMonitoring(),
+					"PATCH keeps unspecified fields",
+				)
 			},
 		},
 	}
@@ -202,12 +231,12 @@ func TestInstanceStoppedOnlyMutations(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.runningVM(t, "vm1")
+			e.runningVM(t)
 
-			assertAPIError(t, tt.call(e, t), http.StatusBadRequest, "resourceNotReady")
+			assertAPIError(t, tt.call(t, e), http.StatusBadRequest, "resourceNotReady")
 
-			e.stopVM(t, "vm1")
-			require.NoError(t, tt.call(e, t))
+			e.stopVM(t)
+			require.NoError(t, tt.call(t, e))
 			tt.verify(t, e.getVM(t, "vm1"))
 		})
 	}
@@ -217,20 +246,24 @@ func TestInstanceStoppedOnlyValidation(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
-	e.stopVM(t, "vm1")
+	e.runningVM(t)
+	e.stopVM(t)
 
 	c := e.instances(t)
 
 	_, err := c.SetServiceAccount(t.Context(), &computepb.SetServiceAccountInstanceRequest{
 		Project: project, Zone: zone, Instance: "vm1",
-		InstancesSetServiceAccountRequestResource: &computepb.InstancesSetServiceAccountRequest{Email: s("not-an-email")},
+		InstancesSetServiceAccountRequestResource: &computepb.InstancesSetServiceAccountRequest{
+			Email: s("not-an-email"),
+		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	_, err = c.SetMinCpuPlatform(t.Context(), &computepb.SetMinCpuPlatformInstanceRequest{
 		Project: project, Zone: zone, Instance: "vm1",
-		InstancesSetMinCpuPlatformRequestResource: &computepb.InstancesSetMinCpuPlatformRequest{MinCpuPlatform: s("Quantum 9000")},
+		InstancesSetMinCpuPlatformRequestResource: &computepb.InstancesSetMinCpuPlatformRequest{
+			MinCpuPlatform: s("Quantum 9000"),
+		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
@@ -244,7 +277,7 @@ func TestInstanceStoppedOnlyValidation(t *testing.T) {
 func TestInstanceSetScheduling(t *testing.T) {
 	t.Parallel()
 
-	set := func(e *env, t *testing.T, sc *computepb.Scheduling) error {
+	set := func(t *testing.T, e *env, sc *computepb.Scheduling) error {
 		t.Helper()
 
 		op, err := e.instances(t).SetScheduling(t.Context(), &computepb.SetSchedulingInstanceRequest{
@@ -255,22 +288,35 @@ func TestInstanceSetScheduling(t *testing.T) {
 	}
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
+	e.runningVM(t)
 
 	spot := &computepb.Scheduling{ProvisioningModel: s("SPOT"), InstanceTerminationAction: s("STOP")}
-	assertAPIError(t, set(e, t, spot), http.StatusBadRequest, "resourceNotReady")
-	assertAPIError(t, set(e, t, &computepb.Scheduling{AutomaticRestart: new(false)}), http.StatusBadRequest, "resourceNotReady")
+	assertAPIError(t, set(t, e, spot), http.StatusBadRequest, "resourceNotReady")
+	assertAPIError(
+		t,
+		set(t, e, &computepb.Scheduling{AutomaticRestart: new(false)}),
+		http.StatusBadRequest,
+		"resourceNotReady",
+	)
 
-	e.stopVM(t, "vm1")
-	require.NoError(t, set(e, t, &computepb.Scheduling{AutomaticRestart: new(false), OnHostMaintenance: s("TERMINATE")}))
+	e.stopVM(t)
+	require.NoError(
+		t,
+		set(t, e, &computepb.Scheduling{AutomaticRestart: new(false), OnHostMaintenance: s("TERMINATE")}),
+	)
 
 	sc := e.getVM(t, "vm1").GetScheduling()
 	assert.False(t, sc.GetAutomaticRestart())
 	assert.Equal(t, "TERMINATE", sc.GetOnHostMaintenance())
 
-	require.NoError(t, set(e, t, spot))
+	require.NoError(t, set(t, e, spot))
 	assert.Equal(t, "SPOT", e.getVM(t, "vm1").GetScheduling().GetProvisioningModel())
-	assertAPIError(t, set(e, t, &computepb.Scheduling{ProvisioningModel: s("SPOT"), AutomaticRestart: new(true)}), http.StatusBadRequest, "invalid")
+	assertAPIError(
+		t,
+		set(t, e, &computepb.Scheduling{ProvisioningModel: s("SPOT"), AutomaticRestart: new(true)}),
+		http.StatusBadRequest,
+		"invalid",
+	)
 }
 
 func TestInstanceUpdate(t *testing.T) {
@@ -283,9 +329,9 @@ func TestInstanceUpdate(t *testing.T) {
 		minimal  string
 		most     string
 		status   string
-		stopped  bool
-		errCode  int
 		errToken string
+		errCode  int
+		stopped  bool
 	}{
 		{
 			name: "description no effect", res: &computepb.Instance{Description: s("new")}, status: stRunning,
@@ -299,9 +345,24 @@ func TestInstanceUpdate(t *testing.T) {
 			name: "can ip forward restarts", res: &computepb.Instance{CanIpForward: new(true)}, status: "PROVISIONING",
 			verify: func(t *testing.T, i *computepb.Instance) { t.Helper(); assert.True(t, i.GetCanIpForward()) },
 		},
-		{name: "minimal restart on description", res: &computepb.Instance{Description: s("d")}, minimal: "RESTART", status: "PROVISIONING"},
-		{name: "minimal refresh keeps running", res: &computepb.Instance{Description: s("d")}, minimal: "REFRESH", status: stRunning},
-		{name: "most disruptive allows", res: &computepb.Instance{CanIpForward: new(true)}, most: "RESTART", status: "PROVISIONING"},
+		{
+			name:    "minimal restart on description",
+			res:     &computepb.Instance{Description: s("d")},
+			minimal: "RESTART",
+			status:  "PROVISIONING",
+		},
+		{
+			name:    "minimal refresh keeps running",
+			res:     &computepb.Instance{Description: s("d")},
+			minimal: "REFRESH",
+			status:  stRunning,
+		},
+		{
+			name:   "most disruptive allows",
+			res:    &computepb.Instance{CanIpForward: new(true)},
+			most:   "RESTART",
+			status: "PROVISIONING",
+		},
 		{
 			name: "most disruptive too low", res: &computepb.Instance{CanIpForward: new(true)}, most: "NO_EFFECT",
 			status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
@@ -310,18 +371,42 @@ func TestInstanceUpdate(t *testing.T) {
 			name: "minimal above most", res: &computepb.Instance{Description: s("d")}, minimal: "RESTART", most: "REFRESH",
 			status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
 		},
-		{name: "bad minimal", res: &computepb.Instance{}, minimal: "REBOOT", status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid"},
-		{name: "bad most", res: &computepb.Instance{}, most: "REBOOT", status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid"},
 		{
-			name: "immutable machine type", res: &computepb.Instance{MachineType: s("zones/" + zone + "/machineTypes/e2-standard-4")},
+			name:     "bad minimal",
+			res:      &computepb.Instance{},
+			minimal:  "REBOOT",
+			status:   stRunning,
+			errCode:  http.StatusBadRequest,
+			errToken: "invalid",
+		},
+		{
+			name:     "bad most",
+			res:      &computepb.Instance{},
+			most:     "REBOOT",
+			status:   stRunning,
+			errCode:  http.StatusBadRequest,
+			errToken: "invalid",
+		},
+		{
+			name:   "immutable machine type",
+			res:    &computepb.Instance{MachineType: s("zones/" + zone + "/machineTypes/e2-standard-4")},
 			status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
 		},
 		{
-			name: "same machine type is fine", res: &computepb.Instance{MachineType: s(e2Medium), Description: s("x")}, status: stRunning,
+			name:   "same machine type is fine",
+			res:    &computepb.Instance{MachineType: s(e2Medium), Description: s("x")},
+			status: stRunning,
 		},
-		{name: "stale fingerprint", res: &computepb.Instance{Fingerprint: s("stale")}, status: stRunning, errCode: http.StatusPreconditionFailed, errToken: "conditionNotMet"},
 		{
-			name: "stale label fingerprint", res: &computepb.Instance{Labels: map[string]string{"a": "b"}, LabelFingerprint: s("stale")},
+			name:     "stale fingerprint",
+			res:      &computepb.Instance{Fingerprint: s("stale")},
+			status:   stRunning,
+			errCode:  http.StatusPreconditionFailed,
+			errToken: "conditionNotMet",
+		},
+		{
+			name:   "stale label fingerprint",
+			res:    &computepb.Instance{Labels: map[string]string{"a": "b"}, LabelFingerprint: s("stale")},
 			status: stRunning, errCode: http.StatusPreconditionFailed, errToken: "conditionNotMet",
 		},
 		{
@@ -332,8 +417,11 @@ func TestInstanceUpdate(t *testing.T) {
 			},
 		},
 		{
-			name: "restart change while stopped does not start", res: &computepb.Instance{CanIpForward: new(true)}, stopped: true, status: stTerm,
-			verify: func(t *testing.T, i *computepb.Instance) { t.Helper(); assert.True(t, i.GetCanIpForward()) },
+			name:    "restart change while stopped does not start",
+			res:     &computepb.Instance{CanIpForward: new(true)},
+			stopped: true,
+			status:  stTerm,
+			verify:  func(t *testing.T, i *computepb.Instance) { t.Helper(); assert.True(t, i.GetCanIpForward()) },
 		},
 		{
 			name: "bad platform", res: &computepb.Instance{MinCpuPlatform: s("Nope")}, status: stRunning,
@@ -341,7 +429,9 @@ func TestInstanceUpdate(t *testing.T) {
 		},
 		{
 			name: "scheduling restart", status: "PROVISIONING",
-			res: &computepb.Instance{Scheduling: &computepb.Scheduling{ProvisioningModel: s("SPOT"), InstanceTerminationAction: s("STOP")}},
+			res: &computepb.Instance{
+				Scheduling: &computepb.Scheduling{ProvisioningModel: s("SPOT"), InstanceTerminationAction: s("STOP")},
+			},
 		},
 	}
 
@@ -350,10 +440,10 @@ func TestInstanceUpdate(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			e.runningVM(t, "vm1")
+			e.runningVM(t)
 
 			if tt.stopped {
-				e.stopVM(t, "vm1")
+				e.stopVM(t)
 			}
 
 			before := e.getVM(t, "vm1")
@@ -381,7 +471,7 @@ func TestInstanceUpdateRestartCompletes(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
+	e.runningVM(t)
 	require.NoError(t, e.update(t, "vm1", &computepb.Instance{CanIpForward: new(true)}, "", ""))
 	assert.Equal(t, "PROVISIONING", e.getVM(t, "vm1").GetStatus())
 
@@ -395,13 +485,16 @@ func TestInstanceIntegrityPolicy(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
+	e.runningVM(t)
 
 	set := func() error {
-		op, err := e.instances(t).SetShieldedInstanceIntegrityPolicy(t.Context(), &computepb.SetShieldedInstanceIntegrityPolicyInstanceRequest{
-			Project: project, Zone: zone, Instance: "vm1",
-			ShieldedInstanceIntegrityPolicyResource: &computepb.ShieldedInstanceIntegrityPolicy{UpdateAutoLearnPolicy: new(true)},
-		})
+		op, err := e.instances(t).
+			SetShieldedInstanceIntegrityPolicy(t.Context(), &computepb.SetShieldedInstanceIntegrityPolicyInstanceRequest{
+				Project: project, Zone: zone, Instance: "vm1",
+				ShieldedInstanceIntegrityPolicyResource: &computepb.ShieldedInstanceIntegrityPolicy{
+					UpdateAutoLearnPolicy: new(true),
+				},
+			})
 
 		return e.finish(t, op, err)
 	}
@@ -409,7 +502,7 @@ func TestInstanceIntegrityPolicy(t *testing.T) {
 	require.NoError(t, set())
 	assert.True(t, e.getVM(t, "vm1").GetShieldedInstanceIntegrityPolicy().GetUpdateAutoLearnPolicy())
 
-	e.stopVM(t, "vm1")
+	e.stopVM(t)
 	assertAPIError(t, set(), http.StatusBadRequest, "resourceNotReady")
 }
 
@@ -417,7 +510,7 @@ func TestInstanceSerialPortAndGuestAttributes(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	e.runningVM(t, "vm1")
+	e.runningVM(t)
 
 	tests := []struct {
 		port    *int32

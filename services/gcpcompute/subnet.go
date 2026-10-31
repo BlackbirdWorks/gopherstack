@@ -307,10 +307,10 @@ func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(
 }
 
 var subnetPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-	"name": true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
-	"enableFlowLogs": true, "logConfig": true, "description": true, "fingerprint": true, "region": true,
-	"kind": true, "id": true, "selfLink": true, "creationTimestamp": true, "gatewayAddress": true, "purpose": true,
-	"stackType": true, "privateIpv6GoogleAccess": true,
+	jsonName: true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
+	"enableFlowLogs": true, "logConfig": true, jsonDesc: true, "fingerprint": true, "region": true,
+	jsonKind: true, "id": true, jsonSelfLink: true, jsonCreated: true, "gatewayAddress": true, "purpose": true,
+	jsonStackType: true, "privateIpv6GoogleAccess": true,
 }
 
 func (b *InMemoryBackend) patchSubnet(

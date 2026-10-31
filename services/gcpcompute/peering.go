@@ -222,7 +222,7 @@ func validPeeringEnums(p *computeapi.NetworkPeering) *APIError {
 	}
 
 	switch p.UpdateStrategy {
-	case "", "UNSPECIFIED", stratIndep:
+	case "", stratUnspec, stratIndep:
 	case "CONSENSUS":
 		return errField("networkPeering.updateStrategy", p.UpdateStrategy,
 			"CONSENSUS peerings are not supported by this emulator.")
@@ -302,7 +302,7 @@ func (b *InMemoryBackend) removePeering(project, name, peering string) (*compute
 
 var peeringImmutable = []string{ //nolint:gochecknoglobals // read-only lookup table
 	"exchangeSubnetRoutes", "autoCreateRoutes", "exportSubnetRoutesWithPublicIp",
-	"importSubnetRoutesWithPublicIp", "stackType", "updateStrategy",
+	"importSubnetRoutesWithPublicIp", jsonStackType, jsonUpdateStrt,
 }
 
 func (b *InMemoryBackend) updatePeering(
@@ -335,12 +335,16 @@ func (b *InMemoryBackend) updatePeering(
 		"exchangeSubnetRoutes": cur.ExchangeSubnetRoutes, "autoCreateRoutes": cur.AutoCreateRoutes,
 		"exportSubnetRoutesWithPublicIp": cur.ExportSubnetRoutesWithPublicIp,
 		"importSubnetRoutesWithPublicIp": cur.ImportSubnetRoutesWithPublicIp,
-		"stackType":                      cur.StackType, "updateStrategy": cur.UpdateStrategy,
+		jsonStackType:                    cur.StackType, jsonUpdateStrt: cur.UpdateStrategy,
 	}
 
 	for _, k := range peeringImmutable {
-		if v, ok := nested[k]; ok && v != want[k] && !(k == "updateStrategy" && v == "UNSPECIFIED") {
-			return nil, errField("networkPeering."+k, "", "Only exportCustomRoutes and importCustomRoutes can be updated.")
+		if v, ok := nested[k]; ok && v != want[k] && (k != jsonUpdateStrt || v != stratUnspec) {
+			return nil, errField(
+				"networkPeering."+k,
+				"",
+				"Only exportCustomRoutes and importCustomRoutes can be updated.",
+			)
 		}
 	}
 
@@ -355,7 +359,7 @@ func (b *InMemoryBackend) updatePeering(
 	return b.newOpLocked("updatePeering", netTarget(project, n), b.timing.Done), nil
 }
 
-// customRoutesLocked returns the static routes a peering can carry: everything except system and internet-gateway routes.
+// customRoutesLocked returns the static routes a peering can carry, without system and gateway routes.
 func (b *InMemoryBackend) customRoutesLocked(n *computeapi.Network) []*computeapi.Route {
 	var out []*computeapi.Route
 
@@ -376,7 +380,7 @@ func (b *InMemoryBackend) exportedRoutesLocked(
 	var out []*computeapi.ExchangedPeeringRoute
 
 	if exp.ExchangeSubnetRoutes {
-		ranges := make([]string, 0)
+		ranges := make([]string, 0, len(b.subnets))
 
 		for p := range b.networkRangesWithOwnerLocked(from) {
 			ranges = append(ranges, p.String())
@@ -385,7 +389,10 @@ func (b *InMemoryBackend) exportedRoutesLocked(
 		sort.Strings(ranges)
 
 		for _, cidr := range ranges {
-			out = append(out, &computeapi.ExchangedPeeringRoute{DestRange: cidr, Type: peerRouteSub, Imported: subnetImported})
+			out = append(
+				out,
+				&computeapi.ExchangedPeeringRoute{DestRange: cidr, Type: peerRouteSub, Imported: subnetImported},
+			)
 		}
 	}
 

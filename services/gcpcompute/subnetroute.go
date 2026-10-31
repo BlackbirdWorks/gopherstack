@@ -59,7 +59,7 @@ func (b *InMemoryBackend) syncSubnetRoutesLocked(project string, n *computeapi.N
 		}
 
 		b.routes[key(project, name)] = &computeapi.Route{
-			Kind: "compute#route", Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
+			Kind: kindRoute, Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
 			Description: subnetRouteDesc(cidr), DestRange: cidr, NextHopNetwork: n.SelfLink,
 			SelfLink: globalLink(project, "routes", name), RouteType: routeTypeSubnet, RouteStatus: routeActive,
 		}
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) syncNetworkRoutesBySelfLinkLocked(project, network str
 
 func viewRoute(r *computeapi.Route) *computeapi.Route {
 	out := clone(r)
-	out.ForceSendFields = []string{"Priority"}
+	out.ForceSendFields = []string{fieldPriority}
 
 	return out
 }

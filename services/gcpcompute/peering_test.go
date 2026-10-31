@@ -120,8 +120,8 @@ func TestPeeringAddErrors(t *testing.T) {
 		net    string
 		pname  string
 		peer   string
-		status int
 		reason string
+		status int
 	}{
 		{name: "overlap", net: "a", pname: "p", peer: "c", status: http.StatusBadRequest, reason: "invalid"},
 		{name: "self", net: "a", pname: "p", peer: "a", status: http.StatusBadRequest, reason: "invalid"},
@@ -167,10 +167,11 @@ func TestPeeringRouteExchange(t *testing.T) {
 	e.peerNet(t, "a", "10.1.0.0/24")
 	e.peerNet(t, "b", "10.2.0.0/24")
 
-	op, err := e.routes(t).Insert(t.Context(), &computepb.InsertRouteRequest{Project: project, RouteResource: &computepb.Route{
-		Name: s("b-custom"), Network: s(netRef("b")), DestRange: s("192.168.50.0/24"), NextHopIp: s("10.2.0.5"),
-		Priority: new(uint32(500)),
-	}})
+	op, err := e.routes(t).
+		Insert(t.Context(), &computepb.InsertRouteRequest{Project: project, RouteResource: &computepb.Route{
+			Name: s("b-custom"), Network: s(netRef("b")), DestRange: s("192.168.50.0/24"), NextHopIp: s("10.2.0.5"),
+			Priority: new(uint32(500)),
+		}})
 	e.done(t, op, err)
 
 	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", nil))
@@ -192,13 +193,17 @@ func TestPeeringRouteExchange(t *testing.T) {
 	update := func(net, peering string, export, imp *bool) {
 		t.Helper()
 
-		op, uerr := e.networks(t).UpdatePeering(t.Context(), &computepb.UpdatePeeringNetworkRequest{
+		upOp, uerr := e.networks(t).UpdatePeering(t.Context(), &computepb.UpdatePeeringNetworkRequest{
 			Project: project, Network: net,
 			NetworksUpdatePeeringRequestResource: &computepb.NetworksUpdatePeeringRequest{
-				NetworkPeering: &computepb.NetworkPeering{Name: s(peering), ExportCustomRoutes: export, ImportCustomRoutes: imp},
+				NetworkPeering: &computepb.NetworkPeering{
+					Name:               s(peering),
+					ExportCustomRoutes: export,
+					ImportCustomRoutes: imp,
+				},
 			},
 		})
-		require.NoError(t, e.finish(t, op, uerr))
+		require.NoError(t, e.finish(t, upOp, uerr))
 	}
 
 	update("b", "b-to-a", new(true), nil)
@@ -229,8 +234,8 @@ func TestPeeringUpdateAndRemoveErrors(t *testing.T) {
 	require.NoError(t, e.addPeering(t, "a", "a-to-b", "b", nil))
 
 	updates := []struct {
-		name string
 		p    *computepb.NetworkPeering
+		name string
 	}{
 		{name: "stack type", p: &computepb.NetworkPeering{Name: s("a-to-b"), StackType: s("IPV4_IPV6")}},
 		{name: "exchange routes", p: &computepb.NetworkPeering{Name: s("a-to-b"), ExchangeSubnetRoutes: new(false)}},

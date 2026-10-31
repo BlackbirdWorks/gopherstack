@@ -6,9 +6,16 @@ import (
 	computeapi "google.golang.org/api/compute/v1"
 )
 
-var (
-	diskPolicyKinds     = []string{"snapshotSchedulePolicy", "diskConsistencyGroupPolicy"}             //nolint:gochecknoglobals // lookup
-	instancePolicyKinds = []string{"instanceSchedulePolicy", "groupPlacementPolicy", "workloadPolicy"} //nolint:gochecknoglobals // lookup
+var ( //nolint:gochecknoglobals // read-only lookup tables
+	diskPolicyKinds = []string{
+		"snapshotSchedulePolicy",
+		"diskConsistencyGroupPolicy",
+	}
+	instancePolicyKinds = []string{
+		"instanceSchedulePolicy",
+		"groupPlacementPolicy",
+		"workloadPolicy",
+	}
 )
 
 type resPoliciesRequest struct {
@@ -68,7 +75,13 @@ func (b *InMemoryBackend) addResPoliciesLocked(
 		}
 	}
 
-	return b.resolveResPoliciesLocked(project, region, append(slices.Clone(have), merged...), "resourcePolicies", allowed)
+	return b.resolveResPoliciesLocked(
+		project,
+		region,
+		append(slices.Clone(have), merged...),
+		"resourcePolicies",
+		allowed,
+	)
 }
 
 func (b *InMemoryBackend) removeResPoliciesLocked(project, region string, have, drop []string) ([]string, *APIError) {
@@ -112,7 +125,7 @@ func (b *InMemoryBackend) changeDiskPolicies(
 		err  *APIError
 	)
 
-	if verb == "addResourcePolicies" {
+	if verb == verbAddResPols {
 		next, err = b.addResPoliciesLocked(project, regionOfZone(zone), d.ResourcePolicies, refs, diskPolicyKinds)
 	} else {
 		next, err = b.removeResPoliciesLocked(project, regionOfZone(zone), d.ResourcePolicies, refs)
@@ -143,8 +156,14 @@ func (b *InMemoryBackend) changeInstancePolicies(
 		err  *APIError
 	)
 
-	if verb == "addResourcePolicies" {
-		next, err = b.addResPoliciesLocked(project, regionOfZone(zone), r.Inst.ResourcePolicies, refs, instancePolicyKinds)
+	if verb == verbAddResPols {
+		next, err = b.addResPoliciesLocked(
+			project,
+			regionOfZone(zone),
+			r.Inst.ResourcePolicies,
+			refs,
+			instancePolicyKinds,
+		)
 	} else {
 		next, err = b.removeResPoliciesLocked(project, regionOfZone(zone), r.Inst.ResourcePolicies, refs)
 	}
@@ -181,24 +200,32 @@ func (h *Handler) registerResourcePolicyOps() {
 	registerLB(h, resPolicySpec(), lbOpts[computeapi.ResourcePolicy]{
 		scopes: []string{r}, agg: regionScopes(), patch: true,
 		del: func(b *InMemoryBackend, c lbCtx, name string) (*computeapi.Operation, error) {
-			return lbDelete(b, resPolicySpec(), c, name, func(b *InMemoryBackend, v *computeapi.ResourcePolicy) *APIError {
-				if by := b.resPolicyUserLocked(v.SelfLink); by != "" {
-					return errInUse("resource_policy", trimURL(v.SelfLink), by)
-				}
+			return lbDelete(
+				b,
+				resPolicySpec(),
+				c,
+				name,
+				func(b *InMemoryBackend, v *computeapi.ResourcePolicy) *APIError {
+					if by := b.resPolicyUserLocked(v.SelfLink); by != "" {
+						return errInUse("resource_policy", trimURL(v.SelfLink), by)
+					}
 
-				return nil
-			})
+					return nil
+				},
+			)
 		},
 	})
 
-	for _, verb := range []string{"addResourcePolicies", "removeResourcePolicies"} {
+	for _, verb := range []string{verbAddResPols, verbDelResPols} {
 		h.reg("disks", scopeZone, verb, func(h *Handler, rq *request) (any, error) {
 			in, _, err := decode[resPoliciesRequest](rq)
 			if err != nil {
 				return nil, err
 			}
 
-			return opResult(h.Backend.changeDiskPolicies(rq.rt.project, rq.rt.loc, rq.rt.name, verb, in.ResourcePolicies))
+			return opResult(
+				h.Backend.changeDiskPolicies(rq.rt.project, rq.rt.loc, rq.rt.name, verb, in.ResourcePolicies),
+			)
 		})
 		h.reg("instances", scopeZone, verb, func(h *Handler, rq *request) (any, error) {
 			in, _, err := decode[resPoliciesRequest](rq)
@@ -206,7 +233,9 @@ func (h *Handler) registerResourcePolicyOps() {
 				return nil, err
 			}
 
-			return opResult(h.Backend.changeInstancePolicies(rq.rt.project, rq.rt.loc, rq.rt.name, verb, in.ResourcePolicies))
+			return opResult(
+				h.Backend.changeInstancePolicies(rq.rt.project, rq.rt.loc, rq.rt.name, verb, in.ResourcePolicies),
+			)
 		})
 	}
 }

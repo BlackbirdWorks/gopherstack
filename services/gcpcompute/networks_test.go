@@ -58,8 +58,8 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 	routes := e.routes(t).List(t.Context(), &computepb.ListRoutesRequest{Project: project})
 	dests := map[string]string{}
 
-	for r, err := routes.Next(); !errors.Is(err, iterator.Done); r, err = routes.Next() {
-		require.NoError(t, err)
+	for r, rerr := routes.Next(); !errors.Is(rerr, iterator.Done); r, rerr = routes.Next() {
+		require.NoError(t, rerr)
 		assert.Contains(t, r.GetName(), "default-route-")
 		dests[r.GetDestRange()] = r.GetRouteType()
 	}

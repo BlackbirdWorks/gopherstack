@@ -127,7 +127,7 @@ func (b *InMemoryBackend) insertRoute(project string, in *computeapi.Route) (*co
 	}
 
 	r := &computeapi.Route{
-		Kind: "compute#route", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
+		Kind: kindRoute, Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
 		Network: n.SelfLink, DestRange: in.DestRange, Priority: in.Priority, Tags: in.Tags,
 		SelfLink: globalLink(project, "routes", in.Name), RouteType: "STATIC",
 	}
