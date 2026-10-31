@@ -317,6 +317,15 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers Artifacts", () => {
+    expect(availableOciServices(["OCIArtifacts"]).map((s) => s.id)).toEqual(["artifacts"]);
+    expect(ociServiceById("artifacts")).toMatchObject({
+      portLabel: "ociartifacts",
+      defaultPort: 8166,
+      healthName: "OCIArtifacts",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",

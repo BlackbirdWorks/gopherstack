@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { ociServiceById } from '#lib/cloud.ts';
 	import APIGatewayDashboard from '#lib/components/oci/APIGatewayDashboard.svelte';
+	import ArtifactsDashboard from '#lib/components/oci/ArtifactsDashboard.svelte';
 	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
 	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
@@ -62,6 +63,8 @@
 	<EventsDashboard />
 {:else if service?.id === 'loadbalancer'}
 	<LoadBalancerDashboard />
+{:else if service?.id === 'artifacts'}
+	<ArtifactsDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

@@ -162,6 +162,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "networkmanager",
   "oci",
   "oci-apigateway",
+  "oci-artifacts",
   "oci-containerengine",
   "oci-core",
   "oci-events",

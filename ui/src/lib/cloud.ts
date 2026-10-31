@@ -568,6 +568,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ociloadbalancer",
     defaultPort: 8165,
   },
+  {
+    id: "artifacts",
+    label: "Artifacts",
+    description: "Oracle Cloud container registry repositories, images and generic artifacts",
+    healthName: "OCIArtifacts",
+    portLabel: "ociartifacts",
+    defaultPort: 8166,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {

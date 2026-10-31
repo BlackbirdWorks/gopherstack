@@ -75,6 +75,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocievents"
@@ -466,6 +467,10 @@ func linkOCIObservabilityExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetOCILoadBalancerHandler() service.Registerable }); ok {
 		conf.OCILoadBalancerOps, _ = getHandler[*ociloadbalancer.Handler](p.GetOCILoadBalancerHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIArtifactsHandler() service.Registerable }); ok {
+		conf.OCIArtifactsOps, _ = getHandler[*ociartifacts.Handler](p.GetOCIArtifactsHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIEventsHandler() service.Registerable }); ok {
