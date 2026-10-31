@@ -91,6 +91,7 @@ func gcpPorts() map[string]string {
 		"container":        "8144",
 		"identitytoolkit":  "8145",
 		"apigateway":       "8146",
+		"batch":            "8147",
 		"bigquery":         "9050",
 	}
 }
