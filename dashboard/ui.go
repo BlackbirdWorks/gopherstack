@@ -99,6 +99,7 @@ import (
 	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
@@ -608,6 +609,8 @@ type Config struct {
 	GCPIdentityToolkitOps *gcpidtkbackend.Handler
 	// GCPAPIGatewayOps is called in-process by the /dashboard/api/v1/gcp/apigateway proxy.
 	GCPAPIGatewayOps *gcpapigatewaybackend.Handler
+	// GCPResourceManagerOps is called in-process by the /dashboard/api/v1/gcp/resourcemanager proxy.
+	GCPResourceManagerOps *gcprmbackend.Handler
 	// GCPBatchOps is called in-process by the /dashboard/api/v1/gcp/batch proxy.
 	GCPBatchOps *gcpbatchbackend.Handler
 	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.

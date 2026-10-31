@@ -44,6 +44,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"github.com/blackbirdworks/gopherstack/services/gcpbatch"
+	"github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
@@ -427,6 +428,10 @@ func linkContainerQueueExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetGCPAPIGatewayHandler() service.Registerable }); ok {
 		conf.GCPAPIGatewayOps, _ = getHandler[*gcpapigateway.Handler](p.GetGCPAPIGatewayHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPResourceManagerHandler() service.Registerable }); ok {
+		conf.GCPResourceManagerOps, _ = getHandler[*gcpresourcemanager.Handler](p.GetGCPResourceManagerHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetGCPBatchHandler() service.Registerable }); ok {
