@@ -199,9 +199,11 @@ func verifyBodyContentMD5(r *http.Request) error {
 	return nil
 }
 
+const copyBufSize = 32 * 1024
+
 var copyBufPool = sync.Pool{ //nolint:gochecknoglobals // sync.Pool requires package-level allocation
 	New: func() any {
-		b := make([]byte, 32*1024)
+		b := make([]byte, copyBufSize)
 
 		return &b
 	},
