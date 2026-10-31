@@ -34,6 +34,8 @@ const (
 	shutdownReasonTimeout  = "timeout"
 	shutdownReasonFailure  = "failure"
 
+	jsonKeyEventType = "eventType"
+
 	maxExtensions                   = 10
 	extensionEventBuffer            = 8
 	defaultExtensionShutdownTimeout = 2 * time.Second
@@ -82,11 +84,11 @@ type extensionRegistry struct {
 	waits           map[string]*invokeWait
 	ready           chan struct{}
 	closing         chan struct{}
-	closeOnce       sync.Once
 	meta            extensionMeta
 	expected        int
 	shutdownTimeout time.Duration
 	initTimeout     time.Duration
+	closeOnce       sync.Once
 	initDone        bool
 	shutdownSent    bool
 	initFailed      bool
@@ -279,7 +281,7 @@ func (r *extensionRegistry) fanoutInvoke(reqID string, deadline time.Time, fnARN
 	defer r.mu.Unlock()
 
 	body := map[string]any{
-		"eventType":          extEventInvoke,
+		jsonKeyEventType:     extEventInvoke,
 		"deadlineMs":         deadline.UnixMilli(),
 		"requestId":          reqID,
 		"invokedFunctionArn": fnARN,
@@ -430,7 +432,7 @@ func (r *extensionRegistry) shutdown(ctx context.Context, reason string) {
 	r.shutdownSent = true
 	deadline := time.Now().Add(r.shutdownTimeout)
 	raw, _ := json.Marshal(map[string]any{
-		"eventType": extEventShutdown, "shutdownReason": reason, "deadlineMs": deadline.UnixMilli(),
+		jsonKeyEventType: extEventShutdown, "shutdownReason": reason, "deadlineMs": deadline.UnixMilli(),
 	})
 
 	var taken []chan struct{}
@@ -464,13 +466,6 @@ func (r *extensionRegistry) shutdown(ctx context.Context, reason string) {
 			return
 		}
 	}
-}
-
-func (r *extensionRegistry) hasExtensions() bool {
-	r.mu.RLock("hasExtensions")
-	defer r.mu.RUnlock()
-
-	return len(r.exts) > 0
 }
 
 // handleExtensionRegister serves POST /2020-01-01/extension/register.

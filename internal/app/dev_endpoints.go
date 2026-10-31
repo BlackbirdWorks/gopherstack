@@ -176,7 +176,7 @@ func registerLocalstackDevEndpoints(e *echo.Echo, services []service.Registerabl
 func serveLambdaRuntimes(c *echo.Context) error {
 	runtimes, err := lambdabackend.RuntimeIdentifiers(c.QueryParam("filter"))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
 	}
 
 	return c.JSON(http.StatusOK, map[string][]string{"Runtimes": runtimes})

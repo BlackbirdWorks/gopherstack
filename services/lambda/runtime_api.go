@@ -51,18 +51,16 @@ type invocationResult struct {
 // runtimeServer is a per-function Lambda Runtime API server.
 // Containers call /next to receive invocations and /response or /error to return results.
 type runtimeServer struct {
-	srv     *http.Server
-	queue   chan *pendingInvocation
-	done    chan struct{}
-	pending sync.Map
-	// traceActive makes /next carry a Lambda-Runtime-Trace-Id (Active tracing).
-	traceActive atomic.Bool
-	exts        *extensionRegistry
-	// shutdownReason is the SHUTDOWN reason extensions receive; empty means spindown.
+	srv            *http.Server
+	queue          chan *pendingInvocation
+	done           chan struct{}
+	exts           *extensionRegistry
 	shutdownReason atomic.Pointer[string]
-	stopOnce       sync.Once
 	closing        chan struct{}
+	pending        sync.Map
 	port           int
+	stopOnce       sync.Once
+	traceActive    atomic.Bool
 }
 
 // runtimeQueueSize is the buffered depth of the invocation queue per function.

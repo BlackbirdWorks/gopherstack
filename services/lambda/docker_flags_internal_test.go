@@ -1,6 +1,7 @@
 package lambda
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,7 +46,9 @@ func TestSplitDockerFlags(t *testing.T) {
 }
 
 func TestParseDockerFlags(t *testing.T) {
-	t.Setenv("LAMBDA_FLAGS_INHERIT", "from-host")
+	t.Parallel()
+
+	pathValue := os.Getenv("PATH")
 
 	tests := []struct {
 		name     string
@@ -54,17 +57,29 @@ func TestParseDockerFlags(t *testing.T) {
 		warnings int
 	}{
 		{name: "empty"},
-		{name: "env_forms", in: "-e A=1 --env B=2 --env=C=3 -eD=4", want: dockerFlags{Env: []string{"A=1", "B=2", "C=3", "D=4"}}},
-		{name: "env_inherit", in: "-e LAMBDA_FLAGS_INHERIT", want: dockerFlags{Env: []string{"LAMBDA_FLAGS_INHERIT=from-host"}}},
+		{
+			name: "env_forms",
+			in:   "-e A=1 --env B=2 --env=C=3 -eD=4",
+			want: dockerFlags{Env: []string{"A=1", "B=2", "C=3", "D=4"}},
+		},
+		{name: "env_inherit", in: "-e PATH", want: dockerFlags{Env: []string{"PATH=" + pathValue}}},
 		{name: "env_inherit_unset", in: "-e LAMBDA_FLAGS_SURELY_UNSET"},
 		{name: "env_reserved", in: "-e AWS_LAMBDA_RUNTIME_API=evil:1", warnings: 1},
-		{name: "volume", in: "-v /host/data:/data:ro --volume=named:/n", want: dockerFlags{Mounts: []string{"/host/data:/data:ro", "named:/n"}}},
+		{
+			name: "volume",
+			in:   "-v /host/data:/data:ro --volume=named:/n",
+			want: dockerFlags{Mounts: []string{"/host/data:/data:ro", "named:/n"}},
+		},
 		{name: "volume_reserved_target", in: "-v /x:/var/task -v /y:/opt", warnings: 2},
 		{name: "volume_docker_sock", in: "-v /var/run/docker.sock:/s.sock", warnings: 1},
 		{name: "volume_relative", in: "-v ./rel:/data", warnings: 1},
 		{name: "volume_propagation", in: "-v /a:/b:rshared", warnings: 1},
 		{name: "volume_bad_shape", in: "-v /only", warnings: 1},
-		{name: "add_host", in: "--add-host db.local:10.0.0.5", want: dockerFlags{ExtraHosts: []string{"db.local:10.0.0.5"}}},
+		{
+			name: "add_host",
+			in:   "--add-host db.local:10.0.0.5",
+			want: dockerFlags{ExtraHosts: []string{"db.local:10.0.0.5"}},
+		},
 		{name: "add_host_bad", in: "--add-host nocolon", warnings: 1},
 		{name: "dns", in: "--dns 8.8.8.8 --dns=1.1.1.1", want: dockerFlags{DNS: []string{"8.8.8.8", "1.1.1.1"}}},
 		{name: "dns_bad", in: "--dns not-an-ip", warnings: 1},
@@ -78,7 +93,12 @@ func TestParseDockerFlags(t *testing.T) {
 		{name: "platform", in: "--platform linux/arm64", want: dockerFlags{Platform: "linux/arm64"}},
 		{name: "platform_bad", in: "--platform nonsense", warnings: 1},
 		{name: "privileged", in: "--privileged", warnings: 1},
-		{name: "dangerous_set", in: "--pid=host --ipc host --cap-add SYS_ADMIN --device /dev/sda --user root --security-opt seccomp=unconfined", warnings: 6},
+		{
+			name: "dangerous_set",
+			in: "--pid=host --ipc host --cap-add SYS_ADMIN --device /dev/sda " +
+				"--user root --security-opt seccomp=unconfined",
+			warnings: 6,
+		},
 		{name: "mixed", in: "--privileged -e KEEP=1", want: dockerFlags{Env: []string{"KEEP=1"}}, warnings: 1},
 		{name: "missing_value", in: "-e", warnings: 1},
 		{name: "stray_arg", in: "bash -c id", warnings: 2},
@@ -87,6 +107,8 @@ func TestParseDockerFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, warnings := parseDockerFlags(tt.in)
 			assert.Equal(t, tt.want, got)
 			assert.Len(t, warnings, tt.warnings, "%v", warnings)

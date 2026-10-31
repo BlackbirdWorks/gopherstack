@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
@@ -26,7 +27,6 @@ const (
 
 var errInvalidDockerFlags = errors.New("invalid LAMBDA_DOCKER_FLAGS")
 
-//nolint:gochecknoglobals // static validation pattern
 var platformPattern = regexp.MustCompile(`^[a-z0-9]+/[a-z0-9_]+(/[a-z0-9]+)?$`)
 
 //nolint:gochecknoglobals // static allow-list of bind-mount options
@@ -57,68 +57,88 @@ type dockerFlags struct {
 	NanoCPUs    int64
 }
 
+// flagSplitter accumulates shell-style words without performing any expansion.
+type flagSplitter struct {
+	cur     strings.Builder
+	tokens  []string
+	quote   rune
+	inToken bool
+	escaped bool
+}
+
+func (f *flagSplitter) flush() {
+	if f.inToken {
+		f.tokens = append(f.tokens, f.cur.String())
+		f.cur.Reset()
+
+		f.inToken = false
+	}
+}
+
+func (f *flagSplitter) feed(r rune) {
+	switch {
+	case f.escaped:
+		f.cur.WriteRune(r)
+
+		f.escaped = false
+	case r == '\\' && f.quote != '\'':
+		f.escaped, f.inToken = true, true
+	case f.quote != 0:
+		if r == f.quote {
+			f.quote = 0
+		} else {
+			f.cur.WriteRune(r)
+		}
+	case r == '\'' || r == '"':
+		f.quote, f.inToken = r, true
+	case unicode.IsSpace(r):
+		f.flush()
+	default:
+		f.cur.WriteRune(r)
+
+		f.inToken = true
+	}
+}
+
 // splitDockerFlags tokenises s like a shell would split words (quotes and
 // backslash escapes) without performing any expansion or evaluation.
 func splitDockerFlags(s string) ([]string, error) {
-	var (
-		tokens  []string
-		cur     strings.Builder
-		inToken bool
-		quote   rune
-		escaped bool
-	)
+	var f flagSplitter
 
 	for _, r := range s {
-		switch {
-		case escaped:
-			cur.WriteRune(r)
-
-			escaped = false
-		case r == '\\' && quote != '\'':
-			escaped, inToken = true, true
-		case quote != 0:
-			if r == quote {
-				quote = 0
-			} else {
-				cur.WriteRune(r)
-			}
-		case r == '\'' || r == '"':
-			quote, inToken = r, true
-		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
-			if inToken {
-				tokens = append(tokens, cur.String())
-				cur.Reset()
-
-				inToken = false
-			}
-		default:
-			cur.WriteRune(r)
-
-			inToken = true
-		}
+		f.feed(r)
 	}
 
-	if quote != 0 || escaped {
+	if f.quote != 0 || f.escaped {
 		return nil, fmt.Errorf("%w: unterminated quote or escape", errInvalidDockerFlags)
 	}
 
-	if inToken {
-		tokens = append(tokens, cur.String())
-	}
+	f.flush()
 
-	return tokens, nil
+	return f.tokens, nil
 }
+
+const (
+	flagEnv      = "env"
+	flagVolume   = "volume"
+	flagAddHost  = "add-host"
+	flagDNS      = "dns"
+	flagNetwork  = "network"
+	flagMemory   = "memory"
+	flagCPUs     = "cpus"
+	flagPlatform = "platform"
+)
 
 // flagAliases maps each supported spelling to its canonical long name.
 //
 //nolint:gochecknoglobals // static alias table
 var flagAliases = map[string]string{
-	"-e": "env", "--env": "env",
-	"-v": "volume", "--volume": "volume",
-	"--add-host": "add-host", "--dns": "dns",
-	"--network": "network", "--net": "network",
-	"-m": "memory", "--memory": "memory",
-	"--cpus": "cpus", "--platform": "platform",
+	"-e": flagEnv, "--env": flagEnv,
+	"-v": flagVolume, "--volume": flagVolume,
+	"--add-host": flagAddHost, "--dns": flagDNS,
+	"--network": flagNetwork, "--net": flagNetwork,
+	"-m": flagMemory, "--memory": flagMemory,
+	"--cpus": flagCPUs, "--platform": flagPlatform,
 }
 
 // parseDockerFlags parses s into the allow-listed options. Anything outside the
@@ -195,50 +215,86 @@ func cutFlag(tok string) (string, string, bool, bool) {
 
 func (f *dockerFlags) set(canon, value string) string {
 	switch canon {
-	case "env":
+	case flagEnv:
 		return f.addEnv(value)
-	case "volume":
+	case flagVolume:
 		return f.addVolume(value)
-	case "add-host":
-		host, ip, ok := strings.Cut(value, ":")
-		if !ok || host == "" || ip == "" {
-			return "want host:ip"
-		}
-
-		f.ExtraHosts = append(f.ExtraHosts, value)
-	case "dns":
-		if _, err := netip.ParseAddr(value); err != nil {
-			return "not an IP address"
-		}
-
-		f.DNS = append(f.DNS, value)
-	case "network":
-		if value == "" || value == "host" || strings.HasPrefix(value, "container:") {
-			return "network mode not permitted"
-		}
-
-		f.Network = value
-	case "memory":
-		n, ok := parseMemoryBytes(value)
-		if !ok {
-			return "invalid memory size"
-		}
-
-		f.MemoryBytes = n
-	case "cpus":
-		c, err := strconv.ParseFloat(value, 64)
-		if err != nil || c <= 0 || math.IsNaN(c) || math.IsInf(c, 0) {
-			return "invalid cpu count"
-		}
-
-		f.NanoCPUs = int64(c * nanoCPUsPerCPU)
-	case "platform":
-		if !platformPattern.MatchString(value) {
-			return "want os/arch"
-		}
-
-		f.Platform = value
+	case flagAddHost:
+		return f.addHost(value)
+	case flagDNS:
+		return f.addDNS(value)
+	case flagNetwork:
+		return f.setNetwork(value)
+	case flagMemory:
+		return f.setMemory(value)
+	case flagCPUs:
+		return f.setCPUs(value)
+	case flagPlatform:
+		return f.setPlatform(value)
 	}
+
+	return ""
+}
+
+func (f *dockerFlags) addHost(value string) string {
+	host, ip, ok := strings.Cut(value, ":")
+	if !ok || host == "" || ip == "" {
+		return "want host:ip"
+	}
+
+	f.ExtraHosts = append(f.ExtraHosts, value)
+
+	return ""
+}
+
+func (f *dockerFlags) addDNS(value string) string {
+	if _, err := netip.ParseAddr(value); err != nil {
+		return "not an IP address"
+	}
+
+	f.DNS = append(f.DNS, value)
+
+	return ""
+}
+
+func (f *dockerFlags) setNetwork(value string) string {
+	if value == "" || value == "host" || strings.HasPrefix(value, "container:") {
+		return "network mode not permitted"
+	}
+
+	f.Network = value
+
+	return ""
+}
+
+func (f *dockerFlags) setMemory(value string) string {
+	n, ok := parseMemoryBytes(value)
+	if !ok {
+		return "invalid memory size"
+	}
+
+	f.MemoryBytes = n
+
+	return ""
+}
+
+func (f *dockerFlags) setCPUs(value string) string {
+	c, err := strconv.ParseFloat(value, 64)
+	if err != nil || c <= 0 || math.IsNaN(c) || math.IsInf(c, 0) {
+		return "invalid cpu count"
+	}
+
+	f.NanoCPUs = int64(c * nanoCPUsPerCPU)
+
+	return ""
+}
+
+func (f *dockerFlags) setPlatform(value string) string {
+	if !platformPattern.MatchString(value) {
+		return "want os/arch"
+	}
+
+	f.Platform = value
 
 	return ""
 }
@@ -326,7 +382,7 @@ func parseMemoryBytes(s string) (int64, bool) {
 }
 
 // apply overlays the flags on spec; user env is appended last so it wins.
-func (f dockerFlags) apply(spec *container.Spec) {
+func (f *dockerFlags) apply(spec *container.Spec) {
 	spec.Env = append(spec.Env, f.Env...)
 	spec.Mounts = append(spec.Mounts, f.Mounts...)
 	spec.ExtraHosts = append(spec.ExtraHosts, f.ExtraHosts...)

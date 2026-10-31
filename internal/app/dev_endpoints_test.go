@@ -374,8 +374,20 @@ func TestLambdaRuntimesEndpoint(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "default", query: "", has: "python3.12", hasNot: "python3.7", wantStatus: http.StatusOK},
-		{name: "supported", query: "?filter=supported", has: "nodejs22.x", hasNot: "nodejs12.x", wantStatus: http.StatusOK},
-		{name: "deprecated", query: "?filter=deprecated", has: "nodejs12.x", hasNot: "python3.12", wantStatus: http.StatusOK},
+		{
+			name:       "supported",
+			query:      "?filter=supported",
+			has:        "nodejs22.x",
+			hasNot:     "nodejs12.x",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "deprecated",
+			query:      "?filter=deprecated",
+			has:        "nodejs12.x",
+			hasNot:     "python3.12",
+			wantStatus: http.StatusOK,
+		},
 		{name: "all", query: "?filter=all", has: "python3.7", wantStatus: http.StatusOK},
 		{name: "invalid", query: "?filter=nope", wantStatus: http.StatusBadRequest},
 	}
@@ -384,7 +396,12 @@ func TestLambdaRuntimesEndpoint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/_aws/lambda/runtimes"+tt.query, nil)
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				srv.URL+"/_aws/lambda/runtimes"+tt.query,
+				nil,
+			)
 			require.NoError(t, err)
 
 			resp, err := testclient.New(t).Do(req)

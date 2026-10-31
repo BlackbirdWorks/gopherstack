@@ -65,7 +65,12 @@ func (h *extHarness) doRaw(
 	return resp.StatusCode, resp.Header, string(raw), err
 }
 
-func (h *extHarness) do(t *testing.T, method, path string, hdr map[string]string, body string) (int, http.Header, string) {
+func (h *extHarness) do(
+	t *testing.T,
+	method, path string,
+	hdr map[string]string,
+	body string,
+) (int, http.Header, string) {
 	t.Helper()
 
 	status, respHdr, raw, err := h.doRaw(t.Context(), method, path, hdr, body)
@@ -105,27 +110,38 @@ func TestExtensionRegister(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		prepare    func(*testing.T, *extHarness)
 		name       string
 		extName    string
 		body       string
 		feature    string
 		wantType   string
 		wantStatus int
-		prepare    func(*extHarness, *testing.T)
 	}{
 		{name: "ok", extName: "e1", body: `{"events":["INVOKE","SHUTDOWN"]}`, wantStatus: 200},
 		{name: "no_body", extName: "e1", wantStatus: 200},
 		{name: "account_id", extName: "e1", feature: "accountId", wantStatus: 200},
 		{name: "missing_name", body: `{}`, wantStatus: 400, wantType: "Extension.InvalidExtensionName"},
-		{name: "bad_event", extName: "e1", body: `{"events":["FOO"]}`, wantStatus: 400, wantType: "Extension.InvalidEventType"},
+		{
+			name:       "bad_event",
+			extName:    "e1",
+			body:       `{"events":["FOO"]}`,
+			wantStatus: 400,
+			wantType:   "Extension.InvalidEventType",
+		},
 		{name: "bad_json", extName: "e1", body: `{`, wantStatus: 400, wantType: "Extension.InvalidRequestBody"},
 		{
 			name: "duplicate", extName: "dup", wantStatus: 403, wantType: "Extension.AlreadyRegistered",
-			prepare: func(h *extHarness, t *testing.T) { h.register(t, "dup") },
+			prepare: func(t *testing.T, h *extHarness) {
+				t.Helper()
+				h.register(t, "dup")
+			},
 		},
 		{
 			name: "too_many", extName: "eleven", wantStatus: 403, wantType: "Extension.TooManyExtensions",
-			prepare: func(h *extHarness, t *testing.T) {
+			prepare: func(t *testing.T, h *extHarness) {
+				t.Helper()
+
 				for i := range maxExtensions {
 					h.register(t, "e"+string(rune('a'+i)))
 				}
@@ -133,7 +149,7 @@ func TestExtensionRegister(t *testing.T) {
 		},
 		{
 			name: "after_init", extName: "late", wantStatus: 403, wantType: "Extension.RegistrationClosed",
-			prepare: func(h *extHarness, _ *testing.T) { h.srv.exts.awaitInit(context.Background()) },
+			prepare: func(_ *testing.T, h *extHarness) { h.srv.exts.awaitInit(context.Background()) },
 		},
 	}
 
@@ -143,7 +159,7 @@ func TestExtensionRegister(t *testing.T) {
 
 			h := newExtHarness(t)
 			if tt.prepare != nil {
-				tt.prepare(h, t)
+				tt.prepare(t, h)
 			}
 
 			hdr := map[string]string{}
@@ -336,15 +352,35 @@ func TestExtensionErrorsAndAuth(t *testing.T) {
 		name       string
 		path       string
 		method     string
-		withID     bool
 		errType    string
 		wantStatus int
+		withID     bool
 	}{
 		{name: "next_unknown_id", path: "event/next", method: http.MethodGet, wantStatus: 403},
-		{name: "init_error_unknown_id", path: "init/error", method: http.MethodPost, errType: "Extension.X", wantStatus: 403},
+		{
+			name:       "init_error_unknown_id",
+			path:       "init/error",
+			method:     http.MethodPost,
+			errType:    "Extension.X",
+			wantStatus: 403,
+		},
 		{name: "init_error_missing_type", path: "init/error", method: http.MethodPost, withID: true, wantStatus: 400},
-		{name: "init_error_ok", path: "init/error", method: http.MethodPost, withID: true, errType: "Extension.X", wantStatus: 202},
-		{name: "exit_error_ok", path: "exit/error", method: http.MethodPost, withID: true, errType: "Extension.X", wantStatus: 202},
+		{
+			name:       "init_error_ok",
+			path:       "init/error",
+			method:     http.MethodPost,
+			withID:     true,
+			errType:    "Extension.X",
+			wantStatus: 202,
+		},
+		{
+			name:       "exit_error_ok",
+			path:       "exit/error",
+			method:     http.MethodPost,
+			withID:     true,
+			errType:    "Extension.X",
+			wantStatus: 202,
+		},
 		{name: "exit_error_missing_type", path: "exit/error", method: http.MethodPost, withID: true, wantStatus: 400},
 	}
 
@@ -432,7 +468,11 @@ func TestExtensionInitErrorFailsInvocationAndOpensGate(t *testing.T) {
 	// Wait for the runtime to pick the invocation up.
 	require.Eventually(t, func() bool {
 		n := 0
-		h.srv.pending.Range(func(_, _ any) bool { n++; return true })
+		h.srv.pending.Range(func(_, _ any) bool {
+			n++
+
+			return true
+		})
 
 		return n == 1
 	}, 5*time.Second, time.Millisecond)

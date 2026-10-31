@@ -137,15 +137,18 @@ func (r *realDockerClient) ContainerCreate(
 	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, p, containerName)
 }
 
+// platformOSArch is the number of mandatory "os/arch" platform segments.
+const platformOSArch = 2
+
 // parsePlatform turns "os/arch[/variant]" into an OCI platform; nil when empty or malformed.
 func parsePlatform(s string) *ocispec.Platform {
 	parts := strings.Split(s, "/")
-	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) < platformOSArch || parts[0] == "" || parts[1] == "" {
 		return nil
 	}
 
 	p := &ocispec.Platform{OS: parts[0], Architecture: parts[1]}
-	if len(parts) > 2 {
+	if len(parts) > platformOSArch {
 		p.Variant = parts[2]
 	}
 

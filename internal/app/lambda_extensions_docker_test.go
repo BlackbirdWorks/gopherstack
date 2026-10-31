@@ -32,6 +32,8 @@ import (
 	"strings"
 )
 
+var cl = new(http.Client)
+
 func logLine(s string) {
 	f, err := os.OpenFile("/ext-out/external.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -46,7 +48,7 @@ func main() {
 	req, _ := http.NewRequest(http.MethodPost, "http://"+api+"/2020-01-01/extension/register",
 		strings.NewReader(` + "`" + `{"events":["INVOKE","SHUTDOWN"]}` + "`" + `))
 	req.Header.Set("Lambda-Extension-Name", filepath.Base(os.Args[0]))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := cl.Do(req)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -57,7 +59,7 @@ func main() {
 	for {
 		nreq, _ := http.NewRequest(http.MethodGet, "http://"+api+"/2020-01-01/extension/event/next", nil)
 		nreq.Header.Set("Lambda-Extension-Identifier", id)
-		nresp, err := http.DefaultClient.Do(nreq)
+		nresp, err := cl.Do(nreq)
 		if err != nil {
 			os.Exit(1)
 		}
@@ -175,8 +177,8 @@ func TestLambdaExtensionsAndDockerFlagsDocker(t *testing.T) {
 		FunctionName: "ext-fn",
 		PackageType:  lambdabackend.PackageTypeZip,
 		Runtime:      "python3.12",
-		Handler:      "index.handler",
-		ZipData:      zipOf(t, "index.py", extensionHandler),
+		Handler:      "ext_handler.handler",
+		ZipData:      zipOf(t, "ext_handler.py", extensionHandler),
 		Timeout:      60,
 		Layers:       []*lambdabackend.FunctionLayer{{Arn: layer.LayerVersionArn}},
 	}))
@@ -187,7 +189,12 @@ func TestLambdaExtensionsAndDockerFlagsDocker(t *testing.T) {
 	var firstReq string
 
 	for range 2 {
-		out, status, invokeErr := bk.InvokeFunction(ctx, "ext-fn", lambdabackend.InvocationTypeRequestResponse, []byte(`{}`))
+		out, status, invokeErr := bk.InvokeFunction(
+			ctx,
+			"ext-fn",
+			lambdabackend.InvocationTypeRequestResponse,
+			[]byte(`{}`),
+		)
 		require.NoError(t, invokeErr)
 		require.Equal(t, 200, status)
 		assert.Contains(t, string(out), `"flag": "visible"`, "LAMBDA_DOCKER_FLAGS -e reached the container")
