@@ -173,3 +173,26 @@ func (b *InMemoryBackend) ListSecretBundleVersions(id string, o ListOpts) (page.
 
 	return page.Page[bundleVersionSummaryWire]{Data: out, Next: pg.Next}, nil
 }
+
+// SecretContent returns the decoded content of the current version of a secret.
+func (b *InMemoryBackend) SecretContent(id string) (string, error) {
+	b.mu.RLock("SecretContent")
+	defer b.mu.RUnlock()
+
+	s, aerr := b.secretByID(id)
+	if aerr != nil {
+		return "", aerr
+	}
+
+	w, err := b.bundleOf(s, BundleSelector{Stage: "CURRENT"})
+	if err != nil {
+		return "", err
+	}
+
+	raw, derr := base64.StdEncoding.DecodeString(w.Content.Content)
+	if derr != nil {
+		return "", derr
+	}
+
+	return string(raw), nil
+}

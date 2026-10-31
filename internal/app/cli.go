@@ -244,6 +244,7 @@ import (
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ociartifacts "github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -657,6 +658,7 @@ type CLI struct {
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
 	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-oke-"`
+	OCIContainerInstances         ocicontainerinstances.Settings    `embed:""`
 	OCIMySQL                      ocimysqlbackend.Settings          `embed:"" prefix:"oci-mysql-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
@@ -2772,6 +2774,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIEvents", "ocievents", cli.OCIEvents.Port},
 		{"OCILoadBalancer", "ociloadbalancer", cli.OCILoadBalancer.Port},
 		{"OCIArtifacts", "ociartifacts", cli.OCIArtifacts.Port},
+		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
 	}
 }
 
@@ -3786,6 +3789,7 @@ func wireCrossServiceDependencies(
 	wireOCIEvents(byName)
 	wireOCILoadBalancer(byName)
 	wireOCIArtifacts(byName)
+	wireOCIContainerInstances(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5288,6 +5292,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocievents.Provider{},
 		&ociloadbalancer.Provider{},
 		&ociartifacts.Provider{},
+		&ocicontainerinstances.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
