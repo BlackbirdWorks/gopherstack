@@ -22,7 +22,7 @@ func TestTimestreamQueryHandler_Query(t *testing.T) {
 	}{
 		{
 			name:        "success",
-			body:        map[string]any{"QueryString": "SELECT * FROM my_table"},
+			body:        map[string]any{"QueryString": "SELECT * FROM mydb.my_table"},
 			wantCode:    http.StatusOK,
 			wantQueryID: true,
 		},
