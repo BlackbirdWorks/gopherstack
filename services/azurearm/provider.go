@@ -98,6 +98,37 @@ func checkKeyVaultPort(cfg any, settings Settings) error {
 	return nil
 }
 
+// ErrGraphPortMismatch is returned when Settings.GraphPort (what ARM advertises as the Graph endpoint) disagrees with
+// the Microsoft Graph listener's own port.
+var ErrGraphPortMismatch = errors.New("azurearm: --azure-arm-graph-port must match --azure-graph-port")
+
+// GraphPortProvider is a private interface AppContext.Config may implement to expose the Graph listener's port.
+type GraphPortProvider interface {
+	GetAzureGraphPort() int
+}
+
+func checkGraphPort(cfg any, settings Settings) error {
+	if settings.AdvertiseGraph != "" {
+		return nil
+	}
+
+	gp, ok := cfg.(GraphPortProvider)
+	if !ok {
+		return nil
+	}
+
+	if actual := gp.GetAzureGraphPort(); actual != 0 && actual != settings.GraphPort {
+		return fmt.Errorf(
+			"%w: azure-arm-graph-port=%d, azure-graph-port=%d",
+			ErrGraphPortMismatch,
+			settings.GraphPort,
+			actual,
+		)
+	}
+
+	return nil
+}
+
 // Provider implements service.Provider for the ARM emulation.
 //
 // Like services/azureblob/azurequeue/azuretable/cosmosdb/azureservicebus,
@@ -152,6 +183,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	if err := checkKeyVaultPort(ctx.Config, settings); err != nil {
+		return nil, err
+	}
+
+	if err := checkGraphPort(ctx.Config, settings); err != nil {
 		return nil, err
 	}
 

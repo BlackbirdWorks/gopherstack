@@ -10,7 +10,7 @@ export const AZURE_ACCOUNT_KEY =
 
 export const AZURE_PORTS = {
   blob: 10000, queue: 10001, table: 10002, servicebus: 10003, keyvault: 10004,
-  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
+  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, graph: 10014, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
 
 export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155, queue: 8156, notifications: 8157, containerengine: 8158, mysql: 8159, logging: 8160, monitoring: 8161, nosql: 8162, apigateway: 8163, events: 8164, loadbalancer: 8165, artifacts: 8166 };

@@ -30,6 +30,7 @@ AZURE_PORTS = {
     "appconfig": 10008,
     "file": 10009,
     "monitor": 10013,
+    "graph": 10014,
     "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,

@@ -51,6 +51,15 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 	}
 
 	clientID := form.Get("client_id")
+	if user, _, ok := r.BasicAuth(); ok && clientID == "" {
+		clientID = user
+	}
+
+	oid, authErr := h.authenticateClient(r, clientID, form)
+	if authErr != nil {
+		return h.writeClientAuthError(c, authErr)
+	}
+
 	if clientID == "" {
 		clientID = h.Settings.ClientID
 	}
@@ -62,7 +71,7 @@ func (h *Handler) handleToken(c *echo.Context, tenant string) error {
 
 	baseURL := h.baseURLFor(r)
 
-	resp, err := IssueToken(h.Issuer, baseURL, tenant, clientID, scope)
+	resp, err := IssueTokenForObject(h.Issuer, baseURL, tenant, clientID, oid, scope)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}

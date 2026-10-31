@@ -244,7 +244,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 
 	neverMatch := []string{
 		"AzureAppConfig", "AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
-		"AzureFile", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
+		"AzureFile", "AzureGraph", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",

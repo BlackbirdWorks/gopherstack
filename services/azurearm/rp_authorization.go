@@ -153,19 +153,21 @@ type storedPolicyAssign struct {
 // management locks and policy definitions, set definitions and assignments. Requests are served from the scope-aware
 // routes in rp_authorization_routes.go; the generic ResourceProvider methods exist for the provider registry only.
 type AuthorizationProvider struct {
-	mu            *lockmetrics.RWMutex
-	roleDefs      map[string]*storedRoleDef
-	roleAssigns   map[string]*storedRoleAssign
-	locks         map[string]*storedLock
-	policyDefs    map[string]*storedPolicy
-	policySets    map[string]*storedPolicy
-	policyAssigns map[string]*storedPolicyAssign
-	builtinRoles  map[string]*builtinRole
-	builtinPols   map[string]*builtinPolicy
-	builtinSets   map[string]*builtinPolicy
-	msi           *ManagedIdentityProvider
-	now           func() time.Time
-	tenantID      string
+	mu                 *lockmetrics.RWMutex
+	roleDefs           map[string]*storedRoleDef
+	roleAssigns        map[string]*storedRoleAssign
+	locks              map[string]*storedLock
+	policyDefs         map[string]*storedPolicy
+	policySets         map[string]*storedPolicy
+	policyAssigns      map[string]*storedPolicyAssign
+	builtinRoles       map[string]*builtinRole
+	builtinPols        map[string]*builtinPolicy
+	builtinSets        map[string]*builtinPolicy
+	msi                *ManagedIdentityProvider
+	directory          PrincipalDirectory
+	now                func() time.Time
+	tenantID           string
+	validatePrincipals bool
 }
 
 var _ ResourceProvider = (*AuthorizationProvider)(nil)
