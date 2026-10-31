@@ -5,6 +5,7 @@ go 1.27.3
 require (
 	cloud.google.com/go/apigateway v1.17.0
 	cloud.google.com/go/artifactregistry v1.27.0
+	cloud.google.com/go/batch v1.24.1
 	cloud.google.com/go/bigquery v1.85.0
 	cloud.google.com/go/bigtable v1.58.0
 	cloud.google.com/go/cloudbuild v1.34.0
@@ -288,7 +289,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/gax-go/v2 v2.26.2
+	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/iskorotkov/avro/v2 v2.35.0
 	github.com/jackc/pgx/v5 v5.11.0
@@ -322,7 +323,7 @@ require (
 	golang.org/x/net v0.62.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/text v0.43.0
-	google.golang.org/api v0.302.0
+	google.golang.org/api v0.304.0
 	google.golang.org/genproto v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/genproto/googleapis/api v0.0.0-20261012220534-4341edf3f941
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261012220534-4341edf3f941

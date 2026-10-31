@@ -172,6 +172,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
+	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
@@ -696,6 +697,7 @@ type CLI struct {
 	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
 	GCPContainer                  gcpcontainerbackend.Settings      `embed:"" prefix:"gcp-container-"`
 	GCPAPIGateway                 gcpapigatewaybackend.Settings     `embed:"" prefix:"gcp-apigateway-"`
+	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
 	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -874,6 +876,9 @@ func (c *CLI) GetGCPIdentityToolkitSettings() gcpidtkbackend.Settings {
 
 // GetGCPAPIGatewaySettings returns API Gateway settings (gcpapigateway.ConfigProvider).
 func (c *CLI) GetGCPAPIGatewaySettings() gcpapigatewaybackend.Settings { return c.GCPAPIGateway }
+
+// GetGCPBatchSettings returns Batch settings (gcpbatch.ConfigProvider).
+func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch }
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
 func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
@@ -2702,6 +2707,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPContainer", "gcpcontainer", cli.GCPContainer.Port},
 		{"GCPIdentityToolkit", "gcpidentitytoolkit", cli.GCPIdentityToolkit.Port},
 		{"GCPAPIGateway", "gcpapigateway", cli.GCPAPIGateway.Port},
+		{"GCPBatch", "gcpbatch", cli.GCPBatch.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -5268,6 +5274,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpcontainerbackend.Provider{},
 		&gcpidtkbackend.Provider{},
 		&gcpapigatewaybackend.Provider{},
+		&gcpbatchbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
