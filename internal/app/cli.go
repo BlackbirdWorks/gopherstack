@@ -488,6 +488,7 @@ type CLI struct {
 	ociNoSQLHandler               service.Registerable
 	ociAPIGatewayHandler          service.Registerable
 	ociEventsHandler              service.Registerable
+	ociLoadBalancerHandler        service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -3482,6 +3483,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
+	cli.ociLoadBalancerHandler = byName["OCILoadBalancer"]
 
 	storeAdditionalCLIHandlers(cli, byName)
 }
