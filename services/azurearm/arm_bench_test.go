@@ -52,7 +52,7 @@ func benchARMDo(b *testing.B, e http.Handler, method, path string, body []byte) 
 }
 
 const benchVNetPath = "/subscriptions/sub1/resourceGroups/rg%d/providers/Microsoft.Network/" +
-	"virtualNetworks/vnet%d?api-version=2023-01-01"
+	"applicationGateways/vnet%d?api-version=2023-01-01"
 
 func BenchmarkARMPutGeneric(b *testing.B) {
 	e := benchARM(b)
@@ -108,7 +108,7 @@ func BenchmarkARMGetList10k(b *testing.B) {
 				b,
 				e,
 				http.MethodGet,
-				"/subscriptions/sub1/resourceGroups/rg3/providers/Microsoft.Network/virtualNetworks?api-version=2023-01-01",
+				"/subscriptions/sub1/resourceGroups/rg3/providers/Microsoft.Network/applicationGateways?api-version=2023-01-01",
 				nil,
 			)
 		}
@@ -118,7 +118,7 @@ func BenchmarkARMGetList10k(b *testing.B) {
 
 		for b.Loop() {
 			benchARMDo(b, e, http.MethodGet,
-				"/subscriptions/sub1/providers/Microsoft.Network/virtualNetworks?api-version=2023-01-01", nil)
+				"/subscriptions/sub1/providers/Microsoft.Network/applicationGateways?api-version=2023-01-01", nil)
 		}
 	})
 }

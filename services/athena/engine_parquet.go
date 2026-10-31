@@ -137,7 +137,7 @@ func parquetCell(v any) string {
 func encodeParquetRows(res *sqlResult, rows []int, cols []outCol, codec string) ([]byte, error) {
 	schema := make([]parquetio.Column, len(cols))
 	for i, c := range cols {
-		schema[i] = parquetio.Column{Name: c.name, Type: c.typ}
+		schema[i] = parquetio.Column{Name: c.name, Type: c.typ, FieldID: c.id}
 	}
 
 	cells := make([][]any, len(rows))

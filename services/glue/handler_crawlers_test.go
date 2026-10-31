@@ -32,8 +32,15 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 		"Configuration": `{"Version":1.0}`,
 		"TablePrefix":   "raw_",
 		"Targets": map[string]any{
-			"S3Targets":      []map[string]any{{"Path": "s3://bucket/data/"}},
-			"JdbcTargets":    []map[string]any{{"ConnectionName": "conn1", "Path": "db/%"}},
+			"S3Targets":   []map[string]any{{"Path": "s3://bucket/data/"}},
+			"JdbcTargets": []map[string]any{{"ConnectionName": "conn1", "Path": "db/%"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doGlueRequest(t, h, "CreateCrawler", map[string]any{
+		"Name": "crawler2", "Role": "role1",
+		"Targets": map[string]any{
 			"CatalogTargets": []map[string]any{{"DatabaseName": "db1", "Tables": []string{"t1"}}},
 		},
 	})
@@ -73,8 +80,15 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"my-classifier"}, out.Crawler.Classifiers)
 	require.Len(t, out.Crawler.Targets.JdbcTargets, 1)
 	assert.Equal(t, "conn1", out.Crawler.Targets.JdbcTargets[0].ConnectionName)
-	require.Len(t, out.Crawler.Targets.CatalogTargets, 1)
-	assert.Equal(t, "db1", out.Crawler.Targets.CatalogTargets[0].DatabaseName)
+
+	rec = doGlueRequest(t, h, "GetCrawler", map[string]any{"Name": "crawler2"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	cat := out
+	cat.Crawler.Targets.CatalogTargets = nil
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cat))
+	require.Len(t, cat.Crawler.Targets.CatalogTargets, 1)
+	assert.Equal(t, "db1", cat.Crawler.Targets.CatalogTargets[0].DatabaseName)
 
 	// UpdateCrawler should also accept and persist the same options.
 	rec = doGlueRequest(t, h, "UpdateCrawler", map[string]any{

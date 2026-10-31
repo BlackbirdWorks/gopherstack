@@ -197,7 +197,7 @@ func (b *InMemoryBackend) restoreLocked(snap *backendSnapshot) error {
 			return fmt.Errorf("gcprun: restore revision %q: %w", name, err)
 		}
 
-		b.revisions[name] = &revRec{pb: pb, startErr: r.StartErr, seq: r.Seq, changed: make(chan struct{})}
+		b.revisions[name] = &revRec{pb: pb, startErr: r.StartErr, seq: r.Seq}
 	}
 
 	for name, raw := range snap.Jobs {

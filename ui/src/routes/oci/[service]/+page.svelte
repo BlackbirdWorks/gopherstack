@@ -2,9 +2,22 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { ociServiceById } from '#lib/cloud.ts';
+	import APIGatewayDashboard from '#lib/components/oci/APIGatewayDashboard.svelte';
+	import ArtifactsDashboard from '#lib/components/oci/ArtifactsDashboard.svelte';
+	import ContainerInstancesDashboard from '#lib/components/oci/ContainerInstancesDashboard.svelte';
+	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
+	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
+	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
+	import LoadBalancerDashboard from '#lib/components/oci/LoadBalancerDashboard.svelte';
+	import LoggingDashboard from '#lib/components/oci/LoggingDashboard.svelte';
+	import MonitoringDashboard from '#lib/components/oci/MonitoringDashboard.svelte';
+	import MySQLDashboard from '#lib/components/oci/MySQLDashboard.svelte';
+	import NoSQLDashboard from '#lib/components/oci/NoSQLDashboard.svelte';
+	import NotificationsDashboard from '#lib/components/oci/NotificationsDashboard.svelte';
 	import ObjectStorageDashboard from '#lib/components/oci/ObjectStorageDashboard.svelte';
+	import QueueDashboard from '#lib/components/oci/QueueDashboard.svelte';
 	import StreamingDashboard from '#lib/components/oci/StreamingDashboard.svelte';
 	import VaultDashboard from '#lib/components/oci/VaultDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedOciServices } from '#lib/cloud.svelte.ts';
@@ -29,6 +42,32 @@
 	<IdentityDashboard />
 {:else if service?.id === 'functions'}
 	<FunctionsDashboard />
+{:else if service?.id === 'core'}
+	<CoreDashboard />
+{:else if service?.id === 'queue'}
+	<QueueDashboard />
+{:else if service?.id === 'notifications'}
+	<NotificationsDashboard />
+{:else if service?.id === 'containerengine'}
+	<ContainerEngineDashboard />
+{:else if service?.id === 'mysql'}
+	<MySQLDashboard />
+{:else if service?.id === 'logging'}
+	<LoggingDashboard />
+{:else if service?.id === 'monitoring'}
+	<MonitoringDashboard />
+{:else if service?.id === 'nosql'}
+	<NoSQLDashboard />
+{:else if service?.id === 'apigateway'}
+	<APIGatewayDashboard />
+{:else if service?.id === 'events'}
+	<EventsDashboard />
+{:else if service?.id === 'loadbalancer'}
+	<LoadBalancerDashboard />
+{:else if service?.id === 'artifacts'}
+	<ArtifactsDashboard />
+{:else if service?.id === 'containerinstances'}
+	<ContainerInstancesDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

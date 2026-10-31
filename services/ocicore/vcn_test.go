@@ -8,6 +8,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestVcnCreate(t *testing.T) {
@@ -267,7 +269,7 @@ func TestVcnListing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, names(r))
 
-	resp, err := http.Get(e.base + "/20160918/vcns")
+	resp, err := testclient.New(t).Get(e.base + "/20160918/vcns")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)

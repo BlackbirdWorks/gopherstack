@@ -41,6 +41,28 @@ func dockerEnv(t *testing.T) *env {
 		t.Skip("docker engine test skipped in short mode")
 	}
 
+	h := newDockerHandler(t)
+
+	objects := &fakeObjects{data: map[string][]byte{}}
+	h.Backend.SetObjectStore(objects)
+	t.Cleanup(h.Backend.Close)
+	t.Cleanup(h.Backend.Reset)
+
+	e := echo.New()
+	e.Any("/*", h.Handler())
+
+	srv := httptest.NewServer(e)
+	t.Cleanup(srv.Close)
+
+	svc, err := sqladmin.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
+	require.NoError(t, err)
+
+	return &env{svc: svc, backend: h.Backend, objects: objects, url: srv.URL, timeout: dockerWait}
+}
+
+func newDockerHandler(t *testing.T) *gcpsql.Handler {
+	t.Helper()
+
 	lr := gcpserve.NewLazyRuntime(slog.Default(), "gcpsql.test.runtime")
 	t.Cleanup(func() { _ = lr.Close() })
 
@@ -54,20 +76,9 @@ func dockerEnv(t *testing.T) *env {
 	h, ok := reg.(*gcpsql.Handler)
 	require.True(t, ok)
 
-	objects := &fakeObjects{data: map[string][]byte{}}
-	h.Backend.SetObjectStore(objects)
-	t.Cleanup(h.Backend.Close)
+	h.Backend.SetStartupTimeout(3 * time.Minute)
 
-	e := echo.New()
-	e.Any("/*", h.Handler())
-
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	svc, err := sqladmin.NewService(t.Context(), option.WithEndpoint(srv.URL), option.WithoutAuthentication())
-	require.NoError(t, err)
-
-	return &env{svc: svc, backend: h.Backend, objects: objects, url: srv.URL, timeout: dockerWait}
+	return h
 }
 
 func openDB(t *testing.T, version, endpoint, user, pass string) *sql.DB {
@@ -121,7 +132,7 @@ func TestDockerEngines(t *testing.T) {
 		{"mysql", "MYSQL_8_4", gcpsql.Flag{Name: "max_connections", Value: "151"}, "SELECT @@max_connections", "151"},
 	}
 
-	assertNoContainers(t)
+	assertNoContainers(t, "dpostgres", "dmysql")
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -244,14 +255,25 @@ func importInto(ctx context.Context, t *testing.T, e *env, tc dockerCase, from s
 	assert.Equal(t, "alpha", scalar(t, imp, "SELECT name FROM items WHERE id = 1"))
 }
 
-func assertNoContainers(t *testing.T) {
+// assertNoContainers fails the test if containers, volumes or networks of the named instances outlive it.
+func assertNoContainers(t *testing.T, instances ...string) {
+	t.Helper()
+
+	for _, in := range instances {
+		assertNoDockerObjects(t, "container", "ps", "-aq", "--filter", "name=gopherstack-gcpsql-"+in+"-")
+		assertNoDockerObjects(t, "volume", "ls", "-q", "--filter", "name=gopherstack-gcpsql-data-"+project+"-"+in)
+		assertNoDockerObjects(t, "volume", "ls", "-q", "--filter", "name=gopherstack-gcpsql-pitr-"+project+"-"+in)
+		assertNoDockerObjects(t, "network", "ls", "-q", "--filter", "name=gopherstack-gcpsql-net-"+in)
+	}
+}
+
+func assertNoDockerObjects(t *testing.T, what string, args ...string) {
 	t.Helper()
 
 	t.Cleanup(func() {
-		out, err := exec.CommandContext(context.Background(), "docker", "ps", "-aq", "--filter", "name=gopherstack-gcpsql-").
-			Output()
+		out, err := exec.CommandContext(context.Background(), "docker", args...).Output()
 		if err == nil {
-			assert.Empty(t, strings.TrimSpace(string(out)), "containers left behind")
+			assert.Empty(t, strings.TrimSpace(string(out)), what+"s left behind")
 		}
 	})
 }

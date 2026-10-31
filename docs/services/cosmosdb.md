@@ -36,6 +36,7 @@ Cosmos DB runs on its own dedicated, synchronously-bound TCP port, mirroring the
 | Validate auth | `false` | `--cosmosdb-validate-auth` | `COSMOSDB_VALIDATE_AUTH` |
 | Enforce throughput | `false` | `--cosmosdb-enforce-throughput` | `COSMOSDB_ENFORCE_THROUGHPUT` |
 | Serverless | `false` | `--cosmosdb-serverless` | `COSMOSDB_SERVERLESS` |
+| Resource-token max lifetime | `86400` (600..86400; `18000` is the 2020 Create Permission page cap) | `--cosmosdb-resource-token-max-seconds` | `COSMOSDB_RESOURCE_TOKEN_MAX_SECONDS` |
 | TLS (self-signed) | `false` | (env only) | `COSMOSDB_TLS=true` |
 | Extra TLS hosts | none | (env only) | `COSMOSDB_TLS_HOSTS=name1,10.0.0.5` |
 

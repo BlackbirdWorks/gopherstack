@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,14 +18,15 @@
 
 - chaos.FaultError cannot carry ModelErrorException's OriginalStatusCode/ResourceName: needs a per-service extension point in shared pkgs/chaos, outside this service (bd: gopherstack-ayfw).
 - AsyncInvokeStatusFailed/FailureMessage are unreachable: the janitor only moves InProgress -> Completed; the StartAsyncInvoke/GetAsyncInvoke docs name no condition that produces Failed.
+- Ollama backend (GOPHERSTACK_BEDROCK_BACKEND=ollama): stopReason stop_sequence is never reported (Ollama says done_reason=stop for stop-sequence hits), toolChoice is accepted but not enforced (no Ollama equivalent), Converse documents are limited to txt/md/csv/html, InvokeModel families are Anthropic Claude (messages and legacy prompt), Titan text/embed-text, Nova text, Llama, Mistral, Cohere Embed (float) and Command R; other families (AI21, Stability, Titan image/multimodal, Cohere Command text) return ValidationException; InvokeModelWithBidirectionalStream and CountTokens stay mock/estimated.
 - Converse guardrailConfig accepts an identifier without a version: GuardrailConfiguration marks both members optional (patterns allow empty) and no doc says a version is required (InvokeModel's header rule is documented; patterns and trace/streamProcessingMode enums are enforced).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No real inference or classifier: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply, InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones.
-- No model behind Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply.
+- Default (GOPHERSTACK_BEDROCK_BACKEND=mock) inference is deterministic placeholder output, not a model: CountTokens estimates from byte length, Converse/InvokeModel return a canned reply (real completions are opt-in via the ollama backend), InvokeGuardrailChecks contentFilter/promptAttack return empty results and sensitiveInformation matches only the literal-format entity types (EMAIL/PHONE/IP_ADDRESS/URL/AWS_ACCESS_KEY/MAC_ADDRESS/US_SSN/CREDIT_DEBIT_CARD_NUMBER), never NER-based ones.
+- No model behind the default mock Converse/ConverseStream/InvokeModel: InvokeModel.Body is never interpreted; AdditionalModelRequestFields, AdditionalModelResponseFieldPaths, OutputConfig, PromptVariables and RequestMetadata (invocation-log filtering) are accepted but cannot change a canned reply.
 - InvokeModel/InvokeModelWithResponseStream Trace is enum-validated but no guardrail trace is produced without a classifier.
 - ApplyGuardrail.OutputScope FULL has no extra output to add: only word-policy assessments exist, and the SDK says FULL does not apply to word filters.
 - Converse/InvokeModel serviceTier and performanceConfig latency are echoed from the request: no tiers or latency-optimized hosting exist to negotiate.

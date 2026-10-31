@@ -53,13 +53,14 @@ const (
 	AzureAppConfig    = "10008"
 	AzureFile         = "10009"
 	AzureMonitor      = "10013"
+	AzureGraph        = "10014"
 	AzureACR          = "10011"
 	AzureStorageVHost = "10010"
 	AzureCosmosDB     = "8081"
 )
 
 func ociPorts() map[string]string {
-	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155"}
+	return map[string]string{"objectstorage": "8150", "vault": "8151", "streaming": "8152", "identity": "8153", "functions": "8154", "core": "8155", "queue": "8156", "notifications": "8157", "containerengine": "8158", "mysql": "8159", "logging": "8160", "monitoring": "8161", "nosql": "8162", "apigateway": "8163", "events": "8164", "loadbalancer": "8165", "artifacts": "8166", "containerinstances": "8167"}
 }
 
 func gcpPorts() map[string]string {
@@ -87,6 +88,12 @@ func gcpPorts() map[string]string {
 		"dns":              "8140",
 		"dnsserver":        "8141",
 		"compute":          "8142",
+		"datastore":        "8143",
+		"container":        "8144",
+		"identitytoolkit":  "8145",
+		"apigateway":       "8146",
+		"batch":            "8147",
+		"resourcemanager":  "8148",
 		"bigquery":         "9050",
 	}
 }
@@ -94,7 +101,7 @@ func gcpPorts() map[string]string {
 func azurePorts() []string {
 	return []string{
 		AzureBlobPort, AzureQueuePort, AzureTablePort, AzureServiceBus, AzureKeyVault,
-		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureMonitor, AzureACR, AzureStorageVHost,
+		AzureEventHubs, AzureARM, AzureEventGrid, AzureAppConfig, AzureFile, AzureMonitor, AzureGraph, AzureACR, AzureStorageVHost,
 		AzureCosmosDB,
 	}
 }
@@ -274,12 +281,12 @@ func (c *Container) AWSConfig(ctx context.Context) (aws.Config, error) {
 
 // AzureEndpoints returns the base URL (http://host:port, no account path) of
 // every Azure listener, keyed by "blob", "queue", "table", "servicebus",
-// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "monitor", "acr", "storagevhost", "cosmosdb".
+// "keyvault", "eventhubs", "arm", "eventgrid", "appconfig", "file", "monitor", "graph", "acr", "storagevhost", "cosmosdb".
 func (c *Container) AzureEndpoints(ctx context.Context) (map[string]string, error) {
 	named := map[string]string{
 		"blob": AzureBlobPort, "queue": AzureQueuePort, "table": AzureTablePort,
 		"servicebus": AzureServiceBus, "keyvault": AzureKeyVault, "eventhubs": AzureEventHubs,
-		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "monitor": AzureMonitor, "acr": AzureACR,
+		"arm": AzureARM, "eventgrid": AzureEventGrid, "appconfig": AzureAppConfig, "file": AzureFile, "monitor": AzureMonitor, "graph": AzureGraph, "acr": AzureACR,
 		"storagevhost": AzureStorageVHost, "cosmosdb": AzureCosmosDB,
 	}
 	out := make(map[string]string, len(named))
@@ -326,7 +333,7 @@ func (c *Container) GCPEndpoint(ctx context.Context, service string) (string, er
 	return c.hostPort(ctx, port)
 }
 
-// OCIEndpoint returns the http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client Host.
+// OCIEndpoint returns the http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client Host.
 func (c *Container) OCIEndpoint(ctx context.Context, service string) (string, error) {
 	port, ok := ociPorts()[strings.ToLower(service)]
 	if !ok {

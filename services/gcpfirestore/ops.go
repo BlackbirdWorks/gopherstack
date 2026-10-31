@@ -115,6 +115,8 @@ func (b *InMemoryBackend) BatchGetDocuments(
 }
 
 func (b *InMemoryBackend) commitOne(w *firestorepb.Write) (*firestorepb.WriteResult, error) {
+	defer b.flushDocEvents()
+
 	b.mu.Lock("write")
 	defer b.mu.Unlock()
 
@@ -192,6 +194,8 @@ func (b *InMemoryBackend) Commit(req *firestorepb.CommitRequest) (*firestorepb.C
 	if err := validateDatabase(req.GetDatabase()); err != nil {
 		return nil, err
 	}
+
+	defer b.flushDocEvents()
 
 	b.mu.Lock("Commit")
 	defer b.mu.Unlock()

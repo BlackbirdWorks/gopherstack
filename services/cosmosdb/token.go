@@ -21,9 +21,14 @@ const (
 
 	headerExpirySeconds = "X-Ms-Documentdb-Expiry-Seconds"
 
-	// defaultTokenExpirySeconds and maxTokenExpirySeconds are the documented resource-token lifetime bounds.
+	// Resource-token lifetime: 1 h default; 10 min minimum and 24 h maximum per "Service quotas" (Per-request limits).
+	// The Create Permission REST page, last revised 2020, still says 18000 s.
 	defaultTokenExpirySeconds = 3600
-	maxTokenExpirySeconds     = 18000
+	minTokenExpirySeconds     = 600
+	maxTokenExpirySeconds     = 86400
+	// MinResourceTokenMaxSeconds and MaxResourceTokenMaxSeconds bound Settings.ResourceTokenMaxSeconds.
+	MinResourceTokenMaxSeconds = minTokenExpirySeconds
+	MaxResourceTokenMaxSeconds = maxTokenExpirySeconds
 )
 
 var (
@@ -31,9 +36,21 @@ var (
 	ErrInsufficientPermissions = errors.New("cosmosdb: resource token does not grant this operation")
 	// ErrTokenExpired is returned when a resource token is used outside its validity window.
 	ErrTokenExpired = errors.New("cosmosdb: resource token is not valid at the current time")
-	// ErrInvalidTokenExpiry is returned for an x-ms-documentdb-expiry-seconds outside 1..18000.
-	ErrInvalidTokenExpiry = errors.New("cosmosdb: x-ms-documentdb-expiry-seconds must be between 1 and 18000")
+	// ErrInvalidTokenExpiry is returned for an x-ms-documentdb-expiry-seconds outside 600..the configured maximum.
+	ErrInvalidTokenExpiry = errors.New("cosmosdb: invalid x-ms-documentdb-expiry-seconds")
 )
+
+// ErrInvalidResourceTokenMax is returned when --cosmosdb-resource-token-max-seconds is outside 600..86400.
+var ErrInvalidResourceTokenMax = errors.New("cosmosdb: resource-token-max-seconds must be between 600 and 86400")
+
+type tokenExpiryError struct{ maxSeconds int }
+
+func (e *tokenExpiryError) Error() string {
+	return fmt.Sprintf("cosmosdb: x-ms-documentdb-expiry-seconds must be between %d and %d",
+		minTokenExpirySeconds, e.maxSeconds)
+}
+
+func (e *tokenExpiryError) Is(target error) bool { return target == ErrInvalidTokenExpiry }
 
 // tokenClaims is the signed payload of a resource token. It names the permission; scope is read from the live
 // permission on every request, so deleting or narrowing a permission takes effect immediately.
@@ -117,15 +134,20 @@ func parseResourceToken(masterKey, sig string) (tokenClaims, bool) {
 }
 
 // tokenExpiry reads x-ms-documentdb-expiry-seconds; absent means the one-hour default.
-func tokenExpiry(r *http.Request) (time.Duration, error) {
+func (h *Handler) tokenExpiry(r *http.Request) (time.Duration, error) {
 	raw := r.Header.Get(headerExpirySeconds)
 	if raw == "" {
 		return defaultTokenExpirySeconds * time.Second, nil
 	}
 
+	maxSeconds := h.ResourceTokenMaxSeconds
+	if maxSeconds == 0 {
+		maxSeconds = maxTokenExpirySeconds
+	}
+
 	n, err := strconv.Atoi(raw)
-	if err != nil || n < 1 || n > maxTokenExpirySeconds {
-		return 0, ErrInvalidTokenExpiry
+	if err != nil || n < minTokenExpirySeconds || n > maxSeconds {
+		return 0, &tokenExpiryError{maxSeconds: maxSeconds}
 	}
 
 	return time.Duration(n) * time.Second, nil
@@ -195,26 +217,28 @@ func permissionCovers(p PermissionInfo, r *http.Request) bool {
 	}
 
 	docPermission := len(segs) == documentLinkSegments
+	if docPermission && segs[4] != docsSegment {
+		return scriptPermissionCovers(segs, kind, docID) && partitionAllowed(p, r)
+	}
 
+	return childCovered(kind, docPermission, docPermission && docID == segs[5], read) && partitionAllowed(p, r)
+}
+
+// childCovered reports whether a container (docPermission false) or document permission reaches a request of kind.
+func childCovered(kind resourceKind, docPermission, sameDoc, read bool) bool {
 	switch kind {
 	case resourceContainerItem:
 		return !docPermission
 	case resourcePKRanges:
 		return !docPermission && read
 	case resourceDocumentItem:
-		if docPermission && docID != segs[5] {
-			return false
-		}
+		return !docPermission || sameDoc
 	case resourceDocuments, resourceSprocs, resourceSprocItem, resourceTriggers, resourceTriggerItem,
 		resourceUDFs, resourceUDFItem:
-		if docPermission {
-			return false
-		}
+		return !docPermission
 	default:
 		return false
 	}
-
-	return partitionAllowed(p, r)
 }
 
 func partitionAllowed(p PermissionInfo, r *http.Request) bool {
@@ -237,4 +261,21 @@ func isReadRequest(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+// scriptPermissionCovers reports whether a stored procedure, trigger or UDF permission (segs) grants r: the item
+// itself and nothing else. Executing a stored procedure is a write, so a Read permission never reaches it.
+func scriptPermissionCovers(segs []string, kind resourceKind, itemID string) bool {
+	var want resourceKind
+
+	switch scriptKind(segs[4]) {
+	case kindSproc:
+		want = resourceSprocItem
+	case kindTrigger:
+		want = resourceTriggerItem
+	case kindUDF:
+		want = resourceUDFItem
+	}
+
+	return kind == want && itemID == segs[5]
 }

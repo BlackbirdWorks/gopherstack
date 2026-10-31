@@ -64,8 +64,21 @@ func lookupErrorDetails() map[error]errorDetail {
 			message: "We can't find a handshake with the HandshakeId that you specified.",
 		},
 		ErrHandshakeConstraintViolation: {
+			message: "The requested operation would violate the constraint identified in the reason.",
+		},
+		ErrHandshakeAlreadyInState: {
 			message: "The specified handshake is already in the requested state. " +
 				"For example, you can't accept a handshake that was already accepted.",
+		},
+		ErrInvalidHandshakeTransition: {
+			message: "You can't perform the operation on the handshake in its current state. " +
+				"For example, you can't cancel a handshake that was already accepted or accept a " +
+				"handshake that was already declined.",
+		},
+		ErrAccessDeniedHandshake: {
+			message: "You don't have permissions to perform the requested operation. " +
+				"The user or role that is making the request must have at least one IAM permissions policy " +
+				"attached that grants the required permissions.",
 		},
 	}
 }
@@ -101,6 +114,10 @@ func constraintErrorDetails() map[error]errorDetail {
 		},
 		ErrDuplicateHandshake: {
 			message: "A handshake for the specified account is already in progress.",
+		},
+		ErrMinPolicyAttachment: {
+			message: "You can't detach the last service control policy from a root, OU, or account.",
+			reason:  "MIN_POLICY_TYPE_ATTACHMENT_LIMIT_EXCEEDED",
 		},
 		ErrPolicyTypeAttached: {
 			message: "You can't disable a policy type while policies of that type are attached to targets.",

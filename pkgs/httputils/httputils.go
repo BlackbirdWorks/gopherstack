@@ -624,3 +624,23 @@ func isAllAllowedASCII(s string) bool {
 
 	return true
 }
+
+// ReadBodyLimit reads r.Body up to limit bytes and returns *http.MaxBytesError
+// when the body is larger. Unlike ReadBody it does not cache the body, so it
+// suits per-operation caps below or above MaxRequestBodyBytes.
+func ReadBodyLimit(r *http.Request, limit int64) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+
+	if int64(len(body)) > limit {
+		return nil, &http.MaxBytesError{Limit: limit}
+	}
+
+	return body, nil
+}

@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type extTestService struct {
@@ -111,7 +112,7 @@ func TestExtensionRoutingAndHooks(t *testing.T) {
 	t.Cleanup(func() { cli.stopExtensions(context.WithoutCancel(t.Context())) })
 
 	get := func(path string) (int, string, http.Header) {
-		resp, gerr := http.Get(srv.URL + path)
+		resp, gerr := testclient.New(t).Get(srv.URL + path)
 		require.NoError(t, gerr)
 
 		defer resp.Body.Close()

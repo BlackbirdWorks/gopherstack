@@ -92,6 +92,7 @@ type dpBehavior struct {
 	Methods               []string           `xml:"AllowedMethods>Items>Method"`
 	CachedMethods         []string           `xml:"AllowedMethods>CachedMethods>Items>Method"`
 	Functions             []dpFunctionAssoc  `xml:"FunctionAssociations>Items>FunctionAssociation"`
+	Edge                  []dpEdgeAssoc      `xml:"LambdaFunctionAssociations>Items>LambdaFunctionAssociation"`
 	KeyGroups             dpTrustedKeyGroups `xml:"TrustedKeyGroups"`
 }
 

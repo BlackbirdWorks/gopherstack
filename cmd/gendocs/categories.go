@@ -23,6 +23,7 @@ const (
 	slugAzureQueue      = "azurequeue"
 	slugAzureFile       = "azurefile"
 	slugAzureMonitor    = "azuremonitor"
+	slugAzureGraph      = "azuregraph"
 	slugAzureTable      = "azuretable"
 	slugAzureServiceBus = "azureservicebus"
 	slugAzureEventHubs  = "azureeventhubs"
@@ -40,6 +41,18 @@ const (
 	slugOCIIdentity     = "ociidentity"
 	slugOCIFunctions    = "ocifunctions"
 	slugOCICore         = "ocicore"
+	slugOCILogging      = "ocilogging"
+	slugOCIMonitoring   = "ocimonitoring"
+	slugOCIQueue        = "ociqueue"
+	slugOCINotify       = "ocinotifications"
+	slugOCIContainerEng = "ocicontainerengine"
+	slugOCIMySQL        = "ocimysql"
+	slugOCINoSQL        = "ocinosql"
+	slugOCIAPIGateway   = "ociapigateway"
+	slugOCIEvents       = "ocievents"
+	slugOCILoadBalancer = "ociloadbalancer"
+	slugOCIArtifacts    = "ociartifacts"
+	slugOCIInstances    = "ocicontainerinstances"
 	slugGCPPubSub       = "gcppubsub"
 	slugGCPSecretMgr    = "gcpsecretmanager"
 	slugGCPKMS          = "gcpkms"
@@ -58,10 +71,16 @@ const (
 	slugGCPEventarc     = "gcpeventarc"
 	slugGCPWorkflows    = "gcpworkflows"
 	slugGCPDNS          = "gcpdns"
+	slugGCPDatastore    = "gcpdatastore"
 	slugGCPCompute      = "gcpcompute"
+	slugGCPContainer    = "gcpcontainer"
 	slugGCPCloudBuild   = "gcpcloudbuild"
 	slugGCPFirestore    = "gcpfirestore"
 	slugGCPIAM          = "gcpiam"
+	slugGCPIdentity     = "gcpidentitytoolkit"
+	slugGCPAPIGateway   = "gcpapigateway"
+	slugGCPBatch        = "gcpbatch"
+	slugGCPResourceMgr  = "gcpresourcemanager"
 )
 
 // categoryGroups is the curated slug -> category assignment for every
@@ -75,6 +94,9 @@ const (
 func ociSlugs() []string {
 	return []string{
 		slugOCIObjectStore, slugOCIVault, slugOCIStreaming, slugOCIIdentity, slugOCIFunctions, slugOCICore,
+		slugOCIQueue, slugOCINotify, slugOCIContainerEng, slugOCIMySQL, slugOCILogging, slugOCIMonitoring,
+		slugOCINoSQL, slugOCIAPIGateway, slugOCIEvents, slugOCILoadBalancer, slugOCIArtifacts,
+		slugOCIInstances,
 	}
 }
 
@@ -153,6 +175,7 @@ func categoryGroups() []categoryGroup {
 				slugAzureQueue,
 				slugAzureFile,
 				slugAzureMonitor,
+				slugAzureGraph,
 				slugAzureTable,
 				slugAzureServiceBus,
 				slugAzureEventHubs,
@@ -170,7 +193,8 @@ func categoryGroups() []categoryGroup {
 			slugGCPFirestore, slugGCPIAM, slugGCPRun, slugGCPFunctions, slugGCPBigQuery, slugGCPSQL,
 			slugGCPLogging, slugGCPMonitoring, slugGCPRedis, slugGCPSpanner, slugGCPArtifactReg,
 			slugGCPCloudBuild, slugGCPBigtable, slugGCPEventarc, slugGCPWorkflows, slugGCPDNS,
-			slugGCPCompute,
+			slugGCPCompute, slugGCPDatastore, slugGCPContainer,
+			slugGCPIdentity, slugGCPAPIGateway, slugGCPBatch, slugGCPResourceMgr,
 		}},
 		{"OCI", ociSlugs()},
 		{"Other", []string{
@@ -244,6 +268,7 @@ func displayNamesA() map[string]string {
 		slugAzureQueue:            "Azure Queue Storage",
 		slugAzureFile:             "Azure Files",
 		slugAzureMonitor:          "Azure Monitor Logs",
+		slugAzureGraph:            "Microsoft Graph",
 		slugAzureTable:            "Azure Table Storage",
 		slugAzureServiceBus:       "Azure Service Bus",
 		slugAzureEventHubs:        "Azure Event Hubs",
@@ -279,75 +304,93 @@ func displayNamesA() map[string]string {
 
 func displayNamesB() map[string]string {
 	return map[string]string{
-		"cognitoidp":       "Cognito Identity Provider",
-		"comprehend":       "Comprehend",
-		slugCosmosDB:       "Azure Cosmos DB",
-		slugGCPStorage:     "Google Cloud Storage",
-		slugOCIObjectStore: "OCI Object Storage",
-		slugOCIVault:       "OCI Vault",
-		slugOCIStreaming:   "OCI Streaming",
-		slugOCIIdentity:    "OCI Identity",
-		slugOCIFunctions:   "OCI Functions",
-		slugOCICore:        "OCI Core Services",
-		slugGCPPubSub:      "Google Cloud Pub/Sub",
-		slugGCPSecretMgr:   "Google Secret Manager",
-		slugGCPKMS:         "Google Cloud KMS",
-		slugGCPCloudTasks:  "Cloud Tasks",
-		slugGCPScheduler:   "Cloud Scheduler",
-		slugGCPRun:         "Cloud Run",
-		slugGCPFunctions:   "Cloud Functions",
-		slugGCPBigQuery:    "BigQuery",
-		slugGCPSQL:         "Cloud SQL",
-		slugGCPLogging:     "Cloud Logging",
-		slugGCPMonitoring:  "Cloud Monitoring",
-		slugGCPRedis:       "Memorystore for Redis",
-		slugGCPArtifactReg: "Artifact Registry",
-		slugGCPSpanner:     "Cloud Spanner",
-		slugGCPBigtable:    "Cloud Bigtable",
-		slugGCPEventarc:    "Eventarc",
-		slugGCPWorkflows:   "Workflows",
-		slugGCPDNS:         "Cloud DNS",
-		slugGCPCompute:     "Compute Engine",
-		slugGCPCloudBuild:  "Cloud Build",
-		slugGCPFirestore:   "Google Cloud Firestore",
-		slugGCPIAM:         "Cloud IAM",
-		"databrew":         "Glue DataBrew",
-		"datasync":         "DataSync",
-		"dax":              "DAX",
-		"detective":        "Detective",
-		"directoryservice": "Directory Service",
-		"dlm":              "Data Lifecycle Manager",
-		"dms":              "Database Migration Service",
-		"docdb":            "DocumentDB",
-		"dynamodb":         "DynamoDB",
-		"dynamodbstreams":  "DynamoDB Streams",
-		"ec2":              "EC2",
-		"ecr":              "ECR",
-		"ecs":              "ECS",
-		"efs":              "EFS",
-		"eks":              "EKS",
-		"elasticache":      "ElastiCache",
-		"elasticbeanstalk": "Elastic Beanstalk",
-		"elasticsearch":    "Elasticsearch",
-		"elb":              "ELB (Classic)",
-		"elbv2":            "ELBv2",
-		"emr":              "EMR",
-		"emrserverless":    "EMR Serverless",
-		"eventbridge":      "EventBridge",
-		"firehose":         "Kinesis Data Firehose",
-		"fis":              "Fault Injection Simulator",
-		"forecast":         "Forecast",
-		"fsx":              "FSx",
-		"glacier":          "S3 Glacier",
-		"glue":             "Glue",
-		"guardduty":        "GuardDuty",
-		"iam":              "IAM",
-		"identitystore":    "Identity Store",
-		"inspector2":       "Inspector",
-		"iot":              "IoT Core",
-		"iotanalytics":     "IoT Analytics",
-		"iotdataplane":     "IoT Data Plane",
-		"iotwireless":      "IoT Wireless",
+		"cognitoidp":        "Cognito Identity Provider",
+		"comprehend":        "Comprehend",
+		slugCosmosDB:        "Azure Cosmos DB",
+		slugGCPStorage:      "Google Cloud Storage",
+		slugOCIObjectStore:  "OCI Object Storage",
+		slugOCIVault:        "OCI Vault",
+		slugOCIStreaming:    "OCI Streaming",
+		slugOCIIdentity:     "OCI Identity",
+		slugOCIFunctions:    "OCI Functions",
+		slugOCICore:         "OCI Core Services",
+		slugOCILogging:      "OCI Logging",
+		slugOCIMonitoring:   "OCI Monitoring",
+		slugOCIQueue:        "OCI Queue",
+		slugOCINotify:       "OCI Notifications",
+		slugOCIContainerEng: "OCI Container Engine for Kubernetes",
+		slugOCIMySQL:        "OCI MySQL HeatWave Database Service",
+		slugOCINoSQL:        "OCI NoSQL Database Cloud Service",
+		slugOCIAPIGateway:   "OCI API Gateway",
+		slugOCIEvents:       "OCI Events",
+		slugOCILoadBalancer: "OCI Load Balancer",
+		slugOCIArtifacts:    "OCI Artifacts and Container Registry",
+		slugOCIInstances:    "OCI Container Instances",
+		slugGCPPubSub:       "Google Cloud Pub/Sub",
+		slugGCPSecretMgr:    "Google Secret Manager",
+		slugGCPKMS:          "Google Cloud KMS",
+		slugGCPCloudTasks:   "Cloud Tasks",
+		slugGCPScheduler:    "Cloud Scheduler",
+		slugGCPRun:          "Cloud Run",
+		slugGCPFunctions:    "Cloud Functions",
+		slugGCPBigQuery:     "BigQuery",
+		slugGCPSQL:          "Cloud SQL",
+		slugGCPLogging:      "Cloud Logging",
+		slugGCPMonitoring:   "Cloud Monitoring",
+		slugGCPRedis:        "Memorystore for Redis",
+		slugGCPArtifactReg:  "Artifact Registry",
+		slugGCPSpanner:      "Cloud Spanner",
+		slugGCPBigtable:     "Cloud Bigtable",
+		slugGCPEventarc:     "Eventarc",
+		slugGCPWorkflows:    "Workflows",
+		slugGCPDNS:          "Cloud DNS",
+		slugGCPDatastore:    "Cloud Datastore",
+		slugGCPCompute:      "Compute Engine",
+		slugGCPContainer:    "Kubernetes Engine",
+		slugGCPCloudBuild:   "Cloud Build",
+		slugGCPFirestore:    "Google Cloud Firestore",
+		slugGCPIAM:          "Cloud IAM",
+		slugGCPIdentity:     "Identity Platform",
+		slugGCPAPIGateway:   "API Gateway",
+		slugGCPBatch:        "Google Cloud Batch",
+		slugGCPResourceMgr:  "Google Cloud Resource Manager and Service Usage",
+		"databrew":          "Glue DataBrew",
+		"datasync":          "DataSync",
+		"dax":               "DAX",
+		"detective":         "Detective",
+		"directoryservice":  "Directory Service",
+		"dlm":               "Data Lifecycle Manager",
+		"dms":               "Database Migration Service",
+		"docdb":             "DocumentDB",
+		"dynamodb":          "DynamoDB",
+		"dynamodbstreams":   "DynamoDB Streams",
+		"ec2":               "EC2",
+		"ecr":               "ECR",
+		"ecs":               "ECS",
+		"efs":               "EFS",
+		"eks":               "EKS",
+		"elasticache":       "ElastiCache",
+		"elasticbeanstalk":  "Elastic Beanstalk",
+		"elasticsearch":     "Elasticsearch",
+		"elb":               "ELB (Classic)",
+		"elbv2":             "ELBv2",
+		"emr":               "EMR",
+		"emrserverless":     "EMR Serverless",
+		"eventbridge":       "EventBridge",
+		"firehose":          "Kinesis Data Firehose",
+		"fis":               "Fault Injection Simulator",
+		"forecast":          "Forecast",
+		"fsx":               "FSx",
+		"glacier":           "S3 Glacier",
+		"glue":              "Glue",
+		"guardduty":         "GuardDuty",
+		"iam":               "IAM",
+		"identitystore":     "Identity Store",
+		"inspector2":        "Inspector",
+		"iot":               "IoT Core",
+		"iotanalytics":      "IoT Analytics",
+		"iotdataplane":      "IoT Data Plane",
+		"iotwireless":       "IoT Wireless",
 	}
 }
 

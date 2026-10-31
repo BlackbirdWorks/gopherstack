@@ -27,7 +27,8 @@ func newEKSMoreTestClient(t *testing.T) (*cloudformation.ServiceBackends, *cfnsd
 func eksClusterTemplateFragment(clusterName string) string {
 	return `"Cluster": {
     "Type": "AWS::EKS::Cluster",
-    "Properties": {"Name": "` + clusterName + `", "RoleArn": "arn:aws:iam::000000000000:role/EKSRole"}
+    "Properties": {"Name": "` + clusterName + `", "RoleArn": "arn:aws:iam::000000000000:role/EKSRole",
+      "ResourcesVpcConfig": {"SubnetIds": ["subnet-1", "subnet-2"]}}
   },`
 }
 

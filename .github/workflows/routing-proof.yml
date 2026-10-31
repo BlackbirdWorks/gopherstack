@@ -1,0 +1,64 @@
+name: Routing Proof
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'internal/app/routing*'
+      - 'internal/routegates/**'
+      - 'pkgs/service/router*'
+      - 'testdata/routing/**'
+      - 'services/*/route*.go'
+      - 'cmd/routingcorpus/**'
+      - '.github/workflows/routing-proof.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  routing-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Keep Go temp files and build cache off the /tmp tmpfs
+        run: |
+          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+          sudo mkdir -p "$base/gotmp" "$base/gocache"
+          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+          {
+            echo "GOTMPDIR=$base/gotmp"
+            echo "TMPDIR=$base/gotmp"
+            echo "GOCACHE=$base/gocache"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Download Go modules (retry proxy stream errors)
+        run: |
+          for i in 1 2 3 4 5; do
+            go mod download && exit 0
+            sleep $((i * 15))
+          done
+          exit 1
+
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Routing proof (full, no -short)
+        run: task routing-proof

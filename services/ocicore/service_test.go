@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	oci "github.com/blackbirdworks/gopherstack/services/ocicore"
 )
 
@@ -98,7 +99,7 @@ func TestUnknownRoute(t *testing.T) {
 
 	e := newEnv(t, false)
 
-	resp, err := http.Get(e.base + "/20160918/nothing")
+	resp, err := testclient.New(t).Get(e.base + "/20160918/nothing")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)

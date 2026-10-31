@@ -77,6 +77,14 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		return nil, err
 	}
 
+	h.claimImage(callerOf(vals), image)
+
+	if err = h.commitImageFor(h.svcCtx, vals.Get("InstanceId"), image); err != nil {
+		_ = h.Backend.DeregisterImage(image.ImageID)
+
+		return nil, err
+	}
+
 	// CreateImageInput.TagSpecifications also accepts ResourceType "snapshot"
 	// (api_op_CreateImage.go:132-140) to tag the per-volume snapshots it
 	// creates, but this backend's CreateImage does not model those snapshots,

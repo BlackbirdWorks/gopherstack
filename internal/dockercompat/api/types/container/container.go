@@ -74,3 +74,9 @@ type WaitResult struct {
 	Result <-chan WaitResponse
 	Error  <-chan error
 }
+
+// InspectResponse aliases the Moby container inspect response type.
+type InspectResponse = mobycontainer.InspectResponse
+
+// State aliases the Moby container runtime state type.
+type State = mobycontainer.State

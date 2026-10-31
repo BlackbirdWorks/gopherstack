@@ -193,9 +193,10 @@ func resolvedActionStatus(byKey map[string]*ActionExecution, stageName, actionNa
 // actions gate the run (InProgress + a fresh token); a built-in Build/
 // CodeBuild, Invoke/Lambda, or Deploy/CodeDeploy action calls its wired
 // backend and fails the action if that call does (runCodeBuildAction/
-// runLambdaAction/runCodeDeployAction); every other action, and any of
-// those three when unwired, completes immediately (Succeeded). Callers
-// must hold b.mu.Lock.
+// runLambdaAction/runCodeDeployAction); other AWS-owned providers are
+// dispatched by runBuiltinAction, which fails what the emulator does not
+// implement. Non-AWS non-job-worker actions and the legacy providers when
+// unwired complete immediately (Succeeded). Callers must hold b.mu.Lock.
 func (b *InMemoryBackend) runOneAction(
 	region, pipelineName, executionID, stageName string,
 	action Action,
@@ -230,6 +231,8 @@ func (b *InMemoryBackend) runOneAction(
 		ae.Status = b.runLambdaAction(b.regionContext(region), action)
 	case isBuiltinAction(action, actionProviderCodeDeploy) && b.codeDeployBackend != nil:
 		ae.Status = b.runCodeDeployAction(b.regionContext(region), action)
+	case action.ActionTypeID.Owner == actionOwnerAWS:
+		b.runBuiltinAction(region, b.pipelineOf(region, pipelineName), executionID, action, ae)
 	}
 
 	store := b.actionExecutionsStore(region)

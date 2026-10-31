@@ -109,6 +109,7 @@ func containerEnv(a *appState, rc runtimeChoice, host string) []string {
 	env := map[string]string{
 		"AzureWebJobsScriptRoot": siteRoot,
 		"WEBSITE_SITE_NAME":      a.Name,
+		"WEBSITE_SLOT_NAME":      a.slotName(),
 		"WEBSITE_HOSTNAME":       host,
 	}
 
@@ -311,7 +312,7 @@ func (b *InMemoryBackend) claimStart(name string) (startClaim, error) {
 	a.starting = make(chan struct{})
 
 	return startClaim{
-		own: true, wait: a.starting, st: a.appState, epoch: a.epoch, host: b.hostNameLocked(a.Name),
+		own: true, wait: a.starting, st: a.appState, epoch: a.epoch, host: b.hostNameLocked(a.label()),
 	}, nil
 }
 

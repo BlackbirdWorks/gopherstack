@@ -39,6 +39,8 @@ type indexingPolicy struct {
 	FullTextIndexes []struct {
 		Path string `json:"path"`
 	} `json:"fullTextIndexes"`
+	SpatialIndexes   []spatialIndex `json:"spatialIndexes"`
+	computed         map[string]struct{}
 	CompositeIndexes [][]struct {
 		Path  string `json:"path"`
 		Order string `json:"order"`
@@ -61,8 +63,15 @@ func parseIndexingPolicy(raw json.RawMessage) indexingPolicy {
 
 // checkQueryIndexing applies the indexing policy to stmt: multi-property ORDER BY needs a composite index, and a
 // query whose filter cannot use the index needs the scan switch.
-func checkQueryIndexing(stmt *sqlSelectStmt, raw json.RawMessage, opts QueryOptions) error {
+func checkQueryIndexing(
+	stmt *sqlSelectStmt, raw json.RawMessage, opts QueryOptions, computed map[string]sqlExpr,
+) error {
 	pol := parseIndexingPolicy(raw)
+	pol.computed = make(map[string]struct{}, len(computed))
+
+	for name := range computed {
+		pol.computed[name] = struct{}{}
+	}
 
 	if !pol.hasCompositeFor(stmt.orderBy) {
 		return &queryIndexError{msg: msgNoCompositeIndex}
@@ -173,6 +182,10 @@ func normalizeIndexPath(p string) string {
 
 // indexed reports whether the policy indexes the filter path; the longest matching include or exclude wins.
 func (p indexingPolicy) indexed(path string) bool {
+	if p.isComputed(path) {
+		return !strings.EqualFold(p.IndexingMode, indexModeNone) && p.computedIndexed(path)
+	}
+
 	if strings.EqualFold(p.IndexingMode, indexModeNone) {
 		return path == "/id" || path == "/"+sysPropRID
 	}
@@ -249,7 +262,7 @@ func (p indexingPolicy) needsScan(x sqlExpr) bool {
 
 func (p indexingPolicy) touchesUnindexed(x sqlExpr) bool {
 	if path, ok := rootPath(x); ok {
-		return path != "" && !p.indexed(path)
+		return path != "" && !p.isComputed(path) && !p.indexed(path)
 	}
 
 	switch n := x.(type) {

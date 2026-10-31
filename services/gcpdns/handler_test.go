@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 )
 
@@ -43,7 +44,7 @@ func TestWireErrorsAndRouting(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), tt.method, e.url+tt.path, strings.NewReader(tt.body))
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()
@@ -81,7 +82,7 @@ func TestWireShapes(t *testing.T) {
 	e.zone(t, "z", "z.com.")
 
 	get := func(path string) map[string]any {
-		resp, err := http.Get(e.url + path)
+		resp, err := testclient.New(t).Get(e.url + path)
 		require.NoError(t, err)
 
 		defer resp.Body.Close()

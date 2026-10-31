@@ -10,6 +10,7 @@ import (
 type routeIndex struct {
 	byCBOR   map[string][]int
 	byPath   [256][]int
+	byPathPf [256][][]string
 	byTarget [256][]int
 	always   []int
 }
@@ -32,7 +33,7 @@ func buildRouteIndex(targetGates, pathGates [][]string, cborGates []string) rout
 	for i := range targetGates {
 		switch {
 		case len(pathGates[i]) > 0:
-			addKeyed(&idx.byPath, i, pathGates[i], 1)
+			addKeyedPrefixes(&idx, i, pathGates[i])
 		case len(targetGates[i]) > 0:
 			addKeyed(&idx.byTarget, i, targetGates[i], 0)
 
@@ -58,6 +59,32 @@ func addKeyed(buckets *[256][]int, pos int, prefixes []string, keyAt int) {
 	}
 }
 
+// addKeyedPrefixes buckets pos under the second byte of each path prefix, recording per
+// bucket only the prefixes sharing that byte: they are all a gate check needs there.
+func addKeyedPrefixes(idx *routeIndex, pos int, prefixes []string) {
+	var seen [256]bool
+
+	for _, p := range prefixes {
+		k := p[1]
+		if seen[k] {
+			continue
+		}
+
+		seen[k] = true
+
+		same := make([]string, 0, len(prefixes))
+
+		for _, q := range prefixes {
+			if q[1] == k {
+				same = append(same, q)
+			}
+		}
+
+		idx.byPath[k] = append(idx.byPath[k], pos)
+		idx.byPathPf[k] = append(idx.byPathPf[k], same)
+	}
+}
+
 func head(s []int, i int) int {
 	if i < len(s) {
 		return s[i]
@@ -66,27 +93,34 @@ func head(s []int, i int) int {
 	return math.MaxInt
 }
 
-// nextCandidate pops the smallest position across the three ascending lists, or -1.
-func nextCandidate(a, b, c []int, ia, ib, ic *int) int {
+const (
+	fromAlways = iota
+	fromPath
+	fromTarget
+)
+
+// nextCandidate pops the smallest position across the three ascending lists, or -1, and
+// reports which list it came from.
+func nextCandidate(a, b, c []int, ia, ib, ic *int) (int, int) {
 	ha, hb, hc := head(a, *ia), head(b, *ib), head(c, *ic)
 
 	m := min(ha, hb, hc)
 
 	switch m {
 	case math.MaxInt:
-		return -1
+		return -1, fromAlways
 	case ha:
 		*ia++
 
-		return m
+		return m, fromAlways
 	case hb:
 		*ib++
 
-		return m
+		return m, fromPath
 	default:
 		*ic++
 
-		return m
+		return m, fromTarget
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"maps"
 	"time"
 )
 
@@ -65,6 +66,8 @@ type Spec struct {
 	GroupAdd []string
 	// OCIRuntime selects the daemon-registered OCI runtime (e.g. runsc); empty uses the daemon default.
 	OCIRuntime string
+	// Labels are extra container labels; see ResourceLabels. Identity labels are added by the runtime.
+	Labels     map[string]string
 	Env        []string
 	Mounts     []string
 	Cmd        []string
@@ -72,6 +75,8 @@ type Spec struct {
 	Ports      []string
 	Tmpfs      []string
 	Privileged bool
+	// Unmanaged skips the identity labels, for containers that must outlive this gopherstack (e.g. `start`).
+	Unmanaged bool
 	// MemoryBytes caps container memory; zero is unlimited.
 	MemoryBytes int64
 	// NanoCPUs caps CPU in billionths of a CPU; zero is unlimited.
@@ -85,6 +90,31 @@ type ExecResult struct {
 	Stderr string
 	// ExitCode is the command's exit status.
 	ExitCode int
+}
+
+// Execer runs a command in a container.
+type Execer interface {
+	Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error)
+}
+
+// EnvExecer is implemented by runtimes that can set environment variables on an exec process.
+type EnvExecer interface {
+	ExecEnv(ctx context.Context, containerID string, cmd, env []string) (ExecResult, error)
+}
+
+// ExecWithEnv runs cmd with env (KEY=VALUE entries) set on the process, keeping secrets out of argv.
+// It never falls back to argv: a runtime without EnvExecer yields ErrExecUnsupported.
+func ExecWithEnv(ctx context.Context, x Execer, containerID string, cmd, env []string) (ExecResult, error) {
+	if len(env) == 0 {
+		return x.Exec(ctx, containerID, cmd)
+	}
+
+	ex, ok := x.(EnvExecer)
+	if !ok {
+		return ExecResult{}, ErrExecUnsupported
+	}
+
+	return ex.ExecEnv(ctx, containerID, cmd, env)
 }
 
 // StreamExecer is implemented by runtimes that can stream a command's output while it runs.
@@ -104,6 +134,20 @@ type NetworkRuntime interface {
 	ConnectNetwork(ctx context.Context, networkID, containerID string) error
 	// RemoveNetwork deletes the network.
 	RemoveNetwork(ctx context.Context, networkID string) error
+}
+
+// ErrVolumeUnsupported is returned when the underlying client cannot manage volumes.
+var ErrVolumeUnsupported = errors.New("container volumes are not supported by this runtime client")
+
+// VolumeRuntime is implemented by runtimes that can manage named volumes.
+type VolumeRuntime interface {
+	// CreateVolume creates a labelled named volume; an existing one is reused.
+	CreateVolume(ctx context.Context, name string, labels map[string]string) error
+	// RemoveVolume deletes the volume; a missing one is not an error.
+	RemoveVolume(ctx context.Context, name string) error
+	// ListUnusedVolumes lists the volumes carrying label (key or key=value) that no container references and that
+	// are older than olderThan.
+	ListUnusedVolumes(ctx context.Context, label string, olderThan time.Duration) ([]string, error)
 }
 
 // PooledContainer tracks a container managed by the warm pool.
@@ -132,6 +176,10 @@ type Runtime interface {
 	CreateAndStart(ctx context.Context, spec Spec) (string, error)
 	// StopAndRemove stops and removes a container.
 	StopAndRemove(ctx context.Context, containerID string) error
+	// StopContainer stops a container without removing it, keeping its filesystem and published ports.
+	StopContainer(ctx context.Context, containerID string) error
+	// StartContainer starts a container previously stopped by StopContainer.
+	StartContainer(ctx context.Context, containerID string) error
 	// Exec runs cmd inside a running container and waits for it to finish.
 	// A non-zero exit status is reported in the result, not as an error.
 	Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error)
@@ -145,4 +193,16 @@ type Runtime interface {
 	StartReaper(ctx context.Context, interval time.Duration)
 	// Close releases resources held by the runtime client.
 	Close() error
+}
+
+func (s Spec) launchLabels() map[string]string {
+	if s.Unmanaged {
+		return s.Labels
+	}
+
+	out := CurrentIdentity().Labels()
+	maps.Copy(out, s.Labels)
+	out[LabelManaged] = labelTrue
+
+	return out
 }

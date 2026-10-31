@@ -23,6 +23,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func startupFlagsServer(t *testing.T, cli CLI) (*httptest.Server, aws.Config) {
@@ -33,7 +34,7 @@ func startupFlagsServer(t *testing.T, cli CLI) (*httptest.Server, aws.Config) {
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)
@@ -263,7 +264,7 @@ func TestCORSMiddleware(t *testing.T) {
 				req.Header.Set("Access-Control-Request-Method", tt.reqMethod)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

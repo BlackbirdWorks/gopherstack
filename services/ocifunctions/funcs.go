@@ -179,6 +179,8 @@ func (b *InMemoryBackend) CreateFunction(in fnIn, endpoint string) (fnWire, stri
 		return fnWire{}, "", "", aerr
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateFunction")
 	defer b.mu.Unlock()
 
@@ -208,6 +210,7 @@ func (b *InMemoryBackend) CreateFunction(in fnIn, endpoint string) (fnWire, stri
 	}
 
 	b.funcs[f.ID] = f
+	b.recordEvent(EventCreateFunction, f.CompartmentID, f.Name, f.ID)
 	wr := b.newWR("CREATE_FUNCTION", f.CompartmentID, "function", f.ID, "CREATED", "/functions/"+f.ID, *f.TransitionAt)
 
 	return b.fnView(f, endpoint, false), f.Etag, wr, nil
@@ -336,6 +339,8 @@ func applyFnUpdate(f *Function, in fnIn) {
 
 // DeleteFunction moves a function to DELETING and removes its warm containers.
 func (b *InMemoryBackend) DeleteFunction(id, ifMatch string) (string, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteFunction")
 
 	f, aerr := b.activeFn(id)
@@ -351,6 +356,7 @@ func (b *InMemoryBackend) DeleteFunction(id, ifMatch string) (string, error) {
 
 	f.State, f.TransitionAt, f.Etag = stateDeleting, b.transitionAt(), newEtag()
 	wr := b.newWR("DELETE_FUNCTION", f.CompartmentID, "function", f.ID, "DELETED", "/functions/"+f.ID, *f.TransitionAt)
+	b.recordEvent(EventDeleteFunction, f.CompartmentID, f.Name, f.ID)
 	b.mu.Unlock()
 
 	b.exec.dropFunction(id)

@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
 // resolveTopicRuleDestinationOps resolves the topic-rule-destination op
@@ -131,8 +132,15 @@ func (h *Handler) handleCreateTopicRule(c *echo.Context) error {
 
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	rawBody, err := io.ReadAll(c.Request().Body)
+	rawBody, err := httputils.ReadBodyLimit(c.Request(), maxTopicRuleBodyBytes)
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.JSON(
+				http.StatusRequestEntityTooLarge,
+				awsErrBody{"RequestEntityTooLargeException", "The request body exceeds the maximum size allowed"},
+			)
+		}
+
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
@@ -299,8 +307,15 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	rawBody, err := io.ReadAll(c.Request().Body)
+	rawBody, err := httputils.ReadBodyLimit(c.Request(), maxTopicRuleBodyBytes)
 	if err != nil {
+		if _, tooLarge := errors.AsType[*http.MaxBytesError](err); tooLarge {
+			return c.JSON(
+				http.StatusRequestEntityTooLarge,
+				awsErrBody{"RequestEntityTooLargeException", "The request body exceeds the maximum size allowed"},
+			)
+		}
+
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 

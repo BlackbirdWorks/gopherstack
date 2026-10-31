@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"cloud.google.com/go/functions/apiv2/functionspb"
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ltype "google.golang.org/genproto/googleapis/logging/type"
+
+	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 )
 
 type chanSink struct{ ch chan *loggingpb.LogEntry }
@@ -150,4 +153,63 @@ func TestLogCaptureDisabledWithoutSink(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, code)
 	assert.Zero(t, e.rt.streams.Load())
+}
+
+func TestLogRequestEntryForEventDeliveries(t *testing.T) {
+	t.Parallel()
+
+	const requests = "projects/test-project/logs/run.googleapis.com%2Frequests"
+
+	tests := []struct {
+		deliver    func(t *testing.T, e *env, fn *functionspb.Function)
+		name       string
+		reply      int32
+		wantStatus int32
+		wantSev    ltype.LogSeverity
+	}{
+		{func(t *testing.T, e *env, fn *functionspb.Function) {
+			t.Helper()
+
+			code, _ := e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
+			require.Equal(t, http.StatusOK, code)
+		}, "pubsub ok", http.StatusOK, http.StatusOK, ltype.LogSeverity_INFO},
+		{func(t *testing.T, e *env, fn *functionspb.Function) {
+			t.Helper()
+			e.call(t, http.MethodPost, "localhost", "/_gcf/events/"+fn.GetName(), envelope)
+		}, "pubsub failing", http.StatusInternalServerError, http.StatusInternalServerError, ltype.LogSeverity_ERROR},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e, ch := logEnv(t)
+			e.rt.reply.Store(tt.reply)
+
+			fn := e.createFunction(t, "ev", eventSpec(e.upload(t, zipOf(t, nodeFilesFn())), 0))
+			tt.deliver(t, e, fn)
+
+			got := nextEntry(t, ch)
+			require.Equal(t, requests, got.GetLogName())
+			assert.Equal(t, "cloud_run_revision", got.GetResource().GetType())
+			assert.Equal(t, tt.wantStatus, got.GetHttpRequest().GetStatus())
+			assert.Equal(t, tt.wantSev, got.GetSeverity())
+			assert.Equal(t, http.MethodPost, got.GetHttpRequest().GetRequestMethod())
+			assert.NotEmpty(t, got.GetLabels()["instanceId"])
+		})
+	}
+}
+
+func TestLogRequestEntryForStorageTrigger(t *testing.T) {
+	t.Parallel()
+
+	e, ch := logEnv(t)
+	triggerFn(t, e, typeFinalized, 0, filter("bucket", "b1"))
+	e.handler.Backend.HandleStorageEvent(gcpfunctions.StorageEvent{
+		Type: "finalized", Bucket: "b1", Name: "o", Data: []byte(`{}`),
+	})
+
+	got := nextEntry(t, ch)
+	assert.Equal(t, "projects/test-project/logs/run.googleapis.com%2Frequests", got.GetLogName())
+	assert.Equal(t, int32(http.StatusOK), got.GetHttpRequest().GetStatus())
 }

@@ -1,11 +1,9 @@
 package eks_test
 
 import (
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
@@ -13,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
@@ -28,20 +27,11 @@ func newTestEKSClient(t *testing.T, h *eks.Handler) *ekssdk.Client {
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion("us-east-1"),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	return ekssdk.NewFromConfig(cfg, func(o *ekssdk.Options) {
-		o.BaseEndpoint = &srv.URL
+	return ekssdk.NewFromConfig(aws.Config{
+		Region:       "us-east-1",
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 }
 

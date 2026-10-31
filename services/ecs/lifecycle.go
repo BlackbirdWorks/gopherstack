@@ -203,8 +203,7 @@ func (b *InMemoryBackend) advanceStartLocked(task *Task, lc *taskLifecycle, now 
 
 		return false
 	default:
-		task.LastStatus = statusRunning
-		syncContainerStatuses(task, nil)
+		b.markRunningLocked(task, now)
 		b.emitTaskStateLocked(task)
 
 		if c, _ := b.clusters.Get(lc.clusterName); c != nil {

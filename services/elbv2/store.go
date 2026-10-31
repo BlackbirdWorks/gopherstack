@@ -34,6 +34,7 @@ type InMemoryBackend struct {
 	targetReadyAt       map[string]map[string]time.Time // tgArn → targetKey → readyAt (initial→healthy)
 	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
 	mu                  *lockmetrics.RWMutex
+	rl                  realListeners
 	stopCh              chan struct{}
 	// healthDone is closed by runHealthReconciler when it returns, so Close
 	// can join it and guarantee the goroutine is gone before returning.
@@ -61,6 +62,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		targetDrainingUntil: make(map[string]map[string]time.Time),
 		stopCh:              make(chan struct{}),
 		healthDone:          make(chan struct{}),
+		rl:                  realListeners{bound: make(map[string]*boundListener)},
 	}
 
 	registerAllTables(b)
@@ -94,6 +96,8 @@ func (b *InMemoryBackend) SetCertificateResolver(r CertificateResolver) {
 // Close stops the background health reconciler, waiting for it to exit so
 // no goroutine outlives the backend. Safe to call more than once.
 func (b *InMemoryBackend) Close() {
+	b.closeRealListeners()
+
 	select {
 	case <-b.stopCh:
 	default:

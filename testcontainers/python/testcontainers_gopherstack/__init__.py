@@ -30,12 +30,13 @@ AZURE_PORTS = {
     "appconfig": 10008,
     "file": 10009,
     "monitor": 10013,
+    "graph": 10014,
     "acr": 10011,
     "storagevhost": 10010,
     "cosmosdb": 8081,
 }
 
-OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155}
+OCI_PORTS = {"objectstorage": 8150, "vault": 8151, "streaming": 8152, "identity": 8153, "functions": 8154, "core": 8155, "queue": 8156, "notifications": 8157, "containerengine": 8158, "mysql": 8159, "logging": 8160, "monitoring": 8161, "nosql": 8162, "apigateway": 8163, "events": 8164, "loadbalancer": 8165, "artifacts": 8166, "containerinstances": 8167}
 
 GCP_PORTS = {
     "storage": 4443,
@@ -61,6 +62,12 @@ GCP_PORTS = {
     "dns": 8140,
     "dnsserver": 8141,
     "compute": 8142,
+    "datastore": 8143,
+    "container": 8144,
+    "identitytoolkit": 8145,
+    "apigateway": 8146,
+    "batch": 8147,
+    "resourcemanager": 8148,
     "bigquery": 9050,
 }
 
@@ -157,7 +164,7 @@ class GopherstackContainer(DockerContainer):
         )
 
     def get_oci_endpoint(self, service: str) -> str:
-        """http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host."""
+        """http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client host."""
         try:
             port = OCI_PORTS[service.lower()]
         except KeyError:

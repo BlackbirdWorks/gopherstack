@@ -106,6 +106,7 @@ func BenchmarkServerPath(b *testing.B) {
 		{"sqs_query", "POST", "/", "sqs", form, "", "Action=ListQueues&Version=2012-11-05"},
 		{"ec2_describe_instances", "POST", "/", "ec2", form, "", "Action=DescribeInstances&Version=2016-11-15"},
 		{"s3_getobject", "GET", "/bench-server-bucket/obj.txt", "s3", "", "", ""},
+		{"s3_putobject", "PUT", "/bench-server-bucket/put.txt", "s3", "application/octet-stream", "", "bench put body"},
 		{"lambda_list", "GET", "/2015-03-31/functions/", "lambda", "", "", ""},
 		{"apigw_restjson", "GET", "/restapis", "apigateway", "", "", ""},
 	}

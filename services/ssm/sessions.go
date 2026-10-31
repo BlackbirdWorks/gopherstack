@@ -324,6 +324,50 @@ func (b *InMemoryBackend) StartSession(
 	}, nil
 }
 
+// ContainerSessionInput describes a Session Manager session that runs Command in a docker container.
+type ContainerSessionInput struct {
+	Target      string
+	ContainerID string
+	Command     string
+	StreamBase  string
+}
+
+// StartContainerSession creates a session whose data channel runs Command in a container (ECS Exec).
+func (b *InMemoryBackend) StartContainerSession(
+	ctx context.Context,
+	in ContainerSessionInput,
+) (*StartSessionOutput, error) {
+	opener := b.shellOpener()
+	if _, ok := opener.(CommandShellOpener); !ok {
+		return nil, errNoShellBackend
+	}
+
+	if in.StreamBase == "" {
+		return nil, errNoStreamBase
+	}
+
+	region := getRegion(ctx)
+	b.mu.Lock("StartContainerSession")
+	defer b.mu.Unlock()
+
+	sessionID := sessionIDPrefix + uuid.NewString()
+	sess := Session{
+		SessionID:   sessionID,
+		Target:      in.Target,
+		Status:      sessionStatusConnected,
+		StartDate:   UnixTimeFloat(timeNow()),
+		StreamURL:   in.StreamBase + dataChannelPath + sessionID + "?role=publish_subscribe",
+		TokenValue:  uuid.NewString(),
+		AccessType:  accessTypeStandard,
+		ContainerID: in.ContainerID,
+		ExecCommand: in.Command,
+	}
+
+	b.sessionsStore(region).Put(&sess)
+
+	return &StartSessionOutput{SessionID: sessionID, StreamURL: sess.StreamURL, TokenValue: sess.TokenValue}, nil
+}
+
 // TerminateSession terminates an active SSM session.
 func (b *InMemoryBackend) TerminateSession(
 	ctx context.Context,

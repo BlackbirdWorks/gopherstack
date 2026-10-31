@@ -252,6 +252,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	if b, isMem := h.Backend.(*InMemoryBackend); isMem {
+		b.adoptRestoredTasks(ctx)
+	}
+
 	return h.peers.Restore(
 		data,
 		func(p *Handler, d []byte) error { return p.Restore(ctx, d) },

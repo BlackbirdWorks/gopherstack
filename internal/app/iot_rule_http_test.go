@@ -16,6 +16,8 @@ import (
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 type iotHTTPHit struct {
@@ -192,7 +194,7 @@ func TestIoTTopicRuleDestinationConfirmation(t *testing.T) {
 						return
 					}
 
-					if resp, derr := http.DefaultClient.Do(req); derr == nil {
+					if resp, derr := testclient.New(t).Do(req); derr == nil {
 						resp.Body.Close()
 					}
 				}

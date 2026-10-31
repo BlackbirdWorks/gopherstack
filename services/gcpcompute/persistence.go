@@ -42,6 +42,8 @@ type backendSnapshot struct {
 	FwdRules        map[string]*computeapi.ForwardingRule       `json:"forwardingRules"`
 	NEGs            map[string]*computeapi.NetworkEndpointGroup `json:"networkEndpointGroups"`
 	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint    `json:"networkEndpoints"`
+	SecPolicies     map[string]*computeapi.SecurityPolicy       `json:"securityPolicies"`
+	ResPolicies     map[string]*computeapi.ResourcePolicy       `json:"resourcePolicies"`
 	Ops             map[string]*opRec                           `json:"ops"`
 	Projects        map[string]*computeapi.Metadata             `json:"projects"`
 	Version         int                                         `json:"version"`
@@ -60,7 +62,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		BackendServices: b.backendSvcs, BackendBuckets: b.backendBuckets, URLMaps: b.urlMaps,
 		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
 		SSLProxies: b.sslProxies, SSLCerts: b.sslCerts, SSLPolicies: b.sslPolicies, FwdRules: b.fwdRules,
-		NEGs: b.negs, NEGEndpoints: b.negEndpoints,
+		NEGs: b.negs, NEGEndpoints: b.negEndpoints, SecPolicies: b.secPolicies, ResPolicies: b.resPolicies,
 	})
 }
 
@@ -110,7 +112,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.httpsProxies, snap.HTTPSProxies), copyNonNil(b.tcpProxies, snap.TCPProxies),
 		copyNonNil(b.sslProxies, snap.SSLProxies), copyNonNil(b.sslCerts, snap.SSLCerts),
 		copyNonNil(b.sslPolicies, snap.SSLPolicies), copyNonNil(b.fwdRules, snap.FwdRules),
-		copyNonNil(b.negs, snap.NEGs),
+		copyNonNil(b.negs, snap.NEGs), copyNonNil(b.secPolicies, snap.SecPolicies),
+		copyNonNil(b.resPolicies, snap.ResPolicies),
 	} {
 		if err != nil {
 			b.resetMaps()

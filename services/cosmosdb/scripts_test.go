@@ -604,8 +604,16 @@ func TestContainer_ConflictResolutionPolicy(t *testing.T) {
 	custom := s.do(http.MethodPut, "/dbs/d/colls/lww", nil,
 		`{"id":"lww","partitionKey":{"paths":["/pk"],"kind":"Hash"},`+
 			`"conflictResolutionPolicy":{"mode":"Custom","conflictResolutionProcedure":"dbs/d/colls/lww/sprocs/resolve"}}`)
-	require.Equal(t, http.StatusOK, custom.status)
-	assert.Equal(t, "Custom", custom.object(t)["conflictResolutionPolicy"].(map[string]any)["mode"])
+	assert.Equal(t, http.StatusBadRequest, custom.status, "the policy can only be set when the container is created")
+
+	same := s.do(http.MethodPut, "/dbs/d/colls/lww", nil,
+		`{"id":"lww","partitionKey":{"paths":["/pk"],"kind":"Hash"},`+
+			`"conflictResolutionPolicy":{"mode":"LastWriterWins","conflictResolutionPath":"/v"}}`)
+	assert.Equal(t, http.StatusOK, same.status, "replacing with the same policy is allowed")
+
+	bad := s.do(http.MethodPost, "/dbs/d/colls", nil,
+		`{"id":"bad","partitionKey":{"paths":["/pk"],"kind":"Hash"},"conflictResolutionPolicy":{"mode":"Newest"}}`)
+	assert.Equal(t, http.StatusBadRequest, bad.status)
 }
 
 func TestPersistence_ScriptsAndChangeFeedSurviveRestore(t *testing.T) {
@@ -715,4 +723,37 @@ func TestSproc_ConcurrentWriteSameContainerIsSerialized(t *testing.T) {
 	for i := range runs {
 		assert.Equal(t, http.StatusOK, s.get(fmt.Sprintf("n%d", i)).status, "each run saw the previous run's write")
 	}
+}
+
+func TestSproc_ConcurrentAcrossContainersIsRaceFree(t *testing.T) {
+	t.Parallel()
+
+	s := newLiveServer(t)
+	require.Equal(t, http.StatusCreated, s.do(http.MethodPost, "/dbs/d/colls", nil,
+		`{"id":"c2","partitionKey":{"paths":["/pk"],"kind":"Hash"}}`).status)
+
+	body := scriptJSON(t, map[string]string{
+		"id": "noop", "body": `function noop(){ getContext().getResponse().setBody(1); }`,
+	})
+	for _, coll := range []string{"c", "c2"} {
+		require.Equal(t, http.StatusCreated, s.do(http.MethodPost, "/dbs/d/colls/"+coll+"/sprocs", nil, body).status)
+	}
+
+	headers := map[string]string{"X-Ms-Documentdb-Partitionkey": pkA}
+
+	var wg sync.WaitGroup
+
+	for i := range 32 {
+		coll := []string{"c", "c2"}[i%2]
+
+		wg.Go(func() {
+			res := s.do(http.MethodPost, "/dbs/d/colls/"+coll+"/sprocs/noop", headers, "[]")
+			assert.Equal(t, http.StatusOK, res.status)
+		})
+		wg.Go(func() {
+			s.do(http.MethodGet, "/dbs/d/colls/"+coll+"/docs/missing", headers, "")
+		})
+	}
+
+	wg.Wait()
 }

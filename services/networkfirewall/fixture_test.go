@@ -1,12 +1,10 @@
 package networkfirewall_test
 
 import (
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	sdk "github.com/aws/aws-sdk-go-v2/service/networkfirewall"
 	"github.com/aws/aws-sdk-go-v2/service/networkfirewall/types"
@@ -15,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	nf "github.com/blackbirdworks/gopherstack/services/networkfirewall"
 )
@@ -62,18 +61,14 @@ func newClient(t *testing.T, h *nf.Handler, region string) *sdk.Client {
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
+	cfg := aws.Config{
+		Region:       region,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+	}
 
-	url := srv.URL
-
-	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
-		awscfg.WithRegion(region),
-		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
-	)
-	require.NoError(t, err)
-
-	return sdk.NewFromConfig(cfg, func(o *sdk.Options) { o.BaseEndpoint = aws.String(url) })
+	return sdk.NewFromConfig(cfg)
 }
 
 func errCode(t *testing.T, err error) string {

@@ -64,6 +64,10 @@ var (
 	ErrWebPlanNotLinux         = errors.New("azurearm: Linux app needs a Linux (reserved) plan")
 	ErrWebNotFunctionApp       = errors.New("azurearm: operation is only valid for function apps")
 	ErrWebInvalidKeyType       = errors.New("azurearm: key type must be functionKeys or systemKeys")
+	ErrWebSwapPending          = errors.New("azurearm: slot is prepared for a swap")
+	ErrWebSlotLimit            = errors.New("azurearm: deployment slot limit reached for the plan tier")
+	ErrWebSlotName             = errors.New("azurearm: invalid deployment slot name")
+	ErrWebSwapFailed           = errors.New("azurearm: slot swap failed")
 	ErrWebFunctionsUnavailable = errors.New("azurearm: azure functions data plane is not available")
 
 	ErrACRRegistryNotFound    = errors.New("azurearm: container registry not found")

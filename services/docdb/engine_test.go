@@ -25,6 +25,7 @@ type fakeEngineRuntime struct {
 	createErr error
 	onCreate  func(spec container.Spec)
 	execs     [][]string
+	envs      [][]string
 	specs     []container.Spec
 	removed   []string
 	stopped   []string
@@ -84,6 +85,25 @@ func (f *fakeEngineRuntime) Exec(_ context.Context, _ string, cmd []string) (con
 	f.execs = append(f.execs, cmd)
 
 	return container.ExecResult{ExitCode: f.execExit, Stderr: "boom"}, nil
+}
+
+func (f *fakeEngineRuntime) ExecEnv(
+	_ context.Context, _ string, cmd, env []string,
+) (container.ExecResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.execs = append(f.execs, cmd)
+	f.envs = append(f.envs, env)
+
+	return container.ExecResult{ExitCode: f.execExit, Stderr: "boom s3cretpassword n3wpassword!"}, nil
+}
+
+func (f *fakeEngineRuntime) execEnvs() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return append([][]string(nil), f.envs...)
 }
 
 func (f *fakeEngineRuntime) snapshot() ([]container.Spec, []string, []string, []string, [][]string) {
@@ -427,8 +447,20 @@ func TestEngineModifyMasterPassword(t *testing.T) {
 			execs := rt.execCalls()
 			require.Len(t, execs, 1)
 			assert.Equal(t, "mongo", execs[0][0])
-			assert.Contains(t, execs[0], "s3cretpassword")
-			assert.Contains(t, strings.Join(execs[0], " "), `"n3wpassword!"`)
+
+			argv := strings.Join(execs[0], " ")
+			assert.NotContains(t, argv, "s3cretpassword")
+			assert.NotContains(t, argv, "n3wpassword!")
+
+			envs := rt.execEnvs()
+			require.Len(t, envs, 1)
+			assert.Contains(t, envs[0], "GS_OLD_PW=s3cretpassword")
+			assert.Contains(t, envs[0], "GS_NEW_PW=n3wpassword!")
+
+			if err != nil {
+				assert.NotContains(t, err.Error(), "s3cretpassword")
+				assert.NotContains(t, err.Error(), "n3wpassword!")
+			}
 		})
 	}
 }

@@ -149,7 +149,7 @@ func (b *InMemoryBackend) emitTaskStateLocked(task *Task) {
 		LaunchType:           task.LaunchType,
 		Connectivity:         task.Connectivity,
 		ConnectivityAt:       eventTimePtr(task.ConnectivityAt),
-		CreatedAt:            eventTimePtr(task.StartedAt),
+		CreatedAt:            eventTimePtr(task.CreatedAt),
 		StartedBy:            task.StartedBy,
 		StoppedAt:            eventTimePtr(task.StoppedAt),
 		StoppedReason:        task.StoppedReason,
@@ -161,7 +161,7 @@ func (b *InMemoryBackend) emitTaskStateLocked(task *Task) {
 		Containers:           make([]eventContainer, 0, len(task.Containers)),
 	}
 
-	if task.LastStatus != statusProvisioning && task.LastStatus != statusPending {
+	if task.StartedAt != nil {
 		d.StartedAt = eventTimePtr(task.StartedAt)
 	}
 

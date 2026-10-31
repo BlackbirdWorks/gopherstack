@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	oci "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
@@ -29,7 +30,7 @@ func rawDo(t *testing.T, method, url, body string) (int, string) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

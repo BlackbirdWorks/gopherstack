@@ -50,6 +50,7 @@ type FunctionHostKeys struct {
 
 // FunctionApps is the seam the Microsoft.Web resource provider uses to keep function apps and Linux web apps in
 // step with the Azure Functions data plane. Primitive types only, so this package never imports the data-plane service.
+// Slots are addressed as "<app>/<slot>".
 // Implementations return ErrWebSiteNotFound, ErrWebFunctionNotFound, ErrWebKeyNotFound or ErrWebInvalidKeyType.
 type FunctionApps interface {
 	PutApp(name string, cfg FunctionAppConfig) (FunctionAppInfo, error)
@@ -67,6 +68,8 @@ type FunctionApps interface {
 	SetFunctionKey(name, fn, keyName, value string) (string, error)
 	DeleteFunctionKey(name, fn, keyName string) error
 	PublishingCredentials(name string) (user, password, scmURI string, err error)
+	SwapContent(first, second string) error
+	WarmUp(ctx context.Context, name string) error
 }
 
 type noopFunctionApps struct{}
@@ -121,5 +124,9 @@ func (noopFunctionApps) DeleteFunctionKey(string, string, string) error {
 func (noopFunctionApps) PublishingCredentials(string) (string, string, string, error) {
 	return "", "", "", ErrWebFunctionsUnavailable
 }
+
+func (noopFunctionApps) SwapContent(string, string) error { return ErrWebFunctionsUnavailable }
+
+func (noopFunctionApps) WarmUp(context.Context, string) error { return ErrWebFunctionsUnavailable }
 
 var _ FunctionApps = noopFunctionApps{}

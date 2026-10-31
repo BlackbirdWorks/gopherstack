@@ -116,14 +116,17 @@ func newVPCDockerHandler(t *testing.T) (*Handler, *fakeNetDockerAPI, *InMemoryBa
 func runIn(t *testing.T, h *Handler, subnetID string, sgIDs ...string) {
 	t.Helper()
 
+	img, err := h.Backend.RegisterImage("plain", "", "")
+	require.NoError(t, err)
+
 	vals := map[string][]string{
-		"ImageId": {"ami-1"}, "InstanceType": {"t3.micro"}, "MinCount": {"1"}, "SubnetId": {subnetID},
+		"ImageId": {img.ImageID}, "InstanceType": {"t3.micro"}, "MinCount": {"1"}, "SubnetId": {subnetID},
 	}
 	if len(sgIDs) > 0 {
 		vals["SecurityGroupId.1"] = sgIDs
 	}
 
-	_, err := h.handleRunInstances(vals, "req")
+	_, err = h.handleRunInstances(vals, "req")
 	require.NoError(t, err)
 }
 

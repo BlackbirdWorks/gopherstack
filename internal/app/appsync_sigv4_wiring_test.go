@@ -66,7 +66,7 @@ func TestInitializeServices_AppSyncSigV4SecretWiring(t *testing.T) {
 			}
 			cli.faultStore = chaos.NewFaultStore()
 
-			services, err := initializeServices(appCtx)
+			services, err := initializeServicesT(t, appCtx)
 			require.NoError(t, err)
 
 			h, ok := serviceByName(services)["AppSync"].(*appsyncbackend.Handler)

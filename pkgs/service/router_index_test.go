@@ -232,3 +232,25 @@ func TestRouterCBORGate(t *testing.T) {
 		})
 	}
 }
+
+func TestGatePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct{ name, in, want string }{
+		{"empty", "", ""},
+		{"root", "/", "/"},
+		{"plain", "/a/b", "/a/b"},
+		{"double", "//a", "/a"},
+		{"triple", "///a//b", "/a//b"},
+		{"only_slashes", "////", "/"},
+		{"relative", "a//b", "a//b"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, gatePath(tt.in))
+		})
+	}
+}

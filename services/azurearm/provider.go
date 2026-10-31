@@ -3,8 +3,11 @@ package azurearm
 import (
 	"errors"
 	"fmt"
+	"os"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -95,6 +98,37 @@ func checkKeyVaultPort(cfg any, settings Settings) error {
 	return nil
 }
 
+// ErrGraphPortMismatch is returned when Settings.GraphPort (what ARM advertises as the Graph endpoint) disagrees with
+// the Microsoft Graph listener's own port.
+var ErrGraphPortMismatch = errors.New("azurearm: --azure-arm-graph-port must match --azure-graph-port")
+
+// GraphPortProvider is a private interface AppContext.Config may implement to expose the Graph listener's port.
+type GraphPortProvider interface {
+	GetAzureGraphPort() int
+}
+
+func checkGraphPort(cfg any, settings Settings) error {
+	if settings.AdvertiseGraph != "" {
+		return nil
+	}
+
+	gp, ok := cfg.(GraphPortProvider)
+	if !ok {
+		return nil
+	}
+
+	if actual := gp.GetAzureGraphPort(); actual != 0 && actual != settings.GraphPort {
+		return fmt.Errorf(
+			"%w: azure-arm-graph-port=%d, azure-graph-port=%d",
+			ErrGraphPortMismatch,
+			settings.GraphPort,
+			actual,
+		)
+	}
+
+	return nil
+}
+
 // Provider implements service.Provider for the ARM emulation.
 //
 // Like services/azureblob/azurequeue/azuretable/cosmosdb/azureservicebus,
@@ -152,6 +186,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		return nil, err
 	}
 
+	if err := checkGraphPort(ctx.Config, settings); err != nil {
+		return nil, err
+	}
+
 	backend := NewInMemoryBackend()
 	registry := NewRegistry(backend)
 
@@ -196,13 +234,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	registry.Register(NewMonitorProvider(namespaceMicrosoftOperationalInsights, backend, nil))
 	registry.Register(NewMonitorProvider(namespaceMicrosoftInsights, backend, nil))
 
-	registry.Register(NewRedisProvider(nil))
-
-	registry.Register(NewSQLProvider(nil))
-
-	registry.Register(NewWebProvider(nil))
-
-	registry.Register(NewContainerInstanceProvider(newACIEngine(ctx, settings)))
+	ids := registerLocalProviders(ctx, registry, backend, settings)
+	registerContainerProviders(registry, backend, newACIEngine(ctx, settings), ids)
+	registerContainerService(ctx, registry, backend, ids, settings)
 
 	registry.Register(NewCosmosProvider(CosmosEndpointConfig{Override: settings.AdvertiseCosmosDB}, nil))
 
@@ -214,6 +248,25 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend, registry, issuer, settings)
 
 	return handler, nil
+}
+
+// registerFlexProviders registers the PostgreSQL and MySQL flexible server providers; with the docker engine each
+// server runs a real container, dialed on first use.
+func registerFlexProviders(ctx *service.AppContext, registry *Registry, network *NetworkProvider, settings Settings) {
+	for _, p := range []*FlexDBProvider{NewPostgresFlexProvider(), NewMySQLFlexProvider()} {
+		p.SetNetwork(network)
+
+		if settings.DBEngine == DBEngineDocker {
+			p.SetEngine(NewDockerFlexEngine(p.flavor.kind, DockerFlexConfig{
+				Runtime: func() (container.Runtime, error) {
+					return container.NewRuntime(container.Config{Logger: ctx.Logger})
+				},
+				Ports: ctx.PortAlloc, Logger: ctx.Logger,
+			}))
+		}
+
+		registry.Register(p)
+	}
 }
 
 func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
@@ -241,3 +294,84 @@ func newACIEngine(ctx *service.AppContext, settings Settings) *ACIEngine {
 }
 
 const aciDisabledReason = "the container engine is disabled (--azure-arm-aci-engine=none); container groups cannot run"
+
+// registerLocalProviders registers the providers that have no data-plane seam to wire up later.
+func registerLocalProviders(
+	ctx *service.AppContext,
+	registry *Registry,
+	backend *InMemoryBackend,
+	settings Settings,
+) *identityService {
+	msi := NewManagedIdentityProvider(settings.TenantID)
+	ids := newIdentityService(msi, settings.TenantID)
+	network := NewNetworkProvider(backend)
+
+	web := NewWebProvider(nil)
+	web.ids = ids
+
+	registry.Register(NewRedisProvider(nil))
+	registry.Register(NewSQLProvider(nil))
+	registerFlexProviders(ctx, registry, network, settings)
+
+	apim := NewAPIMProvider()
+	apim.SetAllowExternal(settings.APIMAllowExternal)
+	registry.Register(apim)
+	registry.Register(web)
+	registry.Register(network)
+	registry.Register(msi)
+	registry.Register(NewAuthorizationProvider(settings.TenantID, msi))
+	registry.Register(NewComputeProvider(backend, network, ids))
+
+	return ids
+}
+
+// registerContainerProviders registers Container Instances and Container Apps over one shared container engine.
+func registerContainerProviders(registry *Registry, backend *InMemoryBackend, engine *ACIEngine, ids *identityService) {
+	aci := NewContainerInstanceProvider(engine)
+	aci.ids = ids
+	registry.Register(aci)
+
+	var network *NetworkProvider
+	if np, ok := registry.ProviderNamed(namespaceMicrosoftNetwork); ok {
+		network, _ = np.(*NetworkProvider)
+	}
+
+	registry.Register(NewContainerAppsProvider(engine, backend, network, ids))
+}
+
+// registerContainerService registers Microsoft.ContainerService; the docker engine dials the container runtime on the
+// first cluster, not at startup.
+func registerContainerService(
+	ctx *service.AppContext, registry *Registry, backend *InMemoryBackend, ids *identityService, settings Settings,
+) {
+	var network *NetworkProvider
+	if np, ok := registry.ProviderNamed(namespaceMicrosoftNetwork); ok {
+		network, _ = np.(*NetworkProvider)
+	}
+
+	aks := NewContainerServiceProvider(backend, network, ids)
+	aks.SetResourceGroupCascade(registry.DeleteResourcesInGroup)
+
+	if settings.AKSEngine == AKSEngineDocker {
+		aks.SetEngineFactory(func() (*k3sengine.Engine, error) {
+			rt, err := container.NewRuntime(container.Config{Logger: ctx.Logger})
+			if err != nil {
+				return nil, fmt.Errorf("aks engine: container runtime: %w", err)
+			}
+
+			eng, err := k3sengine.New(k3sengine.Config{
+				Runtime: rt, Ports: ctx.PortAlloc, Logger: ctx.Logger, Prefix: "aks",
+				Host: os.Getenv("AKS_CLUSTER_HOST"), Token: os.Getenv("AKS_CLUSTER_TOKEN"),
+			})
+			if err != nil {
+				_ = rt.Close()
+
+				return nil, fmt.Errorf("aks engine: %w", err)
+			}
+
+			return eng, nil
+		}, os.Getenv("AKS_K3S_IMAGE"))
+	}
+
+	registry.Register(aks)
+}

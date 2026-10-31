@@ -99,7 +99,7 @@ func (h *Handler) writeBatchRetrieve(c *echo.Context, o odatatable.WireBatchOp) 
 func (h *Handler) writeBatchQuery(c *echo.Context, o odatatable.WireBatchOp) error {
 	accept := o.Headers.Get("Accept")
 
-	feed, failure := h.entityFeed(o.Table, o.Query, accept, c.Request().Host)
+	feed, next, failure := h.entityFeed(o.Table, o.Query, accept, c.Request().Host)
 	if failure != nil {
 		body, bodyErr := odatatable.FailureBody(0, *failure, newDocumentID(), time.Now().UTC().Format(time.RFC3339Nano))
 		if bodyErr != nil {
@@ -118,15 +118,14 @@ func (h *Handler) writeBatchQuery(c *echo.Context, o odatatable.WireBatchOp) err
 		return h.writeTableError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
 
+	headers := make([][2]string, 0, 1+len(next))
+	headers = append(headers, [2]string{
+		headerContentType,
+		"application/json;odata=" + tableODataLevelFromAccept(accept) + ";streaming=true;charset=utf-8",
+	})
+
 	return h.writeRetrievePart(c, odatatable.BatchResponsePart{
-		Status: http.StatusOK,
-		Headers: [][2]string{
-			{
-				headerContentType,
-				"application/json;odata=" + tableODataLevelFromAccept(accept) + ";streaming=true;charset=utf-8",
-			},
-		},
-		Body: payload,
+		Status: http.StatusOK, Headers: append(headers, next...), Body: payload,
 	})
 }
 

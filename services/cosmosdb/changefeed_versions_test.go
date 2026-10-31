@@ -81,8 +81,8 @@ func TestRaw_AllVersionsAndDeletes(t *testing.T) {
 
 	assert.Equal(t, []versionEntry{
 		{op: "create", id: "x"},
-		{op: "replace", id: "x", hasPrev: true},
-		{op: "delete", id: "x", hasPrev: true, curEmpty: true},
+		{op: "replace", id: "x"},
+		{op: "delete", id: "x", curEmpty: true},
 	}, versionEntries(t, feed))
 
 	first, _ := feed.object(t)["Documents"].([]any)
@@ -118,11 +118,11 @@ func TestRaw_AllVersionsStartRules(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name: "start_time",
+			name: "start_time_rejected",
 			headers: avadHeaders(map[string]string{
 				"If-Modified-Since": time.Now().Add(-time.Hour).UTC().Format(time.RFC1123),
 			}),
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusBadRequest,
 		},
 		{name: "bad_range", headers: avadHeaders(map[string]string{
 			"If-None-Match": `"0"`, "X-Ms-Documentdb-Partitionkeyrangeid": "9",
@@ -162,7 +162,7 @@ func TestRaw_AllVersionsTTLExpiry(t *testing.T) {
 	require.Equal(t, http.StatusOK, feed.status)
 	assert.Equal(t, []versionEntry{
 		{op: "create", id: "e"},
-		{op: "delete", id: "e", hasPrev: true, curEmpty: true, ttl: true},
+		{op: "delete", id: "e", curEmpty: true, ttl: true},
 	}, versionEntries(t, feed))
 }
 
@@ -185,7 +185,7 @@ func TestRaw_AllVersionsRecreateOverExpired(t *testing.T) {
 	feed := s.do(http.MethodGet, "/dbs/d/colls/t/docs", avadHeaders(map[string]string{"If-None-Match": `"0"`}), "")
 	assert.Equal(t, []versionEntry{
 		{op: "create", id: "e"},
-		{op: "delete", id: "e", hasPrev: true, curEmpty: true, ttl: true},
+		{op: "delete", id: "e", curEmpty: true, ttl: true},
 		{op: "create", id: "e"},
 	}, versionEntries(t, feed))
 }

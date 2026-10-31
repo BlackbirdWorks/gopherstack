@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	oci "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
 
@@ -20,7 +21,7 @@ func rawDo(t *testing.T, method, url string, body []byte) (*http.Response, []byt
 	req, err := http.NewRequestWithContext(context.Background(), method, url, bytes.NewReader(body))
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

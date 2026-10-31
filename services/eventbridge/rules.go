@@ -50,13 +50,6 @@ func validatePutRuleInput(input PutRuleInput) error {
 		)
 	}
 
-	if input.EventPattern != "" && input.ScheduleExpression != "" {
-		return fmt.Errorf(
-			"%w: ScheduleExpression and EventPattern are mutually exclusive",
-			ErrInvalidParameter,
-		)
-	}
-
 	if input.EventPattern == "" && input.ScheduleExpression == "" {
 		return fmt.Errorf(
 			"%w: either EventPattern or ScheduleExpression must be provided",
@@ -116,6 +109,10 @@ func (b *InMemoryBackend) PutRule(ctx context.Context, input PutRuleInput) (*Rul
 	}
 
 	busKey := ebBusKey(busName)
+
+	if input.ScheduleExpression != "" && busKey != defaultEventBusName && !b.settings.AllowScheduleOnCustomBus {
+		return nil, awsErrorf(ErrInvalidParameter, "ScheduleExpression is supported only on the default event bus.")
+	}
 
 	b.mu.Lock("PutRule")
 	defer b.mu.Unlock()

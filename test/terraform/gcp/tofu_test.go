@@ -41,10 +41,19 @@ provider "google" {
 
   artifact_registry_custom_endpoint = %q
   cloud_build_custom_endpoint       = %q
+  compute_custom_endpoint           = %q
+
+  resource_manager_custom_endpoint          = %q
+  resource_manager_v3_custom_endpoint       = %q
+  cloud_resource_manager_custom_endpoint    = %q
+  service_usage_custom_endpoint             = %q
+  billing_custom_endpoint                   = %q
+  cloud_billing_custom_endpoint             = %q
 }
 `, googleProviderVersion, storageEndpoint, bigQueryEndpoint, pubSubEndpoint, secretsEndpoint, kmsEndpoint,
 		tasksEndpoint, schedulerEndpoint, sqlEndpoint, loggingEndpoint, redisEndpoint, monitoringEndpoint,
-		spannerEndpoint, artifactEndpoint, cloudBuildEndpoint)
+		spannerEndpoint, artifactEndpoint, cloudBuildEndpoint, computeEndpoint,
+		rmV1Endpoint, rmV3Endpoint, rmV1Endpoint, rmV1Endpoint, rmV1Endpoint, rmV1Endpoint)
 }
 
 type tofuRunner struct {

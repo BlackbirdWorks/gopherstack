@@ -14,6 +14,8 @@ import (
 	glaciertypes "github.com/aws/aws-sdk-go-v2/service/glacier/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // createGlacierClient returns a Glacier client pointed at the shared test container.
@@ -194,7 +196,7 @@ func TestIntegration_Glacier_VaultNotFound(t *testing.T) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/-/vaults/does-not-exist", http.NoBody)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -219,7 +221,7 @@ func glacierAddTags(t *testing.T, vaultName string, tags map[string]string) erro
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()

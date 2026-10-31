@@ -51,6 +51,7 @@ type ALBForwarder interface {
 type dataPlane struct {
 	s3     atomic.Pointer[func() s3backend.StorageBackend]
 	alb    atomic.Pointer[func() ALBForwarder]
+	edge   atomic.Pointer[func() LambdaEdge]
 	cache  *responseCache
 	client *http.Client
 }
@@ -153,6 +154,7 @@ type viewerReq struct {
 	rawPath string
 	scheme  string
 	origin  *originDirective
+	edge    *edgeOverride
 	body    []byte
 }
 
@@ -238,18 +240,21 @@ func (h *Handler) serveBehavior(w http.ResponseWriter, v *viewerReq, d *Distribu
 	r := v.r
 	beh := cfg.behaviorFor(v.path)
 
-	if !h.admit(w, v, d, beh) || h.applyViewerRequest(w, d, cfg, beh, v) {
+	if !h.admit(w, v, d, beh) {
+		return
+	}
+
+	if hasRequestBody(r.Method) && r.Body != nil {
+		v.body, _ = io.ReadAll(io.LimitReader(r.Body, maxRequestBody))
+	}
+
+	if h.applyViewerRequest(w, d, cfg, beh, v) || h.applyEdgeViewerRequest(w, d, beh, v) {
 		return
 	}
 
 	reqPath := v.path
 	if reqPath == "/" && cfg.DefaultRootObject != "" {
 		reqPath = "/" + strings.TrimPrefix(cfg.DefaultRootObject, "/")
-	}
-
-	if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions &&
-		r.Body != nil {
-		v.body, _ = io.ReadAll(io.LimitReader(r.Body, maxRequestBody))
 	}
 
 	pol := h.Backend.resolvePolicy(beh)
@@ -271,7 +276,7 @@ func (h *Handler) serveBehavior(w http.ResponseWriter, v *viewerReq, d *Distribu
 		}
 	}
 
-	resp := h.fetchOrigin(r.Context(), d, cfg, beh, &pol, v, reqPath)
+	resp := h.originPhase(r.Context(), d, cfg, beh, &pol, v, reqPath)
 	xcache := xCacheMiss
 
 	if resp.status >= http.StatusBadRequest {
@@ -391,9 +396,13 @@ func edgeErrorBody(status int, msg, reqID string) string {
 }
 
 func writeEdgeError(w http.ResponseWriter, v *viewerReq, status int, msg string) {
+	writeEdgeErrorCache(w, v, status, msg, xCacheError)
+}
+
+func writeEdgeErrorCache(w http.ResponseWriter, v *viewerReq, status int, msg, xcache string) {
 	hd := w.Header()
 	hd.Set(headerContentType, "text/html")
-	hd.Set("X-Cache", xCacheError)
+	hd.Set("X-Cache", xcache)
 	hd.Set("Via", viaValue())
 	hd.Set("X-Amz-Cf-Pop", popLocation)
 	hd.Set("X-Amz-Cf-Id", v.cfID)
@@ -408,6 +417,10 @@ func (h *Handler) writeResponse(
 	w http.ResponseWriter, v *viewerReq, rhp *ResponseHeadersPolicy, resp *originResp, xcache string, hit *cacheEntry,
 ) {
 	hd := w.Header()
+
+	if resp.xcache != "" {
+		xcache = resp.xcache
+	}
 
 	for k, vs := range resp.header {
 		if isHopByHop(k) {

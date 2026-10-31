@@ -22,7 +22,7 @@ func TestELBv2DefaultSubnetZoneFollowsLoadBalancerRegion(t *testing.T) {
 
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(), PortAlloc: portAlloc,
 	})
 	require.NoError(t, err)

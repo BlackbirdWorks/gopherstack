@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -73,7 +74,7 @@ func (s *throughputServer) do(method, path string, headers map[string]string, bo
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(s.t).Do(req)
 	require.NoError(s.t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -520,4 +521,104 @@ func TestSDK_ThroughputWithAuthValidation(t *testing.T) {
 	require.NoError(t, err)
 	v, _ := got.ThroughputProperties.ManualThroughput()
 	assert.EqualValues(t, 800, v)
+}
+
+func TestThroughput_MinimumFollowsDocumentedFormula(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		setup   func(b *cosmosdb.InMemoryBackend)
+		target  string
+		spec    cosmosdb.ThroughputSpec
+		wantMin int
+	}{
+		{
+			name: "manual: highest ever provisioned divided by 100", target: "c",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				_, err := b.SetThroughput("d", "c", cosmosdb.ThroughputSpec{Manual: 50_000})
+				require.NoError(t, err)
+			},
+			spec: cosmosdb.ThroughputSpec{Manual: 400}, wantMin: 500,
+		},
+		{
+			name: "autoscale: highest ever divided by 10 rounded up to 1000", target: "c",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				_, err := b.SetThroughput("d", "c", cosmosdb.ThroughputSpec{AutoscaleMax: 55_000})
+				require.NoError(t, err)
+			},
+			spec: cosmosdb.ThroughputSpec{AutoscaleMax: 1000}, wantMin: 6000,
+		},
+		{
+			name: "shared database: 100 RU/s per container past 25", target: "",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				for i := range 29 {
+					spec := cosmosdb.ContainerSpec{ID: fmt.Sprintf("x%d", i), PartitionKeyPath: "/pk"}
+					_, err := b.CreateContainer("d", spec)
+					require.NoError(t, err)
+				}
+			},
+			spec: cosmosdb.ThroughputSpec{Manual: 400}, wantMin: 900,
+		},
+		{
+			name: "shared autoscale database: 1000 per container past 25", target: "",
+			setup: func(b *cosmosdb.InMemoryBackend) {
+				for i := range 29 {
+					spec := cosmosdb.ContainerSpec{ID: fmt.Sprintf("x%d", i), PartitionKeyPath: "/pk"}
+					_, err := b.CreateContainer("d", spec)
+					require.NoError(t, err)
+				}
+			},
+			spec: cosmosdb.ThroughputSpec{AutoscaleMax: 1000}, wantMin: 6000,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cosmosdb.NewInMemoryBackend()
+			_, err := b.CreateDatabase("d")
+			require.NoError(t, err)
+			_, err = b.CreateContainer("d", cosmosdb.ContainerSpec{ID: "c", PartitionKeyPath: "/pk"})
+			require.NoError(t, err)
+			tt.setup(b)
+
+			_, err = b.SetThroughput("d", tt.target, tt.spec)
+			require.ErrorIs(t, err, cosmosdb.ErrInvalidThroughput)
+
+			ok := tt.spec
+			if ok.AutoscaleMax > 0 {
+				ok.AutoscaleMax = tt.wantMin
+			} else {
+				ok.Manual = tt.wantMin
+			}
+
+			_, err = b.SetThroughput("d", tt.target, ok)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestThroughput_MetadataOperationsShareTheFixedAccountBudget(t *testing.T) {
+	t.Parallel()
+
+	s := newThroughputServer(t, true, false)
+	s.mustCreate("/dbs", `{"id":"d"}`, nil)
+
+	throttled := -1
+
+	for i := range 400 {
+		if s.do(http.MethodGet, "/dbs/d", nil, "").status == http.StatusTooManyRequests {
+			throttled = i
+
+			break
+		}
+	}
+
+	require.Positive(t, throttled, "metadata reads draw on the 240 RU/s account budget")
+	assert.InDelta(t, 240, throttled, 5)
+
+	s.clock.advance(time.Second)
+	assert.Equal(t, http.StatusOK, s.do(http.MethodGet, "/dbs/d", nil, "").status)
 }

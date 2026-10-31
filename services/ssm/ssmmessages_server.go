@@ -34,6 +34,7 @@ const (
 
 var (
 	errNoShellBackend     = errors.New("no shell backend is configured (EC2 compute provider is not docker)")
+	errNoStreamBase       = errors.New("the request carries no host to build a data channel URL from")
 	errTargetNotContainer = errors.New("target is not a running docker-backed managed instance")
 )
 
@@ -71,6 +72,8 @@ type dataChannel struct {
 	sessionID string
 	region    string
 	target    string
+	container string
+	command   string
 	document  string
 	wg        sync.WaitGroup
 	wmu       sync.Mutex
@@ -118,6 +121,7 @@ func (d *dataChannel) serve(parent context.Context) {
 	}
 
 	d.region, d.target, d.document, d.params = region, sess.Target, sess.DocumentName, sess.Parameters
+	d.container, d.command = sess.ContainerID, sess.ExecCommand
 	d.started = time.Now()
 
 	d.b.trackChannel(d.sessionID, cancel)
@@ -311,12 +315,33 @@ func (d *dataChannel) startShell(ctx context.Context) error {
 		return errNoShellBackend
 	}
 
+	if d.container != "" {
+		return d.startContainerCommand(ctx, opener)
+	}
+
 	containerID, ok := d.b.shellContainer(d.region, d.target)
 	if !ok {
 		return fmt.Errorf("%w: %s", errTargetNotContainer, d.target)
 	}
 
 	sh, err := opener.OpenShell(ctx, containerID, d.cols, d.rows)
+	if err != nil {
+		return err
+	}
+
+	d.shell = sh
+	d.wg.Go(func() { d.pumpShell(sh) })
+
+	return nil
+}
+
+func (d *dataChannel) startContainerCommand(ctx context.Context, opener ShellOpener) error {
+	cmdOpener, ok := opener.(CommandShellOpener)
+	if !ok {
+		return errNoShellBackend
+	}
+
+	sh, err := cmdOpener.OpenCommand(ctx, d.container, []string{"sh", "-c", d.command}, d.cols, d.rows)
 	if err != nil {
 		return err
 	}

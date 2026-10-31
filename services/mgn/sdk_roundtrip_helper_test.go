@@ -18,6 +18,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/mgn"
 )
@@ -145,4 +146,25 @@ func seedSourceServerViaImport(
 	}, defaultAsyncWait, defaultAsyncPoll, "StartImport never created a source server")
 
 	return created
+}
+
+// newInMemoryHandlerAndClient is newTestHandlerAndClient over an in-process transport so it can
+// run inside a testing/synctest bubble.
+func newInMemoryHandlerAndClient(t *testing.T) (*mgn.Handler, *mgnsdk.Client) {
+	t.Helper()
+
+	backend := mgn.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
+	t.Cleanup(backend.Close)
+
+	backend.InitializeService()
+
+	h := mgn.NewHandler(backend)
+	client := mgnsdk.NewFromConfig(aws.Config{
+		Region:       rtTestRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.ServeInMemory(t, h),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+	})
+
+	return h, client
 }

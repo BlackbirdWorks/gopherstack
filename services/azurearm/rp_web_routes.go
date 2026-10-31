@@ -44,13 +44,26 @@ var webRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
-			return isWebSiteScope(segs) && (len(segs) > webSiteSegs || r.Method == http.MethodPatch)
+			return isWebSiteScope(segs) && !isSlotResource(segs, r.Method) &&
+				(len(segs) > webSiteSegs || r.Method == http.MethodPatch)
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleWebSite(c, segs) },
 	},
 }
 
+// isSlotResource reports whether the request is plain GET/PUT/DELETE on sites/{name}/slots/{slot}, which the
+// generic resource handler serves through the provider.
+func isSlotResource(segs []string, method string) bool {
+	if len(segs) < webSiteSegs+1 || !strings.EqualFold(segs[webSiteSegs], webSlotsType) {
+		return false
+	}
+
+	return len(segs) == webSiteSegs+webSlotRestSegs &&
+		(method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete)
+}
+
 const (
+	webSlotRestSegs      = 2
 	webSubProviderSegIdx = 2
 	webSubProviderNsIdx  = 3
 	webSubCheckActionIdx = 4
@@ -128,6 +141,11 @@ func webSubRoutes() []webSubRoute {
 		newWebSubRoute(post, []string{"stop"}, webStateAction("stop")),
 		newWebSubRoute(post, []string{webRestartAction}, webStateAction(webRestartAction)),
 		newWebSubRoute(post, []string{webPublishXML}, (*Handler).webPublishXML),
+		newWebSubRoute(get, []string{webSlotsType}, (*Handler).webListSlots),
+		newWebSubRoute(post, []string{"slotsswap"}, (*Handler).webSwapSlots),
+		newWebSubRoute(post, []string{"applySlotConfig"}, (*Handler).webApplySlotConfig),
+		newWebSubRoute(post, []string{"resetSlotConfig"}, (*Handler).webResetSlotConfig),
+		newWebSubRoute(post, []string{"slotsdiffs"}, (*Handler).webSlotDiffs),
 		newWebSubRoute(get, []string{webFunctionsSeg}, (*Handler).webListFunctions),
 		newWebSubRoute(get, []string{webFunctionsSeg, "*"}, (*Handler).webGetFunction),
 		newWebSubRoute(post, []string{webFunctionsSeg, "*", webListKeysSeg}, (*Handler).webFunctionKeys),
@@ -162,6 +180,15 @@ func (h *Handler) handleWebSite(c *echo.Context, segs []string) error {
 	rest := segs[webSiteSegs:]
 	method := c.Request().Method
 
+	if len(rest) >= webSlotRestSegs && strings.EqualFold(rest[0], webSlotsType) {
+		id, err = ParseGenericResourcePath("/" + joinSegs(segs[:webSiteSegs+webSlotRestSegs]))
+		if err != nil {
+			return h.writeAPIError(c, err)
+		}
+
+		rest = rest[webSlotRestSegs:]
+	}
+
 	if len(rest) == 0 {
 		return h.webPatch(c, p, id)
 	}
@@ -189,6 +216,57 @@ func webStateAction(action string) func(*Handler, *echo.Context, *WebProvider, R
 
 		return c.NoContent(http.StatusOK)
 	}
+}
+
+func (h *Handler) webListSlots(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	slots, err := p.ListSlots(c.Request().Context(), id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: slots})
+}
+
+func (h *Handler) webSwapSlots(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	return h.writeSlotAction(c, func(body map[string]any) error { return p.SwapSlots(c.Request().Context(), id, body) })
+}
+
+func (h *Handler) webApplySlotConfig(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	return h.writeSlotAction(c, func(body map[string]any) error {
+		return p.ApplySlotConfig(c.Request().Context(), id, body)
+	})
+}
+
+func (h *Handler) webResetSlotConfig(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	if err := p.ResetSlotConfig(c.Request().Context(), id); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+func (h *Handler) webSlotDiffs(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	return h.writeBodyResult(c, func(body map[string]any) (map[string]any, error) {
+		diffs, err := p.SlotDifferences(c.Request().Context(), id, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return map[string]any{fieldValue: diffs}, nil
+	})
+}
+
+func (h *Handler) writeSlotAction(c *echo.Context, fn func(body map[string]any) error) error {
+	body, err := decodeJSONBody(c.Request())
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if err = fn(body); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) webPublishXML(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {

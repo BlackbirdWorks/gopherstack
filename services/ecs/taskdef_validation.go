@@ -45,6 +45,10 @@ func validateRegisterTaskDefinition(input RegisterTaskDefinitionInput) error {
 		return err
 	}
 
+	if err := validateContainerRuntime(input.ContainerDefinitions, input.Volumes); err != nil {
+		return err
+	}
+
 	if err := validateProxyConfiguration(input); err != nil {
 		return err
 	}

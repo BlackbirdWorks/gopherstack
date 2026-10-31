@@ -51,7 +51,7 @@ var regionCatalog = []regionSpec{ //nolint:gochecknoglobals // read-only lookup 
 
 var cpuPlatforms = []string{ //nolint:gochecknoglobals // read-only lookup table
 	platBroadwell,
-	"Intel Cascade Lake",
+	platCascade,
 	"Intel Skylake",
 	"AMD Rome",
 }

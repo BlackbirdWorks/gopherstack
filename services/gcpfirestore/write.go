@@ -397,8 +397,10 @@ func (b *InMemoryBackend) storeLocked(name string, d *firestorepb.Document, ct t
 		return
 	}
 
+	old := rec.cur()
 	rec.vers = append(rec.vers, docVer{at: ct, doc: d})
 	rec.prune(ct)
+	b.queueDocLocked(old, d, ct)
 }
 
 func cloneDoc(d *firestorepb.Document) *firestorepb.Document {

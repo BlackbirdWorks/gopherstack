@@ -17,6 +17,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -57,6 +58,7 @@ type Handler struct {
 	srvMu    *lockmetrics.RWMutex
 	srv      *http.Server
 	observer ResourceObserver
+	clients  ClientAuthenticator
 	Settings Settings
 	Port     int
 }
@@ -131,6 +133,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		r := c.Request()
 		path := strings.TrimSuffix(r.URL.Path, "/")
 		segs := splitARMPath(path)
+
+		if cp, ok := h.containerAppsProvider(); ok && cp.ServeIngress(c.Response(), r) {
+			return nil
+		}
+
+		if ap, ok := h.apimProvider(); ok && ap.ServeGateway(c.Response(), r) {
+			return nil
+		}
 
 		host := hostFromHostHeader(r.Host)
 		ctx := WithRequestHost(r.Context(), host)
@@ -218,7 +228,12 @@ func (h *Handler) dispatch(c *echo.Context, segs []string) error {
 		}
 	}
 
+	if locked, lockErr := h.enforceLocks(c, segs); locked {
+		return lockErr
+	}
+
 	err := h.dispatchARMResource(c, segs)
+	h.cleanupAuthorization(c, segs)
 	h.notifyResourceChange(c, segs)
 
 	return err
@@ -431,56 +446,16 @@ var armResourceRoutes = []armRoute{
 // dispatchARMResource routes every /subscriptions/... and /tenants shape via
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
-	if handled, err := matchRoutes(eventGridScopeRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(keyVaultRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(cosmosRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(eventGridRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(appConfigRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(containerRegistryRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(monitorRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(redisRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(sqlRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(containerInstanceRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(webRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(storageFileServiceRoutes, h, c, segs); handled {
-		return err
-	}
-
-	if handled, err := matchRoutes(armResourceRoutes, h, c, segs); handled {
-		return err
+	for _, table := range [][]armRoute{
+		privateLinkRoutes, authorizationRoutes, eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes,
+		appConfigRoutes, containerRegistryRoutes,
+		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
+		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
+		storageFileServiceRoutes, apimRoutes, armResourceRoutes,
+	} {
+		if handled, err := matchRoutes(table, h, c, segs); handled {
+			return err
+		}
 	}
 
 	return h.writeNotFound(c)
@@ -823,14 +798,15 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
-	tlsListener := tls.NewListener(listener, tlsConfig)
+	tlsListener := httputils.NewQuerySpaceListener(tls.NewListener(listener, tlsConfig))
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
 	e.Any("/*", telemetry.WrapEchoHandler("AzureARM", h.Handler(), h))
 
 	srv := &http.Server{
-		Handler:           e,
+		Handler:           httputils.QuerySpaceTLS(e),
+		ConnContext:       httputils.QuerySpaceConnContext,
 		ReadHeaderTimeout: azureARMReadHeaderTimeout,
 		ReadTimeout:       azureARMReadTimeout,
 		IdleTimeout:       azureARMIdleTimeout,

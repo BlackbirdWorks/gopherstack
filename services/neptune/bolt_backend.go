@@ -5,6 +5,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"math"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -19,14 +20,29 @@ const (
 type boltBackend struct {
 	graph   *opencypher.Graph
 	queries *queryTracker
+	auth    func() clusterAuth
+	caller  *iamCaller
 }
 
 func (b *boltBackend) NewSession() bolt.Session { return &boltSession{b: b} }
 
-// Authenticate accepts the none and basic schemes; Neptune IAM tokens (basic with a SigV4-signed password)
-// are not signature-checked.
+// Authenticate accepts the none and basic schemes; on a cluster with IAM authentication the basic password must be
+// the signed-request JSON Neptune documents, verified like an HTTP request.
 func (b *boltBackend) Authenticate(_ context.Context, auth map[string]any) error {
 	scheme, _ := auth["scheme"].(string)
+
+	if b.auth != nil {
+		if ca := b.auth(); ca.enabled {
+			caller, err := ca.authenticateBolt(auth, time.Now())
+			if err != nil {
+				return &bolt.Error{Code: bolt.CodeUnauthorized, Message: "AccessDeniedException: " + err.Error()}
+			}
+
+			b.caller = caller
+
+			return nil
+		}
+	}
 
 	switch scheme {
 	case "", "none", "basic":
@@ -42,6 +58,12 @@ type boltSession struct {
 }
 
 func (s *boltSession) Run(ctx context.Context, query string, params map[string]any) (*bolt.Result, error) {
+	if c := s.b.caller; c != nil {
+		if a := c.denied(langOpenCypher, cypherAccessActions(query)...); a != "" {
+			return nil, boltDenied(accessDeniedDetail(a))
+		}
+	}
+
 	ctx, finish := s.b.queries.begin(ctx, query)
 	defer finish()
 

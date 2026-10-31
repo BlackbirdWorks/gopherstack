@@ -4,7 +4,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
 
 	"log/slog"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -25,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -57,7 +57,7 @@ func newMultiAccountStackWith(t *testing.T, enforce bool) *multiAccountStack {
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)
@@ -91,6 +91,7 @@ func newMultiAccountStackWith(t *testing.T, enforce bool) *multiAccountStack {
 			WithTargetGates(routegates.TargetGates()).
 			WithCBORGates(routegates.CBORGates()).
 			WithPathGates(routegates.PathGates()).
+			WithAltGates(routegates.AltGates()).
 			RouteHandler(),
 	)
 
@@ -105,7 +106,7 @@ func (s *multiAccountStack) config(t *testing.T, key, token string, headers map[
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-east-1"),
-		awscfg.WithHTTPClient(http.DefaultClient),
+		awscfg.WithHTTPClient(testclient.New(t)),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(key, "secret", token)),
 	)
 	require.NoError(t, err)

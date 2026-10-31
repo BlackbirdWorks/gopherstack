@@ -278,6 +278,34 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	return nil
 }
 
+// SwapTableParameters applies set to the table's parameters only if guardKey still holds guardValue
+// (optimistic locking for catalog-committed Iceberg metadata).
+func (b *InMemoryBackend) SwapTableParameters(
+	dbName, tableName, guardKey, guardValue string, set map[string]string,
+) error {
+	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)
+	b.mu.Lock("SwapTableParameters")
+	defer b.mu.Unlock()
+
+	t, ok := b.tables.Get(tableKey(dbName, tableName))
+	if !ok {
+		return ErrNotFound
+	}
+
+	if t.Parameters[guardKey] != guardValue {
+		return ErrTableParameterChanged
+	}
+
+	if t.Parameters == nil {
+		t.Parameters = map[string]string{}
+	}
+
+	maps.Copy(t.Parameters, set)
+	t.UpdateTime = float64(time.Now().Unix())
+
+	return nil
+}
+
 // DeleteTable deletes a Glue table and all its partitions.
 func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 	dbName, tableName = strs.Fold(dbName), strs.Fold(tableName)

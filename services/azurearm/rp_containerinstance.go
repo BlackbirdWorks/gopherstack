@@ -32,6 +32,7 @@ type storedACIGroup struct {
 	ResourceGroup string            `json:"resourceGroup"`
 	Location      string            `json:"location"`
 	Props         aciPropsWire      `json:"props"`
+	Identity      resourceIdentity  `json:"identity"`
 }
 
 // ContainerInstanceProvider implements ResourceProvider for Microsoft.ContainerInstance container groups. ARM
@@ -40,6 +41,7 @@ type ContainerInstanceProvider struct {
 	engine *ACIEngine
 	mu     *lockmetrics.RWMutex
 	groups map[string]*storedACIGroup
+	ids    *identityService
 }
 
 // NewContainerInstanceProvider creates a provider over engine.
@@ -90,10 +92,8 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		return nil, aciBad("container group name %q must be 1-63 letters, digits or hyphens", name)
 	}
 
-	for _, k := range []string{"identity", "zones"} {
-		if _, set := body[k]; set {
-			return nil, aciUnsupported(k)
-		}
+	if _, set := body["zones"]; set {
+		return nil, aciUnsupported("zones")
 	}
 
 	props, err := parseACIProps(body[fieldProperties])
@@ -110,11 +110,24 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		rec.Location = loc
 	}
 
+	_, hasIdentity := body[fieldIdentity]
+
 	p.mu.Lock("Put")
+
+	var prevIdentity resourceIdentity
+
 	if old, ok := p.group(id.ResourceGroup, name); ok {
-		rec.Created = old.Created
+		rec.Created, prevIdentity = old.Created, old.Identity
 	}
 
+	ident, identErr := p.ids.apply(body[fieldIdentity], hasIdentity, prevIdentity)
+	if identErr != nil {
+		p.mu.Unlock()
+
+		return nil, identErr
+	}
+
+	rec.Identity = ident
 	p.groups[aciKey(id.ResourceGroup, name)] = rec
 	p.mu.Unlock()
 
@@ -204,7 +217,7 @@ func (p *ContainerInstanceProvider) Reset() {
 	p.groups = map[string]*storedACIGroup{}
 	p.mu.Unlock()
 
-	p.engine.RemoveAll()
+	p.engine.RemoveUnprefixed(acaKeyPrefix)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.
@@ -464,10 +477,16 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 		props["imageRegistryCredentials"] = creds
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"id": id.ARMID(), fieldName: rec.Name, fieldType: namespaceMicrosoftContainerInstance + "/" + aciGroupsType,
 		fieldLocation: rec.Location, fieldTags: tagsOrEmpty(rec.Tags), fieldProperties: props,
 	}
+
+	if ident := p.ids.body(rec.Identity); ident != nil {
+		out[fieldIdentity] = ident
+	}
+
+	return out
 }
 
 func (p *ContainerInstanceProvider) ipBody(rec *storedACIGroup, allocated bool) map[string]any {

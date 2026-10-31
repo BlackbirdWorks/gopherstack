@@ -142,6 +142,8 @@ func TestResourceToken_ScopeMatrix(t *testing.T) {
 		{"allPkA", "All", "dbs/d/colls/c1", "a"},
 		{"docRead", "Read", "dbs/d/colls/c1/docs/1", ""},
 		{"docAll", "All", "dbs/d/colls/c1/docs/1", ""},
+		{"docPkA", "Read", "dbs/d/colls/c1/docs/1", "a"},
+		{"docPkB", "Read", "dbs/d/colls/c1/docs/1", "b"},
 	}
 	tokens := make(map[string]string, len(perms))
 
@@ -165,6 +167,10 @@ func TestResourceToken_ScopeMatrix(t *testing.T) {
 		{"read doc own pk", "pkA", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "pk:a", 200},
 		{"read doc other pk denied", "pkA", http.MethodGet, "/dbs/d/colls/c1/docs/2", "", "pk:b", 403},
 		{"read doc no pk header denied", "pkA", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "", 403},
+		{"doc permission for its own key", "docPkA", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "pk:a", 200},
+		{"doc permission for another key", "docPkB", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "pk:a", 403},
+		{"doc permission without a key header", "docPkA", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "", 403},
+		{"doc permission authorizes its key only", "docPkB", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "pk:b", 404},
 		{"read granted doc", "docRead", http.MethodGet, "/dbs/d/colls/c1/docs/1", "", "pk:a", 200},
 		{"read other doc denied", "docRead", http.MethodGet, "/dbs/d/colls/c1/docs/2", "", "pk:b", 403},
 		{"cross container denied", "readC1", http.MethodGet, "/dbs/d/colls/c2/docs/1", "", "pk:a", 403},
@@ -269,8 +275,8 @@ func TestResourceToken_Expiry(t *testing.T) {
 		{"default expired at an hour", "", 3600 * time.Second, 403},
 		{"custom valid", "600", 599 * time.Second, 200},
 		{"custom expired", "600", 600 * time.Second, 403},
-		{"max lifetime valid", "18000", 17999 * time.Second, 200},
-		{"max lifetime expired", "18000", 5 * time.Hour, 403},
+		{"max lifetime valid", "86400", 86399 * time.Second, 200},
+		{"max lifetime expired", "86400", 24 * time.Hour, 403},
 	}
 
 	for _, tc := range tests {
@@ -309,10 +315,12 @@ func TestPermission_ExpiryHeaderValidation(t *testing.T) {
 	}{
 		{"zero", "0", 400},
 		{"negative", "-5", 400},
-		{"too long", "18001", 400},
+		{"below the minimum", "599", 400},
+		{"too long", "86401", 400},
 		{"not a number", "abc", 400},
-		{"minimum", "1", 201},
-		{"maximum", "18000", 201},
+		{"minimum", "600", 201},
+		{"former documented maximum", "18001", 201},
+		{"maximum", "86400", 201},
 	}
 
 	for _, tc := range tests {
@@ -325,6 +333,38 @@ func TestPermission_ExpiryHeaderValidation(t *testing.T) {
 			_, code := e.permission(t, "p", "Read", "dbs/d/colls/c1", "",
 				map[string]string{"X-Ms-Documentdb-Expiry-Seconds": tc.value})
 			assert.Equal(t, tc.want, code)
+		})
+	}
+}
+
+func TestPermission_ExpiryMaxSetting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, value, wantMsg string
+		max, want            int
+	}{
+		{"default accepts 86400", "86400", "", 0, 201},
+		{"default rejects 86401", "86401", "between 600 and 86400", 0, 400},
+		{"configured accepts its max", "18000", "", 18000, 201},
+		{"configured rejects above max", "18001", "between 600 and 18000", 18000, 400},
+		{"configured rejects 86400", "86400", "between 600 and 18000", 18000, 400},
+		{"configured keeps minimum", "599", "between 600 and 18000", 18000, 400},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newUserEnv(t)
+			e.h.ResourceTokenMaxSeconds = tc.max
+			e.seed(t)
+
+			rec := e.admin(t, http.MethodPost, "/dbs/d/users/u/permissions",
+				`{"id":"p","permissionMode":"Read","resource":"dbs/d/colls/c1"}`,
+				map[string]string{"X-Ms-Documentdb-Expiry-Seconds": tc.value})
+			require.Equal(t, tc.want, rec.Code, rec.Body.String())
+			assert.Contains(t, rec.Body.String(), tc.wantMsg)
 		})
 	}
 }
@@ -443,8 +483,20 @@ func TestUsersPermissions_CRUD(t *testing.T) {
 			`{"id":"p","permissionMode":"All","resource":"dbs/d/colls/nope"}`, 400},
 		{"missing document", http.MethodPost, "/dbs/d/users/robert/permissions",
 			`{"id":"p","permissionMode":"All","resource":"dbs/d/colls/c1/docs/nope"}`, 400},
-		{"pk on document resource", http.MethodPost, "/dbs/d/users/robert/permissions",
-			`{"id":"p","permissionMode":"All","resource":"dbs/d/colls/c1/docs/1","resourcePartitionKey":["a"]}`, 400},
+		{
+			"pk on document resource",
+			http.MethodPost,
+			"/dbs/d/users/robert/permissions",
+			`{"id":"pdoc","permissionMode":"All","resource":"dbs/d/colls/c1/docs/1","resourcePartitionKey":["a"]}`,
+			201,
+		},
+		{
+			"pk on document resource is deleted again",
+			http.MethodDelete,
+			"/dbs/d/users/robert/permissions/pdoc",
+			"",
+			204,
+		},
 		{"malformed pk", http.MethodPost, "/dbs/d/users/robert/permissions",
 			`{"id":"p","permissionMode":"All","resource":"dbs/d/colls/c1","resourcePartitionKey":[[1]]}`, 400},
 		{"permission for missing user", http.MethodPost, "/dbs/d/users/nobody/permissions",
@@ -530,4 +582,79 @@ func TestUsersPermissions_PersistenceRoundTrip(t *testing.T) {
 
 	assert.Equal(t, 200, restored.withToken(t, tok, http.MethodGet, "/dbs/d/colls/c1/docs/1", "", pkHdr("a")).Code)
 	assert.Equal(t, 403, restored.withToken(t, tok, http.MethodGet, "/dbs/d/colls/c1/docs/2", "", pkHdr("b")).Code)
+}
+
+func TestResourceToken_ScriptPermissions(t *testing.T) {
+	t.Parallel()
+
+	e := newUserEnv(t)
+	e.seed(t)
+
+	const sprocBody = `{"id":"s","body":"function(){ getContext().getResponse().setBody(1); }"}`
+
+	for _, step := range []struct{ path, body string }{
+		{"/dbs/d/colls/c1/sprocs", sprocBody},
+		{"/dbs/d/colls/c1/sprocs", `{"id":"other","body":"function(){}"}`},
+		{"/dbs/d/colls/c1/udfs", `{"id":"u1","body":"function(x){return x;}"}`},
+		{"/dbs/d/colls/c1/triggers", `{"id":"t1","body":"function(){}","triggerOperation":"All","triggerType":"Pre"}`},
+	} {
+		rec := e.admin(t, http.MethodPost, step.path, step.body, nil)
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	}
+
+	tokens := map[string]string{}
+
+	for id, p := range map[string]struct{ mode, resource string }{
+		"sprocAll":  {"All", "dbs/d/colls/c1/sprocs/s"},
+		"sprocRead": {"Read", "dbs/d/colls/c1/sprocs/s"},
+		"udfRead":   {"Read", "dbs/d/colls/c1/udfs/u1"},
+		"trigAll":   {"All", "dbs/d/colls/c1/triggers/t1"},
+	} {
+		tok, code := e.permission(t, id, p.mode, p.resource, "", nil)
+		require.Equal(t, http.StatusCreated, code, id)
+
+		tokens[id] = tok
+	}
+
+	_, code := e.permission(t, "missing", "All", "dbs/d/colls/c1/sprocs/none", "", nil)
+	assert.Equal(t, http.StatusBadRequest, code)
+
+	cases := []struct {
+		name, perm, method, path, body string
+		want                           int
+	}{
+		{"execute with an All permission", "sprocAll", http.MethodPost, "/dbs/d/colls/c1/sprocs/s", "[]", 200},
+		{"a Read permission cannot execute", "sprocRead", http.MethodPost, "/dbs/d/colls/c1/sprocs/s", "[]", 403},
+		{"read the granted procedure", "sprocRead", http.MethodGet, "/dbs/d/colls/c1/sprocs/s", "", 200},
+		{"another procedure is denied", "sprocAll", http.MethodGet, "/dbs/d/colls/c1/sprocs/other", "", 403},
+		{"the procedure list is denied", "sprocAll", http.MethodGet, "/dbs/d/colls/c1/sprocs", "", 403},
+		{
+			"a procedure permission does not reach documents",
+			"sprocAll",
+			http.MethodGet,
+			"/dbs/d/colls/c1/docs/1",
+			"",
+			403,
+		},
+		{
+			"a procedure permission is not a UDF permission",
+			"sprocAll",
+			http.MethodGet,
+			"/dbs/d/colls/c1/udfs/u1",
+			"",
+			403,
+		},
+		{"read the granted UDF", "udfRead", http.MethodGet, "/dbs/d/colls/c1/udfs/u1", "", 200},
+		{"a Read permission cannot delete", "udfRead", http.MethodDelete, "/dbs/d/colls/c1/udfs/u1", "", 403},
+		{"delete the granted trigger", "trigAll", http.MethodDelete, "/dbs/d/colls/c1/triggers/t1", "", 204},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := e.withToken(t, tokens[tc.perm], tc.method, tc.path, tc.body, pkHdr("a"))
+			assert.Equal(t, tc.want, rec.Code, rec.Body.String())
+		})
+	}
 }

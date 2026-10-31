@@ -194,6 +194,8 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 		return appWire{}, "", "", aerr
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
@@ -213,6 +215,7 @@ func (b *InMemoryBackend) CreateApplication(in appIn) (appWire, string, string, 
 	}
 
 	b.apps[a.ID] = a
+	b.recordEvent(EventCreateApplication, a.CompartmentID, a.Name, a.ID)
 	wr := b.newWR("CREATE_APPLICATION", a.CompartmentID, "application", a.ID, "CREATED",
 		"/applications/"+a.ID, *a.TransitionAt)
 
@@ -314,6 +317,8 @@ func cmpPtr[T any](in, cur *T) *T {
 
 // DeleteApplication moves an empty application to DELETING.
 func (b *InMemoryBackend) DeleteApplication(id, ifMatch string) (string, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
@@ -333,6 +338,7 @@ func (b *InMemoryBackend) DeleteApplication(id, ifMatch string) (string, error) 
 	}
 
 	a.State, a.TransitionAt, a.Etag = stateDeleting, b.transitionAt(), newEtag()
+	b.recordEvent(EventDeleteApplication, a.CompartmentID, a.Name, a.ID)
 
 	return b.newWR("DELETE_APPLICATION", a.CompartmentID, "application", a.ID, "DELETED",
 		"/applications/"+a.ID, *a.TransitionAt), nil

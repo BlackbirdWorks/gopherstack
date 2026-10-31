@@ -37,6 +37,7 @@ const (
 // cypherFront serves a cluster's Neptune port: /openCypher, Bolt and (with no upstream) /gremlin are answered
 // in-process over one graph; with an upstream, /gremlin is proxied to the Gremlin Server container instead.
 type cypherFront struct {
+	ctx            context.Context
 	srv            *http.Server
 	proxy          *httputil.ReverseProxy
 	tr             *http.Transport
@@ -44,14 +45,16 @@ type cypherFront struct {
 	queries        *queryTracker
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
-	ctx            context.Context //nolint:containedctx // lifetime of the listener
+	auth           func() clusterAuth
 	cancel         context.CancelFunc
+	upstream       string
 	up             atomic.Bool
 }
 
 // startCypherFront listens on port. An empty innerAddr serves Gremlin in-process over graph.
 func startCypherFront(
 	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
+	auth func() clusterAuth,
 ) (*cypherFront, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
 		net.JoinHostPort(container.BindHostFor(host), strconv.Itoa(port)))
@@ -63,13 +66,16 @@ func startCypherFront(
 		graph = opencypher.NewGraph()
 	}
 
-	f := &cypherFront{graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	f := &cypherFront{auth: auth, graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 
 	if innerAddr == "" {
 		f.gremlinQueries = newQueryTracker()
-		f.gremlin = gremlin.NewServer(f.ctx, graph, gremlin.Options{Track: f.gremlinQueries.begin})
+		f.gremlin = gremlin.NewServer(f.ctx, graph, gremlin.Options{
+			Track: f.gremlinQueries.begin, Authorize: gremlinAuthorizer,
+		})
 	} else {
+		f.upstream = innerAddr
 		f.proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: "http", Host: innerAddr})
 		f.proxy.Transport = f.tr
 	}
@@ -101,9 +107,18 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r, ok := f.authenticate(w, r)
+	if !ok {
+		return
+	}
+
 	if strings.EqualFold(strings.TrimRight(r.URL.Path, "/"), cypherPath) {
 		f.serveOpenCypher(w, r)
 
+		return
+	}
+
+	if !authorizeStatus(w, r) {
 		return
 	}
 
@@ -119,6 +134,16 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if f.proxy == nil {
 		writeCypherError(w, http.StatusNotFound, "BadRequestException", "Unknown path "+r.URL.Path)
+
+		return
+	}
+
+	if !authorizeProxied(w, r) {
+		return
+	}
+
+	if enforcesFrames(r) {
+		f.proxyGremlinWS(w, r)
 
 		return
 	}
@@ -228,6 +253,10 @@ func (f *cypherFront) serveOpenCypher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !authorizeActions(w, r, langOpenCypher, cypherAccessActions(call.query)...) {
+		return
+	}
+
 	params, err := opencypher.ParseParameters(call.params)
 	if err != nil {
 		writeCypherFailure(r.Context(), w, err)
@@ -329,7 +358,7 @@ func (f *cypherFront) serveBolt(c net.Conn) {
 	}
 
 	bolt.Serve(f.ctx, c, bolt.Config{
-		Backend: &boltBackend{graph: f.graph, queries: f.queries},
+		Backend: &boltBackend{graph: f.graph, queries: f.queries, auth: f.auth},
 		Agent:   boltAgent, Database: boltDatabase,
 	})
 }

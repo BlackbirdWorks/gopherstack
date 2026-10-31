@@ -64,6 +64,11 @@ func (c *CLI) GetGCPWorkflowsHandler() service.Registerable { return c.gcpWorkfl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPDNSHandler() service.Registerable { return c.gcpDNSHandler }
 
+// GetGCPDatastoreHandler returns the GCPDatastore handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPDatastoreHandler() service.Registerable { return c.gcpDatastoreHandler }
+
 // GetGCPComputeHandler returns the GCPCompute handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -99,7 +104,92 @@ func (c *CLI) GetOCIIdentityHandler() service.Registerable { return c.ociIdentit
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOCIFunctionsHandler() service.Registerable { return c.ociFunctionsHandler }
 
+// GetOCICoreHandler returns the OCICore handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCICoreHandler() service.Registerable { return c.ociCoreHandler }
+
+// GetGCPContainerHandler returns the GCPContainer handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPContainerHandler() service.Registerable { return c.gcpContainerHandler }
+
+// GetOCIQueueHandler returns the OCIQueue handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIQueueHandler() service.Registerable { return c.ociQueueHandler }
+
+// GetOCINotificationsHandler returns the OCINotifications handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCINotificationsHandler() service.Registerable { return c.ociNotificationsHandler }
+
+// GetOCIContainerEngineHandler returns the OCIContainerEngine handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIContainerEngineHandler() service.Registerable { return c.ociContainerEngineHandler }
+
 // GetAzureMonitorHandler returns the AzureMonitor handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureMonitorHandler() service.Registerable { return c.azureMonitorHandler }
+
+// GetOCIMySQLHandler returns the OCIMySQL handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIMySQLHandler() service.Registerable { return c.ociMySQLHandler }
+
+// GetOCILoggingHandler returns the OCILogging handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCILoggingHandler() service.Registerable { return c.ociLoggingHandler }
+
+// GetOCIMonitoringHandler returns the OCIMonitoring handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIMonitoringHandler() service.Registerable { return c.ociMonitoringHandler }
+
+// GetOCINoSQLHandler returns the OCINoSQL handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCINoSQLHandler() service.Registerable { return c.ociNoSQLHandler }
+
+// GetOCIAPIGatewayHandler returns the OCIAPIGateway handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIAPIGatewayHandler() service.Registerable { return c.ociAPIGatewayHandler }
+
+// GetOCILoadBalancerHandler returns the OCILoadBalancer handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCILoadBalancerHandler() service.Registerable { return c.ociLoadBalancerHandler }
+
+// GetOCIArtifactsHandler returns the OCIArtifacts handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIArtifactsHandler() service.Registerable { return c.ociArtifactsHandler }
+
+// GetOCIEventsHandler returns the OCIEvents handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIEventsHandler() service.Registerable { return c.ociEventsHandler }
+
+// GetGCPIdentityToolkitHandler returns the GCPIdentityToolkit handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPIdentityToolkitHandler() service.Registerable { return c.gcpIdentityToolkitHandler }
+
+// GetGCPAPIGatewayHandler returns the GCPAPIGateway handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPAPIGatewayHandler() service.Registerable { return c.gcpAPIGatewayHandler }
+
+// GetGCPResourceManagerHandler returns the GCPResourceManager handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPResourceManagerHandler() service.Registerable { return c.gcpResourceManagerHandler }
+
+// GetGCPBatchHandler returns the GCPBatch handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPBatchHandler() service.Registerable { return c.gcpBatchHandler }

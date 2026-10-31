@@ -9,13 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 22 (17 ok, 4 partial, 1 gap) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Source/CodeStarSourceConnection always FAILS the action (ConfigurationError): the emulator's codeconnections service stores connection metadata only and holds no GitHub/Bitbucket/GitLab repository content to build an artifact from. Source/CodeCommit supports OutputArtifactFormat CODE_ZIP only (CODEBUILD_CLONE_REF fails).
+- No automatic source-change detection: PollForSourceChanges and EventBridge-driven triggers for S3/ECR/CodeCommit sources are not modelled; executions start via StartPipelineExecution (or an EventBridge/Scheduler target). Source/ECR therefore always reads the current tag at execution start and ignores source-revision overrides.
+- Deploy/ECS completion is read from the ECS backend's per-deployment rolloutState (a single remaining deployment with rollout COMPLETED, falling back to runningCount >= desiredCount); the emulator's ECS reconciler takes ~10s to settle a one-task service. DeploymentTimeout (default 60 min) is enforced against the backend clock (SetClock). Deploy/CloudFormation ignores RoleArn for authorization and writes OutputFileName as the only file in the output artifact (real CodePipeline's artifact layout for it is undocumented beyond 'a JSON file with the specified name'). Fn::GetArtifactAtt URL is https://s3.<region>.amazonaws.com/<bucket>/<key>.
 - gopherstack-wlab (2026-09-08, reconfirmed 2026-09-18): CreateCustomActionType/DeleteCustomActionType/DeletePipeline/UpdatePipeline/OverrideStageCondition/RetryStageExecution/StopPipelineExecution each emit a wire error code (InvalidStructureException/ActionTypeNotFoundException/PipelineNotFoundException x2/PipelineExecutionNotFoundException x3) absent from that op's own declared set per botocore codepipeline/2015-07-09/service-2.json; every declared candidate's doc text was checked and none fits, and a real client's errors.As still resolves each to its own concrete type (undeclared_error_codes_test.go). The real code is not determinable from the SDK.
 - No AWS-documented derivation or evidence: ListRuleTypes omits RuleType.InputArtifactDetails (no documented per-provider min/max counts).
 - handleError's InvalidActionException (unknown-action routing fallback) names no type codepipeline@v1.49.4 declares; see the 2026-08-29 errcodeaudit note.
@@ -29,7 +32,7 @@ These do not block an A grade — no implementation could produce real data here
 - JobData/ThirdPartyJobData omit ArtifactCredentials, InputArtifacts, OutputArtifacts and EncryptionKey: no artifact store or STS exists to issue them.
 - ListDeployActionExecutionTargets returns empty: no real deploy targets exist behind Deploy actions.
 - ListWebhookItem.ErrorCode/ErrorMessage are never set: webhook registration against a third party cannot fail in an emulator.
-- Built-in action providers other than Build/CodeBuild, Invoke/Lambda, Deploy/CodeDeploy and Source/Deploy S3 (ECR, CodeCommit, ...) always Succeed in runOneAction: no real source/deploy targets. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult).
+- Built-in action providers the emulator does not implement (Build/ECRBuildAndPublish, Test/DeviceFarm, Deploy/ElasticBeanstalk, ServiceCatalog, AppConfig, OpsWorks, Alexa, CodeDeployToECS, CloudFormationStackSet, CloudFormationStackInstances, EKS, EC2, Invoke/StepFunctions, Invoke/InspectorScan, Compute/Commands) FAIL the action with ConfigurationError 'not supported by this emulator' rather than succeeding. Implemented built-ins: Manual approval, CodeBuild, Lambda, CodeDeploy, S3 source/deploy, CloudFormation deploy, ECS deploy, ECR source, CodeCommit source. Custom-owner actions are real: a Queued job is created for the worker (PollForJobs/Put*JobResult).
 - Build/CodeBuild waits for the real build status, but the emulated build runs no buildspec: the primary input artifact is passed through unchanged as every output artifact, and exported variables are not produced. Source/S3 and Deploy/S3 move real objects when the S3 seam is wired (internal/app/cli.go wireCodePipelineS3); the artifact store key is derived from pipeline, artifact name and execution ID. A missing source object fails the action with ConfigurationError (code chosen from the FailureType enum; the docs name none).
 
 ### Deferred

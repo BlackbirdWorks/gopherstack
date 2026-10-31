@@ -9,7 +9,6 @@
 | --- | --- |
 | PARITY entries audited | 34 (33 ok, 1 partial) |
 | Known gaps | 2 |
-| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -17,12 +16,6 @@
 
 - DeletePolicyStoreAlias never returns InvalidStateException: the SDK lists it for the op but the only documented trigger (InvalidStateException type doc) is DeletePolicyStore's deletion protection.
 - CreatePolicyStoreAlias never returns ServiceQuotaExceededException: AWS documents no numeric alias quota.
-
-### Structural gaps
-
-These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
-
-- IsAuthorizedWithToken/BatchIsAuthorizedWithToken do not verify JWT signatures or expiry: that needs the issuer's real signing keys; aud/client_id matching is implemented.
 
 ## More
 

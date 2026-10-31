@@ -42,6 +42,7 @@ type runState struct {
 	cancel     context.CancelFunc
 	timer      *time.Timer
 	arrayIndex *int32
+	nodes      []*nodePlan
 	logGroup   string
 	jobRoleArn string
 	region     string
@@ -55,6 +56,8 @@ type runState struct {
 	timeout    time.Duration
 	vcpus      float64
 	attempt    int32
+	mainNode   int32
+	numNodes   int32
 	timedOut   atomic.Bool
 }
 
@@ -150,7 +153,11 @@ func (b *InMemoryBackend) execOwnsLocked(job *Job) bool {
 
 	jd, ok := b.jobDefinitions.Get(regionKey(job.region, job.JobDefinition))
 
-	return ok && jd.NodeProperties == nil && jd.ContainerProperties != nil && jd.ContainerProperties.Image != ""
+	if ok && jd.NodeProperties != nil {
+		return b.nodesExecutableLocked(job)
+	}
+
+	return ok && jd.ContainerProperties != nil && jd.ContainerProperties.Image != ""
 }
 
 type dispatchCandidate struct {
@@ -206,22 +213,45 @@ func (b *InMemoryBackend) collectCandidateLocked(
 ) []dispatchCandidate {
 	switch job.Status {
 	case jobStatusSubmitted, jobStatusPending, jobStatusRunnable:
-		var prio int32
-
-		if jq, ok := b.lookupJQByNameOrARN(job.region, job.JobQueue); ok {
-			prio = jq.Priority
-		}
-
-		return append(cands, dispatchCandidate{job: job, priority: prio})
+		return append(cands, dispatchCandidate{job: job, priority: b.queuePriorityLocked(job)})
 	case jobStatusStarting, jobStatusRunning:
-		if _, active := b.exec.running[regionKey(job.region, job.JobID)]; !active {
-			job.Status = jobStatusFailed
-			job.StatusReason = "Container execution was interrupted"
-			job.StoppedAt = &now
+		if _, active := b.exec.running[regionKey(job.region, job.JobID)]; !active && b.failHostLostLocked(job, now) {
+			return append(cands, dispatchCandidate{job: job, priority: b.queuePriorityLocked(job)})
 		}
 	}
 
 	return cands
+}
+
+func (b *InMemoryBackend) queuePriorityLocked(job *Job) int32 {
+	if jq, ok := b.lookupJQByNameOrARN(job.region, job.JobQueue); ok {
+		return jq.Priority
+	}
+
+	return 0
+}
+
+// failHostLostLocked closes the attempt of a job whose container is gone
+// (host lost, e.g. across a restart) and reports whether it was requeued.
+// A host-loss attempt has no exit code or container reason.
+func (b *InMemoryBackend) failHostLostLocked(job *Job, now int64) bool {
+	o := attemptOutcome{statusReason: reasonHostLost}
+
+	b.closeAttemptLocked(job, &runState{}, o, now)
+
+	if b.shouldRetryLocked(job, o) {
+		job.Status = jobStatusRunnable
+		job.StatusReason = ""
+		job.StartedAt = nil
+
+		return true
+	}
+
+	job.Status = jobStatusFailed
+	job.StatusReason = reasonHostLost
+	job.StoppedAt = &now
+
+	return false
 }
 
 func (b *InMemoryBackend) advanceCandidateLocked(job *Job, now int64) {
@@ -252,6 +282,12 @@ func (b *InMemoryBackend) tryStartLocked(job *Job) {
 
 	jq, ok := b.lookupJQByNameOrARN(job.region, job.JobQueue)
 	if !ok {
+		return
+	}
+
+	if jd.NodeProperties != nil {
+		b.tryStartMultiNodeLocked(job, jd, jq)
+
 		return
 	}
 
@@ -304,24 +340,11 @@ func (b *InMemoryBackend) newRunStateLocked(
 		jobID:      job.JobID,
 		queueName:  jq.JobQueueName,
 		jobRoleArn: detail.JobRoleArn,
-		attempt:    job.attemptCount + 1,
+		attempt:    attemptsMade(job) + 1,
 		timeout:    time.Duration(b.effectiveTimeoutSeconds(job)) * time.Second,
-		logGroup:   defaultBatchLogGroup,
 	}
 
-	prefix := jd.JobDefinitionName
-
-	if lc := detail.LogConfiguration; lc != nil {
-		if g := lc.Options[logGroupOption]; g != "" {
-			rs.logGroup = g
-		}
-
-		if p := lc.Options[logStreamPrefixOpt]; p != "" {
-			prefix = p
-		}
-	}
-
-	rs.logStream = fmt.Sprintf("%s/default/%s", prefix, newTaskID())
+	rs.logGroup, rs.logStream = logTarget(detail, jd.JobDefinitionName)
 
 	if job.ArrayParentID != "" && job.ArrayProperties != nil {
 		idx := job.ArrayProperties.Index
@@ -329,6 +352,23 @@ func (b *InMemoryBackend) newRunStateLocked(
 	}
 
 	return rs
+}
+
+// logTarget resolves the CloudWatch log group and a fresh stream name for a container.
+func logTarget(detail *ContainerDetail, defName string) (string, string) {
+	group, prefix := defaultBatchLogGroup, defName
+
+	if lc := detail.LogConfiguration; lc != nil {
+		if g := lc.Options[logGroupOption]; g != "" {
+			group = g
+		}
+
+		if p := lc.Options[logStreamPrefixOpt]; p != "" {
+			prefix = p
+		}
+	}
+
+	return group, fmt.Sprintf("%s/default/%s", prefix, newTaskID())
 }
 
 // pickCELocked returns the first queue-ordered compute environment that is
@@ -449,7 +489,6 @@ func (b *InMemoryBackend) finishAttempt(rs *runState, code int, runErr error) {
 	outcome := classifyOutcome(rs, code, runErr)
 
 	b.closeAttemptLocked(job, rs, outcome, now)
-	job.attemptCount++
 
 	switch {
 	case outcome.success:
@@ -517,7 +556,7 @@ func (b *InMemoryBackend) effectiveRetryStrategy(job *Job) *RetryStrategy {
 // shouldRetryLocked applies attempts and evaluateOnExit: the first matching
 // rule decides, and with no match the job is retried.
 func (b *InMemoryBackend) shouldRetryLocked(job *Job, o attemptOutcome) bool {
-	if job.attemptCount >= b.effectiveRetryAttempts(job) {
+	if attemptsMade(job) >= b.effectiveRetryAttempts(job) {
 		return false
 	}
 

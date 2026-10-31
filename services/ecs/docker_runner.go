@@ -3,13 +3,13 @@ package ecs
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/moby/moby/api/pkg/stdcopy"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -69,6 +69,9 @@ type dockerClient interface {
 		options dockertypes.WaitOptions,
 	) dockertypes.WaitResult
 	ContainerStats(ctx context.Context, containerID string) (io.ReadCloser, error)
+	ContainerInspect(ctx context.Context, containerID string) (dockertypes.InspectResponse, error)
+	VolumeExists(ctx context.Context, name string) (bool, error)
+	VolumeRemove(ctx context.Context, name string) error
 }
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
@@ -91,27 +94,52 @@ func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDocke
 	}
 
 	return &realDockerRunner{
-		cli:         cli,
-		containers:  make(map[string][]string),
-		logCancels:  make(map[string]context.CancelFunc),
-		waitCancels: make(map[string]context.CancelFunc),
-		fronts:      newSGFronts(),
-		svcCtx:      ctx,
+		cli:               cli,
+		containers:        make(map[string][]string),
+		stopOrder:         make(map[string][]string),
+		taskVolumes:       make(map[string][]string),
+		logCancels:        make(map[string]context.CancelFunc),
+		waitCancels:       make(map[string]context.CancelFunc),
+		healthCancels:     make(map[string]context.CancelFunc),
+		exits:             make(map[string]*containerExit),
+		stopTimeouts:      make(map[string]int),
+		launching:         make(map[string]*launchState),
+		fronts:            newSGFronts(),
+		svcCtx:            ctx,
+		now:               time.Now,
+		pollInterval:      defaultPollInterval,
+		dependencyTimeout: defaultDependencyTimeout,
 	}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
 	containers        map[string][]string
+	stopOrder         map[string][]string
+	taskVolumes       map[string][]string
 	logCancels        map[string]context.CancelFunc
 	waitCancels       map[string]context.CancelFunc
+	healthCancels     map[string]context.CancelFunc
+	exits             map[string]*containerExit
+	stopTimeouts      map[string]int
+	launching         map[string]*launchState
 	cli               dockerClient
+	claim             claimFunc
 	cwLogs            CWLogsBackend
 	completionHandler func(taskArn, containerName string, exitCode int)
+	healthHandler     func(taskArn, containerName, status string)
+	reasonHandler     func(taskArn, containerName, reason string)
+	secretLookup      func(ctx context.Context, valueFrom string) (string, error)
+	efsLookup         func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error)
+	registryAuth      func(ctx context.Context, cd ContainerDefinition) (string, error)
+	envFileLookup     func(ctx context.Context, cd ContainerDefinition) ([]string, error)
 	taskEnv           func(task *Task, containerName string) []string
 	attach            func(ctx context.Context, containerID string) error
+	now               func() time.Time
 	svcCtx            context.Context
 	fronts            *sgFronts
+	pollInterval      time.Duration
+	dependencyTimeout time.Duration
 	logWG             sync.WaitGroup
 	waitWG            sync.WaitGroup
 	mu                sync.Mutex
@@ -193,88 +221,6 @@ func (r *realDockerRunner) taskCompletionHandler() func(taskArn, containerName s
 	return r.completionHandler
 }
 
-func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
-	ctx := r.svcCtx
-	log := logger.Load(ctx)
-
-	// Bound once at call time so a concurrent SetCWLogsBackend doesn't change
-	// the target mid-task; nil means logs stay unforwarded (cwLogsRunner unwired).
-	cwLogs := r.cwLogsBackend()
-	// Bound once at call time for the same reason; nil means no watcher is
-	// started at all (taskCompletionRunner unwired, e.g. in tests that don't
-	// need it), so container exits are only observed via an explicit StopTask.
-	completionHandler := r.taskCompletionHandler()
-	taskID := taskIDFromARN(task.TaskArn)
-
-	// started accumulates container IDs that were successfully started during
-	// this call.  If any later container fails we roll back by stopping and
-	// removing everything accumulated so far, keeping RunTask atomic.
-	var started []string
-
-	for _, cd := range td.ContainerDefinitions {
-		if err := r.pullImage(ctx, cd.Image); err != nil {
-			r.rollbackContainers(ctx, started)
-
-			return err
-		}
-
-		containerID, err := r.createContainer(ctx, task, cd)
-		if err != nil {
-			r.rollbackContainers(ctx, started)
-
-			return err
-		}
-
-		if startErr := r.cli.ContainerStart(ctx, containerID, dockertypes.StartOptions{}); startErr != nil {
-			// Clean up the just-created container before rolling back the rest.
-			if rmErr := r.cli.ContainerRemove(
-				ctx,
-				containerID,
-				dockertypes.RemoveOptions{Force: true, RemoveVolumes: true},
-			); rmErr != nil {
-				log.WarnContext(
-					ctx, "failed to remove container after start failure",
-					"containerID", containerID,
-					"error", rmErr,
-				)
-			}
-
-			r.closeFronts(containerID)
-			r.rollbackContainers(ctx, started)
-
-			return fmt.Errorf("start container %s: %w", containerID, startErr)
-		}
-
-		if frontErr := r.startFronts(containerID); frontErr != nil {
-			started = append(started, containerID)
-			r.rollbackContainers(ctx, started)
-
-			return fmt.Errorf("front container %s: %w", containerID, frontErr)
-		}
-
-		started = append(started, containerID)
-
-		if cwLogs != nil {
-			if group, stream, ok := awslogsContainerTarget(cd, taskID, containerID); ok {
-				_ = cwLogs.EnsureLogGroupAndStream(group, stream)
-				r.forwardContainerLogs(cwLogs, containerID, group, stream)
-			}
-		}
-
-		if completionHandler != nil {
-			r.watchContainerExit(completionHandler, task.TaskArn, containerID, cd.Name)
-		}
-	}
-
-	// All containers started successfully; register them in the tracking map.
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.containers[task.TaskArn] = append(r.containers[task.TaskArn], started...)
-
-	return nil
-}
-
 // rollbackContainers stops and force-removes a set of already-started
 // containers.  Errors are logged but not returned so that all containers are
 // attempted.  This is called on the error path of RunTask to ensure the
@@ -322,7 +268,11 @@ func (r *realDockerRunner) rollbackContainers(ctx context.Context, containerIDs 
 }
 
 // pullImage pulls a Docker image and drains the response body.
-func (r *realDockerRunner) pullImage(ctx context.Context, image string) error {
+func (r *realDockerRunner) pullImage(ctx context.Context, image, auth string) error {
+	if auth != "" {
+		return r.pullOnce(ctx, image, auth)
+	}
+
 	return registryauth.Pull(ctx, image, r.pullOnce, registryauth.TaggerFrom(r.cli))
 }
 
@@ -343,52 +293,6 @@ func (r *realDockerRunner) pullOnce(ctx context.Context, image, auth string) err
 	}
 
 	return nil
-}
-
-// createContainer creates a Docker container for the given container definition.
-func (r *realDockerRunner) createContainer(
-	ctx context.Context,
-	task *Task,
-	cd ContainerDefinition,
-) (string, error) {
-	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
-	diverted := r.divertPorts(task, cd.PortMappings, portBindings)
-	env := append(r.runtimeEnv(task, cd.Name), buildEnv(cd.Environment)...)
-
-	resp, err := r.cli.ContainerCreate(
-		ctx,
-		&dockertypes.Config{
-			Image:        cd.Image,
-			Env:          env,
-			ExposedPorts: exposedPorts,
-			Labels: map[string]string{
-				"gopherstack.ecs.task":    task.TaskArn,
-				"gopherstack.ecs.cluster": task.ClusterArn,
-			},
-		},
-		&dockertypes.HostConfig{
-			PortBindings: portBindings,
-		},
-		nil,
-		nil,
-		"",
-	)
-	if err != nil {
-		releasePending(diverted)
-
-		return "", fmt.Errorf("create container for %s: %w", cd.Image, err)
-	}
-
-	r.stashFronts(resp.ID, diverted)
-
-	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
-		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true})
-		r.closeFronts(resp.ID)
-
-		return "", fmt.Errorf("attach container %s to link-local network: %w", resp.ID, attachErr)
-	}
-
-	return resp.ID, nil
 }
 
 // buildPortMappings converts PortMappings to Moby network.PortMap and network.PortSet.
@@ -447,68 +351,12 @@ func (r *realDockerRunner) ContainerIDs(taskArn string) []string {
 	return append([]string(nil), r.containers[taskArn]...)
 }
 
-func (r *realDockerRunner) StopTask(task *Task) error {
-	// Snapshot the container IDs while holding the lock but without removing
-	// the entry yet — we only remove it once all stops have been attempted.
-	var containerIDs []string
-
-	func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-
-		containerIDs = append([]string(nil), r.containers[task.TaskArn]...)
-	}()
-
-	if len(containerIDs) == 0 {
-		return nil
-	}
-
-	ctx := r.svcCtx
-	timeout := 10
-
-	var (
-		errs   []error
-		failed []string
-	)
-
-	for _, containerID := range containerIDs {
-		if err := r.cli.ContainerStop(ctx, containerID, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
-			errs = append(errs, fmt.Errorf("stop container %s: %w", containerID, err))
-			failed = append(failed, containerID)
-
-			continue
-		}
-
-		// Only cancel once the container is confirmed stopped; a container
-		// that failed to stop stays tracked for retry and may still be
-		// producing output worth forwarding, or may yet exit on its own.
-		r.cancelLogForwarding(containerID)
-		r.cancelContainerWait(containerID)
-		r.closeFronts(containerID)
-	}
-
-	// Update the tracking map: remove the entry entirely on full success, or
-	// retain only the containers that could not be stopped so callers can retry.
-	func() {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-
-		if len(failed) == 0 {
-			delete(r.containers, task.TaskArn)
-		} else {
-			r.containers[task.TaskArn] = failed
-		}
-	}()
-
-	return errors.Join(errs...)
-}
-
 // forwardContainerLogs streams a just-started container's stdout/stderr to
 // CloudWatch Logs, in its own goroutine so RunTask returns without waiting
 // for the container to exit. The goroutine ends -- and releases its map
 // entry and logWG slot -- when the log stream reaches EOF (container exit or
 // removal, in production) or cancelLogForwarding(containerID) is called.
-func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerID, group, stream string) {
+func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerID, group, stream, since string) {
 	ctx, cancel := context.WithCancel(r.svcCtx)
 
 	r.mu.Lock()
@@ -527,6 +375,7 @@ func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerI
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
+			Since:      since,
 		})
 		if err != nil {
 			return
@@ -548,58 +397,6 @@ func (r *realDockerRunner) forwardContainerLogs(cwLogs CWLogsBackend, containerI
 func (r *realDockerRunner) cancelLogForwarding(containerID string) {
 	r.mu.Lock()
 	cancel, ok := r.logCancels[containerID]
-	r.mu.Unlock()
-
-	if ok {
-		cancel()
-	}
-}
-
-// watchContainerExit waits for containerID to stop and, unless the wait is
-// cancelled first (see cancelContainerWait, called from StopTask/rollback
-// once a container is confirmed stopped by an explicit request), reports the
-// exit to handler so the owning task can move to STOPPED. Runs in its own
-// goroutine so RunTask does not block on it, and terminates on container exit,
-// cancellation, or shutdown (ctx derives from r.svcCtx) -- never leaked.
-func (r *realDockerRunner) watchContainerExit(
-	handler func(taskArn, containerName string, exitCode int),
-	taskArn, containerID, containerName string,
-) {
-	ctx, cancel := context.WithCancel(r.svcCtx)
-
-	r.mu.Lock()
-	r.waitCancels[containerID] = cancel
-	r.mu.Unlock()
-
-	r.waitWG.Go(func() {
-		defer cancel()
-		defer func() {
-			r.mu.Lock()
-			delete(r.waitCancels, containerID)
-			r.mu.Unlock()
-		}()
-
-		result := r.cli.ContainerWait(ctx, containerID, dockertypes.WaitOptions{})
-
-		select {
-		case res := <-result.Result:
-			r.closeFronts(containerID)
-			handler(taskArn, containerName, int(res.StatusCode))
-		case err := <-result.Error:
-			if err != nil && ctx.Err() == nil {
-				logger.Load(ctx).WarnContext(ctx, "container wait failed", "containerID", containerID, "error", err)
-			}
-		case <-ctx.Done():
-		}
-	})
-}
-
-// cancelContainerWait stops the in-flight exit watcher for containerID, if
-// any. Called once a container is confirmed stopped/removed so its watcher
-// doesn't report a self-inflicted stop as a natural exit.
-func (r *realDockerRunner) cancelContainerWait(containerID string) {
-	r.mu.Lock()
-	cancel, ok := r.waitCancels[containerID]
 	r.mu.Unlock()
 
 	if ok {

@@ -846,7 +846,7 @@ func TestRemoveAccount_InvitedCreatesLeaveHandshake(t *testing.T) {
 	}, "", nil)
 	require.NoError(t, err)
 
-	_, err = b.AcceptHandshake(h.ID)
+	_, err = b.AcceptHandshake(t.Context(), h.ID)
 	require.NoError(t, err)
 
 	// Verify the account is now in the org.

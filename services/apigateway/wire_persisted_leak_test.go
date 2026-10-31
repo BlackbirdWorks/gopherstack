@@ -17,17 +17,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
 // captureTransport records the raw bytes of the last HTTP response, then
 // replays them so the real SDK deserializer still sees the full body.
 type captureTransport struct {
+	rt   http.RoundTripper
 	body []byte
 }
 
 func (c *captureTransport) Do(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := c.rt.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +70,7 @@ func newCapturingTestAPIGatewayClient(t *testing.T, h *apigateway.Handler) (*api
 	)
 	require.NoError(t, err)
 
-	capture := &captureTransport{}
+	capture := &captureTransport{rt: testclient.New(t).Transport}
 
 	client := apigatewaysdk.NewFromConfig(cfg, func(o *apigatewaysdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)

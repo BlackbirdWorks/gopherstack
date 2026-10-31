@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -198,6 +199,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		region := httputils.ExtractRegionFromRequest(r, h.defaultRegion)
 		handler := h.getHandlerForRegion(region)
+
+		vals.Del(callerAccountParam)
+		if account, ok := awsmeta.CallerAccount(r.Context()); ok {
+			vals.Set(callerAccountParam, account)
+		}
 
 		resp, opErr := handler.dispatch(action, vals)
 		if opErr != nil {

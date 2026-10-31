@@ -51,6 +51,14 @@ func (b *InMemoryBackend) networkRangesLocked(network, skip string) []netip.Pref
 		}
 	}
 
+	if n := b.networkBySelfLinkLocked(network); n != nil {
+		for _, peer := range b.activePeersLocked(n) {
+			for p := range b.networkRangesWithOwnerLocked(peer) {
+				out = append(out, p)
+			}
+		}
+	}
+
 	return out
 }
 
@@ -159,6 +167,7 @@ func (b *InMemoryBackend) insertSubnet(
 	}
 
 	b.subnets[key(project, region, in.Name)] = s
+	b.syncSubnetRoutesLocked(project, n)
 
 	return b.newOpLocked("insert", subnetTarget(project, region, s), b.timing.Done), nil
 }
@@ -242,6 +251,7 @@ func (b *InMemoryBackend) deleteSubnet(project, region, name string) (*computeap
 	}
 
 	delete(b.subnets, key(project, region, name))
+	b.syncNetworkRoutesBySelfLinkLocked(project, s.Network)
 
 	return b.newOpLocked("delete", subnetTarget(project, region, s), b.timing.Done), nil
 }
@@ -274,6 +284,7 @@ func (b *InMemoryBackend) expandSubnet(project, region, name, cidr string) (*com
 	}
 
 	s.IpCidrRange, s.GatewayAddress, s.Fingerprint = next.String(), gateway(next).String(), newFingerprint()
+	b.syncNetworkRoutesBySelfLinkLocked(project, s.Network)
 
 	return b.newOpLocked("expandIpCidrRange", subnetTarget(project, region, s), b.timing.Done), nil
 }
@@ -296,10 +307,10 @@ func (b *InMemoryBackend) setSubnetPrivateGoogleAccess(
 }
 
 var subnetPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-	"name": true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
-	"enableFlowLogs": true, "logConfig": true, "description": true, "fingerprint": true, "region": true,
-	"kind": true, "id": true, "selfLink": true, "creationTimestamp": true, "gatewayAddress": true, "purpose": true,
-	"stackType": true, "privateIpv6GoogleAccess": true,
+	jsonName: true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
+	"enableFlowLogs": true, "logConfig": true, jsonDesc: true, "fingerprint": true, "region": true,
+	jsonKind: true, "id": true, jsonSelfLink: true, jsonCreated: true, "gatewayAddress": true, "purpose": true,
+	jsonStackType: true, "privateIpv6GoogleAccess": true,
 }
 
 func (b *InMemoryBackend) patchSubnet(
@@ -352,6 +363,7 @@ func (b *InMemoryBackend) patchSubnet(
 	}
 
 	s.Fingerprint = newFingerprint()
+	b.syncNetworkRoutesBySelfLinkLocked(project, s.Network)
 
 	return b.newOpLocked("patch", subnetTarget(project, region, s), b.timing.Done), nil
 }

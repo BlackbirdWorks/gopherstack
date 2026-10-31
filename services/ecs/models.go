@@ -73,9 +73,19 @@ type HostVolumeProperties struct {
 // Volume defines a storage volume for a task definition.
 type Volume struct {
 	Host                   *HostVolumeProperties   `json:"host,omitempty"`
+	DockerVolumeConfig     *DockerVolumeConfig     `json:"dockerVolumeConfiguration,omitempty"`
 	EFSVolumeConfiguration *EFSVolumeConfiguration `json:"efsVolumeConfiguration,omitempty"`
 	Name                   string                  `json:"name"`
 	ConfiguredAtLaunch     bool                    `json:"configuredAtLaunch,omitempty"`
+}
+
+// DockerVolumeConfig is a Docker-managed volume (types.DockerVolumeConfiguration).
+type DockerVolumeConfig struct {
+	Autoprovision *bool             `json:"autoprovision,omitempty"`
+	DriverOpts    map[string]string `json:"driverOpts,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Driver        string            `json:"driver,omitempty"`
+	Scope         string            `json:"scope,omitempty"`
 }
 
 // MountPoint maps a volume into a container.
@@ -799,29 +809,102 @@ type ManagedStorageConfiguration struct {
 
 // ContainerDefinition represents a container definition in a task definition.
 type ContainerDefinition struct {
-	LogConfiguration       *LogConfiguration      `json:"logConfiguration,omitempty"`
-	FirelensConfiguration  *FirelensConfiguration `json:"firelensConfiguration,omitempty"`
-	HealthCheck            *HealthCheck           `json:"healthCheck,omitempty"`
-	RepositoryCredentials  *RepositoryCredentials `json:"repositoryCredentials,omitempty"`
-	Image                  string                 `json:"image"`
-	Name                   string                 `json:"name"`
-	EntryPoint             []string               `json:"entryPoint,omitempty"`
-	Command                []string               `json:"command,omitempty"`
-	Environment            []KeyValuePair         `json:"environment,omitempty"`
-	Secrets                []SecretReference      `json:"secrets,omitempty"`
-	EnvironmentFiles       []EnvironmentFile      `json:"environmentFiles,omitempty"`
-	ResourceRequirements   []ResourceRequirement  `json:"resourceRequirements,omitempty"`
-	PortMappings           []PortMapping          `json:"portMappings,omitempty"`
-	MountPoints            []MountPoint           `json:"mountPoints,omitempty"`
-	VolumesFrom            []VolumeFrom           `json:"volumesFrom,omitempty"`
-	DependsOn              []ContainerDependency  `json:"dependsOn,omitempty"`
-	Memory                 int                    `json:"memory,omitempty"`
-	MemoryReservation      int                    `json:"memoryReservation,omitempty"`
-	CPU                    int                    `json:"cpu,omitempty"`
-	Essential              bool                   `json:"essential"`
-	DisableNetworking      bool                   `json:"disableNetworking,omitempty"`
-	Privileged             bool                   `json:"privileged,omitempty"`
-	ReadonlyRootFilesystem bool                   `json:"readonlyRootFilesystem,omitempty"`
+	LogConfiguration       *LogConfiguration       `json:"logConfiguration,omitempty"`
+	StartTimeout           *int                    `json:"startTimeout,omitempty"`
+	HealthCheck            *HealthCheck            `json:"healthCheck,omitempty"`
+	RepositoryCredentials  *RepositoryCredentials  `json:"repositoryCredentials,omitempty"`
+	LinuxParameters        *LinuxParameters        `json:"linuxParameters,omitempty"`
+	StopTimeout            *int                    `json:"stopTimeout,omitempty"`
+	DockerLabels           map[string]string       `json:"dockerLabels,omitempty"`
+	RestartPolicy          *ContainerRestartPolicy `json:"restartPolicy,omitempty"`
+	FirelensConfiguration  *FirelensConfiguration  `json:"firelensConfiguration,omitempty"`
+	User                   string                  `json:"user,omitempty"`
+	Hostname               string                  `json:"hostname,omitempty"`
+	Name                   string                  `json:"name"`
+	WorkingDirectory       string                  `json:"workingDirectory,omitempty"`
+	Image                  string                  `json:"image"`
+	Secrets                []SecretReference       `json:"secrets,omitempty"`
+	Environment            []KeyValuePair          `json:"environment,omitempty"`
+	Ulimits                []Ulimit                `json:"ulimits,omitempty"`
+	DNSServers             []string                `json:"dnsServers,omitempty"`
+	DNSSearchDomains       []string                `json:"dnsSearchDomains,omitempty"`
+	ExtraHosts             []HostEntry             `json:"extraHosts,omitempty"`
+	SystemControls         []SystemControl         `json:"systemControls,omitempty"`
+	DockerSecurityOptions  []string                `json:"dockerSecurityOptions,omitempty"`
+	VolumesFrom            []VolumeFrom            `json:"volumesFrom,omitempty"`
+	MountPoints            []MountPoint            `json:"mountPoints,omitempty"`
+	PortMappings           []PortMapping           `json:"portMappings,omitempty"`
+	ResourceRequirements   []ResourceRequirement   `json:"resourceRequirements,omitempty"`
+	EnvironmentFiles       []EnvironmentFile       `json:"environmentFiles,omitempty"`
+	DependsOn              []ContainerDependency   `json:"dependsOn,omitempty"`
+	Command                []string                `json:"command,omitempty"`
+	EntryPoint             []string                `json:"entryPoint,omitempty"`
+	Memory                 int                     `json:"memory,omitempty"`
+	MemoryReservation      int                     `json:"memoryReservation,omitempty"`
+	CPU                    int                     `json:"cpu,omitempty"`
+	Essential              bool                    `json:"essential"`
+	DisableNetworking      bool                    `json:"disableNetworking,omitempty"`
+	Privileged             bool                    `json:"privileged,omitempty"`
+	ReadonlyRootFilesystem bool                    `json:"readonlyRootFilesystem,omitempty"`
+	Interactive            bool                    `json:"interactive,omitempty"`
+	PseudoTerminal         bool                    `json:"pseudoTerminal,omitempty"`
+}
+
+// Ulimit is a container resource limit (types.Ulimit).
+type Ulimit struct {
+	Name      string `json:"name"`
+	SoftLimit int    `json:"softLimit"`
+	HardLimit int    `json:"hardLimit"`
+}
+
+// HostEntry is an /etc/hosts entry (types.HostEntry).
+type HostEntry struct {
+	Hostname  string `json:"hostname"`
+	IPAddress string `json:"ipAddress"`
+}
+
+// SystemControl is a namespaced kernel parameter (types.SystemControl).
+type SystemControl struct {
+	Namespace string `json:"namespace"`
+	Value     string `json:"value"`
+}
+
+// ContainerRestartPolicy is the per-container restart policy (types.ContainerRestartPolicy).
+type ContainerRestartPolicy struct {
+	IgnoredExitCodes     []int `json:"ignoredExitCodes,omitempty"`
+	RestartAttemptPeriod int   `json:"restartAttemptPeriod,omitempty"`
+	Enabled              bool  `json:"enabled"`
+}
+
+// LinuxParameters holds Linux-specific container options (types.LinuxParameters).
+type LinuxParameters struct {
+	Capabilities       *KernelCapabilities `json:"capabilities,omitempty"`
+	InitProcessEnabled *bool               `json:"initProcessEnabled,omitempty"`
+	MaxSwap            *int                `json:"maxSwap,omitempty"`
+	SharedMemorySize   *int                `json:"sharedMemorySize,omitempty"`
+	Swappiness         *int                `json:"swappiness,omitempty"`
+	Devices            []Device            `json:"devices,omitempty"`
+	Tmpfs              []Tmpfs             `json:"tmpfs,omitempty"`
+}
+
+// KernelCapabilities lists Linux capabilities to add or drop.
+type KernelCapabilities struct {
+	Add  []string `json:"add,omitempty"`
+	Drop []string `json:"drop,omitempty"`
+}
+
+// Device maps a host device into a container.
+type Device struct {
+	HostPath      string   `json:"hostPath"`
+	ContainerPath string   `json:"containerPath,omitempty"`
+	Permissions   []string `json:"permissions,omitempty"`
+}
+
+// Tmpfs is a tmpfs mount (size in MiB).
+type Tmpfs struct {
+	ContainerPath string   `json:"containerPath"`
+	MountOptions  []string `json:"mountOptions,omitempty"`
+	Size          int      `json:"size"`
 }
 
 // UnmarshalJSON defaults Essential to true when the key is omitted, per
@@ -959,20 +1042,25 @@ type Task struct {
 	StartedAt            *time.Time            `json:"startedAt,omitempty"`
 	StoppedAt            *time.Time            `json:"stoppedAt,omitempty"`
 	ConnectivityAt       *time.Time            `json:"connectivityAt,omitempty"`
+	CreatedAt            *time.Time            `json:"createdAt,omitempty"`
+	PullStartedAt        *time.Time            `json:"pullStartedAt,omitempty"`
+	PullStoppedAt        *time.Time            `json:"pullStoppedAt,omitempty"`
 	Overrides            *TaskOverride         `json:"overrides,omitempty"`
 	NetworkConfiguration *NetworkConfiguration `json:"networkConfiguration,omitempty"`
-	TaskArn              string                `json:"taskArn"`
-	ClusterArn           string                `json:"clusterArn"`
+	Group                string                `json:"group,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
 	TaskDefinitionArn    string                `json:"taskDefinitionArn"`
 	LastStatus           string                `json:"lastStatus"`
 	DesiredStatus        string                `json:"desiredStatus"`
 	Connectivity         string                `json:"connectivity,omitempty"`
 	StoppedReason        string                `json:"stoppedReason,omitempty"`
-	Group                string                `json:"group,omitempty"`
+	StopCode             string                `json:"stopCode,omitempty"`
+	HealthStatus         string                `json:"healthStatus,omitempty"`
+	TaskArn              string                `json:"taskArn"`
 	LaunchType           string                `json:"launchType,omitempty"`
 	ContainerInstanceArn string                `json:"containerInstanceArn,omitempty"`
 	StartedBy            string                `json:"startedBy,omitempty"`
-	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	ClusterArn           string                `json:"clusterArn"`
 	PlatformFamily       string                `json:"platformFamily,omitempty"`
 	RuntimeID            string                `json:"runtimeId,omitempty"`
 	PropagateTags        string                `json:"propagateTags,omitempty"`
@@ -987,10 +1075,11 @@ type Task struct {
 	Tags                 []Tag            `json:"tags,omitempty"`
 	Attachments          []TaskAttachment `json:"attachments,omitempty"`
 	Containers           []Container      `json:"containers,omitempty"`
-	EnableExecuteCommand bool             `json:"enableExecuteCommand,omitempty"`
+	version              int64
+	EnableExecuteCommand bool `json:"enableExecuteCommand,omitempty"`
 	// AwaitingCapacity marks a PROVISIONING task waiting for a managed-scaling provider to add instances.
 	AwaitingCapacity bool `json:"awaitingCapacity,omitempty"`
-	version          int64
+	runtimeHealth    bool
 }
 
 // CreateClusterInput holds input for CreateCluster.

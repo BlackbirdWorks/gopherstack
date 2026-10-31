@@ -2,7 +2,12 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { azureServiceById } from '#lib/cloud.ts';
+	import ApiManagementDashboard from '#lib/components/azure/ApiManagementDashboard.svelte';
+	import AppServiceDashboard from '#lib/components/azure/AppServiceDashboard.svelte';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import FlexibleServerDashboard from '#lib/components/azure/FlexibleServerDashboard.svelte';
+	import KubernetesServiceDashboard from '#lib/components/azure/KubernetesServiceDashboard.svelte';
+	import ContainerAppsDashboard from '#lib/components/azure/ContainerAppsDashboard.svelte';
 	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
 	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
@@ -16,6 +21,7 @@
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
 	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
+	import VirtualMachinesDashboard from '#lib/components/azure/VirtualMachinesDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
 	const service = $derived(azureServiceById(page.params.service ?? ''));
@@ -56,6 +62,18 @@
 	<MonitorDashboard />
 {:else if service?.id === 'aci'}
 	<ContainerInstancesDashboard />
+{:else if service?.id === 'appservice'}
+	<AppServiceDashboard />
+{:else if service?.id === 'containerapps'}
+	<ContainerAppsDashboard />
+{:else if service?.id === 'vm'}
+	<VirtualMachinesDashboard />
+{:else if service?.id === 'aks'}
+	<KubernetesServiceDashboard />
+{:else if service?.id === 'flexdb'}
+	<FlexibleServerDashboard />
+{:else if service?.id === 'apim'}
+	<ApiManagementDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

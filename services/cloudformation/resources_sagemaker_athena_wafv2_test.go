@@ -217,7 +217,8 @@ func testSageMakerDomain(t *testing.T) {
 	tmpl := `{
 "Resources": {"D": {"Type": "AWS::SageMaker::Domain", "Properties": {
   "DomainName": "domain-1", "AuthMode": "IAM", "VpcId": "vpc-test",
-  "SubnetIds": ["subnet-1", "subnet-2"]
+  "SubnetIds": ["subnet-1", "subnet-2"],
+  "DefaultUserSettings": {"ExecutionRole": "arn:aws:iam::000000000000:role/sm"}
 }}},
 "Outputs": {"Ref": {"Value": {"Ref": "D"}}}
 }`

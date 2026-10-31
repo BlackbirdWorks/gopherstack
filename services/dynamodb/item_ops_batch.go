@@ -512,19 +512,20 @@ func (db *InMemoryDB) batchWriteItemOp(
 		return nil, err
 	}
 
+	unprocessedItems := make(map[string][]types.WriteRequest)
+
+	if db.txn.live.Load() > 0 || db.chaosActive() {
+		db.dropConflictingBatchWrites(region, input, tables, wireByTable, unprocessedItems)
+	}
+
 	// Split requests per table by size limit before processing.
 	toProcess := make(map[string][]wireWriteRequest, len(wireByTable))
-	unprocessedItems := make(map[string][]types.WriteRequest)
 
 	for tableName, requests := range wireByTable {
 		process, unprocessed := splitWriteRequestsBySize(requests, batchWriteResponseLimit)
 		toProcess[tableName] = process
-		if len(unprocessed) > 0 {
-			unprocessedReqs := make([]types.WriteRequest, len(unprocessed))
-			for i, wwr := range unprocessed {
-				unprocessedReqs[i] = wwr.req
-			}
-			unprocessedItems[tableName] = unprocessedReqs
+		for _, wwr := range unprocessed {
+			unprocessedItems[tableName] = append(unprocessedItems[tableName], wwr.req)
 		}
 	}
 
@@ -551,6 +552,36 @@ func (db *InMemoryDB) batchWriteItemOp(
 		),
 		ItemCollectionMetrics: applied.metrics,
 	}, nil
+}
+
+// dropConflictingBatchWrites moves writes that overlap an in-flight transaction out of the batch and into
+// unprocessedItems: BatchWriteItem's API reference lists no TransactionConflictException, and each
+// write in a batch is isolated individually (Isolation levels for DynamoDB transactions).
+func (db *InMemoryDB) dropConflictingBatchWrites(
+	region string,
+	input *dynamodb.BatchWriteItemInput,
+	tables map[string]*Table,
+	wireByTable map[string][]wireWriteRequest,
+	unprocessedItems map[string][]types.WriteRequest,
+) {
+	for tableName, requests := range input.RequestItems {
+		kept, conflicted := db.filterBatchConflicts(region, tableName, tables[tableName], requests)
+		if len(conflicted) == 0 {
+			continue
+		}
+
+		db.emitTransactionConflict(region, tableName, len(conflicted))
+		unprocessedItems[tableName] = append(unprocessedItems[tableName], conflicted...)
+
+		if len(kept) == 0 {
+			delete(wireByTable, tableName)
+			delete(tables, tableName)
+
+			continue
+		}
+
+		wireByTable[tableName] = toWireWriteRequests(kept)
+	}
 }
 
 type batchAppliedWrites struct {

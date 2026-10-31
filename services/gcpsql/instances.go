@@ -49,10 +49,6 @@ func validateInstance(in *InstanceInput) error {
 		return errInvalid("Invalid instance name: %q.", in.Name)
 	}
 
-	if in.MasterInstanceName != "" || in.InstanceType == "READ_REPLICA_INSTANCE" {
-		return errInvalid("Read replicas are not supported by the emulator.")
-	}
-
 	if _, _, err := parseVersion(in.DatabaseVersion); err != nil {
 		return versionError(in.DatabaseVersion)
 	}
@@ -85,6 +81,8 @@ func (b *InMemoryBackend) newInstance(project string, in *InstanceInput) (*instR
 	}
 
 	rec := &instRec{
+		ServerID:  randomServerID(),
+		fresh:     true,
 		Databases: map[string]*Database{}, Users: map[string]*userRec{}, Backups: map[string]*backupRec{},
 		Certs: map[string]*certRec{}, RootPassword: in.RootPassword, CACert: caPEM, CAKey: keyPEM,
 		Inst: Instance{
@@ -105,8 +103,22 @@ func (b *InMemoryBackend) newInstance(project string, in *InstanceInput) (*instR
 	return rec, nil
 }
 
-// InsertInstance creates an instance and starts its engine.
+// InsertInstance creates an instance, or a read replica when masterInstanceName is set, and starts its engine.
 func (b *InMemoryBackend) InsertInstance(project string, in InstanceInput) (*Operation, error) {
+	replica := in.MasterInstanceName != "" || in.InstanceType == instanceTypeReplica
+
+	b.mu.Lock("InsertInstance")
+	defer b.mu.Unlock()
+
+	var prim *instRec
+
+	if replica {
+		var err error
+		if prim, err = b.prepareReplicaLocked(project, &in); err != nil {
+			return nil, err
+		}
+	}
+
 	if in.Region == "" {
 		in.Region = defaultRegion
 	}
@@ -124,9 +136,6 @@ func (b *InMemoryBackend) InsertInstance(project string, in InstanceInput) (*Ope
 		return nil, err
 	}
 
-	b.mu.Lock("InsertInstance")
-	defer b.mu.Unlock()
-
 	if _, exists := b.instances[instKey(project, in.Name)]; exists {
 		return nil, errConflict("instanceAlreadyExists",
 			"The Cloud SQL instance already exists. When you delete an instance, you can't reuse the name of the "+
@@ -135,7 +144,14 @@ func (b *InMemoryBackend) InsertInstance(project string, in InstanceInput) (*Ope
 
 	b.instances[instKey(project, in.Name)] = rec
 
-	return b.submitLocked(rec, project, "CREATE", opMeta{}, func(ctx context.Context) error {
+	opType := "CREATE"
+	if replica {
+		b.linkReplicaLocked(prim, rec)
+
+		opType = "CREATE_REPLICA"
+	}
+
+	return b.submitLocked(rec, project, opType, opMeta{}, func(ctx context.Context) error {
 		return b.bringUp(ctx, rec)
 	}), nil
 }
@@ -144,6 +160,7 @@ func (b *InMemoryBackend) viewLocked(rec *instRec) *Instance {
 	cp := rec.Inst
 	cp.Settings = asMap(deepCopy(rec.Inst.Settings))
 	cp.IPAddresses = append([]IPMapping(nil), rec.Inst.IPAddresses...)
+	cp.ReplicaNames = append([]string(nil), rec.Inst.ReplicaNames...)
 
 	return &cp
 }
@@ -248,6 +265,9 @@ func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) f
 	oldPolicy, newPolicy := settingString(old, "activationPolicy"), settingString(next, "activationPolicy")
 	flagsChanged := flagsSig(flagsOf(old)) != flagsSig(flagsOf(next))
 	newFlags := flagsOf(next)
+	version := rec.Inst.DatabaseVersion
+	pitrChanged := pitrOn(version, old) != pitrOn(version, next)
+	tierChanged := settingString(old, "tier") != settingString(next, "tier")
 
 	return func(ctx context.Context) error {
 		switch {
@@ -255,12 +275,52 @@ func (b *InMemoryBackend) settingsTask(rec *instRec, old, next map[string]any) f
 			return b.suspend(ctx, rec)
 		case oldPolicy == policyNever && newPolicy != policyNever:
 			return b.resume(ctx, rec)
-		case flagsChanged:
-			return b.restartEngine(ctx, rec, newFlags)
+		}
+
+		if tierChanged {
+			if relaunched, err := b.relaunch(ctx, rec); relaunched || err != nil {
+				return err
+			}
+		}
+
+		if flagsChanged {
+			if err := b.restartEngine(ctx, rec, newFlags); err != nil {
+				return err
+			}
+		}
+
+		if pitrChanged {
+			return b.syncPITR(ctx, rec, b.engineOf(rec))
 		}
 
 		return nil
 	}
+}
+
+// relaunch recreates the engine container so a new tier's CPU and memory limits apply. It only does so when the
+// data survives in a volume and no replica is tied to the container; otherwise the limits apply at the next launch.
+func (b *InMemoryBackend) relaunch(ctx context.Context, rec *instRec) (bool, error) {
+	eng := b.engineOf(rec)
+
+	p, ok := eng.(interface{ Persistent() bool })
+	if !ok || !p.Persistent() {
+		return false, nil
+	}
+
+	b.mu.Lock("relaunch")
+	tied := len(rec.Inst.ReplicaNames) > 0 || b.isReplica(rec)
+	if !tied {
+		rec.eng = nil
+	}
+	b.mu.Unlock()
+
+	if tied {
+		return false, nil
+	}
+
+	eng.Close(ctx)
+
+	return true, b.bringUp(ctx, rec)
 }
 
 // RestartInstance restarts the engine, applying the configured flags.
@@ -302,6 +362,11 @@ func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, erro
 		return nil, errInvalid("The instance cannot be deleted while deletion protection is enabled.")
 	}
 
+	if len(rec.Inst.ReplicaNames) > 0 {
+		return nil, errInvalid("The instance has read replicas; delete them before deleting the primary.")
+	}
+
+	b.unlinkReplicaLocked(rec)
 	rec.Inst.State = stateDeleting
 	b.touchLocked(rec)
 
@@ -312,12 +377,21 @@ func (b *InMemoryBackend) DeleteInstance(project, name string) (*Operation, erro
 		delete(b.instances, instKey(project, name))
 		b.mu.Unlock()
 
-		if eng != nil {
-			eng.Close(ctx)
-		}
+		purgeEngine(ctx, eng)
 
 		return nil
 	}), nil
+}
+
+// purgeEngine closes eng and deletes its persistent storage.
+func purgeEngine(ctx context.Context, eng Engine) {
+	switch p := eng.(type) {
+	case nil:
+	case Purger:
+		p.Purge(ctx)
+	default:
+		eng.Close(ctx)
+	}
 }
 
 func (b *InMemoryBackend) engineOf(rec *instRec) Engine {
@@ -369,11 +443,67 @@ func (b *InMemoryBackend) resume(ctx context.Context, rec *instRec) error {
 	return b.bringUp(ctx, rec)
 }
 
+// launchSpec describes the engine of rec; for a replica it also readies the primary. A replica with a nil
+// source is state-only like its primary.
+func (b *InMemoryBackend) launchSpec(ctx context.Context, rec *instRec) (LaunchSpec, Engine, bool, error) {
+	b.mu.RLock("launchSpec")
+	spec := LaunchSpec{
+		ID: rec.Inst.Name, Project: rec.Inst.Project, Version: rec.Inst.DatabaseVersion, Password: rec.RootPassword,
+		ServerID: rec.ServerID, Persist: true, Recovery: rec.recovery, Fresh: rec.fresh,
+	}
+	tier := settingString(rec.Inst.Settings, "tier")
+	replica := b.isReplica(rec)
+	b.mu.RUnlock()
+
+	spec.NanoCPUs, spec.MemoryBytes = tierLimits(tier)
+
+	if !replica {
+		return spec, nil, false, nil
+	}
+
+	src, err := b.primaryEngine(ctx, rec)
+	if err != nil || src == nil {
+		return spec, nil, true, err
+	}
+
+	rp, ok := src.(Replicator)
+	if !ok {
+		return spec, nil, true, errNoReplication
+	}
+
+	rs, err := rp.ReplicationSource(ctx)
+	if err != nil {
+		return spec, nil, true, err
+	}
+
+	spec.Replica = &rs
+
+	return spec, src, true, nil
+}
+
+func (b *InMemoryBackend) sweepVolumes(ctx context.Context, l Launcher) {
+	sw, ok := l.(VolumeSweeper)
+
+	b.mu.Lock("sweepVolumes")
+	first := !b.swept
+	b.swept = true
+
+	keep := map[string]bool{}
+	for _, r := range b.instances {
+		keep[volumeName("data", r.Inst.Project, r.Inst.Name)] = true
+		keep[volumeName("pitr", r.Inst.Project, r.Inst.Name)] = true
+	}
+	b.mu.Unlock()
+
+	if ok && first {
+		sw.SweepVolumes(ctx, keep)
+	}
+}
+
 // bringUp launches the engine of rec (or runs state-only) and replays databases, users and flags.
 func (b *InMemoryBackend) bringUp(ctx context.Context, rec *instRec) error {
 	b.mu.RLock("bringUp")
 	l := b.launcher
-	spec := LaunchSpec{ID: rec.Inst.Name, Version: rec.Inst.DatabaseVersion, Password: rec.RootPassword}
 	suspended := settingString(rec.Inst.Settings, "activationPolicy") == policyNever
 	b.mu.RUnlock()
 
@@ -383,30 +513,141 @@ func (b *InMemoryBackend) bringUp(ctx context.Context, rec *instRec) error {
 		return nil
 	}
 
-	eng, err := b.launch(ctx, l, spec)
+	b.sweepVolumes(ctx, l)
+
+	spec, src, replica, err := b.launchSpec(ctx, rec)
 	if err != nil {
 		b.setState(rec, stateFailed)
 
 		return err
 	}
 
-	if eng != nil {
-		if err = b.replay(ctx, rec, eng); err != nil {
-			eng.Close(ctx)
+	var eng Engine
+	if !replica || src != nil {
+		eng, err = b.launch(ctx, l, spec)
+		if err != nil {
 			b.setState(rec, stateFailed)
 
 			return err
 		}
 	}
 
+	if eng != nil {
+		if err = b.finishEngine(ctx, rec, eng, spec, src); err != nil {
+			purgeAfterFailure(ctx, eng, spec)
+			b.setState(rec, stateFailed)
+
+			return err
+		}
+	} else if err = b.syncPITR(ctx, rec, nil); err != nil {
+		b.setState(rec, stateFailed)
+
+		return err
+	}
+
 	b.mu.Lock("bringUp")
-	rec.eng = eng
+	rec.eng, rec.recovery, rec.fresh = eng, nil, false
 	rec.Inst.IPAddresses, rec.Inst.GopherstackEndpoint = addresses(eng)
 	rec.Inst.State = stateRunnable
 	b.touchLocked(rec)
 	b.mu.Unlock()
 
 	return nil
+}
+
+// purgeAfterFailure drops a half-built engine; volumes holding data a restart could still use are kept.
+func purgeAfterFailure(ctx context.Context, eng Engine, spec LaunchSpec) {
+	if spec.Recovery != nil || spec.Replica != nil {
+		purgeEngine(ctx, eng)
+
+		return
+	}
+
+	eng.Close(ctx)
+}
+
+// finishEngine brings a launched engine to the state the records describe.
+func (b *InMemoryBackend) finishEngine(
+	ctx context.Context, rec *instRec, eng Engine, spec LaunchSpec, src Engine,
+) error {
+	if spec.Replica != nil {
+		return b.attachReplica(ctx, rec, eng, spec, src)
+	}
+
+	if spec.Recovery != nil {
+		if rc, ok := eng.(Recoverer); ok {
+			if err := rc.ApplyRecovery(ctx, *spec.Recovery); err != nil {
+				return err
+			}
+		}
+
+		if err := b.alignDatabases(ctx, rec, eng); err != nil {
+			return err
+		}
+	}
+
+	if err := b.replay(ctx, rec, eng); err != nil {
+		return err
+	}
+
+	return b.syncPITR(ctx, rec, eng)
+}
+
+func (b *InMemoryBackend) attachReplica(
+	ctx context.Context, rec *instRec, eng Engine, spec LaunchSpec, src Engine,
+) error {
+	rp, ok := eng.(Replicator)
+	if !ok {
+		return errNoReplication
+	}
+
+	var seed []byte
+
+	if !isPG(rec.Inst.DatabaseVersion) {
+		if err := b.replay(ctx, rec, eng); err != nil {
+			return err
+		}
+
+		primary, err := b.primaryRec(rec)
+		if err != nil {
+			return err
+		}
+
+		srcRepl, isRepl := src.(Replicator)
+		if !isRepl {
+			return errNoReplication
+		}
+
+		if seed, err = srcRepl.ReplicaSeed(ctx, b.exportableDBs(primary, nil)); err != nil {
+			return err
+		}
+	}
+
+	if err := rp.AttachReplica(ctx, *spec.Replica, seed); err != nil {
+		return err
+	}
+
+	b.mu.RLock("attachReplica")
+	paused := rec.ReplicaPaused
+	b.mu.RUnlock()
+
+	if paused {
+		return rp.SetReplication(ctx, false)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) primaryRec(rec *instRec) (*instRec, error) {
+	name, err := masterName(rec.Inst.Project, rec.Inst.MasterInstanceName)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.RLock("primaryRec")
+	defer b.mu.RUnlock()
+
+	return b.lookupLocked(rec.Inst.Project, name)
 }
 
 func (b *InMemoryBackend) launch(ctx context.Context, l Launcher, spec LaunchSpec) (Engine, error) {
@@ -468,8 +709,17 @@ func (b *InMemoryBackend) replay(ctx context.Context, rec *instRec, eng Engine) 
 		}
 	}
 
+	existing, err := eng.ListDatabases(ctx)
+	if err != nil {
+		return err
+	}
+
 	for _, d := range dbs {
-		if err := eng.CreateDatabase(ctx, d.Name, d.Charset, d.Collation); err != nil {
+		if contains(existing, d.Name) {
+			continue
+		}
+
+		if err = eng.CreateDatabase(ctx, d.Name, d.Charset, d.Collation); err != nil {
 			return err
 		}
 	}

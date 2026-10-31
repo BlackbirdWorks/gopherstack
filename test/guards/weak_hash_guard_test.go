@@ -37,6 +37,9 @@ func allowedWeakHashFiles() map[string]string {
 		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
 		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
 		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
+		// Identity Platform batchCreate accepts MD5/SHA1/PBKDF_SHA1/HMAC_* password hashes
+		// (UploadAccountRequest.hashAlgorithm); imported digests, never produced for new credentials.
+		"services/gcpidentitytoolkit/hashes.go": "Identity Platform legacy password hash import parity",
 		// OCI Vault Encrypt/Decrypt expose RSA_OAEP_SHA_1 as a caller-selectable encryption algorithm.
 		"services/ocivault/seal.go": "OCI Vault RSA_OAEP_SHA_1 encryption algorithm parity",
 

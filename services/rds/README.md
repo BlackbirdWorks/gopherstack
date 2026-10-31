@@ -9,13 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 52 (51 ok, 1 partial) |
 | Feature families | 29 (28 ok, 1 partial) |
-| Known gaps | 6 |
+| Known gaps | 7 |
 | Structural gaps (can't be emulated) | 7 |
 | Deferred items | 0 |
 | Resource leaks | fixed |
 
 ### Known gaps
 
+- Snapshot sharing is caller-aware only for snapshots created or copied by an explicit-account caller (DBSnapshot.OwnerAccountID, unset = visible to all as before); instances, clusters and other resources are not account-scoped, and snapshot identifiers stay global across accounts (gopherstack-tnqy.6).
 - UNVERIFIABLE: CreateDBInstance without MasterUserPassword (and without ManageMasterUserPassword) is accepted and EngineVersion values outside the small built-in catalog are accepted: the pinned SDK does not mark the password required and ships no engine-version catalog to check against.
 - UNVERIFIABLE (gopherstack-1jkv): two different roles added to a cluster with FeatureName omitted on both coexist; the pinned SDK documents no collision rule.
 - UNVERIFIABLE: MasterUserSecret.KmsKeyId stays empty when MasterUserSecretKmsKeyId is unset; the pinned SDK does not state the default key's shape. Changing the key on a managed secret does not re-encrypt the Secrets Manager secret.

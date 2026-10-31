@@ -16,7 +16,6 @@ import (
 const (
 	dumpChunkChars = 60000
 
-	cmdEnv           = "env"
 	snapKindInstance = "i:"
 	snapKindCluster  = "c:"
 )
@@ -69,7 +68,18 @@ func (e *dbEngine) execer() (EngineExecRuntime, bool) {
 }
 
 func (e *dbEngine) run(ctx context.Context, x EngineExecRuntime, id string, cmd []string) (string, error) {
-	res, err := x.Exec(ctx, id, cmd)
+	return e.runEnv(ctx, x, id, cmd, nil)
+}
+
+func mysqlPwdEnv(pw string) []string { return []string{"MYSQL_PWD=" + pw} }
+
+func pgPwdEnv(pw string) []string { return []string{"PGPASSWORD=" + pw} }
+
+// runEnv runs cmd with env on the exec process so passwords stay out of argv.
+func (e *dbEngine) runEnv(
+	ctx context.Context, x EngineExecRuntime, id string, cmd, env []string,
+) (string, error) {
+	res, err := container.ExecWithEnv(ctx, x, id, cmd, env)
 	if err != nil {
 		return "", fmt.Errorf("exec: %w", err)
 	}
@@ -122,9 +132,9 @@ func (e *dbEngine) dumpUnitFor(ctx context.Context, in unitInfo, forReplica bool
 			return "", err
 		}
 
-		return e.run(ctx, x, in.containerID, []string{
-			cmdEnv, "PGPASSWORD=" + l.Password, "pg_dump", "-U", l.User, "-d", db, "--no-owner", "--no-privileges",
-		})
+		return e.runEnv(ctx, x, in.containerID, []string{
+			"pg_dump", "-U", l.User, "-d", db, "--no-owner", "--no-privileges",
+		}, pgPwdEnv(l.Password))
 	}
 
 	return e.dumpMySQL(ctx, x, in, forReplica)
@@ -133,11 +143,11 @@ func (e *dbEngine) dumpUnitFor(ctx context.Context, in unitInfo, forReplica bool
 func (e *dbEngine) dumpMySQL(ctx context.Context, x EngineExecRuntime, in unitInfo, forReplica bool) (string, error) {
 	l := in.login
 	client, dumper := mysqlClients(l.Kind)
-	env := "MYSQL_PWD=" + l.Password
+	env := mysqlPwdEnv(l.Password)
 
-	out, err := e.run(ctx, x, in.containerID, []string{
-		cmdEnv, env, client, "-u" + mysqlRootUser, "-N", "-B", "-e", "SHOW DATABASES",
-	})
+	out, err := e.runEnv(ctx, x, in.containerID, []string{
+		client, "-u" + mysqlRootUser, "-N", "-B", "-e", "SHOW DATABASES",
+	}, env)
 	if err != nil {
 		return "", err
 	}
@@ -159,13 +169,13 @@ func (e *dbEngine) dumpMySQL(ctx context.Context, x EngineExecRuntime, in unitIn
 	}
 
 	cmd := append([]string{
-		cmdEnv, env, dumper, "-u" + mysqlRootUser, "--single-transaction", "--skip-dump-date",
+		dumper, "-u" + mysqlRootUser, "--single-transaction", "--skip-dump-date",
 		"--routines", "--events", "--triggers",
 	}, mysqlDumpPositionFlags(l.Kind, forReplica)...)
 
 	cmd = append(cmd, "--databases")
 
-	return e.run(ctx, x, in.containerID, append(cmd, names...))
+	return e.runEnv(ctx, x, in.containerID, append(cmd, names...), env)
 }
 
 // mysqlPositionScript returns the statement that starts a replica of a source holding no user databases at
@@ -179,9 +189,9 @@ func (e *dbEngine) mysqlPositionScript(ctx context.Context, x EngineExecRuntime,
 		expr, format = "@@GLOBAL.gtid_binlog_pos", "SET GLOBAL gtid_slave_pos='%s';\n"
 	}
 
-	out, err := e.run(ctx, x, in.containerID, []string{
-		cmdEnv, "MYSQL_PWD=" + l.Password, client, "-u" + mysqlRootUser, "-N", "-B", "-e", "SELECT " + expr,
-	})
+	out, err := e.runEnv(ctx, x, in.containerID, []string{
+		client, "-u" + mysqlRootUser, "-N", "-B", "-e", "SELECT " + expr,
+	}, mysqlPwdEnv(l.Password))
 	if err != nil {
 		return "", err
 	}
@@ -260,17 +270,17 @@ func (e *dbEngine) loadDump(ctx context.Context, in unitInfo, dump string) error
 	if l.Kind == enginePostgres {
 		db, _ := pgDatabase(l)
 
-		_, err := e.run(ctx, x, in.containerID, []string{
-			cmdEnv, "PGPASSWORD=" + l.Password, "sh", "-c", pgLoadScript, path, l.User, db,
-		})
+		_, err := e.runEnv(ctx, x, in.containerID, []string{
+			"sh", "-c", pgLoadScript, path, l.User, db,
+		}, pgPwdEnv(l.Password))
 
 		return err
 	}
 
 	client, _ := mysqlClients(l.Kind)
-	_, err := e.run(ctx, x, in.containerID, []string{
-		cmdEnv, "MYSQL_PWD=" + l.Password, "sh", "-c", mysqlLoadScript, path, client, mysqlRootUser,
-	})
+	_, err := e.runEnv(ctx, x, in.containerID, []string{
+		"sh", "-c", mysqlLoadScript, path, client, mysqlRootUser,
+	}, mysqlPwdEnv(l.Password))
 
 	return err
 }

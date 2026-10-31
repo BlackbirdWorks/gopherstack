@@ -56,6 +56,7 @@ func isValidDataCatalogType(t string) bool {
 type InMemoryBackend struct {
 	now                           func() time.Time
 	glueSource                    GlueMetadataSource
+	s3tables                      S3TablesSource
 	s3                            S3Storer
 	registry                      *store.Registry
 	databasesByCatalog            *store.Index[Database]

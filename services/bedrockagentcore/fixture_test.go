@@ -140,6 +140,7 @@ func (f *fixture) newClient(t *testing.T) *sdk.Client {
 	return sdk.NewFromConfig(cfg, func(o *sdk.Options) {
 		o.BaseEndpoint = aws.String(f.url)
 		o.Retryer = aws.NopRetryer{}
+		o.HTTPClient = sdktest.PlainBodyHTTPClient()
 	})
 }
 

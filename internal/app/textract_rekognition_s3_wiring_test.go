@@ -77,7 +77,7 @@ func TestInitializeServices_TextractS3Wiring(t *testing.T) {
 
 	appCtx := newTestAppContext(t, 19400, 19500)
 
-	services, err := initializeServices(appCtx)
+	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
 
 	byName := serviceByName(services)
@@ -131,7 +131,7 @@ func TestInitializeServices_RekognitionS3Wiring(t *testing.T) {
 
 	appCtx := newTestAppContext(t, 19500, 19600)
 
-	services, err := initializeServices(appCtx)
+	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
 
 	byName := serviceByName(services)

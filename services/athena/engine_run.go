@@ -19,10 +19,13 @@ var (
 )
 
 type planTable struct {
-	def    *GlueTableDef
-	schema string
-	name   string
-	parts  []GluePartitionDef
+	def       *GlueTableDef
+	schema    string
+	name      string
+	display   string
+	metaTable string
+	travel    travelSpec
+	parts     []GluePartitionDef
 }
 
 type enginePlan struct {
@@ -99,12 +102,17 @@ func (b *InMemoryBackend) planEngineQuery(
 		return b.planWrite(query, qctx, cat, get, list)
 	}
 
-	plan, unresolved, err := b.buildPlan(query, qctx, cat, get, list)
+	plan, unresolved, err := b.buildPlan(query, qctx, get, list)
 	if err != nil {
 		return nil, planFailure(err), true
 	}
 
 	if len(plan.tables) == 0 && !plan.standalone() {
+		if len(unresolved) > 0 && strings.HasPrefix(strings.ToLower(unresolved[0]), s3TablesCatalogPrefix) {
+			return nil, stmtFail(athenaErrTypeEntityMiss,
+				"TABLE_NOT_FOUND: line 1:15: Table '%s' does not exist", unresolved[0]), true
+		}
+
 		return nil, stmtOK(), false
 	}
 
@@ -127,18 +135,20 @@ func planFailure(err error) statementOutcome {
 // buildPlan translates one SELECT and resolves its Glue-backed tables.
 // Callers must hold b.mu.
 func (b *InMemoryBackend) buildPlan(
-	query string, qctx QueryExecutionContext, cat GlueTableCatalog, get S3Getter, list S3Lister,
+	query string, qctx QueryExecutionContext, get S3Getter, list S3Lister,
 ) (*enginePlan, []string, error) {
 	plan := &enginePlan{get: get, list: list}
 	seen := map[string]*planTable{}
 
 	resolve := func(parts []string) resolvedRef {
+		parts, travel := splitTravel(parts)
 		catalog, db, table := resolveTableRef(strings.Join(parts, "."), qctx)
 		catalog, db, table = normalizeCatalog(catalog), strings.ToLower(db), strings.ToLower(table)
 
 		display := strings.ToLower(catalog) + "." + db + "." + table
+		tcat, tok := b.tableCatalogFor(catalog)
 
-		if db == "information_schema" || !b.isGlueBacked(catalog) {
+		if db == "information_schema" || !tok {
 			return resolvedRef{}
 		}
 
@@ -146,20 +156,27 @@ func (b *InMemoryBackend) buildPlan(
 			return resolvedRef{}
 		}
 
-		key := db + "." + table
+		base, metaTable, _ := icebergMetaSuffix(table)
+		key := db + "." + table + "|" + travel.kind + travel.value
+
 		if pt, dup := seen[key]; dup {
 			return resolvedRef{schema: pt.schema, name: pt.name, found: true}
 		}
 
-		def, err := cat.GetTableDef(db, table)
+		def, err := tcat.GetTableDef(db, base)
 		if err != nil || def.Location == "" {
 			return resolvedRef{display: display}
 		}
 
-		pt := &planTable{def: def, schema: glueSchema(db), name: table}
+		pt := &planTable{def: def, schema: glueSchema(db), name: table, display: db + "." + base, metaTable: metaTable}
+		pt.travel = travel
 
-		if len(def.PartitionKeys) > 0 {
-			pt.parts, _ = cat.GetPartitionDefs(db, table)
+		if travel.kind != "" {
+			pt.name = fmt.Sprintf("%s@%d", table, len(plan.tables))
+		}
+
+		if len(def.PartitionKeys) > 0 && tableTypeOf(def) == "" {
+			pt.parts, _ = tcat.GetPartitionDefs(db, table)
 		}
 
 		seen[key] = pt
@@ -306,6 +323,17 @@ func tableColumns(def *GlueTableDef) []Column {
 }
 
 func (t *planTable) loadInto(ctx context.Context, conn *sql.Conn, l *tableLoader) error {
+	switch tableTypeOf(t.def) {
+	case tableTypeIceberg:
+		return t.loadIceberg(ctx, conn, l)
+	case tableTypeDelta:
+		return t.loadDelta(ctx, conn, l)
+	}
+
+	if t.travel.kind != "" || t.metaTable != "" {
+		return fmt.Errorf("%w: this connector does not support versioned tables", errUnsupportedFormat)
+	}
+
 	format, err := detectFormat(t.def)
 	if err != nil {
 		return err

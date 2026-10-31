@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -72,7 +73,7 @@ func (s *liveServer) do(method, path string, headers map[string]string, body str
 
 	require.NoError(s.t, s.h.SignRequest(req))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(s.t).Do(req)
 	require.NoError(s.t, err)
 
 	defer func() { _ = resp.Body.Close() }()

@@ -7,19 +7,24 @@ import (
 )
 
 const (
-	corpusFields    = 10
-	requestFields   = 8
-	host            = "localhost:4566"
-	uaFmt           = "User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/%s#1.0.0"
-	cborHeader      = "Smithy-Protocol:rpc-v2-cbor"
-	maxPlaceChars   = 6
-	methodGet       = "GET"
-	methodPost      = "POST"
-	json10          = "application/x-amz-json-1.0"
-	json11          = "application/x-amz-json-1.1"
-	scopeExecuteAPI = "execute-api"
-	keyPath         = "/mybucket/key.txt"
-	bucketSegs      = 2
+	corpusFields        = 10
+	requestFields       = 8
+	host                = "localhost:4566"
+	uaFmt               = "User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/%s#1.0.0"
+	cborHeader          = "Smithy-Protocol:rpc-v2-cbor"
+	maxPlaceChars       = 6
+	methodGet           = "GET"
+	methodPost          = "POST"
+	methodPut           = "PUT"
+	methodHead          = "HEAD"
+	methodDelete        = "DELETE"
+	methodOptions       = "OPTIONS"
+	json10              = "application/x-amz-json-1.0"
+	json11              = "application/x-amz-json-1.1"
+	scopeExecuteAPI     = "execute-api"
+	keyPath             = "/mybucket/key.txt"
+	lambdaFunctionsPath = "/2015-03-31/functions/"
+	bucketSegs          = 2
 )
 
 // row is one corpus request; note tags its origin and is not written out.

@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
 )
@@ -63,6 +66,27 @@ func (f *fnFakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.UserAgent() == gcpserve.ProbeUserAgent {
+			return
+		}
+
+		if name, ok := strings.CutPrefix(r.URL.Path, "/env/"); ok {
+			for _, e := range spec.Env {
+				if k, v, _ := strings.Cut(e, "="); k == name {
+					_, _ = w.Write([]byte(v))
+				}
+			}
+
+			return
+		}
+
+		if r.URL.Path == "/marker" {
+			for _, m := range spec.Mounts {
+				if dir, _, found := strings.Cut(m, ":/home/site/wwwroot"); found {
+					raw, _ := os.ReadFile(filepath.Join(dir, "marker.txt"))
+					_, _ = w.Write(raw)
+				}
+			}
+
 			return
 		}
 
@@ -126,6 +150,7 @@ func (f *fnFakeRuntime) lastEnv(site string) map[string]string {
 }
 
 type fnSDKStack struct {
+	arm     *azurearm.Handler
 	factory *armappservice.ClientFactory
 	backend *azurefunctions.InMemoryBackend
 	rt      *fnFakeRuntime
@@ -168,7 +193,7 @@ func newFnSDKStack(t *testing.T) *fnSDKStack {
 	})
 	require.NoError(t, err)
 
-	return &fnSDKStack{factory: f, backend: backend, rt: rt, fnSrv: fnSrv}
+	return &fnSDKStack{arm: armH, factory: f, backend: backend, rt: rt, fnSrv: fnSrv}
 }
 
 // call sends a request to the Functions listener addressed to host.
@@ -184,7 +209,7 @@ func (s *fnSDKStack) call(t *testing.T, method, host, path string, body []byte, 
 		req.SetBasicAuth(user, pass)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

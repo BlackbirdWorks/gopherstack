@@ -445,7 +445,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	inspection           map[string]any
+	activity             ActivityInvoker
 	lambda               LambdaInvoker
 	mapItemValue         any
 	callback             TaskTokenCallbackInvoker
@@ -464,28 +464,30 @@ type Executor struct {
 	distributedMapRunner DistributedMapRunner
 	s3w                  S3Writer
 	s3                   S3Reader
-	activity             ActivityInvoker
-	matchedRule          *ChoiceRule
-	jsonPathCache        *jsonPathCache
 	sm                   *StateMachine
+	contextOverride      map[string]any
+	jsonPathCache        *jsonPathCache
+	inspection           map[string]any
 	jx                   *jxScope
+	jxMapCfg             *jxMapConfig
+	matchedRule          *ChoiceRule
 	mock                 *MockRun
 	outerVars            map[string]any
 	execSem              *semaphore.Weighted
 	jxNums               map[string]int
 	vars                 map[string]any
 	varSizes             map[string]int
-	contextOverride      map[string]any
 	execMeta             executionMeta
+	caughtCause          string
 	branchName           string
 	currentMapState      string
 	lastNext             string
 	caughtErr            string
-	caughtCause          string
-	jxPct                float64
 	mapItemIdx           int
+	jxPct                float64
 	retrierRetryCount    int
 	outerVarBytes        int
+	rejectObjectItems    bool
 	jxPctSet             bool
 	inMapItem            bool
 	caught               bool
@@ -698,6 +700,11 @@ func (e *Executor) SetSNSIntegration(sns SNSIntegration) { e.sns = sns }
 
 // SetDynamoDBIntegration configures the DynamoDB integration for Task states.
 func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb = ddb }
+
+// SetRejectMapObjectItems makes a JSONata Map reject an object-valued Items.
+// Default accepts it: the Distributed Map and JSONata pages document array or
+// object, while the Inline Map page documents arrays only.
+func (e *Executor) SetRejectMapObjectItems(reject bool) { e.rejectObjectItems = reject }
 
 // SetS3Reader configures the S3 reader for Map state ItemReader.
 func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
@@ -2329,7 +2336,7 @@ func (e *Executor) executeMap(
 
 				rawBatches := batchItems(items, maxItemsPerBatch, maxInputBytesPerBatch)
 
-				batched, wrapErr := wrapItemBatcherBatches(rawBatches, state.ItemBatcher.BatchInput)
+				batched, wrapErr := wrapItemBatcherBatches(rawBatches, e.batchInput(state.ItemBatcher))
 				if wrapErr != nil {
 					return nil, wrapErr
 				}
@@ -2350,7 +2357,7 @@ func (e *Executor) executeMap(
 func (e *Executor) selectMapItems(state *State, items []any) ([]any, error) {
 	switch {
 	case len(state.ItemSelector) == 0:
-		return items, nil
+		return unwrapMapPairs(items), nil
 	case state.jx != nil:
 		return e.jxItemSelector(state, items)
 	default:
@@ -2440,6 +2447,10 @@ var ErrMaxInputBytesPerBatchPathNotNumber = errors.New(
 // MaxInputBytesPerBatch(Path) against the Map state's pre-Parameters input,
 // the same way resolveToleratedFailureCount resolves ToleratedFailureCountPath.
 func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) (int, int, error) {
+	if e.jxMapCfg != nil {
+		return e.jxMapCfg.maxItems, e.jxMapCfg.maxBytes, nil
+	}
+
 	maxItems := batcher.MaxItemsPerBatch
 
 	if batcher.MaxItemsPerBatchPath != "" {
@@ -2525,6 +2536,14 @@ func batchItems(items []any, maxItemsPerBatch, maxInputBytesPerBatch int) []any 
 	}
 
 	return batches
+}
+
+func (e *Executor) batchInput(b *ItemBatcher) json.RawMessage {
+	if e.jxMapCfg != nil {
+		return e.jxMapCfg.batchInput
+	}
+
+	return b.BatchInput
 }
 
 // wrapItemBatcherBatches converts raw item batches into the AWS Map
@@ -2661,12 +2680,6 @@ var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for
 // this emulator doesn't recognize.
 var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
 
-// ErrParquetUnsupported is returned for InputType PARQUET, which this
-// emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
-var ErrParquetUnsupported = errors.New(
-	"ItemReader: InputType PARQUET is not supported by this emulator",
-)
-
 // ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
 var ErrItemReaderInvalidData = errors.New(
 	"ItemReader: unable to parse S3 object as JSON array or JSON lines",
@@ -2674,7 +2687,14 @@ var ErrItemReaderInvalidData = errors.New(
 
 func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any) ([]any, error) {
 	if state.ItemReader != nil {
-		items, err := e.resolveItemsFromReader(ctx, state.ItemReader)
+		reader := state.ItemReader
+		if e.jxMapCfg != nil && e.jxMapCfg.readerParams != nil {
+			rd := *reader
+			rd.Parameters = e.jxMapCfg.readerParams
+			reader = &rd
+		}
+
+		items, err := e.resolveItemsFromReader(ctx, reader)
 		if err != nil {
 			return nil, err
 		}
@@ -2762,7 +2782,7 @@ func (e *Executor) resolveItemsFromS3GetObject(ctx context.Context, reader *Item
 	}
 
 	bucket, _ := reader.Parameters["Bucket"].(string)
-	key, _ := reader.Parameters["Key"].(string)
+	key, _ := reader.Parameters[fieldKey].(string)
 
 	data, err := e.getS3Object(ctx, bucket, key)
 	if err != nil {
@@ -2812,7 +2832,7 @@ func (e *Executor) resolveItemsFromS3List(ctx context.Context, reader *ItemReade
 	for i, o := range objs {
 		items[i] = map[string]any{
 			"Etag":         o.ETag,
-			"Key":          o.Key,
+			fieldKey:       o.Key,
 			"LastModified": awstime.Epoch(o.LastModified),
 			"Size":         o.Size,
 			"StorageClass": o.StorageClass,
@@ -3042,7 +3062,7 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	case "", "JSON":
 		return decodeJSONItems(data, cfg)
 	case "PARQUET":
-		return nil, ErrParquetUnsupported
+		return decodeParquetItems(data)
 	default:
 		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
 	}

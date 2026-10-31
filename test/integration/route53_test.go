@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // route53Send sends a request to the Route 53 endpoint in the shared container.
@@ -28,7 +30,7 @@ func route53Send(t *testing.T, method, path, body string) *http.Response {
 		req.Header.Set("Content-Type", "application/xml")
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp

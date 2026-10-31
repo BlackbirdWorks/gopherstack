@@ -2,9 +2,12 @@ package asl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
+	"slices"
 	"time"
 )
 
@@ -23,6 +26,7 @@ func (e *Executor) runJSONataState(
 	defer func() {
 		e.jx = prev
 		e.jxNums = nil
+		e.jxMapCfg = nil
 		e.jxPctSet = false
 	}()
 
@@ -232,6 +236,12 @@ func (e *Executor) jxCompoundBody(
 		return "", nil, err
 	}
 
+	if state.Type == StateTypeMap {
+		if err := e.jxResolveMapConfig(state, scope); err != nil {
+			return "", nil, err
+		}
+	}
+
 	var (
 		next   string
 		result any
@@ -310,7 +320,14 @@ func (e *Executor) jxCatchOutput(catcher *Catcher, errorResult map[string]any) (
 	return out, nil
 }
 
-// jxMapItems resolves a Map's Items field (array literal or expression).
+// mapPair is one key/value pair of an object-valued Items field.
+type mapPair struct {
+	Value any
+	Key   string
+}
+
+// jxMapItems resolves a Map's Items field (array or object literal, or an
+// expression evaluating to either). An object yields one mapPair per key.
 func (e *Executor) jxMapItems(state *State) ([]any, error) {
 	if !state.jx.hasItems {
 		return nil, queryEvalError(fmt.Errorf("%w: Map state requires Items", errJSONataEval))
@@ -321,12 +338,39 @@ func (e *Executor) jxMapItems(state *State) ([]any, error) {
 		return nil, err
 	}
 
-	items, ok := v.([]any)
-	if !ok {
-		return nil, queryEvalError(fmt.Errorf("%w: Items must evaluate to an array, got %T", errJSONataEval, v))
+	switch t := v.(type) {
+	case []any:
+		return t, nil
+	case map[string]any:
+		if !e.rejectObjectItems {
+			return objectPairs(t), nil
+		}
+
+		return nil, queryEvalError(fmt.Errorf("%w: Items must evaluate to an array, got an object", errJSONataEval))
 	}
 
-	return items, nil
+	return nil, queryEvalError(fmt.Errorf("%w: Items must evaluate to an array or object, got %T", errJSONataEval, v))
+}
+
+func objectPairs(m map[string]any) []any {
+	out := make([]any, 0, len(m))
+
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		out = append(out, mapPair{Key: k, Value: m[k]})
+	}
+
+	return out
+}
+
+// unwrapMapPairs turns mapPair items into the {"Key","Value"} iteration input.
+func unwrapMapPairs(items []any) []any {
+	for i, it := range items {
+		if p, ok := it.(mapPair); ok {
+			items[i] = map[string]any{fieldKey: p.Key, fieldValue: p.Value}
+		}
+	}
+
+	return items
 }
 
 // jxItemSelector evaluates ItemSelector per item with $states.context.Map.Item set.
@@ -345,4 +389,101 @@ func (e *Executor) jxItemSelector(state *State, items []any) ([]any, error) {
 	}
 
 	return out, nil
+}
+
+// jxMapConfig holds the per-entry evaluation of a JSONata Distributed Map's
+// ItemReader/ResultWriter Arguments and ItemBatcher limits and BatchInput.
+type jxMapConfig struct {
+	readerParams map[string]any
+	writerParams map[string]any
+	batchInput   json.RawMessage
+	maxItems     int
+	maxBytes     int
+}
+
+func (e *Executor) jxResolveMapConfig(state *State, scope *jxScope) error {
+	cfg := &jxMapConfig{}
+	st := scope.st
+
+	var err error
+	if cfg.readerParams, err = scope.evalObject(st.hasReader, st.readerArgs, "ItemReader Arguments"); err != nil {
+		return err
+	}
+
+	if cfg.writerParams, err = scope.evalObject(st.hasWriter, st.writerArgs, "ResultWriter Arguments"); err != nil {
+		return err
+	}
+
+	if state.ItemBatcher != nil {
+		if err = scope.resolveBatcher(state.ItemBatcher, cfg); err != nil {
+			return err
+		}
+	}
+
+	e.jxMapCfg = cfg
+
+	return nil
+}
+
+func (s *jxScope) resolveBatcher(b *ItemBatcher, cfg *jxMapConfig) error {
+	var err error
+	if cfg.maxItems, err = s.evalBatchLimit(b.maxItemsExpr, b.MaxItemsPerBatch, "MaxItemsPerBatch"); err != nil {
+		return err
+	}
+
+	limit := s.evalBatchLimit
+	if cfg.maxBytes, err = limit(b.maxBytesExpr, b.MaxInputBytesPerBatch, "MaxInputBytesPerBatch"); err != nil {
+		return err
+	}
+
+	if !s.st.hasBatchIn {
+		return nil
+	}
+
+	v, err := s.evalValue(s.st.batchInput)
+	if err != nil {
+		return err
+	}
+
+	if cfg.batchInput, err = json.Marshal(v); err != nil {
+		return queryEvalError(err)
+	}
+
+	return nil
+}
+
+func (s *jxScope) evalObject(present bool, raw any, field string) (map[string]any, error) {
+	if !present {
+		return nil, nil //nolint:nilnil // field absent
+	}
+
+	v, err := s.evalValue(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, queryEvalError(fmt.Errorf("%w: %s must evaluate to an object, got %T", errJSONataEval, field, v))
+	}
+
+	return m, nil
+}
+
+// evalBatchLimit evaluates a "{% %}" limit; it must be a positive integer.
+func (s *jxScope) evalBatchLimit(expr string, literal int, field string) (int, error) {
+	if expr == "" {
+		return literal, nil
+	}
+
+	f, err := s.evalNumber(expr)
+	if err != nil {
+		return 0, err
+	}
+
+	if f < 1 || f != math.Trunc(f) || f > math.MaxInt32 {
+		return 0, queryEvalError(fmt.Errorf("%w: %s must be a positive integer, got %v", errJSONataEval, field, f))
+	}
+
+	return int(f), nil
 }

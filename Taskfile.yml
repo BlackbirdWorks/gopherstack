@@ -280,6 +280,12 @@ tasks:
     cmds:
       - bash scripts/lint-changed.sh
 
+  lint-changed-test:
+    desc: Repro test for scripts/lint-changed.sh (findings printed, tool failures flagged)
+    silent: true
+    cmds:
+      - bash scripts/lint_changed_test.sh
+
   lint-wip:
     desc: Fast lint and vet only packages touched in working tree and HEAD commit
     silent: true
@@ -304,6 +310,11 @@ tasks:
     cmds:
       - bash scripts/gocache-trim.sh --if-low
       - go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
+
+  routing-proof:
+    desc: Full (non-short) routing proof sweep, -race
+    cmds:
+      - go tool gotestsum --format pkgname -- -race -run 'Routing|GatesHold' -timeout 60m ./internal/app/
 
   leak-test:
     desc: Leak tests
@@ -433,7 +444,7 @@ tasks:
   cfn-props-gen:
     desc: Regenerate cfn_property_schemas.json from the full CFN spec (SPEC=/path/to/CloudFormationResourceSpecification.json)
     cmds:
-      - go run ./cmd/cfnpropgen -spec {{.SPEC}} -types services/cloudformation/cfn_provisionable_types.json -out services/cloudformation/cfn_property_schemas.json
+      - go run ./cmd/cfnpropgen -spec {{.SPEC}} -types services/cloudformation/cfn_provisionable_types.json -out services/cloudformation/cfn_property_schemas.json -required-out services/cloudformation/cfn_required_properties.json
 
   cfn-attrs-spec-refresh:
     desc: Refresh the CloudFormation resource spec fixture (then run cfn-attrs-gen)

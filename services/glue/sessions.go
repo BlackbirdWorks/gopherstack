@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -35,7 +36,7 @@ func (b *InMemoryBackend) CreateSession(
 	cmd SessionCommand,
 	opts Session,
 ) (*Session, error) {
-	now := time.Now()
+	now := b.clockNow()
 
 	b.mu.Lock("CreateSession")
 	defer b.mu.Unlock()
@@ -47,7 +48,7 @@ func (b *InMemoryBackend) CreateSession(
 		SessionID:        id,
 		Role:             role,
 		Command:          cmd,
-		Status:           "PROVISIONING",
+		Status:           statusProvisioning,
 		CreatedOn:        float64(now.Unix()),
 		Timeout:          opts.Timeout,
 		IdleTimeout:      opts.IdleTimeout,
@@ -64,13 +65,18 @@ func (b *InMemoryBackend) CreateSession(
 	}
 	b.sessions.Put(s)
 	b.sessionStatements[id] = nil
-	b.sessionReadyAt[id] = now.Add(sessionTransitionDelay)
+
+	if b.sessionEngine != nil {
+		b.launchSessionLocked(s, now)
+	} else {
+		b.sessionReadyAt[id] = now.Add(sessionTransitionDelay)
+	}
 
 	return cloneSession(s), nil
 }
 
 func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
-	b.advanceStates(time.Now())
+	b.advanceStates(b.clockNow())
 
 	b.mu.RLock("GetSession")
 	defer b.mu.RUnlock()
@@ -84,7 +90,7 @@ func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
 }
 
 func (b *InMemoryBackend) ListSessions() []*Session {
-	b.advanceStates(time.Now())
+	b.advanceStates(b.clockNow())
 
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
@@ -103,7 +109,7 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 // has no EntityNotFoundException case, unlike GetSession's, so an unknown Id
 // surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteSession(id string) error {
-	b.advanceStates(time.Now())
+	b.advanceStates(b.clockNow())
 
 	b.mu.Lock("DeleteSession")
 	defer b.mu.Unlock()
@@ -112,6 +118,12 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 		return fmt.Errorf("session %q not found: %w", id, ErrValidation)
 	}
 	b.sessions.Delete(id)
+
+	if ls, live := b.liveSessions[id]; live {
+		delete(b.liveSessions, id)
+		ls.cancel()
+	}
+
 	delete(b.sessionStatements, id)
 	delete(b.sessionReadyAt, id)
 	delete(b.sessionStopAt, id)
@@ -122,7 +134,7 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 // StopSession stops a session. Its error switch also has no
 // EntityNotFoundException case.
 func (b *InMemoryBackend) StopSession(id string) error {
-	now := time.Now()
+	now := b.clockNow()
 
 	b.advanceStates(now)
 
@@ -135,29 +147,74 @@ func (b *InMemoryBackend) StopSession(id string) error {
 	}
 	s.Status = stateStopping
 	delete(b.sessionReadyAt, id)
+
+	if ls, live := b.liveSessions[id]; live {
+		ls.cancel()
+
+		return nil
+	}
+
 	b.sessionStopAt[id] = now.Add(sessionTransitionDelay)
 
 	return nil
 }
 
+// RunStatement queues code on a READY session. Without a session engine the
+// statement fails immediately with a message naming how to enable one.
 func (b *InMemoryBackend) RunStatement(sessionID, code string) (*Statement, error) {
+	b.advanceStates(b.clockNow())
+
 	b.mu.Lock("RunStatement")
 	defer b.mu.Unlock()
 
-	if !b.sessions.Has(sessionID) {
+	s, ok := b.sessions.Get(sessionID)
+	if !ok {
 		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
+
+	if s.Status != stateReady {
+		return nil, fmt.Errorf(
+			"%w: session %q is not READY (status=%s)", ErrIllegalSessionState, sessionID, s.Status)
+	}
+
+	now := b.nowLocked()
 	stmts := b.sessionStatements[sessionID]
 	st := &Statement{
 		Id:        int32(len(stmts) + 1), //nolint:gosec // statement count always small
 		SessionId: sessionID,
 		Code:      code,
-		State:     "WAITING",
-		StartedOn: float64(time.Now().Unix()),
+		State:     stmtWaiting,
 	}
+
+	ls := b.liveSessions[sessionID]
+
+	switch {
+	case b.sessionEngine == nil:
+		failStatement(st, "EngineNotEnabled", engineDisabledMessage, now)
+	case ls == nil:
+		s.Status = statusFailed
+		s.ErrorMessage = "session interpreter is no longer running (lost across a restart)"
+
+		return nil, fmt.Errorf("%w: session %q interpreter is gone", ErrIllegalSessionState, sessionID)
+	default:
+		ls.lastActivity = now
+
+		select {
+		case ls.wake <- struct{}{}:
+		default:
+		}
+	}
+
 	b.sessionStatements[sessionID] = append(stmts, st)
 
 	return cloneStatement(st), nil
+}
+
+func failStatement(st *Statement, name, msg string, now time.Time) {
+	st.State = stmtError
+	st.CompletedOn = float64(now.Unix())
+	st.Progress = 1
+	st.Output = &StatementOutput{Status: stmtError, ErrorName: name, ErrorValue: msg}
 }
 
 func (b *InMemoryBackend) GetStatement(sessionID string, statementID int32) (*Statement, error) {
@@ -198,23 +255,50 @@ func (b *InMemoryBackend) GetStatements(sessionID string) ([]*Statement, error) 
 	return out, nil
 }
 
+// CancelStatement cancels a WAITING statement outright and interrupts a RUNNING one (CANCELLING, then CANCELLED).
 func (b *InMemoryBackend) CancelStatement(sessionID string, statementID int32) error {
+	proc, err := b.cancelStatementLocked(sessionID, statementID)
+	if err != nil || proc == nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), sessionStopTimeout)
+	defer cancel()
+
+	return proc.Interrupt(ctx)
+}
+
+func (b *InMemoryBackend) cancelStatementLocked(sessionID string, statementID int32) (SessionProcess, error) {
 	b.mu.Lock("CancelStatement")
 	defer b.mu.Unlock()
 
 	stmts, ok := b.sessionStatements[sessionID]
 	if !ok {
-		return fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
+		return nil, fmt.Errorf("session %q not found: %w", sessionID, ErrNotFound)
 	}
+
 	for _, st := range stmts {
-		if st.Id == statementID {
-			st.State = "CANCELLING"
-
-			return nil
+		if st.Id != statementID {
+			continue
 		}
+
+		switch st.State {
+		case stmtWaiting:
+			st.State = stmtCancelled
+			st.CompletedOn = float64(b.nowLocked().Unix())
+			st.Output = &StatementOutput{Status: stmtCancelled}
+		case stmtRunning:
+			st.State = stmtCancelling
+
+			if ls := b.liveSessions[sessionID]; ls != nil {
+				return ls.proc, nil
+			}
+		}
+
+		return nil, nil //nolint:nilnil // nothing to interrupt
 	}
 
-	return fmt.Errorf(
+	return nil, fmt.Errorf(
 		"statement %d not found in session %q: %w",
 		statementID,
 		sessionID,

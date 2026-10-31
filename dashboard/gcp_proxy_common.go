@@ -170,6 +170,8 @@ func gcpHTTPStatus(code codes.Code) (int, string) {
 		return http.StatusBadRequest, "INVALID_ARGUMENT"
 	case codes.NotFound:
 		return http.StatusNotFound, "NOT_FOUND"
+	case codes.Aborted:
+		return http.StatusConflict, "ABORTED"
 	case codes.AlreadyExists:
 		return http.StatusConflict, "ALREADY_EXISTS"
 	case codes.FailedPrecondition:
@@ -219,13 +221,38 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerAzureFunctionsRoutes()
 	h.registerGCPWorkflowsRoutes()
 	h.registerGCPDNSRoutes()
+	h.registerGCPDatastoreRoutes()
 	h.registerAzureFileRoutes()
 	h.registerOCIObjectStorageRoutes()
 	h.registerOCIVaultRoutes()
 	h.registerOCIStreamingRoutes()
 	h.registerOCIIdentityRoutes()
 	h.registerOCIFunctionsRoutes()
+	h.registerOCICoreRoutes()
 	h.registerAzureMonitorRoutes()
 	h.registerGCPComputeRoutes()
 	h.registerAzureACIRoutes()
+	h.registerAzureAppServiceRoutes()
+	h.registerGCPContainerRoutes()
+	h.registerOCIQueueRoutes()
+	h.registerOCINotificationsRoutes()
+	h.registerAzureContainerAppsRoutes()
+	h.registerAzureVMRoutes()
+	h.registerAzureAKSRoutes()
+	h.registerOCIContainerEngineRoutes()
+	h.registerOCIMySQLRoutes()
+	h.registerOCILoggingRoutes()
+	h.registerOCIMonitoringRoutes()
+	h.registerOCINoSQLRoutes()
+	h.registerOCIAPIGatewayRoutes()
+	h.registerOCIEventsRoutes()
+	h.registerOCILoadBalancerRoutes()
+	h.registerOCIArtifactsRoutes()
+	h.registerOCIContainerInstancesRoutes()
+	h.registerGCPIdentityToolkitRoutes()
+	h.registerAzureFlexDBRoutes()
+	h.registerGCPAPIGatewayRoutes()
+	h.registerGCPBatchRoutes()
+	h.registerGCPResourceManagerRoutes()
+	h.registerAzureAPIMRoutes()
 }

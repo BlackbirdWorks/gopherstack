@@ -22,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -69,7 +70,7 @@ func (e *inspectEnv) get(t *testing.T, path string, out any) int {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, e.url+path, nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

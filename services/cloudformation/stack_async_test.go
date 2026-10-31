@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -168,22 +169,24 @@ func asyncUpdateRejected(t *testing.T, _ *cloudformation.InMemoryBackend, c *cfn
 func TestAsyncProvisioning_WaiterCompletes(t *testing.T) {
 	t.Parallel()
 
-	b, client := newTestHandlerAndClientWithBackend(t)
-	b.SetProvisioningDelay(time.Millisecond)
-	t.Cleanup(b.WaitForStackProvisioning)
+	synctest.Test(t, func(t *testing.T) {
+		b, client := newTestHandlerAndClientWithBackend(t)
+		b.SetProvisioningDelay(time.Millisecond)
+		t.Cleanup(b.WaitForStackProvisioning)
 
-	_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
-		StackName: aws.String("async-waiter"), TemplateBody: aws.String(asyncTemplate),
-	})
-	require.NoError(t, err)
+		_, err := client.CreateStack(t.Context(), &cfnsdk.CreateStackInput{
+			StackName: aws.String("async-waiter"), TemplateBody: aws.String(asyncTemplate),
+		})
+		require.NoError(t, err)
 
-	waiter := cfnsdk.NewStackCreateCompleteWaiter(client, func(o *cfnsdk.StackCreateCompleteWaiterOptions) {
-		o.MinDelay = time.Millisecond
-		o.MaxDelay = 5 * time.Millisecond
+		waiter := cfnsdk.NewStackCreateCompleteWaiter(client, func(o *cfnsdk.StackCreateCompleteWaiterOptions) {
+			o.MinDelay = time.Millisecond
+			o.MaxDelay = 5 * time.Millisecond
+		})
+		require.NoError(t, waiter.Wait(t.Context(), &cfnsdk.DescribeStacksInput{
+			StackName: aws.String("async-waiter"),
+		}, 30*time.Second))
 	})
-	require.NoError(t, waiter.Wait(t.Context(), &cfnsdk.DescribeStacksInput{
-		StackName: aws.String("async-waiter"),
-	}, 30*time.Second))
 }
 
 func TestAsyncProvisioning_SnapshotResumesInFlight(t *testing.T) {

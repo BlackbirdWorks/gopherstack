@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -122,6 +123,13 @@ func NewHandler(backend StorageBackend) *DynamoDBHandler {
 	}
 
 	return h
+}
+
+// SetChaosFaultStore wires the chaos store whose dynamodb:transaction-conflict rules the backend honours.
+func (h *DynamoDBHandler) SetChaosFaultStore(store *chaos.FaultStore) {
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		db.SetFaultStore(store)
+	}
 }
 
 // WithJanitor attaches a background janitor to the handler.

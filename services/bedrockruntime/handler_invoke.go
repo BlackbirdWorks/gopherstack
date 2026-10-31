@@ -171,6 +171,10 @@ func (h *Handler) handleInvokeModel(
 		return err
 	}
 
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaInvoke(c, o, modelID, body)
+	}
+
 	resp := mockInvokeModelResponse(modelID)
 
 	out, err := json.Marshal(resp)
@@ -222,6 +226,10 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	if written, err := h.invokeGuardrailMissing(c); written {
 		return err
+	}
+
+	if o := h.Backend.llm.Load(); o != nil {
+		return h.handleOllamaInvokeStream(c, o, modelID, body)
 	}
 
 	resp := mockInvokeModelResponse(modelID)
@@ -315,8 +323,8 @@ type countTokensInput struct {
 
 // countTokensRequest is the real CountTokens request wire shape:
 //
-//	{"input": {"invokeModel": {"body": "<base64>"}}}
-//	{"input": {"converse": {"messages": [...], "system": [...]}}}
+//	{keyInput: {"invokeModel": {"body": "<base64>"}}}
+//	{keyInput: {"converse": {"messages": [...], "system": [...]}}}
 //
 // (see aws-sdk-go-v2/service/bedrockruntime serializers.go
 // awsRestjson1_serializeDocumentCountTokensInput). There is no top-level
@@ -414,49 +422,49 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		// Claude 3+ uses the Messages API response format.
 		return map[string]any{
 			"id":            "msg_mock0000000000000001",
-			"type":          "message",
+			"type":          keyMessage,
 			keyRole:         roleAssistant,
 			"content":       []map[string]any{{"type": keyText, keyText: mockResponseText}},
 			keyModel:        modelID,
 			keyStopReason:   stopReasonEndTurn,
-			"stop_sequence": nil,
+			keyStopSequence: nil,
 			keyUsage: map[string]any{
-				"input_tokens":  mockInputTokenCount,
-				"output_tokens": mockOutputTokenCount,
+				keyInputCountSnake:  mockInputTokenCount,
+				keyOutputCountSnake: mockOutputTokenCount,
 			},
 		}
 	case strings.Contains(modelIDLower, "claude"):
 		// Claude 2 / Instant — legacy text completion format.
 		return map[string]any{
-			"completion":  mockResponseText,
+			keyCompletion: mockResponseText,
 			keyStopReason: stopReasonEndTurn,
 			keyModel:      modelID,
 		}
 	case strings.Contains(modelIDLower, "titan"):
 		return map[string]any{
-			"results": []map[string]any{
-				{"outputText": mockResponseText, "completionReason": "FINISH"},
+			keyResults: []map[string]any{
+				{keyOutputText: mockResponseText, keyCompletionReason: "FINISH"},
 			},
-			"inputTextTokenCount": mockInputTokenCount,
+			keyInputTextCount: mockInputTokenCount,
 		}
 	case strings.Contains(modelIDLower, "llama"):
 		return map[string]any{
-			"generation":             mockResponseText,
-			"prompt_token_count":     mockInputTokenCount,
-			"generation_token_count": mockOutputTokenCount,
-			keyStopReason:            "stop",
+			keyGeneration:  mockResponseText,
+			keyPromptCount: mockInputTokenCount,
+			keyGenCount:    mockOutputTokenCount,
+			keyStopReason:  stopStop,
 		}
 	case strings.Contains(modelIDLower, "mistral") || strings.Contains(modelIDLower, "mixtral"):
 		return map[string]any{
-			"outputs": []map[string]any{
-				{keyText: mockResponseText, keyStopReason: "stop"},
+			keyOutputs: []map[string]any{
+				{keyText: mockResponseText, keyStopReason: stopStop},
 			},
 		}
 	case strings.Contains(modelIDLower, "command"):
 		return map[string]any{
 			keyText:         mockResponseText,
 			keyStopReason:   "COMPLETE",
-			"finish_reason": "COMPLETE",
+			keyFinishReason: "COMPLETE",
 		}
 	case strings.Contains(modelIDLower, "j2") || strings.Contains(modelIDLower, "jurassic"):
 		return map[string]any{
@@ -469,7 +477,7 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		}
 	case strings.Contains(modelIDLower, "nova"):
 		return map[string]any{
-			"output": map[string]any{
+			keyOutput: map[string]any{
 				keyMessage: map[string]any{
 					keyRole:    roleAssistant,
 					keyContent: []map[string]any{{keyText: mockResponseText}},
@@ -484,7 +492,7 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 		}
 	default:
 		return map[string]any{
-			"completion":  mockResponseText,
+			keyCompletion: mockResponseText,
 			keyStopReason: stopReasonEndTurn,
 			keyModel:      modelID,
 		}

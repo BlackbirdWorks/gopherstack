@@ -5,7 +5,12 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/dbrepl"
 )
+
+var errNoReplication = errors.New("gcpsql: the container runtime cannot run replication")
 
 // ErrRuntimeUnavailable is returned by a Launcher when no container runtime is reachable; the instance
 // then runs state-only.
@@ -32,10 +37,85 @@ type Flag struct {
 
 // LaunchSpec describes the engine of one instance.
 type LaunchSpec struct {
-	ID       string
-	Version  string
-	Password string
-	Kind     dbKind
+	Replica     *ReplicaSource
+	Recovery    *Recovery
+	ID          string
+	Project     string
+	Version     string
+	Password    string
+	MemoryBytes int64
+	NanoCPUs    int64
+	Kind        dbKind
+	ServerID    uint32
+	Persist     bool
+	Fresh       bool
+}
+
+// ReplicaSource tells a replica's engine how to reach its primary.
+type ReplicaSource struct {
+	Network   string
+	NetworkID string
+	Host      string
+	Password  string
+	Port      int
+}
+
+// Recovery seeds an engine from another instance's point-in-time recovery state. Volume names the source's
+// PostgreSQL archive; for MySQL, Script is the base dump and Source the engine whose binary log is replayed.
+type Recovery struct {
+	At     time.Time
+	Source *ReplicaSource
+	Volume string
+	// FromFile and FromPos, UntilFile and UntilPos bound the MySQL binary log range a clone replays from Source.
+	FromFile  string
+	UntilFile string
+	Script    []byte
+	FromPos   uint64
+	UntilPos  uint64
+}
+
+// Replicator is implemented by engines that can feed or follow a replica.
+type Replicator interface {
+	// ReplicationSource readies the engine as a replication source and says how a replica reaches it.
+	ReplicationSource(ctx context.Context) (ReplicaSource, error)
+	// AttachReplica starts replication from src; seed is a source dump for engines that cannot copy the data
+	// themselves.
+	AttachReplica(ctx context.Context, src ReplicaSource, seed []byte) error
+	// ReplicaSeed returns the dump a MySQL replica starts from; PostgreSQL replicas copy the data themselves.
+	ReplicaSeed(ctx context.Context, dbs []string) ([]byte, error)
+	// Promote detaches a replica from its source and makes it writable.
+	Promote(ctx context.Context) error
+	// SetReplication pauses (false) or resumes (true) replication on a replica.
+	SetReplication(ctx context.Context, on bool) error
+	ReplicationStatus(ctx context.Context) (dbrepl.Status, error)
+}
+
+// Recoverer is implemented by engines that keep the logs point-in-time recovery needs.
+type Recoverer interface {
+	// EnablePITR starts archiving and returns the earliest time a recovery can target.
+	EnablePITR(ctx context.Context, dbs []string) (time.Time, error)
+	// DisablePITR stops archiving.
+	DisablePITR(ctx context.Context) error
+	// PrepareRecovery makes everything up to at recoverable and describes how a new engine starts from it.
+	PrepareRecovery(ctx context.Context, at time.Time) (Recovery, error)
+	// ApplyRecovery finishes a recovery on a freshly launched engine.
+	ApplyRecovery(ctx context.Context, rec Recovery) error
+}
+
+// Purger is implemented by engines that own persistent storage; Purge also deletes it.
+type Purger interface {
+	Purge(ctx context.Context)
+}
+
+// VolumeRemover is implemented by engines whose persistent volumes can be deleted after Close; Reset closes every
+// engine before removing any volume so a clone's mount of its source's archive cannot block the removal.
+type VolumeRemover interface {
+	RemoveVolumes(ctx context.Context)
+}
+
+// VolumeSweeper is implemented by launchers that can delete persistent volumes no instance owns.
+type VolumeSweeper interface {
+	SweepVolumes(ctx context.Context, keep map[string]bool)
 }
 
 // DumpOptions tunes a dump. Markers prefixes each database with a switch line; Portable drops ownership and
@@ -43,6 +123,13 @@ type LaunchSpec struct {
 type DumpOptions struct {
 	Markers  bool
 	Portable bool
+}
+
+const volumePrefix = "gopherstack-gcpsql-"
+
+// volumeName is the data volume of an instance; kind is "data" or "pitr".
+func volumeName(kind, project, name string) string {
+	return volumePrefix + kind + "-" + sanitizeName(project) + "-" + sanitizeName(name)
 }
 
 // UserSpec is a database account to create or update.

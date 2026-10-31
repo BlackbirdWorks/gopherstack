@@ -319,6 +319,12 @@ func getHandler[T any](h service.Registerable) (T, bool) {
 	return v, ok
 }
 
+// PropertyValidationConfig is the optional config extension that toggles
+// resource property validation.
+type PropertyValidationConfig interface {
+	GetCloudFormationValidateProperties() bool
+}
+
 // provisioningDelayEnv opts into async stack provisioning (e.g. "2s").
 const provisioningDelayEnv = "GOPHERSTACK_CFN_PROVISIONING_DELAY"
 
@@ -350,6 +356,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackendWithConfig(accountID, region, creator)
 	if d, err := time.ParseDuration(os.Getenv(provisioningDelayEnv)); err == nil {
 		backend.SetProvisioningDelay(d)
+	}
+
+	if pc, ok := ctx.Config.(PropertyValidationConfig); ok {
+		backend.SetPropertyValidation(pc.GetCloudFormationValidateProperties())
 	}
 
 	handler := NewHandler(backend)

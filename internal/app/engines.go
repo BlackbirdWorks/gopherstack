@@ -61,6 +61,12 @@ func engineEntries() []engineEntry {
 		{func(c *CLI) *string { return &c.MWAAEngine }, "mwaa-engine", "MWAA_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.MQEngine }, "mq-engine", "MQ_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.EKSEngine }, "eks-engine", "EKS_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.GKEEngine }, "gke-engine", "GKE_ENGINE", enginesStub},
+		{
+			func(c *CLI) *string { return &c.OCIContainerEngine.Engine },
+			"oci-oke-engine", "OKE_ENGINE", enginesStub,
+		},
+		{func(c *CLI) *string { return &c.OCIMySQL.Engine }, "oci-mysql-engine", "OCI_MYSQL_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DocDBEngine }, "docdb-engine", "DOCDB_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RedshiftEngine }, "redshift-engine", "REDSHIFT_ENGINE", enginesStub},
@@ -72,6 +78,7 @@ func engineEntries() []engineEntry {
 		},
 		{func(c *CLI) *string { return &c.SageMakerEngine }, "sagemaker-engine", "SAGEMAKER_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.CodeBuild.Engine }, "codebuild-engine", "CODEBUILD_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.Glue.Engine }, "glue-engine", "GLUE_ENGINE", enginesStub},
 	}
 }
 

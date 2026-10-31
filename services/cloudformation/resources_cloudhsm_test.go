@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -160,7 +161,10 @@ func TestCreateStack_CloudHSM(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			tc.run(t, newCloudHSMStackEnv(t))
+
+			synctest.Test(t, func(t *testing.T) {
+				tc.run(t, newCloudHSMStackEnv(t))
+			})
 		})
 	}
 }

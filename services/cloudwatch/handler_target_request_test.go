@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
@@ -93,7 +94,7 @@ func doTargetRequest(t *testing.T, srv *httptest.Server, body []byte) *http.Resp
 	require.NoError(t, err)
 	req.Header.Set("X-Amz-Target", "GraniteServiceVersion20100801.ListMetrics")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp

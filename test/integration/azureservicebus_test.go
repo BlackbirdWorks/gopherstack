@@ -26,6 +26,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // sbBrokerProperties mirrors services/azureservicebus/handler.go's
@@ -59,7 +61,7 @@ func sbRequest(t *testing.T, method, path string, body []byte, headers map[strin
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = resp.Body.Close() })
@@ -258,7 +260,7 @@ func TestIntegration_AzureServiceBus_PeekLockLongPoll(t *testing.T) {
 			return
 		}
 
-		sendResp, doErr := http.DefaultClient.Do(req)
+		sendResp, doErr := testclient.New(t).Do(req)
 		if doErr == nil {
 			_ = sendResp.Body.Close()
 		}

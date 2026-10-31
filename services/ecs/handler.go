@@ -225,6 +225,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return p.Handler()(c)
 		}
 
+		c.SetRequest(c.Request().WithContext(WithStreamBase(c.Request().Context(), requestStreamBase(c.Request()))))
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"ECS", "application/x-amz-json-1.1",
@@ -462,4 +464,17 @@ func applyNextTokenSlice(items []string, nextToken string, maxResults int) ([]st
 	p := page.New(items, nextToken, maxResults, defaultECSMaxResults)
 
 	return p.Data, p.Next
+}
+
+// requestStreamBase is the websocket base URL ("ws://host") a client reaches this server at.
+func requestStreamBase(r *http.Request) string {
+	if r.Host == "" {
+		return ""
+	}
+
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		return "wss://" + r.Host
+	}
+
+	return "ws://" + r.Host
 }

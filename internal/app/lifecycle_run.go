@@ -172,6 +172,10 @@ func (c *StartCmd) Run(d *lifecycleDeps) error {
 func (c *StartCmd) run(ctx context.Context, d *lifecycleDeps) error {
 	endpoint := endpointFor(c.Bind, c.Port)
 
+	if err := c.validate(); err != nil {
+		return err
+	}
+
 	if _, err := d.health(ctx, endpoint); err == nil {
 		fmt.Fprintf(d.Out, "gopherstack is already running at %s\n", endpoint)
 
@@ -216,13 +220,23 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 		return err
 	}
 
+	var waiter container.ExitWaiter
+
+	if c.Foreground {
+		var ok bool
+		if waiter, ok = rt.(container.ExitWaiter); !ok {
+			return fmt.Errorf("%w: cannot wait for exit", errLifecycleNoRuntime)
+		}
+	}
+
 	_ = rt.StopAndRemove(ctx, c.name())
 
 	env := append([]string{"PORT=" + lifecycleContainerPort}, extra...)
 	spec := container.Spec{
-		Image: c.Image + ":" + c.Tag,
-		Name:  c.name(),
-		Ports: c.publishPorts(),
+		Image:     c.Image + ":" + c.Tag,
+		Name:      c.name(),
+		Ports:     c.publishPorts(),
+		Unmanaged: true,
 	}
 
 	if c.Persist {
@@ -232,6 +246,14 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 	if dataDir != "" {
 		env = append(env, "GOPHERSTACK_DATA_DIR="+lifecycleContainerData)
 		spec.Mounts = []string{dataDir + ":" + lifecycleContainerData}
+	}
+
+	if c.DockerSocket {
+		sock := c.dockerSocketPath(d.Getenv)
+		spec.Mounts = append(spec.Mounts, sock+":"+lifecycleSocketInside)
+		env = append(env, "DOCKER_HOST=unix://"+lifecycleSocketInside)
+		fmt.Fprintf(d.Err, "warning: mounting %s gives the server root-equivalent control of the host Docker daemon\n",
+			sock)
 	}
 
 	spec.Env = env
@@ -260,6 +282,10 @@ func (c *StartCmd) runContainer(ctx context.Context, d *lifecycleDeps, endpoint,
 	}
 
 	fmt.Fprintf(d.Out, "gopherstack started (container %s, %s) at %s\n", shortID(id), spec.Image, endpoint)
+
+	if c.Foreground {
+		return d.attach(ctx, rt, waiter, c.LifecycleTarget, id)
+	}
 
 	return nil
 }
@@ -415,11 +441,55 @@ type statusReport struct {
 	EnabledCount  int                       `json:"enabled_services"`
 	DisabledCount int                       `json:"disabled_services"`
 	Running       bool                      `json:"running"`
+	Goroutines    int                       `json:"goroutines,omitempty"`
+	HeapAllocB    uint64                    `json:"heap_alloc_bytes,omitempty"`
 }
 
 type serviceState struct {
-	Name  string `json:"name"`
-	State string `json:"state"`
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Port   string `json:"port,omitempty"`
+	Health string `json:"health"`
+}
+
+const (
+	bytesPerMiB       = 1 << 20
+	healthHealthy     = "healthy"
+	healthUnavailable = "unavailable"
+	healthDisabled    = "disabled"
+)
+
+func endpointPort(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+
+	if p := u.Port(); p != "" {
+		return p
+	}
+
+	if u.Scheme == lifecycleSchemeHTTPS {
+		return "443"
+	}
+
+	return "80"
+}
+
+// serviceHealth returns the per-service availability from the LocalStack-compatible health route,
+// or nil when the server does not serve it.
+func (d *lifecycleDeps) serviceHealth(ctx context.Context, endpoint string) map[string]string {
+	body, code, err := d.request(ctx, http.MethodGet, strings.TrimRight(endpoint, "/")+"/_localstack/health")
+	if err != nil || code != http.StatusOK {
+		return nil
+	}
+
+	var r localstackHealthResponse
+	if json.Unmarshal(body, &r) != nil {
+		return nil
+	}
+
+	return r.Services
 }
 
 func cloudOf(name string) string {
@@ -433,17 +503,33 @@ func cloudOf(name string) string {
 	}
 }
 
-func buildStatus(endpoint string, h healthResponse, st *lifecycleState) statusReport {
+func buildStatus(
+	endpoint string, h healthResponse, st *lifecycleState, svcHealth map[string]string,
+) statusReport {
 	r := statusReport{
 		Running: true, Endpoint: endpoint, Version: h.Version, UptimeSecs: h.UptimeSecs,
 		Uptime: (time.Duration(h.UptimeSecs) * time.Second).String(), Managed: st,
-		Clouds: map[string][]serviceState{}, EnabledCount: len(h.Services), DisabledCount: len(h.Disabled),
+		Clouds: map[string][]serviceState{}, Goroutines: h.Goroutines, HeapAllocB: h.HeapAllocB,
+		EnabledCount: len(h.Services), DisabledCount: len(h.Disabled),
 	}
+
+	port := endpointPort(endpoint)
 
 	add := func(names []string, state string) {
 		for _, n := range names {
 			c := cloudOf(n)
-			r.Clouds[c] = append(r.Clouds[c], serviceState{Name: n, State: state})
+			ss := serviceState{Name: n, State: state, Health: healthDisabled}
+
+			if state == "enabled" {
+				ss.Port = port
+				ss.Health = healthHealthy
+
+				if svcHealth != nil && svcHealth[strings.ToLower(n)] != localstackAvailable {
+					ss.Health = healthUnavailable
+				}
+			}
+
+			r.Clouds[c] = append(r.Clouds[c], ss)
 		}
 	}
 
@@ -488,7 +574,7 @@ func (c *StatusCmd) run(ctx context.Context, d *lifecycleDeps) error {
 		return errLifecycleNotRunning
 	}
 
-	rep := buildStatus(endpoint, h, managed)
+	rep := buildStatus(endpoint, h, managed, d.serviceHealth(ctx, endpoint))
 	if c.JSON {
 		enc := json.NewEncoder(d.Out)
 		enc.SetIndent("", "  ")
@@ -512,14 +598,21 @@ func (r statusReport) print(w io.Writer) {
 		}
 	}
 
-	fmt.Fprintf(w, "Services: %d enabled, %d disabled\n\n", r.EnabledCount, r.DisabledCount)
+	fmt.Fprintf(w, "Memory:   %.1f MiB heap, %d goroutines\n", float64(r.HeapAllocB)/bytesPerMiB, r.Goroutines)
+	fmt.Fprintf(w, "Services: %d enabled, %d disabled (one process: shared port and uptime)\n\n",
+		r.EnabledCount, r.DisabledCount)
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0) //nolint:mnd // tabwriter padding
-	fmt.Fprintln(tw, "CLOUD\tSERVICE\tSTATE")
+	fmt.Fprintln(tw, "CLOUD\tSERVICE\tSTATE\tPORT\tHEALTH")
 
 	for _, cloud := range []string{"aws", "azure", "gcp"} {
 		for _, s := range r.Clouds[cloud] {
-			fmt.Fprintf(tw, "%s\t%s\t%s\n", cloud, s.Name, s.State)
+			port := s.Port
+			if port == "" {
+				port = "-"
+			}
+
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", cloud, s.Name, s.State, port, s.Health)
 		}
 	}
 

@@ -12,10 +12,12 @@ import (
 	"time"
 
 	mobycontainer "github.com/moby/moby/api/types/container"
+	mobymount "github.com/moby/moby/api/types/mount"
 	mobynetwork "github.com/moby/moby/api/types/network"
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/blackbirdworks/gopherstack/internal/linklocal"
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
@@ -41,14 +43,22 @@ type DockerComputeConfig struct {
 	Image     string            `json:"image,omitempty"`
 	Network   string            `json:"network,omitempty"`
 	SSHHostIP string            `json:"sshHostIP,omitempty"`
+	// Flags is a restricted docker-run style option string (see parseDockerFlags) applied to every container.
+	Flags string `json:"flags,omitempty"`
 	// Region is used to render the public DNS name suffix
 	// (e.g. us-east-1 → "compute-1.amazonaws.com").
 	Region     string `json:"region,omitempty"`
 	SSHPortMin int    `json:"sshPortMin,omitempty"`
 	SSHPortMax int    `json:"sshPortMax,omitempty"`
+	// EBSVolumes maps EBS volumes to Docker named volumes mounted under /mnt/ebs.
+	EBSVolumes bool `json:"ebsVolumes,omitempty"`
 }
 
-var errNoImageTag = errors.New("docker client cannot tag images")
+var (
+	errNoImageTag    = errors.New("docker client cannot tag images")
+	errNoImageCommit = errors.New("docker client cannot commit images")
+	errLocalImage    = errors.New("docker compute: AMI is bound to a local docker image that does not exist")
+)
 
 // dockerAPI is the subset of the Docker SDK the DockerCompute uses.
 // It is an interface so tests can inject a fake.
@@ -92,7 +102,12 @@ type DockerCompute struct {
 	fronts *frontRegistry
 	// dialer reaches containers' loopback ports from the relays; nil means a plain net.Dialer.
 	dialer sgfilter.Dialer
-	cfg    DockerComputeConfig
+	// mounts tracks the EBS volumes each container holds; shared across region views.
+	mounts *mountRegistry
+	// claim hands out surviving containers of an earlier run; nil means container.ClaimOrphan.
+	claim func(service, resource string) (container.ManagedContainer, bool)
+	cfg   DockerComputeConfig
+	flags dockerFlags
 }
 
 // sshPortPool is shared by every region's view of one Docker daemon so two
@@ -105,6 +120,10 @@ type sshPortPool struct {
 // NewDockerCompute creates a Compute provider backed by the local Docker
 // daemon. Honours DOCKER_HOST / DOCKER_TLS_VERIFY via mobyclient.FromEnv.
 func NewDockerCompute(cfg DockerComputeConfig) (*DockerCompute, error) {
+	if _, err := parseDockerFlags(cfg.Flags); err != nil {
+		return nil, err
+	}
+
 	cli, err := mobyclient.New(mobyclient.FromEnv)
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
@@ -123,12 +142,19 @@ func newDockerComputeWithAPI(api dockerAPI, cfg DockerComputeConfig) *DockerComp
 		cfg.SSHHostIP = defaultSSHHostIP
 	}
 
+	flags, _ := parseDockerFlags(cfg.Flags)
+	if flags.network != "" && cfg.Network == "" {
+		cfg.Network = flags.network
+	}
+
 	return &DockerCompute{
-		api:   api,
-		cfg:   cfg,
-		ports: &sshPortPool{used: make(map[int]struct{})},
-		nets:  newNetRegistry(),
-		ll:    &linkLocalState{},
+		api:    api,
+		cfg:    cfg,
+		flags:  flags,
+		mounts: newMountRegistry(),
+		ports:  &sshPortPool{used: make(map[int]struct{})},
+		nets:   newNetRegistry(),
+		ll:     &linkLocalState{},
 
 		fronts: newFrontRegistry(),
 	}
@@ -197,8 +223,9 @@ func mustParsePort(s string) mobynetwork.Port {
 
 // Launch implements Compute.
 func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchResult, error) {
-	if err := d.ensureImage(ctx); err != nil {
-		return LaunchResult{}, err
+	image, mounts, prepErr := d.prepareLaunch(ctx, req)
+	if prepErr != nil {
+		return LaunchResult{}, prepErr
 	}
 
 	hostPort, err := d.reserveSSHPort()
@@ -218,21 +245,7 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 		req.MetadataEndpoint = ""
 	}
 
-	entrypoint := buildEntrypointScript(req.AuthorizedKey, req.UserData)
-	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
-	createOpts := mobyclient.ContainerCreateOptions{
-		Config: &mobycontainer.Config{
-			Image:        d.cfg.Image,
-			ExposedPorts: exposed,
-			Cmd:          []string{"/bin/sh", "-c", entrypoint},
-			Labels:       d.buildLabels(req),
-			Env:          containerEnv(req),
-			Hostname:     dockerHostname(req.InstanceID),
-		},
-		HostConfig:       hostCfg,
-		NetworkingConfig: networkCfg,
-		Name:             "gopherstack-" + req.InstanceID,
-	}
+	createOpts := d.createOptions(req, image, mounts, hostPort, vn, hasNet)
 
 	resp, createErr := d.api.ContainerCreate(ctx, createOpts)
 	if createErr != nil {
@@ -240,6 +253,8 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 
 		return LaunchResult{}, fmt.Errorf("container create: %w", createErr)
 	}
+
+	d.recordLaunchMounts(resp.ID, req)
 
 	if ll != nil {
 		if attachErr := ll.Attach(ctx, resp.ID, req.InstanceID); attachErr != nil {
@@ -299,6 +314,47 @@ func (d *DockerCompute) Launch(ctx context.Context, req LaunchRequest) (LaunchRe
 	}, nil
 }
 
+// createOptions assembles the container definition for an instance.
+func (d *DockerCompute) createOptions(
+	req LaunchRequest, image string, mounts []mobymount.Mount, hostPort int, vn vpcNetwork, hasNet bool,
+) mobyclient.ContainerCreateOptions {
+	hostCfg, networkCfg, exposed := d.buildContainerConfigs(hostPort, req, vn, hasNet)
+	hostCfg.Mounts = append(hostCfg.Mounts, mounts...)
+
+	return mobyclient.ContainerCreateOptions{
+		Config: &mobycontainer.Config{
+			Image:        image,
+			ExposedPorts: exposed,
+			Cmd:          []string{"/bin/sh", "-c", buildEntrypointScript(req.AuthorizedKey, req.UserData)},
+			Labels:       d.buildLabels(req),
+			Env:          d.flags.apply(hostCfg, containerEnv(req), exposed),
+			Hostname:     dockerHostname(req.InstanceID),
+		},
+		HostConfig:       hostCfg,
+		NetworkingConfig: networkCfg,
+		Name:             "gopherstack-" + req.InstanceID,
+	}
+}
+
+// prepareLaunch resolves the image the instance runs, makes it available locally and creates its EBS volumes.
+func (d *DockerCompute) prepareLaunch(ctx context.Context, req LaunchRequest) (string, []mobymount.Mount, error) {
+	image := d.cfg.Image
+	if req.DockerImage != "" {
+		image = req.DockerImage
+	}
+
+	if err := d.ensureImage(ctx, image); err != nil {
+		return "", nil, err
+	}
+
+	mounts, err := d.launchMounts(ctx, req)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return image, mounts, nil
+}
+
 // syntheticPublicDNS renders an AWS-style public hostname for an instance,
 // uniquely keyed by the instance ID so the embedded DNS server can register
 // one entry per launched container. The form mirrors what real EC2 returns:
@@ -326,6 +382,8 @@ func (d *DockerCompute) Terminate(ctx context.Context, instanceID, providerID st
 	log := logger.Load(ctx)
 	timeout := stopTimeoutSec
 	frontPort, fronted := d.closeFronts(providerID)
+
+	d.syncBackAll(ctx, providerID)
 
 	if _, err := d.api.ContainerStop(ctx, providerID, mobyclient.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		log.WarnContext(ctx, "docker stop on terminate", "instance", instanceID, "container", providerID, "error", err)
@@ -379,11 +437,23 @@ func (d *DockerCompute) Stop(ctx context.Context, _, providerID string) error {
 	return nil
 }
 
-// ensureImage pulls the configured image when not present locally.
-// Errors here are non-fatal — Docker create will surface "no such image"
-// itself if the pull failed for the wrong reason.
-func (d *DockerCompute) ensureImage(ctx context.Context) error {
-	return registryauth.Pull(ctx, d.cfg.Image, d.pullOnce, registryauth.TaggerFrom(imageTagAdapter{d.api}))
+// ensureImage pulls image when not present locally. Images in the gopherstack-ec2/ namespace are
+// local-only and are checked, never pulled.
+func (d *DockerCompute) ensureImage(ctx context.Context, image string) error {
+	if strings.HasPrefix(image, localImageRepo) {
+		ia, ok := d.api.(imageAPI)
+		if !ok {
+			return nil
+		}
+
+		if _, err := ia.ImageInspect(ctx, image); err != nil {
+			return fmt.Errorf("%w: %s: %w", errLocalImage, image, err)
+		}
+
+		return nil
+	}
+
+	return registryauth.Pull(ctx, image, d.pullOnce, registryauth.TaggerFrom(imageTagAdapter{d.api}))
 }
 
 // imageTagAdapter exposes the moby ImageTag call, when the client has one, as a registryauth.ImageTagger.
@@ -497,6 +567,7 @@ func (d *DockerCompute) buildLabels(req LaunchRequest) map[string]string {
 	}
 
 	maps.Copy(labels, d.cfg.Labels)
+	maps.Copy(labels, managedInstanceLabels(req))
 
 	return labels
 }
@@ -600,6 +671,7 @@ func pickHostPort(ports mobynetwork.PortMap) int {
 }
 
 func (d *DockerCompute) cleanupAfterFailure(ctx context.Context, containerID string, port int) {
+	d.mounts.dropAll(containerID)
 	timeout := stopTimeoutSec
 	_, _ = d.api.ContainerStop(ctx, containerID, mobyclient.ContainerStopOptions{Timeout: &timeout})
 	_, _ = d.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})

@@ -58,6 +58,7 @@ type EngineRuntime interface {
 	StopContainer(ctx context.Context, containerID string) error
 	StartContainer(ctx context.Context, containerID string) error
 	Exec(ctx context.Context, containerID string, cmd []string) (container.ExecResult, error)
+	ExecEnv(ctx context.Context, containerID string, cmd, env []string) (container.ExecResult, error)
 }
 
 // PasswordChange describes a master password change inside a running MongoDB container.
@@ -627,21 +628,26 @@ func (b *InMemoryBackend) applyMasterPassword(region, id, newPassword string) er
 	return nil
 }
 
-func execSetPassword(ctx context.Context, rt EngineRuntime, c PasswordChange) error {
-	user, pass := jsString(c.User), jsString(c.NewPassword)
-	script := "db.getSiblingDB('admin').changeUserPassword(" + user + "," + pass + ")"
-	cmd := []string{
-		mongoShell, "--quiet", "-u", c.User, "-p", c.OldPassword,
-		"--authenticationDatabase", "admin", "--eval", script,
-	}
+// changePasswordScript reads credentials from the process env so they never reach argv.
+const changePasswordScript = "var a=db.getSiblingDB('admin');" +
+	"if(!a.auth(_getEnv('GS_USER'),_getEnv('GS_OLD_PW'))){quit(2)}" +
+	"a.changeUserPassword(_getEnv('GS_USER'),_getEnv('GS_NEW_PW'))"
 
-	res, err := rt.Exec(ctx, c.ContainerID, cmd)
+func execSetPassword(ctx context.Context, rt EngineRuntime, c PasswordChange) error {
+	cmd := []string{mongoShell, "--quiet", "--eval", changePasswordScript}
+	env := []string{"GS_USER=" + c.User, "GS_OLD_PW=" + c.OldPassword, "GS_NEW_PW=" + c.NewPassword}
+
+	res, err := container.ExecWithEnv(ctx, rt, c.ContainerID, cmd, env)
 	if err != nil {
-		return fmt.Errorf("exec mongo shell: %w", err)
+		if errors.Is(err, container.ErrExecUnsupported) {
+			return fmt.Errorf("exec mongo shell: %w", err)
+		}
+
+		return errExecFailed
 	}
 
 	if res.ExitCode != 0 {
-		return fmt.Errorf("%w: exit %d: %s", errShellFailed, res.ExitCode, strings.TrimSpace(res.Stderr))
+		return fmt.Errorf("%w: exit %d", errShellFailed, res.ExitCode)
 	}
 
 	return nil

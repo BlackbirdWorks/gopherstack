@@ -67,6 +67,11 @@ func (db *InMemoryDB) executeTransactionOp(
 	// Capture pre-transaction snapshots of all affected tables.
 	snapshots := db.captureExecTxnSnapshots(ctx, tableNames)
 
+	txn := db.newTxnHandle("ExecuteTransaction")
+	defer txn.release()
+
+	ctx = context.WithValue(ctx, txnHandleKey{}, txn)
+
 	runner := &partiQLRunner{backend: db}
 	responses := make([]types.ItemResponse, len(input.TransactStatements))
 	returnCC := input.ReturnConsumedCapacity != "" &&
@@ -99,10 +104,15 @@ func (db *InMemoryDB) executeTransactionOp(
 				Code:    cancellationCodeForErr(execErr),
 				Message: execErr.Error(),
 			}
+			if reasons[i].Code == cancellationReasonConflict {
+				reasons[i].Message = txnConflictMessage
+			}
 
-			return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
+			return nil, NewTransactionCanceledException(txCancelMessage(reasons), reasons)
 		}
 		responses[i] = resp
+
+		db.runTxnHook("ExecuteTransaction", i+1)
 
 		if returnCC && stmtCC != nil {
 			consumedCapacity[i] = *stmtCC
@@ -437,6 +447,10 @@ func cancellationCodeForErr(err error) string {
 	var wireErr *Error
 	if errors.As(err, &wireErr) && strings.Contains(wireErr.Type, "ConditionalCheckFailedException") {
 		return "ConditionalCheckFailed"
+	}
+
+	if errors.As(err, &wireErr) && strings.Contains(wireErr.Type, "TransactionConflictException") {
+		return cancellationReasonConflict
 	}
 
 	return "ValidationError"

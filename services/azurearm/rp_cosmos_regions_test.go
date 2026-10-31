@@ -138,3 +138,66 @@ func TestCosmos_DeleteAccountResetsRegions(t *testing.T) {
 	assert.Empty(t, regions)
 	assert.False(t, multi)
 }
+
+func (f *fakeCosmos) SetAccountPolicies(p azurearm.CosmosAccountPolicies) {
+	f.mu.Lock()
+	f.policies = p
+	f.mu.Unlock()
+}
+
+func (f *fakeCosmos) policyState() azurearm.CosmosAccountPolicies {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.policies
+}
+
+func TestCosmos_AccountPoliciesReachDataPlane(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		props map[string]any
+		name  string
+		want  azurearm.CosmosAccountPolicies
+	}{
+		{
+			name:  "defaults",
+			props: map[string]any{},
+			want: azurearm.CosmosAccountPolicies{
+				Consistency:        "Session",
+				Backup:             "Periodic",
+				MaxStalenessPrefix: 100,
+				MaxIntervalSeconds: 5,
+			},
+		},
+		{
+			name: "bounded staleness, failover and continuous backup",
+			props: map[string]any{
+				"enableAutomaticFailover": true,
+				"consistencyPolicy": map[string]any{
+					"defaultConsistencyLevel": "BoundedStaleness",
+					"maxStalenessPrefix":      200000,
+					"maxIntervalInSeconds":    600,
+				},
+				"backupPolicy": map[string]any{
+					"type": "Continuous", "continuousModeProperties": map[string]any{"tier": "Continuous7Days"},
+				},
+			},
+			want: azurearm.CosmosAccountPolicies{
+				Consistency: "BoundedStaleness", Backup: "Continuous7Days", MaxStalenessPrefix: 200000,
+				MaxIntervalSeconds: 600, AutomaticFailover: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, fake := newCosmosHandler()
+			putCosmosAccount(t, h, tt.props)
+
+			assert.Equal(t, tt.want, fake.policyState())
+		})
+	}
+}

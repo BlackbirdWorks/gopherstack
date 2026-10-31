@@ -10,6 +10,11 @@ import (
 
 // CreateDBSnapshot creates a snapshot of the given DB instance.
 func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSnapshot, error) {
+	return b.CreateDBSnapshotAs("", snapshotID, instanceID)
+}
+
+// CreateDBSnapshotAs is CreateDBSnapshot owned by caller's account.
+func (b *InMemoryBackend) CreateDBSnapshotAs(caller, snapshotID, instanceID string) (*DBSnapshot, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBSnapshotIdentifier is required", ErrInvalidParameter)
 	}
@@ -36,6 +41,8 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 	}
 
 	snap := b.newManualSnapshotLocked(snapshotID, inst)
+	snap.OwnerAccountID = caller
+	snap.DBSnapshotArn = b.ownedSnapshotARN(caller, "snapshot", snapshotID)
 	b.snapshots.Put(snap)
 	b.storeSnapDataLocked(snapKindInstance, snapshotID, data)
 	b.copyTenantDatabasesToSnapshotLocked(snap.DBSnapshotIdentifier, inst)
@@ -91,13 +98,21 @@ func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBIns
 // DescribeDBSnapshots returns snapshots. If snapshotID is non-empty, returns only that snapshot.
 // If instanceID is non-empty, returns all snapshots for that instance.
 func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]DBSnapshot, error) {
+	return b.DescribeDBSnapshotsAs(SnapshotQuery{SnapshotID: snapshotID, ParentID: instanceID})
+}
+
+// DescribeDBSnapshotsAs is DescribeDBSnapshots from the caller's point of view.
+func (b *InMemoryBackend) DescribeDBSnapshotsAs(q SnapshotQuery) ([]DBSnapshot, error) {
 	b.mu.RLock("DescribeDBSnapshots")
 	defer b.mu.RUnlock()
 
-	if snapshotID != "" {
-		snap, exists := b.snapshots.Get(normalizeID(snapshotID))
-		if !exists {
-			return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	if q.SnapshotID != "" {
+		id, byARN := snapshotRef(q.SnapshotID)
+		snap, exists := b.snapshots.Get(normalizeID(id))
+		if !exists || !b.snapshotReachableLocked(
+			q.CallerAccount, snap.OwnerAccountID, snapKindInstance, snap.DBSnapshotIdentifier, byARN,
+		) {
+			return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, q.SnapshotID)
 		}
 
 		return []DBSnapshot{*snap}, nil
@@ -105,7 +120,16 @@ func (b *InMemoryBackend) DescribeDBSnapshots(snapshotID, instanceID string) ([]
 
 	snaps := make([]DBSnapshot, 0, b.snapshots.Len())
 	for _, snap := range b.snapshots.All() {
-		if instanceID != "" && !idEqual(snap.DBInstanceIdentifier, instanceID) {
+		if q.ParentID != "" && !idEqual(snap.DBInstanceIdentifier, q.ParentID) {
+			continue
+		}
+		if !b.snapshotListedLocked(
+			q,
+			snapKindInstance,
+			snap.DBSnapshotIdentifier,
+			snap.OwnerAccountID,
+			snap.SnapshotType,
+		) {
 			continue
 		}
 		snaps = append(snaps, *snap)
@@ -195,11 +219,16 @@ func matchesAllDBSnapshotFilters(s DBSnapshot, filters map[string][]string) bool
 
 // DeleteDBSnapshot removes the given snapshot.
 func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, error) {
+	return b.DeleteDBSnapshotAs("", snapshotID)
+}
+
+// DeleteDBSnapshotAs deletes a snapshot the caller owns.
+func (b *InMemoryBackend) DeleteDBSnapshotAs(caller, snapshotID string) (*DBSnapshot, error) {
 	b.mu.Lock("DeleteDBSnapshot")
 	defer b.mu.Unlock()
 
 	snap, exists := b.snapshots.Get(normalizeID(snapshotID))
-	if !exists {
+	if !exists || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 	}
 
@@ -210,7 +239,7 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 	// than the raw snapshotID argument: they can differ purely in case (see
 	// normalizeID), and the tags map is keyed by ARN built from whichever
 	// casing was live when tags were added.
-	delete(b.tags, b.rdsARN("snapshot", snap.DBSnapshotIdentifier))
+	delete(b.tags, cmp.Or(snap.DBSnapshotArn, b.rdsARN("snapshot", snap.DBSnapshotIdentifier)))
 
 	return &cp, nil
 }
@@ -230,8 +259,11 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	b.mu.Lock("CopyDBSnapshot")
 	defer b.mu.Unlock()
 
-	src, exists := b.snapshots.Get(normalizeID(sourceSnapshotID))
-	if !exists {
+	srcID, byARN := snapshotRef(sourceSnapshotID)
+	src, exists := b.snapshots.Get(normalizeID(srcID))
+	if !exists || !b.snapshotReachableLocked(
+		opts.CallerAccount, src.OwnerAccountID, snapKindInstance, src.DBSnapshotIdentifier, byARN,
+	) {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, sourceSnapshotID)
 	}
 	if _, alreadyExists := b.snapshots.Get(normalizeID(targetSnapshotID)); alreadyExists {
@@ -246,7 +278,8 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	snap := &DBSnapshot{
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: targetSnapshotID,
-		DBSnapshotArn:        b.rdsARN("snapshot", targetSnapshotID),
+		DBSnapshotArn:        b.ownedSnapshotARN(opts.CallerAccount, "snapshot", targetSnapshotID),
+		OwnerAccountID:       opts.CallerAccount,
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
 		DbiResourceID:        src.DbiResourceID,
 		Engine:               src.Engine,
@@ -307,8 +340,11 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 			return
 		}
 
-		snap, exists := b.snapshots.Get(normalizeID(snapshotID))
-		if !exists {
+		snapID, byARN := snapshotRef(snapshotID)
+		snap, exists := b.snapshots.Get(normalizeID(snapID))
+		if !exists || !b.snapshotReachableLocked(
+			opts.CallerAccount, snap.OwnerAccountID, snapKindInstance, snap.DBSnapshotIdentifier, byARN,
+		) {
 			err = fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
 
 			return
@@ -399,9 +435,16 @@ func restoredInstanceFromSnapshot(
 
 // DescribeDBSnapshotAttributes returns attributes for a DB snapshot.
 func (b *InMemoryBackend) DescribeDBSnapshotAttributes(snapshotID string) (*DBSnapshotAttributesResult, error) {
+	return b.DescribeDBSnapshotAttributesAs("", snapshotID)
+}
+
+// DescribeDBSnapshotAttributesAs describes the attributes of a snapshot the caller owns.
+func (b *InMemoryBackend) DescribeDBSnapshotAttributesAs(
+	caller, snapshotID string,
+) (*DBSnapshotAttributesResult, error) {
 	b.mu.RLock("DescribeDBSnapshotAttributes")
 	defer b.mu.RUnlock()
-	if _, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok {
+	if snap, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
 	if attrs, ok := b.snapshotAttributes.Get(normalizeID(snapshotID)); ok {
@@ -442,9 +485,17 @@ func (b *InMemoryBackend) ModifyDBSnapshotAttribute(
 	snapshotID, attributeName string,
 	valuesToAdd, valuesToRemove []string,
 ) (*DBSnapshotAttributesResult, error) {
+	return b.ModifyDBSnapshotAttributeAs("", snapshotID, attributeName, valuesToAdd, valuesToRemove)
+}
+
+// ModifyDBSnapshotAttributeAs modifies the attributes of a snapshot the caller owns.
+func (b *InMemoryBackend) ModifyDBSnapshotAttributeAs(
+	caller, snapshotID, attributeName string,
+	valuesToAdd, valuesToRemove []string,
+) (*DBSnapshotAttributesResult, error) {
 	b.mu.Lock("ModifyDBSnapshotAttribute")
 	defer b.mu.Unlock()
-	if _, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok {
+	if snap, ok := b.snapshots.Get(normalizeID(snapshotID)); !ok || !ownsSnapshot(caller, snap.OwnerAccountID) {
 		return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, snapshotID)
 	}
 	result, ok := b.snapshotAttributes.Get(normalizeID(snapshotID))

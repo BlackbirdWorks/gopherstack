@@ -22,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 )
@@ -55,7 +56,7 @@ func newSSOStack(t *testing.T) ssoStack {
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)
@@ -139,7 +140,7 @@ func (s ssoStack) approveURL(t *testing.T, verificationComplete, user string) {
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()
@@ -402,7 +403,7 @@ func TestSSOVerificationUnknownUser(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

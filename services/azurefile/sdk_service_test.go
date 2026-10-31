@@ -11,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azfile/share"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func listNames(t *testing.T, e *env, o *service.ListSharesOptions) []string {
@@ -275,7 +277,7 @@ func TestSDK_DataPlaneIgnoresRetentionElement(t *testing.T) {
 		e.url+"/devstoreaccount1?restype=service&comp=properties", strings.NewReader(body))
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)

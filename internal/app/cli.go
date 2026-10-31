@@ -58,6 +58,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	snsevents "github.com/blackbirdworks/gopherstack/pkgs/events"
 	"github.com/blackbirdworks/gopherstack/pkgs/extensions"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
@@ -98,6 +99,7 @@ import (
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	azuregraphbackend "github.com/blackbirdworks/gopherstack/services/azuregraph"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
@@ -170,22 +172,28 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	forecastbackend "github.com/blackbirdworks/gopherstack/services/forecast"
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
+	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
+	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpcontainerbackend "github.com/blackbirdworks/gopherstack/services/gcpcontainer"
+	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
+	gcpidtkbackend "github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -234,10 +242,22 @@ import (
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	oambackend "github.com/blackbirdworks/gopherstack/services/oam"
+	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	ociartifacts "github.com/blackbirdworks/gopherstack/services/ociartifacts"
+	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ociloadbalancer "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
+	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
+	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
+	ocimysqlbackend "github.com/blackbirdworks/gopherstack/services/ocimysql"
+	ocinosql "github.com/blackbirdworks/gopherstack/services/ocinosql"
+	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
@@ -457,9 +477,28 @@ type CLI struct {
 	azureFileHandler              service.Registerable
 	gcpWorkflowsHandler           service.Registerable
 	gcpDNSHandler                 service.Registerable
+	gcpDatastoreHandler           service.Registerable
 	gcpComputeHandler             service.Registerable
 	ociObjectStorageHandler       service.Registerable
 	ociFunctionsHandler           service.Registerable
+	ociCoreHandler                service.Registerable
+	gcpContainerHandler           service.Registerable
+	gcpIdentityToolkitHandler     service.Registerable
+	gcpAPIGatewayHandler          service.Registerable
+	gcpBatchHandler               service.Registerable
+	gcpResourceManagerHandler     service.Registerable
+	ociQueueHandler               service.Registerable
+	ociNotificationsHandler       service.Registerable
+	ociContainerEngineHandler     service.Registerable
+	ociMySQLHandler               service.Registerable
+	ociLoggingHandler             service.Registerable
+	ociMonitoringHandler          service.Registerable
+	ociNoSQLHandler               service.Registerable
+	ociAPIGatewayHandler          service.Registerable
+	ociEventsHandler              service.Registerable
+	ociLoadBalancerHandler        service.Registerable
+	ociArtifactsHandler           service.Registerable
+	ociContainerInstancesHandler  service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -553,137 +592,167 @@ type CLI struct {
 	portAlloc                     *portalloc.Allocator
 	engineModes                   map[string]string
 	localstackInit                *localstackInitState
-	EngineSwitch                  EngineSettings                    `embed:""`
-	ServiceFilter                 ServiceFilterSettings             `embed:""`
-	PersistModes                  PersistModeSettings               `embed:""`
-	CORS                          CORSSettings                      `embed:"" prefix:"cors-"`
-	Network                       NetworkSettings                   `embed:""`
-	Region                        string                            `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	KafkaEngine                   string                            `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	FlinkEngine                   string                            `                                       name:"flink-engine"            env:"FLINK_ENGINE"                        default:"stub"          help:"Managed Flink engine mode: stub (state only) or docker (real Flink cluster and job per running application)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	MWAAEngine                    string                            `                                       name:"mwaa-engine"             env:"MWAA_ENGINE"                         default:"stub"          help:"MWAA engine mode: stub (state only) or docker (real Apache Airflow container per environment)."`                                                                                                             //nolint:lll // config struct tags are intentionally verbose
-	MQEngine                      string                            `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	EKSEngine                     string                            `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	RDSEngine                     string                            `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	SageMakerEngine               string                            `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
-	DocDBEngine                   string                            `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	RedshiftEngine                string                            `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	NeptuneEngine                 string                            `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                      default:"stub"          help:"Neptune engine mode: stub (metadata only), embedded (in-process Gremlin, openCypher and Bolt on one graph) or docker (NEPTUNE_GREMLIN=container: a Gremlin Server container per cluster)."`                  //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                        default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"                    default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"                  default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"              default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	TransferSFTPHost              string                            `                                       name:"transfer-sftp-host"      env:"TRANSFER_SFTP_HOST"                  default:"127.0.0.1"     help:"Host the Transfer Family SFTP listener binds to."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                            `                                       name:"port"                    env:"PORT"                                default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"                default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                            default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"                           default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                        default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"                   default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"                default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
-	MemoryDBEngine                string                            `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                     default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"                          default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                            default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                             default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Compression                   string                            `                                       name:"compression"             env:"COMPRESSION"                         default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"                  default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	Pods                          PodsConfig                        `embed:"" prefix:"pod-"`
-	Extensions                    extensions.Settings               `embed:""`
-	DockerRegistry                registryauth.Settings             `embed:""`
-	OCIObjectStorage              ociobjectstoragebackend.Settings  `embed:"" prefix:"oci-objectstorage-"`
-	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                              //nolint:lll // config struct tags are intentionally verbose
-	InitDirs                      []string                          `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
-	ExtraListen                   []string                          `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
-	GCPCloudTasks                 gcpcloudtasksbackend.Settings     `embed:"" prefix:"gcp-cloudtasks-"`
-	GCPScheduler                  gcpschedulerbackend.Settings      `embed:"" prefix:"gcp-scheduler-"`
-	GCPRun                        gcprunbackend.Settings            `embed:"" prefix:"gcp-run-"`
-	GCPFunctions                  gcpfunctionsbackend.Settings      `embed:"" prefix:"gcp-functions-"`
-	Transparent                   TransparentSettings               `embed:"" prefix:"transparent-"`
-	AzureEventGrid                azureeventgridbackend.Settings    `embed:"" prefix:"azure-eventgrid-"`
-	AzureMonitor                  azuremonitorbackend.Settings      `embed:"" prefix:"azure-monitor-"`
-	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
-	AzureKeyVault                 azurekeyvaultbackend.Settings     `embed:"" prefix:"azure-keyvault-"`
-	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
-	AzureAppConfig                azureappconfigbackend.Settings    `embed:"" prefix:"azure-appconfig-"`
-	AzureACR                      azureacrbackend.Settings          `embed:"" prefix:"azure-acr-"`
-	AzureFunctions                azurefunctionsbackend.Settings    `embed:"" prefix:"azure-functions-"`
-	AzureRedis                    azureredisbackend.Settings        `embed:"" prefix:"azure-redis-"`
-	AzureSQL                      azuresqlbackend.Settings          `embed:"" prefix:"azure-sql-"`
-	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
-	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
-	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
-	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
-	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
-	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
-	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
-	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
-	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
-	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
-	Lifecycle                     cliconfig.LifecycleSettings       `embed:"" prefix:"lifecycle-"`
-	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
-	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
-	StepFunctions                 sfnbackend.Settings               `embed:"" prefix:"stepfunctions-"`
-	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
-	SSM                           ssmbackend.Settings               `embed:"" prefix:"ssm-"`
-	XRay                          xraybackend.Settings              `embed:"" prefix:"xray-"`
-	FIS                           fisbackend.Settings               `embed:"" prefix:"fis-"`
-	EMR                           emrbackend.Settings               `embed:"" prefix:"emr-"`
-	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
-	CloudWatchLogs                cwlogsbackend.Settings            `embed:"" prefix:"cloudwatchlogs-"`
-	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
-	AzureEventHubs                azureeventhubsbackend.Settings    `embed:"" prefix:"azure-eventhubs-"`
-	IoT                           iotbackend.Settings               `embed:"" prefix:"iot-"`
-	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
-	KMS                           kmsbackend.Settings               `embed:"" prefix:"kms-"`
-	Kinesis                       kinesisbackend.Settings           `embed:"" prefix:"kinesis-"`
-	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
-	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
-	AzureFile                     azurefilebackend.Settings         `embed:"" prefix:"azure-file-"`
-	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
-	GCPStorage                    gcpstoragebackend.Settings        `embed:"" prefix:"gcp-storage-"`
-	GCPPubSub                     gcppubsubbackend.Settings         `embed:"" prefix:"gcp-pubsub-"`
-	GCPSecretManager              gcpsecretmanagerbackend.Settings  `embed:"" prefix:"gcp-secretmanager-"`
-	GCPKMS                        gcpkmsbackend.Settings            `embed:"" prefix:"gcp-kms-"`
-	GCPFirestore                  gcpfirestorebackend.Settings      `embed:"" prefix:"gcp-firestore-"`
-	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
-	GCPIAM                        gcpiambackend.Settings            `embed:"" prefix:"gcp-iam-"`
-	GCPBigQuery                   gcpbigquerybackend.Settings       `embed:"" prefix:"gcp-bigquery-"`
-	GCPLogging                    gcploggingbackend.Settings        `embed:"" prefix:"gcp-logging-"`
-	GCPMonitoring                 gcpmonitoringbackend.Settings     `embed:"" prefix:"gcp-monitoring-"`
-	GCPRedis                      gcpredisbackend.Settings          `embed:"" prefix:"gcp-redis-"`
-	GCPBigtable                   gcpbigtablebackend.Settings       `embed:"" prefix:"gcp-bigtable-"`
-	GCPEventarc                   gcpeventarcbackend.Settings       `embed:"" prefix:"gcp-eventarc-"`
-	GCPWorkflows                  gcpworkflowsbackend.Settings      `embed:"" prefix:"gcp-workflows-"`
-	GCPDNS                        gcpdnsbackend.Settings            `embed:"" prefix:"gcp-dns-"`
-	GCPCompute                    gcpcomputebackend.Settings        `embed:"" prefix:"gcp-compute-"`
-	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"             default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchProcessingDelay  time.Duration                     `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY"      default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                        default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                     default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"                          default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                              help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM,ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	EnforceSecurityGroups         bool                              `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
-	EnforceServiceQuotas          bool                              `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
-	IAMAudit                      bool                              `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	LocalstackCompat              bool                              `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"       default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                             default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                                default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	TransferSFTP                  bool                              `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
-	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
-	SQS                           sqsbackend.Settings               `embed:"" prefix:"sqs-"`
-	Localstack                    LocalstackSettings                `embed:"" prefix:"localstack-"`
-	OCIVault                      ocivaultbackend.Settings          `embed:"" prefix:"oci-vault-"`
-	OCIStreaming                  ocistreamingbackend.Settings      `embed:"" prefix:"oci-streaming-"`
-	OCIIdentity                   ociidentitybackend.Settings       `embed:"" prefix:"oci-identity-"`
-	OCIFunctions                  ocifunctionsbackend.Settings      `embed:"" prefix:"oci-functions-"`
-	OCICore                       ocicorebackend.Settings           `embed:"" prefix:"oci-core-"`
+	EngineSwitch                  EngineSettings                      `embed:""`
+	ServiceFilter                 ServiceFilterSettings               `embed:""`
+	PersistModes                  PersistModeSettings                 `embed:""`
+	CORS                          CORSSettings                        `embed:"" prefix:"cors-"`
+	Network                       NetworkSettings                     `embed:""`
+	ELBv2                         ELBv2Settings                       `embed:"" prefix:"elbv2-"`
+	Region                        string                              `                                       name:"region"                  env:"REGION"                              default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                              `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"                      default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	KafkaEngine                   string                              `                                       name:"kafka-engine"            env:"KAFKA_ENGINE"                        default:"stub"          help:"MSK engine mode: stub (metadata only) or docker (real Kafka broker per cluster)."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	FlinkEngine                   string                              `                                       name:"flink-engine"            env:"FLINK_ENGINE"                        default:"stub"          help:"Managed Flink engine mode: stub (state only) or docker (real Flink cluster and job per running application)."`                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	MWAAEngine                    string                              `                                       name:"mwaa-engine"             env:"MWAA_ENGINE"                         default:"stub"          help:"MWAA engine mode: stub (state only) or docker (real Apache Airflow container per environment)."`                                                                                                             //nolint:lll // config struct tags are intentionally verbose
+	MQEngine                      string                              `                                       name:"mq-engine"               env:"MQ_ENGINE"                           default:"stub"          help:"Amazon MQ engine mode: stub (metadata only) or docker (real RabbitMQ/ActiveMQ container per broker)."`                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EKSEngine                     string                              `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	GKEEngine                     string                              `                                       name:"gke-engine"              env:"GKE_ENGINE"                          default:"stub"          help:"GKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	RDSEngine                     string                              `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	SageMakerEngine               string                              `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
+	DocDBEngine                   string                              `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	RedshiftEngine                string                              `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	NeptuneEngine                 string                              `                                       name:"neptune-engine"          env:"NEPTUNE_ENGINE"                      default:"stub"          help:"Neptune engine mode: stub (metadata only), embedded (in-process Gremlin, openCypher and Bolt on one graph) or docker (NEPTUNE_GREMLIN=container: a Gremlin Server container per cluster)."`                  //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                              `                                       name:"ec2-provider"            env:"EC2_PROVIDER"                        default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                              `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"                    default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                              `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"                  default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                              `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"              default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerFlags                string                              `                                       name:"ec2-docker-flags"        env:"GOPHERSTACK_EC2_DOCKER_FLAGS"        default:""              help:"Extra docker-run options for EC2 docker containers (--privileged, -e, -v, --cap-add/--cap-drop, -m, --cpus, --network, -p); others are rejected at startup."`                                                //nolint:lll // config struct tags are intentionally verbose
+	TransferSFTPHost              string                              `                                       name:"transfer-sftp-host"      env:"TRANSFER_SFTP_HOST"                  default:"127.0.0.1"     help:"Host the Transfer Family SFTP listener binds to."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                              `                                       name:"port"                    env:"PORT"                                default:"8000"          help:"HTTP server port."`                                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                              `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"                default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                              `                                       name:"dns-addr"                env:"DNS_ADDR"                            default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                              `                                       name:"log-level"               env:"LOG_LEVEL"                           default:"info"          help:"Log level (debug|info|warn|error)."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                              `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"                        default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                              `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"                   default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                              `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"                default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	MemoryDBEngine                string                              `                                       name:"memorydb-engine"         env:"MEMORYDB_ENGINE"                     default:"embedded"      help:"MemoryDB engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                               //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                              `                                       name:"account-id"              env:"ACCOUNT_ID"                          default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                              `                                       name:"tls-cert"                env:"TLS_CERT"                            default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                              `                                       name:"tls-key"                 env:"TLS_KEY"                             default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Compression                   string                              `                                       name:"compression"             env:"COMPRESSION"                         default:"on"            help:"Runtime response compression: zstd/br/gzip for the dashboard, gzip for DynamoDB clients that opt in."                                                                                         enum:"on,off"` //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                              `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"                  default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	Pods                          PodsConfig                          `embed:"" prefix:"pod-"`
+	MCP                           MCPConfig                           `embed:"" prefix:"mcp-"`
+	Extensions                    extensions.Settings                 `embed:""`
+	DockerRegistry                registryauth.Settings               `embed:""`
+	OCIObjectStorage              ociobjectstoragebackend.Settings    `embed:"" prefix:"oci-objectstorage-"`
+	InitScripts                   []string                            `                                       name:"init-script"             env:"INIT_SCRIPTS"                                                help:"Shell scripts to run on startup (may be specified multiple times)."`                                                                              //nolint:lll // config struct tags are intentionally verbose
+	InitDirs                      []string                            `                                       name:"init-dir"                env:"INIT_DIR"                                                    help:"Extra init-hook root holding boot.d/start.d/ready.d/shutdown.d (repeatable; /etc/localstack/init and /etc/gopherstack/init are always checked)."` //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                            `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                                  help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."`                                            //nolint:lll // config struct tags are intentionally verbose
+	ExtraListen                   []string                            `                                       name:"extra-listen"            env:"GOPHERSTACK_EXTRA_LISTEN"                                    help:"Additional ports to serve the same endpoint on (comma-separated)."`                                                                               //nolint:lll // config struct tags are intentionally verbose
+	GCPCloudTasks                 gcpcloudtasksbackend.Settings       `embed:"" prefix:"gcp-cloudtasks-"`
+	GCPScheduler                  gcpschedulerbackend.Settings        `embed:"" prefix:"gcp-scheduler-"`
+	GCPRun                        gcprunbackend.Settings              `embed:"" prefix:"gcp-run-"`
+	GCPFunctions                  gcpfunctionsbackend.Settings        `embed:"" prefix:"gcp-functions-"`
+	VerifiedPermissions           verifiedpermissionsbackend.Settings `embed:"" prefix:"verifiedpermissions-"`
+	Transparent                   TransparentSettings                 `embed:"" prefix:"transparent-"`
+	AzureEventGrid                azureeventgridbackend.Settings      `embed:"" prefix:"azure-eventgrid-"`
+	AzureMonitor                  azuremonitorbackend.Settings        `embed:"" prefix:"azure-monitor-"`
+	AzureGraph                    azuregraphbackend.Settings          `embed:"" prefix:"azure-graph-"`
+	CodeBuild                     codebuildbackend.Settings           `embed:"" prefix:"codebuild-"`
+	Glue                          gluebackend.Settings                `embed:"" prefix:"glue-"`
+	GCPIdentityToolkit            gcpidtkbackend.Settings             `embed:"" prefix:"gcp-identitytoolkit-"`
+	AzureKeyVault                 azurekeyvaultbackend.Settings       `embed:"" prefix:"azure-keyvault-"`
+	S3                            s3backend.Settings                  `embed:"" prefix:"s3-"`
+	AzureAppConfig                azureappconfigbackend.Settings      `embed:"" prefix:"azure-appconfig-"`
+	AzureACR                      azureacrbackend.Settings            `embed:"" prefix:"azure-acr-"`
+	AzureFunctions                azurefunctionsbackend.Settings      `embed:"" prefix:"azure-functions-"`
+	AzureRedis                    azureredisbackend.Settings          `embed:"" prefix:"azure-redis-"`
+	AzureSQL                      azuresqlbackend.Settings            `embed:"" prefix:"azure-sql-"`
+	CosmosDB                      cosmosdbbackend.Settings            `embed:"" prefix:"cosmosdb-"`
+	GCPArtifactRegistry           gcparbackend.Settings               `embed:"" prefix:"gcp-artifacts-"`
+	GCPSQL                        gcpsqlbackend.Settings              `embed:"" prefix:"gcp-sql-"`
+	OCIContainerEngine            ocioke.Settings                     `embed:"" prefix:"oci-oke-"`
+	OCIContainerInstances         ocicontainerinstances.Settings      `embed:""`
+	OCIMySQL                      ocimysqlbackend.Settings            `embed:"" prefix:"oci-mysql-"`
+	AgentCore                     agentcorebackend.Settings           `embed:"" prefix:"agentcore-"`
+	GCPCloudBuild                 gcpcloudbuildbackend.Settings       `embed:"" prefix:"gcp-cloudbuild-"`
+	GCPBatch                      gcpbatchbackend.Settings            `embed:"" prefix:"gcp-batch-"`
+	GCPResourceManager            gcprmbackend.Settings               `embed:"" prefix:"gcp-resourcemanager-"`
+	GCPSpanner                    gcpspannerbackend.Settings          `embed:"" prefix:"gcp-spanner-"`
+	SES                           sesbackend.Settings                 `embed:"" prefix:"ses-"`
+	DynamoDB                      ddbbackend.Settings                 `embed:"" prefix:"dynamodb-"`
+	AzureARM                      azurearmbackend.Settings            `embed:"" prefix:"azure-arm-"`
+	Lambda                        lambdabackend.Settings              `embed:"" prefix:"lambda-"`
+	Lifecycle                     cliconfig.LifecycleSettings         `embed:"" prefix:"lifecycle-"`
+	Batch                         batchbackend.Settings               `embed:"" prefix:"batch-"`
+	EC2                           ec2backend.Settings                 `embed:"" prefix:"ec2-"`
+	StepFunctions                 sfnbackend.Settings                 `embed:"" prefix:"stepfunctions-"`
+	Backup                        backupbackend.Settings              `embed:"" prefix:"backup-"`
+	SSM                           ssmbackend.Settings                 `embed:"" prefix:"ssm-"`
+	XRay                          xraybackend.Settings                `embed:"" prefix:"xray-"`
+	FIS                           fisbackend.Settings                 `embed:"" prefix:"fis-"`
+	EMR                           emrbackend.Settings                 `embed:"" prefix:"emr-"`
+	Athena                        athenabackend.Settings              `embed:"" prefix:"athena-"`
+	CloudWatchLogs                cwlogsbackend.Settings              `embed:"" prefix:"cloudwatchlogs-"`
+	AzureServiceBus               azureservicebusbackend.Settings     `embed:"" prefix:"azure-servicebus-"`
+	AzureEventHubs                azureeventhubsbackend.Settings      `embed:"" prefix:"azure-eventhubs-"`
+	IoT                           iotbackend.Settings                 `embed:"" prefix:"iot-"`
+	AzureBlob                     azureblobbackend.Settings           `embed:"" prefix:"azure-blob-"`
+	KMS                           kmsbackend.Settings                 `embed:"" prefix:"kms-"`
+	Kinesis                       kinesisbackend.Settings             `embed:"" prefix:"kinesis-"`
+	STS                           stsbackend.Settings                 `embed:"" prefix:"sts-"`
+	AzureQueue                    azurequeuebackend.Settings          `embed:"" prefix:"azure-queue-"`
+	AzureFile                     azurefilebackend.Settings           `embed:"" prefix:"azure-file-"`
+	AzureTable                    azuretablebackend.Settings          `embed:"" prefix:"azure-table-"`
+	GCPStorage                    gcpstoragebackend.Settings          `embed:"" prefix:"gcp-storage-"`
+	GCPPubSub                     gcppubsubbackend.Settings           `embed:"" prefix:"gcp-pubsub-"`
+	GCPSecretManager              gcpsecretmanagerbackend.Settings    `embed:"" prefix:"gcp-secretmanager-"`
+	GCPKMS                        gcpkmsbackend.Settings              `embed:"" prefix:"gcp-kms-"`
+	GCPFirestore                  gcpfirestorebackend.Settings        `embed:"" prefix:"gcp-firestore-"`
+	AzureStorageVHost             azurestoragevhostbackend.Settings   `embed:"" prefix:"azure-storage-vhost-"`
+	GCPIAM                        gcpiambackend.Settings              `embed:"" prefix:"gcp-iam-"`
+	GCPBigQuery                   gcpbigquerybackend.Settings         `embed:"" prefix:"gcp-bigquery-"`
+	GCPLogging                    gcploggingbackend.Settings          `embed:"" prefix:"gcp-logging-"`
+	GCPMonitoring                 gcpmonitoringbackend.Settings       `embed:"" prefix:"gcp-monitoring-"`
+	GCPRedis                      gcpredisbackend.Settings            `embed:"" prefix:"gcp-redis-"`
+	GCPBigtable                   gcpbigtablebackend.Settings         `embed:"" prefix:"gcp-bigtable-"`
+	GCPEventarc                   gcpeventarcbackend.Settings         `embed:"" prefix:"gcp-eventarc-"`
+	GCPWorkflows                  gcpworkflowsbackend.Settings        `embed:"" prefix:"gcp-workflows-"`
+	GCPDNS                        gcpdnsbackend.Settings              `embed:"" prefix:"gcp-dns-"`
+	GCPDatastore                  gcpdatastorebackend.Settings        `embed:"" prefix:"gcp-datastore-"`
+	GCPCompute                    gcpcomputebackend.Settings          `embed:"" prefix:"gcp-compute-"`
+	GCPContainer                  gcpcontainerbackend.Settings        `embed:"" prefix:"gcp-container-"`
+	GCPAPIGateway                 gcpapigatewaybackend.Settings       `embed:"" prefix:"gcp-apigateway-"`
+	PortRangeStart                int                                 `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                                 `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMin           int                                 `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMax           int                                 `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX"             default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchProcessingDelay  time.Duration                       `                                       name:"es-processing-delay"     env:"ELASTICSEARCH_PROCESSING_DELAY"      default:"0s"            help:"Elasticsearch domain Processing window; 0 settles instantly."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout             time.Duration                       `                                       name:"init-timeout"            env:"INIT_TIMEOUT"                        default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	JanitorTimeout                time.Duration                       `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"                     default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                                 `                                       name:"latency-ms"              env:"LATENCY_MS"                          default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	AutoPurgeTTL                  time.Duration                       `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                              help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                                `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM,ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerEBSVolumes           bool                                `                                       name:"ec2-docker-ebs-volumes"  env:"GOPHERSTACK_EC2_DOCKER_EBS_VOLUMES"  default:"false"         help:"Map EC2 EBS volumes to Docker named volumes mounted at /mnt/ebs/<device> in EC2 docker-provider containers."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	EnforceSecurityGroups         bool                                `                                       name:"enforce-security-groups" env:"GOPHERSTACK_ENFORCE_SECURITY_GROUPS" default:"false"         help:"Enforce EC2 security-group ingress on container-backed endpoints (RDS, EC2, DocDB, MSK, caches, MQ, Neptune, ECS); ingress only. Default off."`                                                //nolint:lll // config struct tags are intentionally verbose
+	EnforceServiceQuotas          bool                                `                                       name:"enforce-service-quotas"  env:"GOPHERSTACK_ENFORCE_SERVICE_QUOTAS"  default:"false"         help:"Make S3, EC2, IAM and DynamoDB reject creates beyond the Service Quotas applied limit. Default off."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	IAMAudit                      bool                                `                                       name:"iam-audit"               env:"GOPHERSTACK_IAM_AUDIT,IAM_SOFT_MODE" default:"false"         help:"IAM audit (soft) mode: evaluate and record every request in the IAM Policy Stream but never deny."`                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	IAMEnforceSCPs                bool                                `                                       name:"iam-enforce-scps"        env:"GOPHERSTACK_IAM_ENFORCE_SCPS"        default:"true"          help:"With IAM enforcement on, also evaluate Organizations service control policies for member-account principals. Set false to skip SCPs."`                                                         //nolint:lll // config struct tags are intentionally verbose
+	LocalstackCompat              bool                                `                                       name:"localstack-compat"       env:"GOPHERSTACK_LOCALSTACK_COMPAT"       default:"false"         help:"LocalStack drop-in mode: also listen on 4566 (auto-enabled when LOCALSTACK_*, GATEWAY_LISTEN, LS_LOG or PERSISTENCE is set)."`                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                       bool                                `                                       name:"persist"                 env:"PERSIST"                             default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                                `                                       name:"demo"                    env:"DEMO"                                default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	TLS                           bool                                `                                       name:"tls"                     env:"TLS"                                 default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	TransferSFTP                  bool                                `                                       name:"transfer-sftp"           env:"TRANSFER_SFTP"                       default:"false"         help:"Serve a real SFTP listener per Transfer Family server."`                                                                                                                                       //nolint:lll // config struct tags are intentionally verbose
+	ValidateSigV4                 bool                                `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"                      default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	GCPEnforce                    gcpenforce.Settings                 `embed:"" prefix:"gcp-enforce-"`
+	CloudFormation                CloudFormationSettings              `embed:"" prefix:"cloudformation-"`
+	SQS                           sqsbackend.Settings                 `embed:"" prefix:"sqs-"`
+	EventBridge                   ebbackend.Settings                  `embed:"" prefix:"eventbridge-"`
+	Localstack                    LocalstackSettings                  `embed:"" prefix:"localstack-"`
+	OCIVault                      ocivaultbackend.Settings            `embed:"" prefix:"oci-vault-"`
+	OCIStreaming                  ocistreamingbackend.Settings        `embed:"" prefix:"oci-streaming-"`
+	OCIIdentity                   ociidentitybackend.Settings         `embed:"" prefix:"oci-identity-"`
+	OCIFunctions                  ocifunctionsbackend.Settings        `embed:"" prefix:"oci-functions-"`
+	OCICore                       ocicorebackend.Settings             `embed:"" prefix:"oci-core-"`
+	OCIQueue                      ociqueuebackend.Settings            `embed:"" prefix:"oci-queue-"`
+	OCINotifications              ocinotificationsbackend.Settings    `embed:"" prefix:"oci-notifications-"`
+	OCILogging                    ocilogging.Settings                 `embed:"" prefix:"oci-logging-"`
+	OCIMonitoring                 ocimonitoring.Settings              `embed:"" prefix:"oci-monitoring-"`
+	OCINoSQL                      ocinosql.Settings                   `embed:"" prefix:"oci-nosql-"`
+	OCIAPIGateway                 ociapigateway.Settings              `embed:"" prefix:"oci-apigateway-"`
+	OCIEvents                     ocievents.Settings                  `embed:"" prefix:"oci-events-"`
+	OCILoadBalancer               ociloadbalancer.Settings            `embed:"" prefix:"oci-loadbalancer-"`
+	OCIArtifacts                  ociartifacts.Settings               `embed:"" prefix:"oci-artifacts-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -812,11 +881,37 @@ func (c *CLI) GetGCPEventarcSettings() gcpeventarcbackend.Settings { return c.GC
 // GetGCPWorkflowsSettings returns Google Cloud Workflows settings (gcpworkflows.ConfigProvider).
 func (c *CLI) GetGCPWorkflowsSettings() gcpworkflowsbackend.Settings { return c.GCPWorkflows }
 
+// GetGCPDatastoreSettings returns Google Cloud Datastore settings (gcpdatastore.ConfigProvider).
+func (c *CLI) GetGCPDatastoreSettings() gcpdatastorebackend.Settings { return c.GCPDatastore }
+
 // GetGCPDNSSettings returns Google Cloud DNS settings (gcpdns.ConfigProvider).
 func (c *CLI) GetGCPDNSSettings() gcpdnsbackend.Settings { return c.GCPDNS }
 
 // GetGCPComputeSettings returns Compute Engine settings (gcpcompute.ConfigProvider).
 func (c *CLI) GetGCPComputeSettings() gcpcomputebackend.Settings { return c.GCPCompute }
+
+// GetGCPIdentityToolkitSettings returns Identity Platform settings (gcpidentitytoolkit.ConfigProvider).
+func (c *CLI) GetGCPIdentityToolkitSettings() gcpidtkbackend.Settings {
+	return c.GCPIdentityToolkit
+}
+
+// GetGCPAPIGatewaySettings returns API Gateway settings (gcpapigateway.ConfigProvider).
+func (c *CLI) GetGCPAPIGatewaySettings() gcpapigatewaybackend.Settings { return c.GCPAPIGateway }
+
+// GetGCPBatchSettings returns Batch settings (gcpbatch.ConfigProvider).
+func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch }
+
+// GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcprm.ConfigProvider).
+func (c *CLI) GetGCPResourceManagerSettings() gcprmbackend.Settings { return c.GCPResourceManager }
+
+// GetGCPEnforceSettings returns the opt-in GCP project and API-enablement enforcement switches.
+func (c *CLI) GetGCPEnforceSettings() gcpenforce.Settings { return c.GCPEnforce }
+
+// GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
+func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
+
+// GetGCPContainerEngine returns the Kubernetes Engine engine mode (gcpcontainer.EngineConfigProvider).
+func (c *CLI) GetGCPContainerEngine() string { return c.engineMode("gke-engine", c.GKEEngine) }
 
 // GetGCPCloudBuildSettings returns Google Cloud Build settings (gcpcloudbuild.ConfigProvider).
 func (c *CLI) GetGCPCloudBuildSettings() gcpcloudbuildbackend.Settings { return c.GCPCloudBuild }
@@ -876,6 +971,36 @@ func (c *CLI) GetOCIFunctionsSettings() ocifunctionsbackend.Settings {
 // GetOCIStreamingSettings returns OCI Streaming settings (ocistreaming.ConfigProvider).
 func (c *CLI) GetOCIStreamingSettings() ocistreamingbackend.Settings {
 	return c.OCIStreaming
+}
+
+// GetOCIQueueSettings returns OCI Queue settings (ociqueue.ConfigProvider).
+func (c *CLI) GetOCIQueueSettings() ociqueuebackend.Settings {
+	return c.OCIQueue
+}
+
+// GetOCIContainerEngineSettings returns OKE settings (ocicontainerengine.ConfigProvider).
+func (c *CLI) GetOCIContainerEngineSettings() ocioke.Settings {
+	return c.OCIContainerEngine
+}
+
+// GetOCIContainerEngineEngine returns the OKE engine mode (ocicontainerengine.EngineConfigProvider).
+func (c *CLI) GetOCIContainerEngineEngine() string {
+	return c.engineMode("oci-oke-engine", c.OCIContainerEngine.Engine)
+}
+
+// GetOCIMySQLSettings returns OCI MySQL settings (ocimysql.ConfigProvider).
+func (c *CLI) GetOCIMySQLSettings() ocimysqlbackend.Settings {
+	return c.OCIMySQL
+}
+
+// GetOCIMySQLEngine returns the OCI MySQL engine mode (ocimysql.EngineConfigProvider).
+func (c *CLI) GetOCIMySQLEngine() string {
+	return c.engineMode("oci-mysql-engine", c.OCIMySQL.Engine)
+}
+
+// GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
+func (c *CLI) GetOCINotificationsSettings() ocinotificationsbackend.Settings {
+	return c.OCINotifications
 }
 
 // GetAzureTableSettings returns Azure Table settings (azuretable.ConfigProvider).
@@ -971,6 +1096,11 @@ func (c *CLI) GetEndpoint() string {
 // EndpointStrategies returns the *_ENDPOINT_STRATEGY selections (endpointstrategy.Provider).
 func (c *CLI) EndpointStrategies() endpointstrategy.Config {
 	return c.Endpoints.Config(c.GetS3Endpoint())
+}
+
+// GetEventBridgeSettings returns EventBridge settings (eventbridge.ConfigProvider).
+func (c *CLI) GetEventBridgeSettings() ebbackend.Settings {
+	return c.EventBridge
 }
 
 // GetSQSSettings returns SQS settings (sqs.SettingsProvider).
@@ -1343,6 +1473,11 @@ func (c *CLI) GetBackupSettings() backupbackend.Settings {
 	return c.Backup
 }
 
+// GetVerifiedPermissionsSettings returns Verified Permissions settings (verifiedpermissions.ConfigProvider).
+func (c *CLI) GetVerifiedPermissionsSettings() verifiedpermissionsbackend.Settings {
+	return c.VerifiedPermissions
+}
+
 // GetBatchSettings returns Batch settings (batch.ConfigProvider).
 func (c *CLI) GetBatchSettings() batchbackend.Settings {
 	return c.Batch
@@ -1357,6 +1492,14 @@ func (c *CLI) GetCloudWatchLogsSettings() cwlogsbackend.Settings {
 func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
 	st := c.CodeBuild
 	st.Engine = c.engineMode("codebuild-engine", st.Engine)
+
+	return st
+}
+
+// GetGlueSettings returns Glue settings (glue.ConfigProvider).
+func (c *CLI) GetGlueSettings() gluebackend.Settings {
+	st := c.Glue
+	st.Engine = c.engineMode("glue-engine", st.Engine)
 
 	return st
 }
@@ -1387,6 +1530,8 @@ func (c *CLI) GetEC2DockerComputeConfig() ec2backend.DockerComputeConfig {
 		Region:     c.Region,
 		SSHPortMin: c.EC2DockerSSHPortMin,
 		SSHPortMax: c.EC2DockerSSHPortMax,
+		Flags:      c.EC2DockerFlags,
+		EBSVolumes: c.EC2DockerEBSVolumes,
 	}
 }
 
@@ -2383,6 +2528,7 @@ type rootCLI struct {
 	Snapshot  SnapshotCmd  `cmd:"" help:"Save, load and list state snapshots (alias of pod)."`
 	Pod       PodCmd       `cmd:"" help:"Manage named state snapshots (pods) on a running server."`
 	Replicate ReplicateCmd `cmd:"" help:"Copy resources from real AWS into a running server."`
+	Mcp       McpCmd       `cmd:"" help:"Serve MCP tools over stdio for a running Gopherstack."`
 	Serve     CLI          `cmd:"" help:"Start the Gopherstack server."                            default:"withargs"`
 }
 
@@ -2459,7 +2605,7 @@ func Run() {
 		"pod versions <name>",
 		"pod delete <name>",
 		"pod inspect <name>",
-		"replicate":
+		"replicate", "mcp":
 		err = kctx.Run()
 	default:
 		// Opt-in pprof server for local profiling / PGO data collection.
@@ -2471,6 +2617,10 @@ func Run() {
 	cancel() // release signal-handler goroutine resources
 
 	if err != nil {
+		if code, ok := lifecycleExitCode(err); ok {
+			os.Exit(code)
+		}
+
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -2587,9 +2737,15 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPBigtable", "gcpbigtable", cli.GCPBigtable.Port},
 		{"GCPEventarc", "gcpeventarc", cli.GCPEventarc.Port},
 		{"GCPWorkflows", "gcpworkflows", cli.GCPWorkflows.Port},
+		{"GCPDatastore", "gcpdatastore", cli.GCPDatastore.Port},
 		{"GCPDNS", "gcpdns", cli.GCPDNS.Port},
 		{"GCPDNSServer", "gcpdns-server", cli.GCPDNS.DNSPort},
 		{"GCPCompute", "gcpcompute", cli.GCPCompute.Port},
+		{"GCPContainer", "gcpcontainer", cli.GCPContainer.Port},
+		{"GCPIdentityToolkit", "gcpidentitytoolkit", cli.GCPIdentityToolkit.Port},
+		{"GCPAPIGateway", "gcpapigateway", cli.GCPAPIGateway.Port},
+		{"GCPBatch", "gcpbatch", cli.GCPBatch.Port},
+		{"GCPResourceManager", "gcpresourcemanager", cli.GCPResourceManager.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -2613,6 +2769,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
+		{"AzureGraph", "azuregraph", cli.AzureGraph.Port},
 		{"AzureKeyVault", "azurekeyvault", cli.AzureKeyVault.Port},
 		{"OCIObjectStorage", "ociobjectstorage", cli.OCIObjectStorage.Port},
 		{"OCIVault", "ocivault", cli.OCIVault.Port},
@@ -2620,6 +2777,18 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIIdentity", "ociidentity", cli.OCIIdentity.Port},
 		{"OCIFunctions", "ocifunctions", cli.OCIFunctions.Port},
 		{"OCICore", "ocicore", cli.OCICore.Port},
+		{"OCILogging", "ocilogging", cli.OCILogging.Port},
+		{"OCIMonitoring", "ocimonitoring", cli.OCIMonitoring.Port},
+		{"OCIQueue", "ociqueue", cli.OCIQueue.Port},
+		{"OCINotifications", "ocinotifications", cli.OCINotifications.Port},
+		{"OCIContainerEngine", "ocicontainerengine", cli.OCIContainerEngine.Port},
+		{"OCIMySQL", "ocimysql", cli.OCIMySQL.Port},
+		{"OCINoSQL", "ocinosql", cli.OCINoSQL.Port},
+		{"OCIAPIGateway", "ociapigateway", cli.OCIAPIGateway.Port},
+		{"OCIEvents", "ocievents", cli.OCIEvents.Port},
+		{"OCILoadBalancer", "ociloadbalancer", cli.OCILoadBalancer.Port},
+		{"OCIArtifacts", "ociartifacts", cli.OCIArtifacts.Port},
+		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
 	}
 }
 
@@ -2992,6 +3161,7 @@ func buildEchoServer(
 	registerEC2IMDSEndpoints(e, services)
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
+	registerEKSEndpoints(e, services)
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))
@@ -3002,6 +3172,7 @@ func buildEchoServer(
 
 	registerPodEndpoints(ctx, log, e, cli.Pods, cli.resolvedDataDir(), persistManager, services)
 	registerReplicateEndpoints(ctx, e)
+	registerMCPEndpoint(ctx, log, e, cli.MCP)
 
 	registerWebsiteRoutes(e, services)
 
@@ -3350,6 +3521,9 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
+	cli.ociLoadBalancerHandler = byName["OCILoadBalancer"]
+	cli.ociArtifactsHandler = byName["OCIArtifacts"]
+	cli.ociContainerInstancesHandler = byName["OCIContainerInstances"]
 
 	storeAdditionalCLIHandlers(cli, byName)
 }
@@ -3382,6 +3556,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpKMSHandler = byName["GCPKMS"]
 	cli.gcpWorkflowsHandler = byName["GCPWorkflows"]
 	cli.gcpDNSHandler = byName["GCPDNS"]
+	cli.gcpDatastoreHandler = byName["GCPDatastore"]
 	cli.gcpComputeHandler = byName["GCPCompute"]
 	cli.azureFileHandler = byName["AzureFile"]
 	cli.ociObjectStorageHandler = byName["OCIObjectStorage"]
@@ -3389,6 +3564,18 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociStreamingHandler = byName["OCIStreaming"]
 	cli.ociIdentityHandler = byName["OCIIdentity"]
 	cli.ociFunctionsHandler = byName["OCIFunctions"]
+	cli.ociCoreHandler = byName["OCICore"]
+	cli.gcpContainerHandler = byName["GCPContainer"]
+	cli.gcpIdentityToolkitHandler = byName["GCPIdentityToolkit"]
+	cli.ociQueueHandler = byName["OCIQueue"]
+	cli.ociNotificationsHandler = byName["OCINotifications"]
+	cli.ociContainerEngineHandler = byName["OCIContainerEngine"]
+	cli.ociMySQLHandler = byName["OCIMySQL"]
+	cli.ociLoggingHandler = byName["OCILogging"]
+	cli.ociMonitoringHandler = byName["OCIMonitoring"]
+	cli.ociNoSQLHandler = byName["OCINoSQL"]
+	cli.ociAPIGatewayHandler = byName["OCIAPIGateway"]
+	cli.ociEventsHandler = byName["OCIEvents"]
 	cli.azureMonitorHandler = byName["AzureMonitor"]
 }
 
@@ -3470,6 +3657,9 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	cli.gcpAPIGatewayHandler = byName["GCPAPIGateway"]
+	cli.gcpBatchHandler = byName["GCPBatch"]
+	cli.gcpResourceManagerHandler = byName["GCPResourceManager"]
 	storeCLINewestHandlers(cli, byName)
 }
 
@@ -3606,6 +3796,16 @@ func wireCrossServiceDependencies(
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)
 	wireOCIIdentityKeys(byName)
+	wireOCILoggingMonitoring(byName)
+	wireOCIQueueNotifications(byName)
+	wireOCIContainerEngine(byName)
+	wireOCIMySQL(byName)
+	wireOCINoSQL(byName)
+	wireOCIAPIGateway(byName)
+	wireOCIEvents(byName)
+	wireOCILoadBalancer(byName)
+	wireOCIArtifacts(byName)
+	wireOCIContainerInstances(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -3615,6 +3815,27 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 
 	if sok && vok {
 		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
+}
+
+// wireOCIQueueNotifications lets OCI Queue validate customEncryptionKeyId against OCI Vault keys and lets OCI
+// Notifications invoke OCI Functions for ORACLE_FUNCTIONS subscriptions.
+func wireOCIQueueNotifications(byName map[string]service.Registerable) {
+	if queueH, ok := byName["OCIQueue"].(*ociqueuebackend.Handler); ok {
+		if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+			queueH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+		}
+	}
+
+	if notifyH, ok := byName["OCINotifications"].(*ocinotificationsbackend.Handler); ok {
+		if fnH, found := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); found {
+			notifyH.Backend.SetFunctionInvoker(
+				func(ctx context.Context, fnID string, h http.Header, body []byte) error {
+					_, err := fnH.Backend.Invoke(ctx, fnID, ocifunctionsbackend.InvokeIn{Header: h, Body: body})
+
+					return err
+				})
+		}
 	}
 }
 
@@ -3642,6 +3863,24 @@ func wireOCIIdentityKeys(byName map[string]service.Registerable) {
 	}
 
 	if h, found := byName["OCICore"].(*ocicorebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+	}
+
+	if h, found := byName["OCIQueue"].(*ociqueuebackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCINotifications"].(*ocinotificationsbackend.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+	}
+
+	if h, found := byName["OCIContainerEngine"].(*ocioke.Handler); found {
+		h.Backend.Auth.Link(identityH.Backend.Auth)
+		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
+	}
+
+	if h, found := byName["OCIMySQL"].(*ocimysqlbackend.Handler); found {
 		h.Backend.Auth.Link(identityH.Backend.Auth)
 		h.Backend.SetCompartmentChecker(identityH.Backend.CompartmentActive)
 	}
@@ -3853,7 +4092,8 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 
 	// Wire Athena → S3 so a succeeded query execution's result is actually written
 	// to ResultConfiguration.OutputLocation instead of only being stored/echoed.
-	wireAthenaS3(byName["Athena"], byName["S3"])
+	// It also wires the s3tablescatalog/<table-bucket> federated catalog to S3 Tables.
+	wireAthenaStorage(byName)
 
 	// Wire S3 → Lambda so a function deployed from Code.S3Bucket/S3Key
 	// actually starts instead of failing with ErrLambdaUnavailable: S3 code
@@ -4691,7 +4931,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// being marked Succeeded unconditionally with no cross-service call at
 	// all (gopherstack-cb9l).
 	wireCodePipelineBackends(byName)
-	wireGlueS3(byName["Glue"], byName["S3"])
+	wireGlueBackends(byName)
 }
 
 func wireCodePipelineBackends(byName map[string]service.Registerable) {
@@ -4699,6 +4939,7 @@ func wireCodePipelineBackends(byName map[string]service.Registerable) {
 	wireCodePipelineLambda(byName["CodePipeline"], byName["Lambda"])
 	wireCodePipelineCodeDeploy(byName["CodePipeline"], byName["CodeDeploy"])
 	wireCodePipelineS3(byName["CodePipeline"], byName["S3"])
+	wireCodePipelineActionBackends(byName)
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -4800,6 +5041,7 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 	wireEKSTokenAuth(byName)
 	wireEKSPodIdentity(byName)
 	wireCognitoIdentity(byName["CognitoIdentity"], byName["STS"], byName["CognitoIDP"])
+	wireVerifiedPermissionsCognito(byName["VerifiedPermissions"], byName["CognitoIDP"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
@@ -4842,6 +5084,7 @@ func registerCloudFormationAndDashboard(
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 	wireServiceCatalogEngine(byName["ServiceCatalog"], cfnSvc)
 	wireGlobalAcceleratorCloudFormation(byName["GlobalAccelerator"], cfnSvc)
+	wireCodePipelineCloudFormation(byName["CodePipeline"], cfnSvc)
 
 	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
 	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
@@ -5035,6 +5278,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azurequeuebackend.Provider{},
 		&azurefilebackend.Provider{},
 		&azuremonitorbackend.Provider{},
+		&azuregraphbackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
 		&azureeventhubsbackend.Provider{},
@@ -5053,7 +5297,19 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocistreamingbackend.Provider{},
 		&ociidentitybackend.Provider{},
 		&ocifunctionsbackend.Provider{},
+		&ocilogging.Provider{},
+		&ocimonitoring.Provider{},
 		&ocicorebackend.Provider{},
+		&ociqueuebackend.Provider{},
+		&ocinotificationsbackend.Provider{},
+		&ocioke.Provider{},
+		&ocimysqlbackend.Provider{},
+		&ocinosql.Provider{},
+		&ociapigateway.Provider{},
+		&ocievents.Provider{},
+		&ociloadbalancer.Provider{},
+		&ociartifacts.Provider{},
+		&ocicontainerinstances.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
@@ -5067,8 +5323,14 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpbigtablebackend.Provider{},
 		&gcpeventarcbackend.Provider{},
 		&gcpworkflowsbackend.Provider{},
+		&gcpdatastorebackend.Provider{},
 		&gcpdnsbackend.Provider{},
 		&gcpcomputebackend.Provider{},
+		&gcpcontainerbackend.Provider{},
+		&gcpidtkbackend.Provider{},
+		&gcpapigatewaybackend.Provider{},
+		&gcpbatchbackend.Provider{},
+		&gcprmbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
@@ -5249,6 +5511,7 @@ func purgeAllServices(
 // startBackgroundWorkers starts all background workers from services.
 func startBackgroundWorkers(ctx context.Context, services []service.Registerable) {
 	log := logger.Load(ctx)
+	ctx = gcpenforce.WithGateFrom(ctx, services)
 
 	for _, svc := range services {
 		if worker, ok := svc.(service.BackgroundWorker); ok {
@@ -8165,7 +8428,7 @@ func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
 
 	if tswH, tswOk := tswReg.(*timestreamwritebackend.Handler); tswOk {
 		tsqBk.SetTagWriteBackend(&timestreamTagWriter{handler: tswH})
-		tsqBk.SetCatalog(&timestreamCatalog{handler: tswH})
+		tsqBk.SetRecordSource(newTimestreamRecordSource(tswH))
 	}
 }
 
@@ -12072,8 +12335,9 @@ func wireTaggingAWSConfig(bk resourcegroupstaggingapibackend.StorageBackend, reg
 	wireRegionalTagging(bk, regionalTagSpec[*awsconfigbackend.InMemoryBackend]{
 		arnService:     "config",
 		resourceTypeOf: arnResourceType("config"),
-		backendFor: func(region string) *awsconfigbackend.InMemoryBackend {
-			return h.BackendFor(region)
+		backendFor:     h.BackendFor,
+		backendForCtx: func(ctx context.Context, region string) *awsconfigbackend.InMemoryBackend {
+			return h.BackendForAccount(awsmeta.Account(ctx), region)
 		},
 		list: func(b *awsconfigbackend.InMemoryBackend) []taggedARNEntry { return taggedEntries(b.TaggedResources()) },
 		tag: func(b *awsconfigbackend.InMemoryBackend, _ context.Context, arn string, tags map[string]string) error {
@@ -12898,6 +13162,7 @@ func setupChaosAndRegistry(
 	faultStore := cli.faultStore
 	chaosGroup := e.Group("/_gopherstack/chaos")
 	wireFISFaultStore(cli.fisHandler, faultStore)
+	wireDynamoDBFaultStore(services, faultStore)
 
 	registry, err := setupRegistry(
 		e,
@@ -12910,6 +13175,7 @@ func setupChaosAndRegistry(
 		cli.Compression != compressionOff,
 		cli.IAMAudit,
 		cli.IAMPolicyStream(),
+		scpProviderFor(cli.IAMEnforceSCPs, services),
 		chainInterceptors(cli.serviceGateInterceptor(), cli.extensionInterceptor()),
 	)
 	if err != nil {
@@ -12923,6 +13189,7 @@ func setupChaosAndRegistry(
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 	wireRDSIAMAuth(e, services, cli.EnforceIAM)
+	wireNeptuneIAMAuth(services, cli.EnforceIAM)
 	wireDocDBCA(e, services)
 	wireKafkaAuth(e, services, cli.EnforceIAM)
 
@@ -13008,6 +13275,7 @@ func setupRegistry(
 	compression bool,
 	iamAudit bool,
 	iamRecorder *iampolicystream.Recorder,
+	scps iambackend.SCPProvider,
 	interceptor service.Interceptor,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
@@ -13051,6 +13319,7 @@ func setupRegistry(
 				ActionExtractors:  buildActionExtractors(services),
 				Recorder:          iamRecorder,
 				Audit:             iamAudit,
+				SCPs:              scps,
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
@@ -13071,6 +13340,7 @@ func setupRegistry(
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
 		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates()).
 		WithInterceptor(interceptor)
 	e.Use(router.RouteHandler())
 
@@ -13849,7 +14119,9 @@ func wireAzureARMResourceProviders(armReg, sbReg, kvReg, cosmosReg, ehReg servic
 	wireAzureARMEventHubs(armReg, ehReg)
 
 	if kvH, kvOk := kvReg.(*azurekeyvaultbackend.Handler); kvOk {
-		armH.Registry.SetKeyVaults(&azureKeyVaultsAdapter{backend: kvH.Backend})
+		kvAdapter := &azureKeyVaultsAdapter{backend: kvH.Backend}
+		armH.Registry.SetKeyVaults(kvAdapter)
+		armH.Registry.SetKeyVaultSecrets(kvAdapter)
 	}
 
 	if cosmosH, cosmosOk := cosmosReg.(*cosmosdbbackend.Handler); cosmosOk {
@@ -14781,6 +15053,8 @@ func setupPersistence(
 	// waiting for the first live request to touch it.
 	service.SeedRegions(defaultRegion)
 
+	reconcileContainers(ctx)
+
 	if restore {
 		m.RestoreAll(ctx)
 	}
@@ -14791,6 +15065,8 @@ func setupPersistence(
 func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager, error) {
 	log := logger.Load(ctx)
 	var store persistence.Store = persistence.NullStore{}
+
+	initContainerIdentity(cli.Persist && !cli.Demo, cli.resolvedDataDir())
 
 	if cli.Persist && !cli.Demo {
 		fs, err := cli.createPersistenceStore()

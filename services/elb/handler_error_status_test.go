@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/elb"
 )
 
@@ -25,11 +26,12 @@ import (
 // in awsAwsquery_deserializeOpError* funcs, elasticloadbalancing@v1.36.4
 // deserializers.go).
 type statusCapturingTransport struct {
+	rt     http.RoundTripper
 	status int
 }
 
 func (rt *statusCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := rt.rt.RoundTrip(req)
 	if resp != nil {
 		rt.status = resp.StatusCode
 	}
@@ -48,7 +50,7 @@ func newStatusCapturingELBClient(t *testing.T, h *elb.Handler) (*elbsdk.Client, 
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 
-	transport := &statusCapturingTransport{}
+	transport := &statusCapturingTransport{rt: testclient.New(t).Transport}
 
 	cfg, err := awscfg.LoadDefaultConfig(
 		t.Context(),

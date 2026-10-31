@@ -28,6 +28,8 @@ const (
 type Column struct {
 	Name string
 	Type string
+	// FieldID is written as the Parquet field id when positive (Iceberg data files).
+	FieldID int
 }
 
 type cellEnc func(v any) (parquet.Value, error)
@@ -71,7 +73,12 @@ func Write(w io.Writer, cols []Column, rows [][]any, compression string) error {
 			return fmt.Errorf("column %q: %w", c.Name, err)
 		}
 
-		group.add(c.Name, parquet.Optional(encs[i].node))
+		node := parquet.Optional(encs[i].node)
+		if c.FieldID > 0 {
+			node = parquet.FieldID(node, c.FieldID)
+		}
+
+		group.add(c.Name, node)
 	}
 
 	schema := parquet.NewSchema("hive_schema", group)

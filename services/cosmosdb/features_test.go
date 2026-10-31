@@ -38,7 +38,7 @@ func TestRU_ChargeScalesWithPayloadAndOperation(t *testing.T) {
 		fmt.Appendf(nil, `{"id":"b","pk":"a","blob":%q}`, string(make([]byte, 0))+fmt.Sprintf("%0*d", 20000, 0)))
 	require.Equal(t, http.StatusCreated, big.Code)
 
-	assert.InDelta(t, 5.5, charge(small), 0.01, "small create ~5.5 RU")
+	assert.InDelta(t, 5.5+2*0.3, charge(small), 0.01, "small create: 5.5 RU plus 0.3 for each of its two indexed paths")
 	assert.Greater(t, charge(big), charge(small)+5, "larger payload costs more")
 
 	readSmall := doRequest(t, h, http.MethodGet, "/dbs/mydb/colls/mycoll/docs/s", pkHdr, nil)
@@ -84,7 +84,7 @@ func TestRU_QueryChargeGrowsWithScannedItems(t *testing.T) {
 
 	few, many := run(1), run(400)
 
-	assert.GreaterOrEqual(t, few, 2.3)
+	assert.GreaterOrEqual(t, few, 1.4)
 	assert.Greater(t, many, few)
 }
 

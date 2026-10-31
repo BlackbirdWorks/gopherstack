@@ -686,8 +686,11 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	if _, exists := b.clusters.Get(normalizeID(clusterID)); exists {
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
 	}
-	snap, exists := b.clusterSnapshots.Get(normalizeID(snapshotID))
-	if !exists {
+	snapID, byARN := snapshotRef(snapshotID)
+	snap, exists := b.clusterSnapshots.Get(normalizeID(snapID))
+	if !exists || !b.snapshotReachableLocked(
+		opts.CallerAccount, snap.OwnerAccountID, snapKindCluster, snap.DBClusterSnapshotIdentifier, byARN,
+	) {
 		return nil, fmt.Errorf(
 			"%w: cluster snapshot %s not found",
 			ErrClusterSnapshotNotFound,

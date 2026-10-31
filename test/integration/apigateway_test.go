@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func apigwPost(t *testing.T, action string, body any) *http.Response {
@@ -23,7 +25,7 @@ func apigwPost(t *testing.T, action string, body any) *http.Response {
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "APIGateway."+action)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp
@@ -253,7 +255,7 @@ func apigwDo(t *testing.T, path string) *http.Response {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, endpoint+path, nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp

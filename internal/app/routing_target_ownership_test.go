@@ -19,7 +19,8 @@ func TestRoutingTargetOwnership(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	const (
 		local     = "localhost:4566"

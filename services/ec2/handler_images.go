@@ -1,6 +1,7 @@
 package ec2
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"net/url"
@@ -183,6 +184,10 @@ func (h *Handler) handleModifyImageAttribute(vals url.Values, reqID string) (any
 	attribute := vals.Get("Attribute")
 	value := vals.Get("Value")
 
+	if err := h.requireImageOwner(vals, imageID); err != nil {
+		return nil, err
+	}
+
 	// A real client typically sends the structured Description/ImdsSupport
 	// AttributeValue form (Description.Value=X) rather than the generic
 	// Attribute=description&Value=X pair; awsEc2query_serializeDocumentAttributeValue
@@ -266,6 +271,10 @@ func parseLaunchPermissionList(vals url.Values, prefix string) ([]string, bool) 
 func (h *Handler) handleResetImageAttribute(vals url.Values, reqID string) (any, error) {
 	imageID := vals.Get("ImageId")
 	attribute := vals.Get("Attribute")
+	if err := h.requireImageOwner(vals, imageID); err != nil {
+		return nil, err
+	}
+
 	if err := h.Backend.ResetImageAttribute(imageID, attribute); err != nil {
 		return nil, err
 	}
@@ -432,6 +441,14 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 
 	img, err := h.Backend.RegisterImage(name, description, arch)
 	if err != nil {
+		return nil, err
+	}
+
+	h.claimImage(callerOf(vals), img)
+
+	if err = h.bindRegisteredImage(img.ImageID, vals.Get("ImageLocation")); err != nil {
+		_ = h.Backend.DeregisterImage(img.ImageID)
+
 		return nil, err
 	}
 
@@ -807,6 +824,10 @@ func (h *Handler) handleDescribeFastLaunchImages(vals url.Values, reqID string) 
 func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	sourceImageID := vals.Get("SourceImageId")
 
+	if err := h.requireImageUsable(vals, sourceImageID); err != nil {
+		return nil, err
+	}
+
 	image, err := h.Backend.CopyImageEncrypted(
 		sourceImageID,
 		vals.Get("Name"),
@@ -817,6 +838,8 @@ func (h *Handler) handleCopyImage(vals url.Values, reqID string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.claimImage(callerOf(vals), image)
 
 	// Default: your user-defined AMI tags are not copied (ec2@v1.319.1
 	// api_op_CopyImage.go's CopyImageTags doc comment).
@@ -1418,7 +1441,7 @@ func filterImagesByOwner(idFiltered []*AMIStub, owners []string, accountID strin
 
 	want := make(map[string]struct{}, len(owners))
 	for _, o := range owners {
-		if o == "self" {
+		if o == sharingSelf {
 			o = accountID
 		}
 		want[o] = struct{}{}
@@ -1482,20 +1505,32 @@ func (h *Handler) toAMIItem(a *AMIStub, deprecation map[string]string, state str
 }
 
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
+	h.refreshDockerImages(h.svcCtx)
+
 	amis := h.Backend.DescribeImages()
 	requested := collectRequestedImageIDs(vals)
 
-	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
-	idFiltered := make([]*AMIStub, 0, len(amis))
-	found := make(map[string]struct{}, len(requested))
+	candidates := make([]*AMIStub, len(amis))
 	for i := range amis {
+		candidates[i] = &amis[i]
+	}
+
+	sb := h.sharing()
+	if sb != nil {
+		candidates = sb.VisibleImages(callerOf(vals), candidates)
+	}
+
+	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
+	idFiltered := make([]*AMIStub, 0, len(candidates))
+	found := make(map[string]struct{}, len(requested))
+	for _, a := range candidates {
 		if len(requested) > 0 {
-			if _, ok := requested[amis[i].ImageID]; !ok {
+			if _, ok := requested[a.ImageID]; !ok {
 				continue
 			}
-			found[amis[i].ImageID] = struct{}{}
+			found[a.ImageID] = struct{}{}
 		}
-		idFiltered = append(idFiltered, &amis[i])
+		idFiltered = append(idFiltered, a)
 	}
 
 	if err := firstMissingID(requested, found, ErrImageNotFound); err != nil {
@@ -1515,7 +1550,11 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 	deprecation := h.Backend.ImageDeprecation()
 	includeDeprecated := vals.Get("IncludeDeprecated") == ec2BooleanTrue
 	idFiltered = filterDeprecatedImages(idFiltered, requested, deprecation, includeDeprecated)
-	idFiltered = filterImagesByOwner(idFiltered, parseMemberList(vals, "Owner"), h.AccountID)
+	idFiltered = filterImagesByOwner(idFiltered, parseMemberList(vals, "Owner"), cmp.Or(callerOf(vals), h.AccountID))
+
+	if sb != nil {
+		idFiltered = sb.NarrowImagesByExecutable(callerOf(vals), idFiltered, parseMemberList(vals, "ExecutableBy"))
+	}
 
 	filtered := make([]amiItem, 0, len(idFiltered))
 	for _, a := range idFiltered {
@@ -1702,6 +1741,10 @@ func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (a
 	attribute := vals.Get("Attribute")
 	if attribute == "" {
 		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	if err := h.requireImageOwner(vals, imageID); err != nil {
+		return nil, err
 	}
 
 	resp := &describeImageAttributeResponse{

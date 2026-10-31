@@ -10,6 +10,11 @@ import (
 // ErrNilAppContext is returned by Init when called with a nil AppContext.
 var ErrNilAppContext = errors.New("nil AppContext passed to EventBridge provider Init")
 
+// ConfigProvider extracts the EventBridge settings from the AppContext config.
+type ConfigProvider interface {
+	GetEventBridgeSettings() Settings
+}
+
 // Provider implements service.Provider for the EventBridge service.
 type Provider struct{}
 
@@ -31,6 +36,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, cfg.GetAccountID(), cfg.GetRegion())
 	} else {
 		backend = NewInMemoryBackend()
+	}
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		backend.SetSettings(cp.GetEventBridgeSettings())
 	}
 
 	handler := NewHandler(backend)

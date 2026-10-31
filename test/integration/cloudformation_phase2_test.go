@@ -339,6 +339,7 @@ func TestIntegration_CFN_Phase2_Redshift(t *testing.T) {
 "Type": "AWS::Redshift::Cluster",
 "Properties": {
 "ClusterIdentifier": "cfn-rs-` + cfnStackID() + `",
+"ClusterType": "single-node",
 "NodeType": "dc2.large",
 "DBName": "mydb",
 "MasterUsername": "admin"
@@ -444,11 +445,29 @@ func TestIntegration_CFN_Phase2_Route53Resolver(t *testing.T) {
 				return `{
 "AWSTemplateFormatVersion": "2010-09-09",
 "Resources": {
+"VPC": {
+"Type": "AWS::EC2::VPC",
+"Properties": {"CidrBlock": "10.40.0.0/16"}
+},
+"SubnetA": {
+"Type": "AWS::EC2::Subnet",
+"Properties": {"VpcId": {"Ref": "VPC"}, "CidrBlock": "10.40.1.0/24", "AvailabilityZone": "us-east-1a"}
+},
+"SubnetB": {
+"Type": "AWS::EC2::Subnet",
+"Properties": {"VpcId": {"Ref": "VPC"}, "CidrBlock": "10.40.2.0/24", "AvailabilityZone": "us-east-1b"}
+},
+"SG": {
+"Type": "AWS::EC2::SecurityGroup",
+"Properties": {"GroupDescription": "resolver endpoint", "VpcId": {"Ref": "VPC"}}
+},
 "MyEP": {
 "Type": "AWS::Route53Resolver::ResolverEndpoint",
 "Properties": {
 "Name": "cfn-ep-` + cfnStackID() + `",
-"Direction": "INBOUND"
+"Direction": "INBOUND",
+"SecurityGroupIds": [{"Ref": "SG"}],
+"IpAddresses": [{"SubnetId": {"Ref": "SubnetA"}}, {"SubnetId": {"Ref": "SubnetB"}}]
 }
 }
 }

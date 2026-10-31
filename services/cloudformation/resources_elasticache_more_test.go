@@ -110,7 +110,8 @@ func testElastiCacheGlobalReplicationGroup(t *testing.T) {
     "Type": "AWS::ElastiCache::GlobalReplicationGroup",
     "Properties": {
       "GlobalReplicationGroupIdSuffix": "my-suffix",
-      "GlobalReplicationGroupDescription": "test global replication group"
+      "GlobalReplicationGroupDescription": "test global replication group",
+      "Members": [{"ReplicationGroupId": "rg-1", "ReplicationGroupRegion": "us-east-1", "Role": "PRIMARY"}]
     }
   }
 },

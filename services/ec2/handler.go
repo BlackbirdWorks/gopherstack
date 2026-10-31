@@ -460,6 +460,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			)
 		}
 
+		vals.Del(callerAccountParam)
+		if account, ok := awsmeta.CallerAccount(ctx); ok {
+			vals.Set(callerAccountParam, account)
+		}
+
 		log.DebugContext(ctx, "EC2 request", "action", action)
 
 		resp, opErr := h.dispatch(action, vals, reqID)
@@ -904,6 +909,10 @@ var errCodeLookup = []struct {
 func opErrCode(opErr error) (string, int) {
 	if errors.Is(opErr, ErrDryRunOperation) {
 		return "DryRunOperation", http.StatusPreconditionFailed
+	}
+
+	if errors.Is(opErr, ErrUnauthorizedOperation) {
+		return "UnauthorizedOperation", http.StatusForbidden
 	}
 
 	for _, entry := range errCodeLookup {

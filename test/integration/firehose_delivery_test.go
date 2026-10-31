@@ -20,6 +20,7 @@ import (
 
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	firehosepkg "github.com/blackbirdworks/gopherstack/services/firehose"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -448,7 +449,7 @@ func TestIntegration_Firehose_HTTP_UpdateDestination(t *testing.T) {
 		require.NoError(t, reqCreateErr)
 		req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 		req.Header.Set("X-Amz-Target", "Firehose_20150804."+action)
-		resp, reqErr := http.DefaultClient.Do(req)
+		resp, reqErr := testclient.New(t).Do(req)
 		require.NoError(t, reqErr)
 		defer resp.Body.Close()
 		rb, readErr := io.ReadAll(resp.Body)

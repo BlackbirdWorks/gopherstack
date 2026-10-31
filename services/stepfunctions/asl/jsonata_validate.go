@@ -17,14 +17,21 @@ var (
 // jxState holds a JSONata state's decoded fields and compiled expressions,
 // built once at Parse time and read-only afterwards.
 type jxState struct {
-	exprs    map[string]*jsonataExpr
-	args     any
-	output   any
-	items    any
-	itemSel  any
-	hasArgs  bool
-	hasOut   bool
-	hasItems bool
+	exprs   map[string]*jsonataExpr
+	args    any
+	output  any
+	items   any
+	itemSel any
+
+	readerArgs any
+	writerArgs any
+	batchInput any
+	hasArgs    bool
+	hasOut     bool
+	hasItems   bool
+	hasReader  bool
+	hasWriter  bool
+	hasBatchIn bool
 }
 
 // exprCtx says which $states members an expression may read.
@@ -267,6 +274,10 @@ func rejectJSONataFields(name string, st *State) error {
 		}
 	}
 
+	if field := jsonataDistributedField(st); field != "" {
+		return jsonataOnlyErr(name, field)
+	}
+
 	for _, r := range st.Choices {
 		if r.Condition != "" {
 			return jsonataOnlyErr(name, "Condition")
@@ -280,6 +291,40 @@ func rejectJSONataFields(name string, st *State) error {
 	}
 
 	return nil
+}
+
+// jsonataDistributedField names a JSONata-only Distributed Map field set on st.
+func jsonataDistributedField(st *State) string {
+	switch {
+	case st.ItemReader != nil && len(st.ItemReader.Arguments) > 0:
+		return "ItemReader.Arguments"
+	case st.ResultWriter != nil && len(st.ResultWriter.Arguments) > 0:
+		return "ResultWriter.Arguments"
+	case st.ItemBatcher != nil && st.ItemBatcher.maxItemsExpr != "":
+		return "ItemBatcher.MaxItemsPerBatch expression"
+	case st.ItemBatcher != nil && st.ItemBatcher.maxBytesExpr != "":
+		return "ItemBatcher.MaxInputBytesPerBatch expression"
+	}
+
+	return ""
+}
+
+// jsonPathDistributedField names a JSONPath-only Distributed Map field set on st.
+func jsonPathDistributedField(st *State) string {
+	switch {
+	case st.ItemReader != nil && len(st.ItemReader.Parameters) > 0:
+		return "ItemReader.Parameters"
+	case st.ItemReader != nil && st.ItemReader.ReaderConfig != nil && st.ItemReader.ReaderConfig.MaxItemsPath != "":
+		return "ItemReader.ReaderConfig.MaxItemsPath"
+	case st.ResultWriter != nil && len(st.ResultWriter.Parameters) > 0:
+		return "ResultWriter.Parameters"
+	case st.ItemBatcher != nil && st.ItemBatcher.MaxItemsPerBatchPath != "":
+		return "ItemBatcher.MaxItemsPerBatchPath"
+	case st.ItemBatcher != nil && st.ItemBatcher.MaxInputBytesPerBatchPath != "":
+		return "ItemBatcher.MaxInputBytesPerBatchPath"
+	}
+
+	return ""
 }
 
 func rejectJSONPathFields(name string, st *State) error {
@@ -307,6 +352,10 @@ func rejectJSONPathFields(name string, st *State) error {
 		if c.set {
 			return jsonPathOnlyErr(name, c.field)
 		}
+	}
+
+	if field := jsonPathDistributedField(st); field != "" {
+		return jsonPathOnlyErr(name, field)
 	}
 
 	for _, r := range st.Choices {
@@ -445,6 +494,9 @@ func (j *jxState) prepareFields(name string, st *State) error {
 		{&j.output, &j.hasOut, "Output", st.Output, exprCtx{result: hasResult}},
 		{&j.items, &j.hasItems, fieldItems, st.Items, plain},
 		{&j.itemSel, new(bool), "ItemSelector", st.ItemSelector, plain},
+		{&j.readerArgs, &j.hasReader, "ItemReader Arguments", readerArguments(st), plain},
+		{&j.writerArgs, &j.hasWriter, "ResultWriter Arguments", writerArguments(st), plain},
+		{&j.batchInput, &j.hasBatchIn, "ItemBatcher BatchInput", batchInputRaw(st), plain},
 	}
 
 	for _, f := range fields {
@@ -467,6 +519,30 @@ func (j *jxState) prepareFields(name string, st *State) error {
 	return j.prepareRest(name, st, exprCtx{result: hasResult})
 }
 
+func readerArguments(st *State) json.RawMessage {
+	if st.ItemReader == nil {
+		return nil
+	}
+
+	return st.ItemReader.Arguments
+}
+
+func writerArguments(st *State) json.RawMessage {
+	if st.ResultWriter == nil {
+		return nil
+	}
+
+	return st.ResultWriter.Arguments
+}
+
+func batchInputRaw(st *State) json.RawMessage {
+	if st.ItemBatcher == nil {
+		return nil
+	}
+
+	return st.ItemBatcher.BatchInput
+}
+
 func (j *jxState) prepareRest(name string, st *State, assignCtx exprCtx) error {
 	for _, v := range st.assignVals {
 		if err := j.scan(name, "Assign", v, assignCtx); err != nil {
@@ -477,6 +553,19 @@ func (j *jxState) prepareRest(name string, st *State, assignCtx exprCtx) error {
 	for field, src := range st.numExprs {
 		if err := j.scan(name, field, src, exprCtx{}); err != nil {
 			return err
+		}
+	}
+
+	if b := st.ItemBatcher; b != nil {
+		for _, src := range []string{b.maxItemsExpr, b.maxBytesExpr} {
+			if _, ok := wrappedJSONata(src); src != "" && !ok {
+				return fmt.Errorf("%w: state %q: ItemBatcher limit %q must be an integer or a \"{%% %%}\" expression",
+					ErrParseError, name, src)
+			}
+
+			if err := j.scan(name, "ItemBatcher", src, exprCtx{}); err != nil {
+				return err
+			}
 		}
 	}
 

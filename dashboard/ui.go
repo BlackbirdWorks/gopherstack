@@ -96,22 +96,28 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcpartifactregistrybackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
+	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	gcpcloudtasksbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	gcpcontainerbackend "github.com/blackbirdworks/gopherstack/services/gcpcontainer"
+	gcpdatastorebackend "github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	gcpdnsbackend "github.com/blackbirdworks/gopherstack/services/gcpdns"
 	gcpeventarcbackend "github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	gcpiambackend "github.com/blackbirdworks/gopherstack/services/gcpiam"
+	gcpidtkbackend "github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -142,9 +148,22 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	ociapigatewaybackend "github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	ociartifactsbackend "github.com/blackbirdworks/gopherstack/services/ociartifacts"
+	ocicontainerenginebackend "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	ocicontainerinstancesbackend "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
+	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocieventsbackend "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ociloadbalancerbackend "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
+	ocilogging "github.com/blackbirdworks/gopherstack/services/ocilogging"
+	ocimonitoring "github.com/blackbirdworks/gopherstack/services/ocimonitoring"
+	ocimysqlbackend "github.com/blackbirdworks/gopherstack/services/ocimysql"
+	ocinosqlbackend "github.com/blackbirdworks/gopherstack/services/ocinosql"
+	ocinotificationsbackend "github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	ociobjectstoragebackend "github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	ociqueuebackend "github.com/blackbirdworks/gopherstack/services/ociqueue"
 	ocistreamingbackend "github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -568,6 +587,8 @@ type Config struct {
 	// GCPWorkflowsOps and GCPDNSOps are called in-process by their proxies.
 	GCPWorkflowsOps *gcpworkflowsbackend.Handler
 	GCPDNSOps       *gcpdnsbackend.Handler
+	// GCPDatastoreOps is called in-process by the /dashboard/api/v1/gcp/datastore proxy.
+	GCPDatastoreOps *gcpdatastorebackend.Handler
 	// GCPComputeOps is dispatched in-process by the /dashboard/api/v1/gcp/compute proxy.
 	GCPComputeOps *gcpcomputebackend.Handler
 	// OCIObjectStorageOps, OCIVaultOps, OCIStreamingOps and OCIIdentityOps are called in-process by their proxies.
@@ -578,6 +599,37 @@ type Config struct {
 	// OCIFunctionsOps and AzureMonitorOps are called in-process by their proxies.
 	OCIFunctionsOps *ocifunctionsbackend.Handler
 	AzureMonitorOps *azuremonitorbackend.Handler
+	// OCICoreOps is dispatched in-process by the /dashboard/api/v1/oci/core proxy.
+	OCICoreOps *ocicorebackend.Handler
+	// GCPContainerOps, OCIQueueOps and OCINotificationsOps are called in-process by their proxies.
+	GCPContainerOps     *gcpcontainerbackend.Handler
+	OCIQueueOps         *ociqueuebackend.Handler
+	OCINotificationsOps *ocinotificationsbackend.Handler
+	// GCPIdentityToolkitOps is dispatched in-process by the /dashboard/api/v1/gcp/identitytoolkit proxy.
+	GCPIdentityToolkitOps *gcpidtkbackend.Handler
+	// GCPAPIGatewayOps is called in-process by the /dashboard/api/v1/gcp/apigateway proxy.
+	GCPAPIGatewayOps *gcpapigatewaybackend.Handler
+	// GCPResourceManagerOps is called in-process by the /dashboard/api/v1/gcp/resourcemanager proxy.
+	GCPResourceManagerOps *gcprmbackend.Handler
+	// GCPBatchOps is called in-process by the /dashboard/api/v1/gcp/batch proxy.
+	GCPBatchOps *gcpbatchbackend.Handler
+	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.
+	OCIContainerEngineOps *ocicontainerenginebackend.Handler
+	// OCIMySQLOps, OCILoggingOps and OCIMonitoringOps are dispatched in-process by their proxies.
+	OCIMySQLOps      *ocimysqlbackend.Handler
+	OCILoggingOps    *ocilogging.Handler
+	OCIMonitoringOps *ocimonitoring.Handler
+	// OCINoSQLOps and OCIAPIGatewayOps are dispatched in-process by their proxies.
+	OCINoSQLOps      *ocinosqlbackend.Handler
+	OCIAPIGatewayOps *ociapigatewaybackend.Handler
+	// OCIEventsOps is dispatched in-process by its proxy.
+	OCIEventsOps *ocieventsbackend.Handler
+	// OCILoadBalancerOps is dispatched in-process by its proxy.
+	OCILoadBalancerOps *ociloadbalancerbackend.Handler
+	// OCIArtifactsOps is dispatched in-process by its proxy.
+	OCIArtifactsOps *ociartifactsbackend.Handler
+	// OCIContainerInstancesOps is dispatched in-process by its proxy.
+	OCIContainerInstancesOps *ocicontainerinstancesbackend.Handler
 	// AzureFileOps is dispatched in-process by the /dashboard/api/v1/azure/file proxy.
 	AzureFileOps *azurefilebackend.Handler
 	// AzureFunctionsOps is called in-process by the /dashboard/api/v1/azure/functions proxy.

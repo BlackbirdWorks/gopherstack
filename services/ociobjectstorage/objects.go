@@ -111,6 +111,8 @@ func (b *InMemoryBackend) PutObject(
 			"The Content-MD5 you specified did not match what we received")
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("PutObject")
 	defer b.mu.Unlock()
 
@@ -134,6 +136,8 @@ func (b *InMemoryBackend) PutObject(
 	if err != nil {
 		return ObjectInfo{}, err
 	}
+
+	b.recordEvent(bk, writeEventType(cur != nil), name, o.Etag)
 
 	return b.info(o), nil
 }
@@ -246,6 +250,8 @@ type DeleteResult struct {
 
 // DeleteObject deletes an object or one version of it.
 func (b *InMemoryBackend) DeleteObject(ns, bucket, name, versionID, ifMatch string) (DeleteResult, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("DeleteObject")
 	defer b.mu.Unlock()
 
@@ -254,7 +260,12 @@ func (b *InMemoryBackend) DeleteObject(ns, bucket, name, versionID, ifMatch stri
 		return DeleteResult{}, err
 	}
 
-	return b.deleteLocked(bk, name, versionID, ifMatch)
+	res, err := b.deleteLocked(bk, name, versionID, ifMatch)
+	if err == nil {
+		b.recordEvent(bk, EventDeleteObject, name, "")
+	}
+
+	return res, err
 }
 
 func (b *InMemoryBackend) deleteLocked(bk *Bucket, name, versionID, ifMatch string) (DeleteResult, error) {
@@ -596,6 +607,8 @@ func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, e
 		return "", err
 	}
 
+	defer b.flushEvents()
+
 	b.mu.Lock("CopyObject")
 	defer b.mu.Unlock()
 
@@ -640,16 +653,19 @@ func (b *InMemoryBackend) CopyObject(ns, bucket string, in CopyInput) (string, e
 		return "", err
 	}
 
-	if _, err = b.storeLocked(
+	stored, err := b.storeLocked(
 		dst,
 		in.DestinationObject,
 		append([]byte(nil), o.Data...),
 		copyMeta(o, dst, in),
 		o.MD5,
 		o.MultipartMD5,
-	); err != nil {
+	)
+	if err != nil {
 		return "", err
 	}
+
+	b.recordEvent(dst, writeEventType(cur != nil), in.DestinationObject, stored.Etag)
 
 	now := b.nowUTC()
 	wr := &WorkRequest{
@@ -764,6 +780,8 @@ type BatchDeleted struct {
 
 // BatchDelete deletes several objects, reporting per-object outcomes.
 func (b *InMemoryBackend) BatchDelete(ns, bucket string, items []BatchItem) ([]BatchDeleted, []BatchFailure, error) {
+	defer b.flushEvents()
+
 	b.mu.Lock("BatchDelete")
 	defer b.mu.Unlock()
 
@@ -786,6 +804,8 @@ func (b *InMemoryBackend) BatchDelete(ns, bucket string, items []BatchItem) ([]B
 
 			continue
 		}
+
+		b.recordEvent(bk, EventDeleteObject, it.ObjectName, "")
 
 		deleted = append(deleted, BatchDeleted{ObjectName: it.ObjectName, TimeLastModified: res.LastModified})
 	}

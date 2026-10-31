@@ -254,3 +254,26 @@ func TestScaling_Validation(t *testing.T) {
 		})
 	}
 }
+
+func TestScaling_SidecarInstanceStopsTogetherAndColdStartsAgain(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, true)
+	clock := newFakeClock()
+	e.handler.Backend.SetClock(clock)
+
+	app, sidecar := appAndSidecar()
+
+	svc, err := e.deploy(t, "web", multiService(app, sidecar))
+	require.NoError(t, err)
+	require.Equal(t, 2, e.rt.running(), "ingress container and sidecar start together")
+
+	clock.advance(idleTimeout)
+	assert.Zero(t, e.rt.running(), "idle scale-down stops every container of the instance")
+	assert.Equal(t, []string{"fake-2", "fake-1"}, e.rt.removedIDs(), "dependents stop before the network owner")
+
+	code, _ := e.get(t, strings.TrimPrefix(svc.GetUri(), "http://"), "/")
+	assert.Equal(t, http.StatusOK, code, "a request cold-starts a fresh instance")
+	assert.Equal(t, 2, e.rt.running())
+	assert.Len(t, e.rt.specs(), 4)
+}

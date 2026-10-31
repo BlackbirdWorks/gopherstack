@@ -3,6 +3,7 @@ package timestreamquery
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -47,6 +48,8 @@ type InMemoryBackend struct {
 	pageStore                *nextTokenStore
 	tagWriteBackend          TagWriteBackend
 	catalog                  Catalog
+	source                   RecordSource
+	nowFn                    func() time.Time
 	accountID                string
 	defaultRegion            string
 }

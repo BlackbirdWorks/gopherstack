@@ -157,6 +157,8 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 		charge = replaceCharge
 	)
 
+	readPrice := func(size, _ int) float64 { return readCharge(size) }
+
 	switch op.kind {
 	case batchCreate:
 		info, _, err = tx.createDoc(pk, op.body, false)
@@ -172,7 +174,7 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 		}
 	case batchRead:
 		info, err = tx.readDoc(pk, op.id)
-		charge = readCharge
+		charge = readPrice
 	case batchReplace:
 		info, err = tx.replaceDoc(pk, op.id, op.body, op.ifMatch)
 	case batchPatch:
@@ -191,13 +193,18 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 	size, _ := json.Marshal(body)
 
 	return BatchResult{
-		StatusCode: status, ETag: info.ETag, Body: body, RequestCharge: charge(len(size)),
+		StatusCode: status, ETag: info.ETag, Body: body,
+		RequestCharge: charge(len(size), countIndexedPaths(parseIndexingPolicy(tx.c.IndexingPolicy), info.Body)),
 	}, nil
 }
 
 // statusForError maps a backend error to the HTTP status a batch result reports.
 func statusForError(err error) int {
+	var indexErr *queryIndexError
+
 	switch {
+	case errors.As(err, &indexErr):
+		return http.StatusBadRequest
 	case errors.Is(err, ErrDocumentNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, ErrDocumentAlreadyExists), errors.Is(err, ErrUniqueKeyViolation):
@@ -234,7 +241,7 @@ func (h *Handler) executeBatch(c *echo.Context, dbID, collID string) error {
 		return h.writeDocumentError(c, parseErr)
 	}
 
-	exec, ok := h.Backend.(batchExecutor)
+	exec, ok := h.be(c).(batchExecutor)
 	if !ok {
 		return h.writeError(c, http.StatusMethodNotAllowed, "MethodNotAllowed", "The backend cannot run batches.")
 	}

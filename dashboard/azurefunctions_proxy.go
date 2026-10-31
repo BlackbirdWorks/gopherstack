@@ -232,11 +232,11 @@ func (a *azureFunctionsAPI) lifecycle(c *echo.Context) error {
 	var err error
 
 	switch c.Param("action") {
-	case "start":
+	case aciPxStart:
 		err = a.b.SetStopped(name, false)
 	case "stop":
 		err = a.b.SetStopped(name, true)
-	case "restart":
+	case aciPxRestart:
 		err = a.b.Restart(name)
 	default:
 		return cloudJSONFail(c, http.StatusBadRequest, cloudStatusBadArg, "unsupported action")

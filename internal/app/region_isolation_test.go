@@ -48,7 +48,7 @@ func newRegionServer(t *testing.T) string {
 	cli := &CLI{AccountID: "000000000000", Region: regionA}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(),
 	})
 	require.NoError(t, err)
@@ -64,7 +64,8 @@ func newRegionServer(t *testing.T) string {
 	router := service.NewServiceRouter(registry).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 	e.Use(router.RouteHandler())
 
 	srv := httptest.NewServer(e)

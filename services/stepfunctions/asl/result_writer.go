@@ -120,6 +120,12 @@ func (e *Executor) exportMapResults(
 	items, results []any, errs []error, meta []DistributedMapItemResult, stateMachineArn string,
 ) (any, int, error) {
 	rw := state.ResultWriter
+	if e.jxMapCfg != nil && e.jxMapCfg.writerParams != nil {
+		eff := *rw
+		eff.Parameters = e.jxMapCfg.writerParams
+		rw = &eff
+	}
+
 	bucket, _ := rw.Parameters["Bucket"].(string)
 	exporting := rw.Resource != "" || bucket != ""
 

@@ -8,6 +8,8 @@ import {
   availableGcpServices,
   availableOciServices,
   azureServiceById,
+  gcpServiceById,
+  ociServiceById,
   categoriesForCloud,
   CLOUDS,
   GCP_SERVICES,
@@ -232,11 +234,140 @@ describe("new GCP console pages", () => {
 
   it("registers Compute Engine and Container Instances", () => {
     expect(availableGcpServices(["GCPCompute"]).map((s) => s.id)).toEqual(["compute"]);
-    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual(["arm", "aci"]);
+    expect(availableAzureServices(["AzureARM"]).map((s) => s.id)).toEqual([
+      "arm",
+      "aci",
+      "appservice",
+      "containerapps",
+      "vm",
+      "aks",
+      "flexdb",
+      "apim",
+    ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
 
   it("registers Azure Files", () => {
     expect(availableAzureServices(["AzureFile"]).map((s) => s.id)).toEqual(["file"]);
+  });
+
+  it("registers Datastore, Core Services and App Service", () => {
+    expect(availableGcpServices(["GCPDatastore"]).map((s) => s.id)).toEqual(["datastore"]);
+    expect(availableOciServices(["OCICore"]).map((s) => s.id)).toEqual(["core"]);
+    expect(azureServiceById("appservice")?.portLabel).toBe("azurearm");
+    expect(gcpServiceById("datastore")?.portLabel).toBe("gcpdatastore");
+    expect(ociServiceById("core")?.portLabel).toBe("ocicore");
+  });
+
+  it("registers Kubernetes Engine, Container Apps, Virtual Machines, Queue and Notifications", () => {
+    expect(availableGcpServices(["GCPContainer"]).map((s) => s.id)).toEqual(["container"]);
+    expect(availableOciServices(["OCIQueue", "OCINotifications"]).map((s) => s.id)).toEqual([
+      "queue",
+      "notifications",
+    ]);
+    expect(availableOciServices(["OCIContainerEngine"]).map((s) => s.id)).toEqual([
+      "containerengine",
+    ]);
+    expect(azureServiceById("aks")?.portLabel).toBe("azurearm");
+    expect(ociServiceById("containerengine")?.portLabel).toBe("ocicontainerengine");
+    expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
+    expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
+    expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
+    expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
+  });
+
+  it("registers MySQL HeatWave, Logging and Monitoring", () => {
+    expect(
+      availableOciServices(["OCIMySQL", "OCILogging", "OCIMonitoring"]).map((s) => s.id),
+    ).toEqual(["mysql", "logging", "monitoring"]);
+    expect(ociServiceById("mysql")?.portLabel).toBe("ocimysql");
+    expect(ociServiceById("logging")?.defaultPort).toBe(8160);
+    expect(ociServiceById("monitoring")?.healthName).toBe("OCIMonitoring");
+  });
+
+  it("registers NoSQL Database and API Gateway", () => {
+    expect(availableOciServices(["OCINoSQL", "OCIAPIGateway"]).map((s) => s.id)).toEqual([
+      "nosql",
+      "apigateway",
+    ]);
+    expect(ociServiceById("nosql")).toMatchObject({ portLabel: "ocinosql", defaultPort: 8162 });
+    expect(ociServiceById("apigateway")).toMatchObject({
+      portLabel: "ociapigateway",
+      defaultPort: 8163,
+      healthName: "OCIAPIGateway",
+    });
+  });
+
+  it("registers Events", () => {
+    expect(availableOciServices(["OCIEvents"]).map((s) => s.id)).toEqual(["events"]);
+    expect(ociServiceById("events")).toMatchObject({
+      portLabel: "ocievents",
+      defaultPort: 8164,
+      healthName: "OCIEvents",
+    });
+  });
+
+  it("registers Load Balancer", () => {
+    expect(availableOciServices(["OCILoadBalancer"]).map((s) => s.id)).toEqual(["loadbalancer"]);
+    expect(ociServiceById("loadbalancer")).toMatchObject({
+      portLabel: "ociloadbalancer",
+      defaultPort: 8165,
+      healthName: "OCILoadBalancer",
+    });
+  });
+
+  it("registers Artifacts", () => {
+    expect(availableOciServices(["OCIArtifacts"]).map((s) => s.id)).toEqual(["artifacts"]);
+    expect(ociServiceById("artifacts")).toMatchObject({
+      portLabel: "ociartifacts",
+      defaultPort: 8166,
+      healthName: "OCIArtifacts",
+    });
+  });
+
+  it("registers Container Instances", () => {
+    expect(availableOciServices(["OCIContainerInstances"]).map((s) => s.id)).toEqual([
+      "containerinstances",
+    ]);
+    expect(ociServiceById("containerinstances")).toMatchObject({
+      portLabel: "ocicontainerinstances",
+      defaultPort: 8167,
+      healthName: "OCIContainerInstances",
+    });
+  });
+
+  it("registers Identity Platform and Flexible Server", () => {
+    expect(gcpServiceById("identitytoolkit")).toMatchObject({
+      portLabel: "gcpidentitytoolkit",
+      defaultPort: 8145,
+      healthName: "GCPIdentityToolkit",
+    });
+    expect(azureServiceById("flexdb")?.portLabel).toBe("azurearm");
+  });
+
+  it("registers API Gateway and API Management", () => {
+    expect(gcpServiceById("apigateway")).toMatchObject({
+      portLabel: "gcpapigateway",
+      defaultPort: 8146,
+      healthName: "GCPAPIGateway",
+    });
+    expect(azureServiceById("apim")?.portLabel).toBe("azurearm");
+  });
+
+  it("registers Cloud Batch", () => {
+    expect(gcpServiceById("batch")).toMatchObject({
+      portLabel: "gcpbatch",
+      defaultPort: 8147,
+      healthName: "GCPBatch",
+    });
+  });
+
+  it("registers Resource Manager", () => {
+    expect(gcpServiceById("resourcemanager")).toMatchObject({
+      portLabel: "gcpresourcemanager",
+      defaultPort: 8148,
+      healthName: "GCPResourceManager",
+    });
   });
 });

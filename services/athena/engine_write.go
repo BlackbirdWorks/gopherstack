@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -33,8 +34,8 @@ var (
 
 func isWriteProp(k string) bool {
 	switch k {
-	case "format", "external_location", "partitioned_by", "field_delimiter",
-		"write_compression", "compression", "parquet_compression", "orc_compression", "is_external":
+	case propFormat, "external_location", "partitioned_by", "field_delimiter",
+		propWriteCompression, "compression", "parquet_compression", "orc_compression", "is_external":
 		return true
 	default:
 		return false
@@ -54,6 +55,7 @@ type outCol struct {
 	name string
 	typ  string
 	src  int
+	id   int
 }
 
 // writePlan is the write side of a CTAS, INSERT or UNLOAD.
@@ -61,16 +63,20 @@ type writePlan struct {
 	cat            GlueTableCatalog
 	put            S3Storer
 	list           S3Lister
+	get            S3Getter
+	now            func() time.Time
 	def            *GlueTableDef
 	stmt           *writeStmt
 	catalog        string
 	db             string
 	table          string
+	ice            *icebergTable
 	queryID        string
 	outputLocation string
 	location       string
 	partitionBy    []string
 	format         outFormat
+	s3tables       bool
 }
 
 // bind supplies the query id and effective result location, which are only
@@ -97,18 +103,22 @@ func (b *InMemoryBackend) planWrite(
 		return nil, stmtOK(), false
 	}
 
-	wp := &writePlan{stmt: w, cat: cat, put: b.s3, list: list}
+	wp := &writePlan{stmt: w, cat: cat, put: b.s3, list: list, get: get, now: b.now}
 
 	if w.kind != writeUnload {
 		catalog, db, table := refTarget(w.target, qctx)
-		if !b.isGlueBacked(catalog) {
+
+		tcat, found := b.tableCatalogFor(catalog)
+		if !found {
 			return nil, stmtOK(), false
 		}
 
+		_, wp.s3tables = s3TablesBucket(catalog)
+		wp.cat = tcat
 		wp.catalog, wp.db, wp.table = catalog, db, table
 	}
 
-	plan, unresolved, err := b.buildPlan(w.body, qctx, cat, get, list)
+	plan, unresolved, err := b.buildPlan(w.body, qctx, get, list)
 	if err != nil {
 		return nil, planFailure(err), true
 	}
@@ -136,6 +146,10 @@ func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 	case writeInsert:
 		return stmtOK()
 	case writeCTAS:
+		if p.s3tables {
+			return stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error())
+		}
+
 		if _, err := b.glueSource.GetDatabase(p.db); err != nil {
 			return stmtFail(athenaErrTypeEntityMiss, "SCHEMA_NOT_FOUND: Schema '%s' does not exist", p.db)
 		}
@@ -155,7 +169,7 @@ func (p *writePlan) validateProps() statementOutcome {
 		}
 	}
 
-	name := strings.ToUpper(firstProp(props, "format"))
+	name := strings.ToUpper(firstProp(props, propFormat))
 	if name == "" {
 		name = "PARQUET"
 	}
@@ -196,7 +210,7 @@ func (p *writePlan) validateProps() statementOutcome {
 
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
-	c := strings.ToUpper(orDefault(firstProp(props, "write_compression"),
+	c := strings.ToUpper(orDefault(firstProp(props, propWriteCompression),
 		orDefault(firstProp(props, "compression"), firstProp(props, "parquet_compression"))))
 
 	if out := p.checkCompression(c); out.failed {
@@ -257,7 +271,7 @@ func withSlash(s string) string {
 func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 	switch p.stmt.kind {
 	case writeInsert:
-		return p.precheckInsert(), false
+		return p.precheckInsert(ctx), false
 	case writeUnload:
 		p.location = withSlash(p.stmt.location)
 	default:
@@ -319,11 +333,18 @@ func (p *writePlan) checkEmpty(ctx context.Context) statementOutcome {
 	return stmtOK()
 }
 
-func (p *writePlan) precheckInsert() statementOutcome {
+func (p *writePlan) precheckInsert(ctx context.Context) statementOutcome {
 	def, err := p.cat.GetTableDef(p.db, p.table)
 	if err != nil {
 		return stmtFail(athenaErrTypeEntityMiss,
 			"TABLE_NOT_FOUND: line 1:1: Table '%s' does not exist", p.display())
+	}
+
+	switch tableTypeOf(def) {
+	case tableTypeIceberg:
+		return p.precheckIcebergInsert(ctx, def)
+	case tableTypeDelta:
+		return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: Delta Lake tables are read-only in Athena")
 	}
 
 	f, err := detectFormat(def)
@@ -416,7 +437,7 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 		Name:          p.table,
 		TableType:     tableTypeExternal,
 		Location:      p.location,
-		Parameters:    map[string]string{"EXTERNAL": "TRUE"},
+		Parameters:    map[string]string{"EXTERNAL": externalTrue},
 		Columns:       outColumns(data),
 		PartitionKeys: outColumns(parts),
 		InputFormat:   textInputFormat,
@@ -504,6 +525,10 @@ func (p *writePlan) registerPartitions(parts []GluePartitionDef) statementOutcom
 }
 
 func (p *writePlan) applyInsert(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	if p.ice != nil {
+		return p.applyIcebergInsert(ctx, res, limits)
+	}
+
 	def := p.def
 	dest := tableColumns(def)
 	keys := insertPartitionKeys(def)

@@ -38,7 +38,15 @@ type Handler struct {
 	peers   *regionpeers.Set[Handler]
 	Backend StorageBackend
 	ops     map[string]service.JSONOpFunc
+	// verifier validates JWTs; nil keeps the legacy claims-only behaviour.
+	verifier *TokenVerifier
 }
+
+// WithTokenVerifier installs the JWT verifier shared by this handler and its regional peers.
+func (h *Handler) WithTokenVerifier(v *TokenVerifier) { h.verifier = v }
+
+// TokenVerifier returns the installed verifier (nil when none).
+func (h *Handler) TokenVerifier() *TokenVerifier { return h.verifier }
 
 // NewHandler creates a new Verified Permissions handler.
 func NewHandler(backend StorageBackend) *Handler {

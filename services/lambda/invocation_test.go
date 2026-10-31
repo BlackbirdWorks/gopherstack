@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -834,21 +835,24 @@ func TestLambda_AsyncDestinationDelivery(t *testing.T) {
 func TestLambda_FunctionLifecycle_PendingToActive(t *testing.T) {
 	t.Parallel()
 
-	backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-	closeBackend(t, backend)
+	synctest.Test(t, func(t *testing.T) {
+		backend := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+		closeBackend(t, backend)
 
-	backend.SetActivationDelay(200 * time.Millisecond)
+		backend.SetActivationDelay(200 * time.Millisecond)
 
-	require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{
-		FunctionName: "life-fn",
-		State:        lambda.FunctionStateActive, // handler default; backend overrides to Pending
-	}))
+		require.NoError(t, backend.CreateFunction(&lambda.FunctionConfiguration{
+			FunctionName: "life-fn",
+			State:        lambda.FunctionStateActive, // handler default; backend overrides to Pending
+		}))
 
-	assert.Equal(t, lambda.FunctionStatePending, lambda.GetFunctionStateForTest(backend, "life-fn"))
+		assert.Equal(t, lambda.FunctionStatePending, lambda.GetFunctionStateForTest(backend, "life-fn"))
 
-	require.Eventually(t, func() bool {
-		return lambda.GetFunctionStateForTest(backend, "life-fn") == lambda.FunctionStateActive
-	}, 3*time.Second, 20*time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
+		synctest.Wait()
+
+		assert.Equal(t, lambda.FunctionStateActive, lambda.GetFunctionStateForTest(backend, "life-fn"))
+	})
 }
 
 func TestLambda_FunctionLifecycle_NoDelayActiveImmediately(t *testing.T) {

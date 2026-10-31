@@ -28,7 +28,7 @@ import (
 //     each result entry REQUIRES a severityScore (0.0-1.0) produced by a
 //     real ML content classifier. gopherstack has no such classifier, so
 //     this backend does NOT fabricate a score: if requested, the
-//     contentFilter result group is present but its "results" list is
+//     contentFilter result group is present but its keyResults list is
 //     honestly empty (see fabrication_verdict in the parity receipt / gap
 //     note below).
 //   - promptAttack (categories: JAILBREAK/PROMPT_INJECTION/PROMPT_LEAKAGE) --
@@ -60,7 +60,7 @@ const guardrailChecksPath = "/guardrail-checks/invoke"
 // awsRestjson1_serializeOpDocumentInvokeGuardrailChecksInput and nested
 // awsRestjson1_serializeDocumentGuardrailChecks* helpers for the confirmed
 // "checks"/"messages"/"contentFilter"/"promptAttack"/"sensitiveInformation"/
-// "categories"/"category"/"entities"/"type"/"content"/"role"/"text" keys). ---
+// "categories"/"category"/"entities"/"type"/"content"/keyRole/"text" keys). ---
 
 type invokeGuardrailChecksRequest struct {
 	Checks   *guardrailChecksConfigWire   `json:"checks"`
@@ -100,7 +100,7 @@ type guardrailChecksContentWire struct {
 
 // --- Response shapes (see deserializers.go's
 // awsRestjson1_deserializeOpDocumentInvokeGuardrailChecksOutput and nested
-// GuardrailChecks* deserializers for the confirmed "results"/"usage"/
+// GuardrailChecks* deserializers for the confirmed keyResults/"usage"/
 // "severityScore"/"confidenceScore"/"beginOffset"/"endOffset"/
 // "contentIndex"/"messageIndex"/"truncated"/"textUnits" keys). ---
 
@@ -200,8 +200,8 @@ func (h *Handler) handleInvokeGuardrailChecks(c *echo.Context, body []byte) erro
 	}
 
 	resp := map[string]any{
-		"results": results,
-		"usage":   usage,
+		keyResults: results,
+		"usage":    usage,
 	}
 
 	out, err := json.Marshal(resp)

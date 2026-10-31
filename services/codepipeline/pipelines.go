@@ -27,6 +27,10 @@ func (b *InMemoryBackend) CreatePipeline(
 		return nil, err
 	}
 
+	if err := validateActionDeclarations(decl.Stages); err != nil {
+		return nil, err
+	}
+
 	if b.pipelines.Has(regionKey(region, decl.Name)) {
 		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrPipelineNameInUse, decl.Name)
 	}
@@ -107,6 +111,10 @@ func (b *InMemoryBackend) UpdatePipeline(ctx context.Context, decl PipelineDecla
 	}
 
 	if err := validateStageConditions(decl.Stages); err != nil {
+		return nil, err
+	}
+
+	if err := validateActionDeclarations(decl.Stages); err != nil {
 		return nil, err
 	}
 

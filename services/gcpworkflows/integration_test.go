@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest/resttest"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -97,12 +98,12 @@ main:
 	require.NoError(t, jsonUnmarshal(raw, &told))
 	require.Contains(t, told.URL, "/callbacks/")
 
-	resp, err := http.Get(told.URL)
+	resp, err := testclient.New(t).Get(told.URL)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 
-	resp, err = http.Post(
+	resp, err = testclient.New(t).Post(
 		told.URL,
 		"application/json",
 		strings.NewReader(`{"approved":true}`),
@@ -115,7 +116,7 @@ main:
 	assert.Equal(t, executionspb.Execution_SUCCEEDED, done.GetState(), done.GetError().GetPayload())
 	assert.JSONEq(t, `{"body":{"approved":true},"method":"POST"}`, done.GetResult())
 
-	resp, err = http.Post(told.URL, "application/json", strings.NewReader(`{}`))
+	resp, err = testclient.New(t).Post(told.URL, "application/json", strings.NewReader(`{}`))
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "a spent callback is gone")

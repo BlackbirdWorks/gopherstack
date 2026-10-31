@@ -28,7 +28,7 @@ func validateMatcherValue(field, key string, val any) error {
 		return requireString(field, key, val)
 	case "exists":
 		if _, ok := val.(bool); !ok {
-			return fmt.Errorf("%w: exists match pattern must be either true or false", ErrInvalidParameter)
+			return reasonErr("exists match pattern must be either true or false.")
 		}
 	case "cidr":
 		return validateCIDRMatcher(val)

@@ -196,10 +196,10 @@ func containerMetadataFor(task Task, td *TaskDefinition, cd ContainerDefinition,
 		Type:          containerTypeNormal,
 		ContainerARN:  c.ContainerArn,
 		ExitCode:      c.ExitCode,
-		CreatedAt:     timeStr(task.StartedAt),
+		CreatedAt:     timeStr(task.CreatedAt),
 	}
 
-	if task.LastStatus != statusProvisioning && task.LastStatus != statusPending {
+	if task.StartedAt != nil {
 		m.StartedAt = timeStr(task.StartedAt)
 	}
 

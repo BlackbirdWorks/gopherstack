@@ -92,6 +92,10 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		return nil, err
 	}
 
+	if err := validateNodeProperties(defType, nodeProps); err != nil {
+		return nil, err
+	}
+
 	revisions := b.jobDefRevisionsStore(region)
 	revisions[name]++
 	revision := revisions[name]

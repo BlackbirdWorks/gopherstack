@@ -438,6 +438,8 @@ func TestJSONata_SDK_DefinitionValidation(t *testing.T) {
 	t.Parallel()
 
 	task := `"Type":"Task","Resource":"` + jsonataLambdaRes + `"`
+	const mapProcessor = `"ItemProcessor":{"StartAt":"X","States":{"X":{"Type":"Succeed"}}}`
+
 	tests := []struct {
 		name       string
 		definition string
@@ -453,6 +455,27 @@ func TestJSONata_SDK_DefinitionValidation(t *testing.T) {
 		{"items_path_in_jsonata", jsonataStateDef(
 			`{"Type":"Map","ItemsPath":"$.x","End":true,` +
 				`"ItemProcessor":{"StartAt":"X","States":{"X":{"Type":"Succeed"}}}}`)},
+		{"item_reader_parameters_in_jsonata", jsonataStateDef(
+			`{"Type":"Map","Items":[1],"End":true,"ItemReader":{"Resource":"arn:aws:states:::s3:getObject",` +
+				`"Parameters":{"Bucket":"b","Key":"k"}},` + mapProcessor + `}`)},
+		{"result_writer_parameters_in_jsonata", jsonataStateDef(
+			`{"Type":"Map","Items":[1],"End":true,"ResultWriter":{"Resource":"arn:aws:states:::s3:putObject",` +
+				`"Parameters":{"Bucket":"b"}},` + mapProcessor + `}`)},
+		{"batcher_path_in_jsonata", jsonataStateDef(
+			`{"Type":"Map","Items":[1],"End":true,"ItemBatcher":{"MaxItemsPerBatchPath":"$.n"},` + mapProcessor + `}`)},
+		{"reader_max_items_path_in_jsonata", jsonataStateDef(
+			`{"Type":"Map","Items":[1],"End":true,"ItemReader":{"ReaderConfig":{"MaxItemsPath":"$.n"},` +
+				`"Resource":"arn:aws:states:::s3:getObject","Arguments":{"Bucket":"b","Key":"k"}},` + mapProcessor + `}`)},
+		{"item_reader_arguments_in_jsonpath", `{"StartAt":"S","States":{"S":{"Type":"Map","End":true,` +
+			`"ItemReader":{"Resource":"arn:aws:states:::s3:getObject","Arguments":{"Bucket":"b","Key":"k"}},` +
+			mapProcessor + `}}}`},
+		{"result_writer_arguments_in_jsonpath", `{"StartAt":"S","States":{"S":{"Type":"Map","End":true,` +
+			`"ResultWriter":{"Resource":"arn:aws:states:::s3:putObject","Arguments":{"Bucket":"b"}},` +
+			mapProcessor + `}}}`},
+		{"batcher_expression_in_jsonpath", `{"StartAt":"S","States":{"S":{"Type":"Map","End":true,` +
+			`"ItemBatcher":{"MaxItemsPerBatch":"{% 2 %}"},` + mapProcessor + `}}}`},
+		{"batcher_limit_not_expression", jsonataStateDef(
+			`{"Type":"Map","Items":[1],"End":true,"ItemBatcher":{"MaxItemsPerBatch":"two"},` + mapProcessor + `}`)},
 		{"choice_variable_in_jsonata", `{"QueryLanguage":"JSONata","StartAt":"S","States":{
 			"S":{"Type":"Choice","Choices":[{"Variable":"$.a","NumericEquals":1,"Next":"E"}]},
 			"E":{"Type":"Succeed"}}}`},
@@ -558,6 +581,21 @@ func TestJSONata_SDK_TestState(t *testing.T) {
 			definition: `{"QueryLanguage":"JSONata","Type":"Pass","Output":"{% $states.input.n * 3 %}","End":true}`,
 			input:      `{"n":2}`,
 			wantOutput: `6`,
+		},
+		{
+			name: "map_object_items_pairs",
+			definition: `{"QueryLanguage":"JSONata","Type":"Map","Items":{"b":2,"a":1},"End":true,` +
+				`"ItemProcessor":{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}}`,
+			input:      `{}`,
+			wantOutput: `[{"Key":"a","Value":1},{"Key":"b","Value":2}]`,
+		},
+		{
+			name: "map_batcher_expression",
+			definition: `{"QueryLanguage":"JSONata","Type":"Map","Items":"{% $states.input %}","End":true,` +
+				`"ItemBatcher":{"MaxItemsPerBatch":"{% 2 %}"},` +
+				`"ItemProcessor":{"StartAt":"P","States":{"P":{"Type":"Pass","End":true}}}}`,
+			input:      `[1,2,3]`,
+			wantOutput: `[{"Items":[1,2]},{"Items":[3]}]`,
 		},
 	}
 

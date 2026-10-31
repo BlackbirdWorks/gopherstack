@@ -38,6 +38,8 @@ type InMemoryBackend struct {
 	Auth         *ociauth.Registry
 	namespace    string
 	nsMeta       nsMetaWire
+	sink         func(ObjectEvent)
+	pending      []ObjectEvent
 }
 
 // NewInMemoryBackend creates an empty backend serving the default namespace.

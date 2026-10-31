@@ -5,13 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -26,39 +23,25 @@ var (
 func (e *dockerEngine) open(db string) (*sql.DB, error) {
 	h, p := e.Endpoint()
 
-	if e.kind == kindPostgres {
-		cfg, err := pgx.ParseConfig(fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=disable connect_timeout=5",
-			h, p, pgAdminUser, db))
-		if err != nil {
-			return nil, fmt.Errorf("pg config: %w", err)
-		}
-
-		cfg.Password = e.pass()
-
-		return stdlib.OpenDB(*cfg), nil
-	}
-
-	cfg := mysql.NewConfig()
-	cfg.User, cfg.Passwd, cfg.Net, cfg.Addr, cfg.DBName = mysqlAdminUser, e.pass(), "tcp", e.addr(), db
-	cfg.InterpolateParams = true
-	cfg.Timeout = connectTimeout
-
-	conn, err := mysql.NewConnector(cfg)
+	cfg, err := pgx.ParseConfig(fmt.Sprintf("host=%s port=%d user=%s dbname=%s sslmode=disable connect_timeout=5",
+		h, p, pgAdminUser, db))
 	if err != nil {
-		return nil, fmt.Errorf("mysql config: %w", err)
+		return nil, fmt.Errorf("pg config: %w", err)
 	}
 
-	return sql.OpenDB(conn), nil
+	cfg.Password = e.pass()
+
+	return stdlib.OpenDB(*cfg), nil
 }
 
-func (e *dockerEngine) exec(ctx context.Context, db, stmt string, args ...any) error {
+func (e *dockerEngine) exec(ctx context.Context, db, stmt string) error {
 	conn, err := e.open(db)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	if _, err = conn.ExecContext(ctx, stmt, args...); err != nil {
+	if _, err = conn.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("sql: %w", err)
 	}
 
@@ -66,11 +49,8 @@ func (e *dockerEngine) exec(ctx context.Context, db, stmt string, args ...any) e
 }
 
 func (e *dockerEngine) bootstrap(ctx context.Context) error {
-	if e.kind != kindPostgres {
-		return nil
-	}
-
-	if err := e.exec(ctx, pgAdminUser, "CREATE ROLE "+pgSuperRole+" NOLOGIN CREATEDB CREATEROLE"); err != nil {
+	if err := e.exec(ctx, pgAdminUser, "DO $$ BEGIN CREATE ROLE "+pgSuperRole+
+		" NOLOGIN CREATEDB CREATEROLE; EXCEPTION WHEN duplicate_object THEN NULL; END $$"); err != nil {
 		return err
 	}
 
@@ -93,13 +73,8 @@ func (e *dockerEngine) quoteIdent(ctx context.Context, q rowQuerier, s string) (
 		return "", errInvalid("identifier %q is invalid", s)
 	}
 
-	query := "SELECT quote_ident($1::text)"
-	if e.kind != kindPostgres {
-		query = "SELECT CONCAT('`', REPLACE(?, '`', '``'), '`')"
-	}
-
 	var out string
-	if err := q.QueryRowContext(ctx, query, s).Scan(&out); err != nil {
+	if err := q.QueryRowContext(ctx, "SELECT quote_ident($1::text)", s).Scan(&out); err != nil {
 		return "", fmt.Errorf("sql: %w", err)
 	}
 
@@ -139,7 +114,7 @@ func (e *dockerEngine) quoteLiteral(ctx context.Context, q rowQuerier, s string)
 func (e *dockerEngine) adminConn() (*sql.DB, error) { return e.open(e.adminDB()) }
 
 // CreateDatabase implements Engine.
-func (e *dockerEngine) CreateDatabase(ctx context.Context, name, charset, collation string) error {
+func (e *dockerEngine) CreateDatabase(ctx context.Context, name, _, _ string) error {
 	conn, err := e.adminConn()
 	if err != nil {
 		return err
@@ -151,25 +126,7 @@ func (e *dockerEngine) CreateDatabase(ctx context.Context, name, charset, collat
 		return err
 	}
 
-	if e.kind == kindPostgres {
-		return e.exec(ctx, pgAdminUser, "CREATE DATABASE "+ident)
-	}
-
-	stmt, args := "CREATE DATABASE "+ident, []any{}
-
-	if charset != "" && charsetRe.MatchString(charset) {
-		stmt += " CHARACTER SET ?"
-
-		args = append(args, charset)
-	}
-
-	if collation != "" && charsetRe.MatchString(collation) {
-		stmt += " COLLATE ?"
-
-		args = append(args, collation)
-	}
-
-	return e.exec(ctx, "", stmt, args...)
+	return e.exec(ctx, pgAdminUser, "CREATE DATABASE "+ident)
 }
 
 // DropDatabase implements Engine.
@@ -185,21 +142,12 @@ func (e *dockerEngine) DropDatabase(ctx context.Context, name string) error {
 		return err
 	}
 
-	if e.kind == kindPostgres {
-		return e.exec(ctx, pgAdminUser, "DROP DATABASE "+ident+" WITH (FORCE)")
-	}
-
-	return e.exec(ctx, "", "DROP DATABASE "+ident)
+	return e.exec(ctx, pgAdminUser, "DROP DATABASE "+ident+" WITH (FORCE)")
 }
 
 // ListDatabases implements Engine.
 func (e *dockerEngine) ListDatabases(ctx context.Context) ([]string, error) {
-	query := "SHOW DATABASES"
-	if e.kind == kindPostgres {
-		query = "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1"
-	}
-
-	rows, err := e.Query(ctx, e.adminDB(), query)
+	rows, err := e.Query(ctx, pgAdminUser, "SELECT datname FROM pg_database WHERE NOT datistemplate ORDER BY 1")
 	if err != nil {
 		return nil, err
 	}
@@ -215,28 +163,15 @@ func (e *dockerEngine) ListDatabases(ctx context.Context) ([]string, error) {
 
 // UpsertUser implements Engine.
 func (e *dockerEngine) UpsertUser(ctx context.Context, u UserSpec) error {
-	var err error
-	if e.kind == kindPostgres {
-		err = e.upsertPGUser(ctx, u)
-	} else {
-		err = e.upsertMySQLUser(ctx, u)
-	}
+	err := e.upsertPGUser(ctx, u)
 
-	if err == nil && u.Password != "" && u.Name == e.adminUser() {
+	if err == nil && u.Password != "" && u.Name == pgAdminUser {
 		e.mu.Lock("UpsertUser")
 		e.password = u.Password
 		e.mu.Unlock()
 	}
 
 	return err
-}
-
-func (e *dockerEngine) adminUser() string {
-	if e.kind == kindPostgres {
-		return pgAdminUser
-	}
-
-	return mysqlAdminUser
 }
 
 func (e *dockerEngine) upsertPGUser(ctx context.Context, u UserSpec) error {
@@ -282,41 +217,8 @@ func (e *dockerEngine) upsertPGUser(ctx context.Context, u UserSpec) error {
 	return nil
 }
 
-func (e *dockerEngine) upsertMySQLUser(ctx context.Context, u UserSpec) error {
-	conn, err := e.open("")
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	if _, err = conn.ExecContext(ctx, "CREATE USER IF NOT EXISTS ?@?", u.Name, u.Host); err != nil {
-		return fmt.Errorf("sql: %w", err)
-	}
-
-	if u.Password != "" {
-		if _, err = conn.ExecContext(ctx, "ALTER USER ?@? IDENTIFIED BY ?", u.Name, u.Host, u.Password); err != nil {
-			return fmt.Errorf("sql: %w", err)
-		}
-	}
-
-	if _, err = conn.ExecContext(
-		ctx,
-		"GRANT ALL PRIVILEGES ON *.* TO ?@? WITH GRANT OPTION",
-		u.Name,
-		u.Host,
-	); err != nil {
-		return fmt.Errorf("sql: %w", err)
-	}
-
-	return nil
-}
-
 // DropUser implements Engine.
-func (e *dockerEngine) DropUser(ctx context.Context, name, host string) error {
-	if e.kind != kindPostgres {
-		return e.exec(ctx, "", "DROP USER ?@?", name, host)
-	}
-
+func (e *dockerEngine) DropUser(ctx context.Context, name, _ string) error {
 	conn, err := e.open(pgAdminUser)
 	if err != nil {
 		return err
@@ -345,60 +247,7 @@ func (e *dockerEngine) Restart(ctx context.Context, flags []Flag) error {
 }
 
 func (e *dockerEngine) applyFlags(ctx context.Context, flags []Flag) error {
-	if e.kind == kindPostgres {
-		return e.applyPGFlags(ctx, flags)
-	}
-
-	_ = e.exec(ctx, "", "RESET PERSIST")
-
-	for _, f := range flags {
-		if !flagNameRe.MatchString(f.Name) {
-			return errInvalid("flag name %q is invalid", f.Name)
-		}
-
-		if err := e.setMySQLFlag(ctx, f); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// mysqlFlagArg types numeric and boolean values so the driver interpolates them unquoted.
-func mysqlFlagArg(v string) any {
-	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return n
-	}
-
-	if f, err := strconv.ParseFloat(v, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) &&
-		!strings.ContainsAny(v, "eExXpP_") {
-		return f
-	}
-
-	switch strings.ToUpper(v) {
-	case "TRUE":
-		return true
-	case "FALSE":
-		return false
-	}
-
-	return v
-}
-
-// setMySQLFlag persists a server variable; numbers and booleans must not be quoted.
-func (e *dockerEngine) setMySQLFlag(ctx context.Context, f Flag) error {
-	conn, err := e.open("")
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	name, err := e.quoteDotted(ctx, conn, f.Name)
-	if err != nil {
-		return err
-	}
-
-	return e.exec(ctx, "", "SET PERSIST_ONLY "+name+" = ?", mysqlFlagArg(f.Value))
+	return e.applyPGFlags(ctx, flags)
 }
 
 func (e *dockerEngine) applyPGFlags(ctx context.Context, flags []Flag) error {

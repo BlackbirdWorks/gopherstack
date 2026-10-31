@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"cloud.google.com/go/run/apiv2/runpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
 const (
@@ -21,12 +22,11 @@ const (
 var (
 	errNoSecrets         = errors.New("secret manager is not available in this emulator")
 	errUnsupportedVolume = errors.New("unsupported volume")
-	errSecretPath        = errors.New("secret volume path must be relative and stay inside the volume")
 )
 
 // SecretResolver returns the payload of a Secret Manager version resource name
 // (projects/{p}/secrets/{s}/versions/{v}).
-type SecretResolver func(versionName string) ([]byte, error)
+type SecretResolver = gcpserve.SecretResolver
 
 // SetSecretResolver wires Secret Manager for secret environment variables and secret volumes.
 func (b *InMemoryBackend) SetSecretResolver(fn SecretResolver) {
@@ -49,12 +49,7 @@ func (b *InMemoryBackend) secretValue(project, secret, version string) ([]byte, 
 		version = "latest"
 	}
 
-	name := secret
-	if !strings.HasPrefix(secret, "projects/") {
-		name = "projects/" + project + "/secrets/" + secret
-	}
-
-	data, err := fn(name + "/versions/" + version)
+	data, err := fn(gcpserve.SecretVersionName(project, secret, version))
 	if err != nil {
 		return nil, fmt.Errorf("secret %q version %q: %w", secret, version, err)
 	}
@@ -193,30 +188,12 @@ func (b *InMemoryBackend) secretDir(project string, src *runpb.SecretVolumeSourc
 			mode = defaultSecMode
 		}
 
-		if err = writeSecretFile(dir, it.GetPath(), data, mode); err != nil {
+		if err = gcpserve.WriteSecretFile(dir, it.GetPath(), data, mode); err != nil {
 			return dir, err
 		}
 	}
 
 	return dir, nil
-}
-
-func writeSecretFile(dir, rel string, data []byte, mode os.FileMode) error {
-	clean := filepath.Clean(rel)
-	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
-		return fmt.Errorf("%w: %q", errSecretPath, rel)
-	}
-
-	full := filepath.Join(dir, clean)
-	if err := os.MkdirAll(filepath.Dir(full), dirMode); err != nil {
-		return fmt.Errorf("create secret volume path: %w", err)
-	}
-
-	if err := os.WriteFile(full, data, mode); err != nil {
-		return fmt.Errorf("write secret volume file: %w", err)
-	}
-
-	return os.Chmod(full, mode) //nolint:wrapcheck // a plain chmod failure message is clear
 }
 
 // containerMounts returns the bind-mount specs of c: host directory (plus sub_path) to mount_path.

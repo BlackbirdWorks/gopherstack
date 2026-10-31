@@ -18,6 +18,10 @@ const (
 	opDeleteInstance     = "DeleteInstance"
 	opRestartInstance    = "RestartInstance"
 	opCloneInstance      = "CloneInstance"
+	opPromoteReplica     = "PromoteReplica"
+	opStartReplica       = "StartReplica"
+	opStopReplica        = "StopReplica"
+	opLatestRecovery     = "GetLatestRecoveryTime"
 	opExportInstance     = "ExportInstance"
 	opImportInstance     = "ImportInstance"
 	opRestoreBackup      = "RestoreBackup"
@@ -176,14 +180,18 @@ func instanceRoute(method string, s []string, rt route) route {
 
 func subCollectionOp(method, sub string) string {
 	table := map[string]map[string]string{
-		"restart":         {http.MethodPost: opRestartInstance},
-		"clone":           {http.MethodPost: opCloneInstance},
-		"export":          {http.MethodPost: opExportInstance},
-		"import":          {http.MethodPost: opImportInstance},
-		"restoreBackup":   {http.MethodPost: opRestoreBackup},
-		"connectSettings": {http.MethodGet: opGetConnectSettings},
-		"createEphemeral": {http.MethodPost: opCreateEphemeral},
-		"databases":       {http.MethodGet: opListDatabases, http.MethodPost: opInsertDatabase},
+		"restart":               {http.MethodPost: opRestartInstance},
+		"clone":                 {http.MethodPost: opCloneInstance},
+		"promoteReplica":        {http.MethodPost: opPromoteReplica},
+		"startReplica":          {http.MethodPost: opStartReplica},
+		"stopReplica":           {http.MethodPost: opStopReplica},
+		"getLatestRecoveryTime": {http.MethodGet: opLatestRecovery},
+		"export":                {http.MethodPost: opExportInstance},
+		"import":                {http.MethodPost: opImportInstance},
+		"restoreBackup":         {http.MethodPost: opRestoreBackup},
+		"connectSettings":       {http.MethodGet: opGetConnectSettings},
+		"createEphemeral":       {http.MethodPost: opCreateEphemeral},
+		"databases":             {http.MethodGet: opListDatabases, http.MethodPost: opInsertDatabase},
 		"users": {
 			http.MethodGet: opListUsers, http.MethodPost: opInsertUser,
 			http.MethodPut: opUpdateUser, http.MethodDelete: opDeleteUser,

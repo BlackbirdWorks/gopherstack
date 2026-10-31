@@ -70,7 +70,7 @@ func (b *InMemoryBackend) startFronts(lb *liveCluster, port, inner int) (*cypher
 	admit := b.clusterAdmit(lb)
 
 	if e.cfg.OpenCypher {
-		front, err := startCypherFront(e.cfg.Host, port, upstream, lb.graph, admit)
+		front, err := startCypherFront(e.cfg.Host, port, upstream, lb.graph, admit, b.clusterAuthFn(lb))
 
 		return front, nil, err
 	}

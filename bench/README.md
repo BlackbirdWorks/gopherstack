@@ -50,6 +50,73 @@ BenchmarkSecretsManager_CreateSecret-4   50000            24856 ns/op         40
 BenchmarkSecretsManager_GetSecretValue-4 200000             6131 ns/op         1664 B/op     28 allocs/op
 ```
 
+## End-to-end benchmarks (full router + middleware)
+
+`internal/app/e2e_bench_test.go`, `e2e_bench_sns_test.go`, `shared_path_server_bench_test.go`
+and `bench_ddb_server_path_test.go` drive real `aws-sdk-go-v2` clients (S3, DynamoDB, SNS)
+through the production Echo stack (routing, SigV4 scope parsing, telemetry, error mirroring,
+cloudtrail capture, compression) over an in-memory `RoundTripper`. `leak_e2e_test.go` holds the
+bounded-growth (goroutines/heap/series) leak tests for the same paths.
+
+```bash
+go test -run '^$' -bench 'BenchmarkE2E_' -benchmem -cpu=4 ./internal/app/
+go test -run '^$' -bench 'BenchmarkServerPath' -benchmem -cpu=4 ./internal/app/   # server only, no SDK client
+go test -run '^$' -bench 'BenchmarkE2E_S3/^head$' -cpuprofile cpu.prof -o app.test ./internal/app/
+go tool pprof -top -cum -focus='echo/v5.\(\*Echo\).ServeHTTP' app.test cpu.prof   # server side only
+```
+
+Baseline (2026-10-30, `-cpu=4 -benchtime=300x`, shared 4-core box under load; ns/op is
+indicative, allocs/op is exact):
+
+| Benchmark | ns/op | B/op | allocs/op |
+|-----------|------:|-----:|----------:|
+| E2E_S3/put_1KiB | 125 670 | 85 652 | 639 |
+| E2E_S3/get_1KiB | 103 318 | 42 193 | 574 |
+| E2E_S3/head | 90 622 | 41 348 | 531 |
+| E2E_S3/list_prefix_delim_10k | 346 097 | 167 969 | 2 646 |
+| E2E_S3/list_prefix_page (1000 keys) | 770 920 | 342 518 | 6 110 |
+| E2E_S3/copy | 261 515 | 195 063 | 634 |
+| E2E_S3/delete_objects_1000 | 3 671 798 | 1 335 628 | 22 649 |
+| E2E_S3/multipart_3parts (5 MiB x2 + 1 KiB) | 39 916 568 | 11 834 908 | 3 368 |
+| E2E_DynamoDB/putitem | 75 484 | 38 973 | 436 |
+| E2E_DynamoDB/getitem | 75 851 | 36 873 | 417 |
+| E2E_DynamoDB/updateitem_expr | 83 794 | 48 026 | 476 |
+| E2E_DynamoDB/query_filter | 229 046 | 87 845 | 916 |
+| E2E_DynamoDB/scan_filter_10k | 1 963 561 | 93 073 | 1 163 |
+| E2E_DynamoDB/batchwrite_25 | 189 398 | 137 535 | 1 472 |
+| E2E_DynamoDB/batchget_100 | 382 658 | 237 436 | 3 100 |
+| E2E_DynamoDB/transactwrite_10 | 216 190 | 110 053 | 1 300 |
+| ServerPath/ddb_getitem (server only) | ~24 000 | 9 106 | 96 |
+| ServerPath/s3_getobject (server only) | ~35 000-47 000 | 9 180 | 123 |
+
+Profile findings (cpu, alloc_space, alloc_objects, server side of the SDK round trip):
+
+- The SDK client is about 70% of CPU and about 65% of allocations of an e2e small-object call
+  (SigV4 payload sha256, checksum middleware, XML/JSON (de)serialisation). Server-side gains
+  are therefore diluted roughly 3:1 in the e2e numbers; use `BenchmarkServerPath` to judge them.
+- Large S3 payloads are dominated by hashing: server MD5 (ETag, unavoidable) and client sha256.
+  `multipart_3parts` is about 18 ms MD5 plus about 16 ms client sha256 for 10 MiB.
+- Server middleware (logger, apptrace, telemetry, cloudtrail capture, region/principal,
+  chaos, compress) is flat: about 50 allocations per request, no single frame above 1.5% of
+  allocations or 3% of CPU.
+- `Router.Lookup` is the largest single server frame: about 23% of server CPU for an S3 object
+  request, because S3 is the lowest-priority catch-all and about 47 ungated REST/host/SigV4
+  matchers run first (DynamoDB is target-gated and runs 1). Each matcher is 100-200 ns;
+  there is no cheap hot spot, only gating each matcher with its own prefix gate
+  (`internal/routegates/path_gates.txt`), which needs a per-service proof.
+- OR-alternative gates (`routegates.AltGates`, `service.AltGate`: target, path prefix/suffix, host,
+  user-agent, content-type, query, SigV4 scope) cut S3 object lookups from 38 to 23 matchers;
+  path-bucketed prefix lists cut per-candidate gate checks. `BenchmarkRouterLookupS3Object`
+  (min over runs): Lookup about 2.3-2.9 us to 1.56 us; `ServerPath/s3_getobject` 24.2 to 21.7 us
+  (-10%, median -13%, p=0.017), `s3_putobject` 37.7 to 35.5 us. Still ungated: APIGateway
+  (custom-domain state), OpenSearch (endpoint strategy), query-protocol services.
+- `scan_filter_10k` is memory-latency bound in `expr.Evaluator` small-map lookups
+  (`item[attr]`, then `{"N": ...}` unwrap); no allocation to remove.
+- `list_prefix_*`, `batchget_100`, `delete_objects_1000`: server frames are under 10% of CPU;
+  the allocations counted belong to the SDK response decoder.
+- Allocation-free apigateway custom-domain Host check was tried: -3 allocs/op on the server
+  path, not measurable in ns/op (below the 5% bar) and reverted.
+
 ## Comparing with LocalStack
 
 To compare Gopherstack latency against [LocalStack](https://localstack.cloud/):

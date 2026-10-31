@@ -391,12 +391,32 @@ func (h *Handler) createTable(c *echo.Context) error {
 }
 
 func (h *Handler) listTables(c *echo.Context) error {
-	infos := h.TableBackend.ListTables()
 	r := c.Request()
 	level := tableODataLevelFromAccept(r.Header.Get("Accept"))
 
-	values := make([]map[string]any, 0, len(infos))
-	for _, ti := range infos {
+	top, topErr := odatatable.ParseTop(c.QueryParam("$top"))
+	if topErr != nil {
+		return h.writeTableError(c, http.StatusBadRequest, "InvalidInput", "The value for $top is invalid.")
+	}
+
+	if top <= 0 || top > odatatable.MaxPageSize {
+		top = odatatable.MaxPageSize
+	}
+
+	start := c.QueryParam("NextTableName")
+	values := make([]map[string]any, 0)
+
+	for _, ti := range h.TableBackend.ListTables() {
+		if ti.Name < start {
+			continue
+		}
+
+		if len(values) >= top {
+			c.Response().Header().Set(headerNextTableName, ti.Name)
+
+			break
+		}
+
 		values = append(values, h.tableEntityBody(r.Host, ti.Name, level))
 	}
 

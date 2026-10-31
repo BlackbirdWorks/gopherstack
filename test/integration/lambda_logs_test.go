@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	cwlogspkg "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -94,7 +95,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	// Create the function.
 	createBody := `{"FunctionName":"log-test-fn","PackageType":"Image",` +
 		`"Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`
-	createResp, createErr := http.Post(
+	createResp, createErr := testclient.New(t).Post(
 		server.URL+"/2015-03-31/functions",
 		"application/json",
 		strings.NewReader(createBody),
@@ -163,7 +164,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 			`"Code":{"ImageUri":"test:latest"},"Role":"arn:aws:iam::000000000000:role/r"}`,
 		fnName,
 	)
-	createResp, err := http.Post(
+	createResp, err := testclient.New(t).Post(
 		server.URL+"/2015-03-31/functions",
 		"application/json",
 		strings.NewReader(createBody),
@@ -173,7 +174,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 
 	// Publish version.
-	verResp, err := http.Post(
+	verResp, err := testclient.New(t).Post(
 		fmt.Sprintf("%s/2015-03-31/functions/%s/versions", server.URL, fnName),
 		"application/json",
 		strings.NewReader(`{"Description":"first release"}`),
@@ -183,13 +184,13 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, verResp.StatusCode)
 
 	// List versions — should have $LATEST + version 1.
-	listVerResp, err := http.Get(fmt.Sprintf("%s/2015-03-31/functions/%s/versions", server.URL, fnName))
+	listVerResp, err := testclient.New(t).Get(fmt.Sprintf("%s/2015-03-31/functions/%s/versions", server.URL, fnName))
 	require.NoError(t, err)
 	defer listVerResp.Body.Close()
 	require.Equal(t, http.StatusOK, listVerResp.StatusCode)
 
 	// Create alias pointing to version 1.
-	aliasResp, err := http.Post(
+	aliasResp, err := testclient.New(t).Post(
 		fmt.Sprintf("%s/2015-03-31/functions/%s/aliases", server.URL, fnName),
 		"application/json",
 		strings.NewReader(`{"Name":"prod","FunctionVersion":"1","Description":"production"}`),
@@ -199,7 +200,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, aliasResp.StatusCode)
 
 	// Get alias.
-	getAliasResp, err := http.Get(
+	getAliasResp, err := testclient.New(t).Get(
 		fmt.Sprintf("%s/2015-03-31/functions/%s/aliases/prod", server.URL, fnName),
 	)
 	require.NoError(t, err)
@@ -207,7 +208,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	require.Equal(t, http.StatusOK, getAliasResp.StatusCode)
 
 	// List aliases.
-	listAliasResp, err := http.Get(
+	listAliasResp, err := testclient.New(t).Get(
 		fmt.Sprintf("%s/2015-03-31/functions/%s/aliases", server.URL, fnName),
 	)
 	require.NoError(t, err)
@@ -224,7 +225,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	require.NoError(t, err)
 	updateReq.Header.Set("Content-Type", "application/json")
 
-	updateAliasResp, err := http.DefaultClient.Do(updateReq)
+	updateAliasResp, err := testclient.New(t).Do(updateReq)
 	require.NoError(t, err)
 	defer updateAliasResp.Body.Close()
 	require.Equal(t, http.StatusOK, updateAliasResp.StatusCode)
@@ -238,7 +239,7 @@ func TestLambdaVersionsAndAliases_Integration(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	deleteAliasResp, err := http.DefaultClient.Do(deleteReq)
+	deleteAliasResp, err := testclient.New(t).Do(deleteReq)
 	require.NoError(t, err)
 	defer deleteAliasResp.Body.Close()
 	require.Equal(t, http.StatusNoContent, deleteAliasResp.StatusCode)

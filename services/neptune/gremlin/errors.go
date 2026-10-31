@@ -23,6 +23,7 @@ const (
 	StatusNoContent        = 204
 	StatusPartial          = 206
 	StatusUnauthorized     = 401
+	StatusForbidden        = 403
 	StatusInvalidRequest   = 499
 	StatusServerError      = 500
 	StatusScriptEvalError  = 597

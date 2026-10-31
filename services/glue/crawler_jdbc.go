@@ -26,14 +26,15 @@ const (
 )
 
 var (
-	errJDBCSecret       = errors.New("connection authenticates through SECRET_ID, which the crawler cannot resolve")
+	errJDBCSecret       = errors.New("cannot resolve the connection's SECRET_ID")
+	errJDBCSecretBody   = errors.New("secret has no username and password")
 	errJDBCNoConnection = errors.New("connection not found")
 	errJDBCNoURL        = errors.New("connection has no JDBC_CONNECTION_URL")
 	errJDBCEngine       = errors.New("unsupported JDBC engine")
 )
 
 type jdbcEndpoint struct {
-	engine, host, port, database, user, password string
+	engine, host, port, database, user, password, secretID string
 }
 
 func parseJDBCURL(conn *Connection) (jdbcEndpoint, error) {
@@ -55,6 +56,7 @@ func parseJDBCURL(conn *Connection) (jdbcEndpoint, error) {
 	ep := jdbcEndpoint{
 		host: u.Hostname(), port: u.Port(), database: strings.TrimPrefix(u.Path, "/"),
 		user: conn.ConnectionProperties["USERNAME"], password: conn.ConnectionProperties["PASSWORD"],
+		secretID: conn.ConnectionProperties["SECRET_ID"],
 	}
 
 	switch u.Scheme {
@@ -70,10 +72,6 @@ func parseJDBCURL(conn *Connection) (jdbcEndpoint, error) {
 
 	if ep.port == "" {
 		ep.port = map[string]string{engPostgres: "5432", engMySQL: "3306", engRedshift: "5439"}[ep.engine]
-	}
-
-	if ep.password == "" && conn.ConnectionProperties["SECRET_ID"] != "" {
-		return jdbcEndpoint{}, errJDBCSecret
 	}
 
 	return ep, nil
@@ -136,6 +134,12 @@ func (r *crawlRun) crawlJDBC(t JDBCTarget) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), jdbcTimeout)
 	defer cancel()
+
+	if ep.secretID != "" {
+		if ep.user, ep.password, err = r.resolveSecretCredentials(ctx, ep.secretID); err != nil {
+			return err
+		}
+	}
 
 	db, err := ep.open(dbName)
 	if err != nil {
@@ -251,8 +255,8 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 	for _, key := range order {
 		tc := tables[key]
 		params := map[string]string{
-			paramClassification: ep.engine, "connectionName": t.ConnectionName,
-			paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
+			paramClassification: ep.engine, paramConnectionName: t.ConnectionName,
+			paramTypeOfData: typeOfDataTable, crawlerManagedParam: r.c.Name,
 		}
 
 		r.upsert(&Table{
@@ -264,7 +268,7 @@ func (r *crawlRun) writeJDBCTables(t JDBCTarget, ep jdbcEndpoint, dbName string,
 			Parameters:   params,
 			StorageDescriptor: StorageDescriptor{
 				Columns: tc.cols, Location: tc.location,
-				Parameters: map[string]string{"connectionName": t.ConnectionName, crawlerManagedParam: r.c.Name},
+				Parameters: map[string]string{paramConnectionName: t.ConnectionName, crawlerManagedParam: r.c.Name},
 			},
 		})
 	}
@@ -336,4 +340,26 @@ func mysqlHiveType(c jdbcColumn) string {
 	default:
 		return avroString
 	}
+}
+
+func (r *crawlRun) resolveSecretCredentials(ctx context.Context, secretID string) (string, string, error) {
+	if r.secrets == nil {
+		return "", "", fmt.Errorf("%w %q: Secrets Manager is not available", errJDBCSecret, secretID)
+	}
+
+	raw, err := r.secrets.SecretString(ctx, r.region, secretID)
+	if err != nil {
+		return "", "", fmt.Errorf("%w %q: %w", errJDBCSecret, secretID, err)
+	}
+
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	if err = decodeJSON([]byte(raw), &body); err != nil || body.Username == "" {
+		return "", "", fmt.Errorf("%w %q: %w", errJDBCSecret, secretID, errJDBCSecretBody)
+	}
+
+	return body.Username, body.Password, nil
 }

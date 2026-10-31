@@ -54,7 +54,8 @@ func TestBuildMetadataEndpoints(t *testing.T) {
 
 	// Every URL should point back at gopherstack's own base URL.
 	assert.Contains(t, doc.ResourceManager, "host:10006")
-	assert.Contains(t, doc.Graph, "host:10006")
+	assert.Contains(t, doc.Graph, "host:10014")
+	assert.Equal(t, doc.Graph, doc.MicrosoftGraphResourceID)
 	assert.Contains(t, doc.Portal, "host:10006")
 }
 

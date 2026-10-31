@@ -9,7 +9,7 @@ import (
 func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snap, err := h.Backend.CreateDBClusterSnapshot(snapshotID, clusterID)
+	snap, err := h.Backend.CreateDBClusterSnapshotAs(vals.Get(callerAccountParam), snapshotID, clusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +25,7 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
-	snaps, err := h.Backend.DescribeDBClusterSnapshots(snapshotID, clusterID)
+	snaps, err := h.Backend.DescribeDBClusterSnapshotsAs(parseSnapshotQuery(vals, snapshotID, clusterID))
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 
 func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	snap, err := h.Backend.DeleteDBClusterSnapshot(snapshotID)
+	snap, err := h.Backend.DeleteDBClusterSnapshotAs(vals.Get(callerAccountParam), snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -68,8 +68,8 @@ func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
 	copyTags := vals.Get("CopyTags") == formTrue
-	snap, err := h.Backend.CopyDBClusterSnapshotWithKMS(
-		sourceSnapshotID, targetSnapshotID, copyTags, vals.Get("KmsKeyId"),
+	snap, err := h.Backend.CopyDBClusterSnapshotAs(
+		vals.Get(callerAccountParam), sourceSnapshotID, targetSnapshotID, copyTags, vals.Get("KmsKeyId"),
 	)
 	if err != nil {
 		return nil, err
@@ -200,7 +200,7 @@ type modifyDBClusterSnapshotAttributeResponse struct {
 
 func (h *Handler) handleDescribeDBClusterSnapshotAttributes(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
-	result, err := h.Backend.DescribeDBClusterSnapshotAttributes(snapshotID)
+	result, err := h.Backend.DescribeDBClusterSnapshotAttributesAs(vals.Get(callerAccountParam), snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,9 @@ func (h *Handler) handleModifyDBClusterSnapshotAttribute(vals url.Values) (any, 
 	// locationName is "AttributeValue", not the query-protocol default "member".
 	valuesToAdd := extractMemberList(vals, "ValuesToAdd.AttributeValue.")
 	valuesToRemove := extractMemberList(vals, "ValuesToRemove.AttributeValue.")
-	result, err := h.Backend.ModifyDBClusterSnapshotAttribute(snapshotID, attributeName, valuesToAdd, valuesToRemove)
+	result, err := h.Backend.ModifyDBClusterSnapshotAttributeAs(
+		vals.Get(callerAccountParam), snapshotID, attributeName, valuesToAdd, valuesToRemove,
+	)
 	if err != nil {
 		return nil, err
 	}

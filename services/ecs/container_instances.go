@@ -231,7 +231,7 @@ func (b *InMemoryBackend) countInstanceTasks(ci *ContainerInstance, clusterName 
 		switch t.LastStatus {
 		case statusRunning:
 			running++
-		case statusPending, statusProvisioning:
+		case statusPending, statusProvisioning, statusActivating:
 			pending++
 		}
 	}

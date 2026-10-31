@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -130,7 +131,7 @@ func (e *pgExtEnv) s3Do(t *testing.T, method, path, body string) (int, string) {
 	req, err := http.NewRequestWithContext(t.Context(), method, e.s3.URL+path, strings.NewReader(body))
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	out, _ := io.ReadAll(resp.Body)

@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -267,6 +268,24 @@ const errConstraintViolation = "ConstraintViolationException"
 const errInvalidInput = "InvalidInputException"
 
 func getErrorTable() map[error]awserr.APIError {
+	table := baseErrorTable()
+	maps.Copy(table, handshakeErrorTable())
+
+	return table
+}
+
+func handshakeErrorTable() map[error]awserr.APIError {
+	return map[error]awserr.APIError{
+		ErrHandshakeAlreadyInState: {Code: "HandshakeAlreadyInStateException", HTTPStatus: http.StatusBadRequest},
+		ErrInvalidHandshakeTransition: {
+			Code:       "InvalidHandshakeTransitionException",
+			HTTPStatus: http.StatusBadRequest,
+		},
+		ErrAccessDeniedHandshake: {Code: "AccessDeniedException", HTTPStatus: http.StatusBadRequest},
+	}
+}
+
+func baseErrorTable() map[error]awserr.APIError {
 	return map[error]awserr.APIError{
 		ErrOrgNotFound:      {Code: "AWSOrganizationsNotInUseException", HTTPStatus: http.StatusBadRequest},
 		ErrOrgAlreadyExists: {Code: "AlreadyInOrganizationException", HTTPStatus: http.StatusBadRequest},
@@ -322,6 +341,7 @@ func getErrorTable() map[error]awserr.APIError {
 		ErrOrganizationNotEmpty: {Code: "OrganizationNotEmptyException", HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateHandshake:   {Code: "DuplicateHandshakeException", HTTPStatus: http.StatusBadRequest},
 		ErrPolicyTypeAttached:   {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
+		ErrMinPolicyAttachment:  {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 		ErrMalformedPolicyDocument: {
 			Code:       "MalformedPolicyDocumentException",
 			HTTPStatus: http.StatusBadRequest,

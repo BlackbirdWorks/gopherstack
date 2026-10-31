@@ -16,6 +16,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // TestIntegration_CognitoIDP_FullFlow exercises the full Cognito IDP lifecycle:
@@ -102,7 +104,7 @@ func TestIntegration_CognitoIDP_FullFlow(t *testing.T) {
 
 	// 7. Fetch the JWKS and use it to verify the tokens.
 	jwksURL := fmt.Sprintf("%s/%s/.well-known/jwks.json", endpoint, poolID)
-	jwksResp, httpErr := http.Get(jwksURL)
+	jwksResp, httpErr := testclient.New(t).Get(jwksURL)
 	require.NoError(t, httpErr, "JWKS GET failed")
 	defer jwksResp.Body.Close()
 	require.Equal(t, http.StatusOK, jwksResp.StatusCode, "JWKS endpoint should return 200")

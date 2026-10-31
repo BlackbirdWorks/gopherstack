@@ -852,6 +852,11 @@ func (b *InMemoryBackend) effectiveTimeoutSeconds(job *Job) int32 {
 	return jd.Timeout.AttemptDurationSeconds
 }
 
+// attemptsMade counts closed attempts from the persisted history.
+func attemptsMade(job *Job) int32 {
+	return int32(len(job.Attempts)) //nolint:gosec // attempts <= 10
+}
+
 // effectiveRetryAttempts returns job's own RetryStrategy.Attempts if set,
 // else the job definition's, else 1 (AWS's default of one attempt -- no
 // retry -- when no RetryStrategy is configured). Caller must hold at least a
@@ -900,15 +905,18 @@ func (b *InMemoryBackend) jobAttemptTimedOutLocked(job *Job) bool {
 func (b *InMemoryBackend) applyAttemptTimeoutLocked(job *Job, now int64) {
 	const timeoutReason = "job attempt duration exceeded timeout"
 
-	job.Attempts = append(job.Attempts, JobAttempt{
-		StartedAt:    job.StartedAt,
-		StoppedAt:    &now,
-		StatusReason: timeoutReason,
-	})
+	if n := len(job.Attempts); n > 0 && job.Attempts[n-1].StoppedAt == nil {
+		job.Attempts[n-1].StoppedAt = &now
+		job.Attempts[n-1].StatusReason = timeoutReason
+	} else {
+		job.Attempts = append(job.Attempts, JobAttempt{
+			StartedAt:    job.StartedAt,
+			StoppedAt:    &now,
+			StatusReason: timeoutReason,
+		})
+	}
 
-	job.attemptCount++
-
-	if job.attemptCount < b.effectiveRetryAttempts(job) {
+	if attemptsMade(job) < b.effectiveRetryAttempts(job) {
 		job.Status = jobStatusRunnable
 		job.StatusReason = timeoutReason + "; retrying"
 		job.StartedAt = nil

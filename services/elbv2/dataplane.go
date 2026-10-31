@@ -2,6 +2,7 @@ package elbv2
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/netip"
@@ -17,18 +18,19 @@ import (
 )
 
 const (
-	dataPlanePrefix      = "/_gopherstack/elbv2/"
-	dataPlaneHostMarker  = ".elb."
-	dataPlaneLocalSuffix = ".elb.localhost"
-	dataPlaneAWSSuffix   = ".elb.amazonaws.com"
-	listenerPortHeader   = "X-Gopherstack-Listener-Port"
-	defaultIdleTimeout   = 60 * time.Second
-	idleTimeoutAttr      = "idle_timeout.timeout_seconds"
-	defaultListenerPort  = 80
-	operationDataPlane   = "DataPlaneRequest"
-	msgNoTargets         = "503 Service Temporarily Unavailable"
-	msgBadGateway        = "502 Bad Gateway"
-	msgNotImplemented    = "501 Not Implemented"
+	dataPlanePrefix       = "/_gopherstack/elbv2/"
+	listenersEndpointPath = dataPlanePrefix + "_listeners"
+	dataPlaneHostMarker   = ".elb."
+	dataPlaneLocalSuffix  = ".elb.localhost"
+	dataPlaneAWSSuffix    = ".elb.amazonaws.com"
+	listenerPortHeader    = "X-Gopherstack-Listener-Port"
+	defaultIdleTimeout    = 60 * time.Second
+	idleTimeoutAttr       = "idle_timeout.timeout_seconds"
+	defaultListenerPort   = 80
+	operationDataPlane    = "DataPlaneRequest"
+	msgNoTargets          = "503 Service Temporarily Unavailable"
+	msgBadGateway         = "502 Bad Gateway"
+	msgNotImplemented     = "501 Not Implemented"
 )
 
 // LambdaInvoker invokes a Lambda function synchronously for lambda target groups.
@@ -139,6 +141,8 @@ type dpRequest struct {
 	path     string
 	rawPath  string
 	host     string
+	// clientPort is the TCP peer port of the client, 0 when unknown.
+	clientPort uint16
 }
 
 func (h *Handler) serveDataPlane(c *echo.Context) error {
@@ -148,6 +152,12 @@ func (h *Handler) serveDataPlane(c *echo.Context) error {
 }
 
 func (h *Handler) handleDataPlane(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == listenersEndpointPath {
+		h.serveListenerEndpoints(w)
+
+		return
+	}
+
 	lb, be, path, rawPath := h.resolveLB(r)
 	if lb == nil {
 		writeDPError(w, http.StatusNotFound, "404 Not Found: no such load balancer")
@@ -177,8 +187,9 @@ func (h *Handler) handleDataPlane(w http.ResponseWriter, r *http.Request) {
 
 	req := &dpRequest{
 		r: r, be: be, lb: lb, listener: l, path: path, rawPath: rawPath,
-		host: hostWithoutPort(r.Host), client: clientAddr(r),
+		host: hostWithoutPort(r.Host),
 	}
+	req.client, req.clientPort = clientAddrPort(r)
 	h.route(w, req)
 }
 
@@ -274,4 +285,20 @@ func writeDPError(w http.ResponseWriter, status int, msg string) {
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte("<html><head><title>" + msg + "</title></head><body><center><h1>" + msg +
 		"</h1></center></body></html>"))
+}
+
+// serveListenerEndpoints lists real-listener host endpoints across regions (the port mapping).
+func (h *Handler) serveListenerEndpoints(w http.ResponseWriter) {
+	out := []ListenerEndpoint{}
+
+	for _, be := range h.allBackends() {
+		if ib, ok := be.(*InMemoryBackend); ok {
+			out = append(out, ib.ListenerEndpoints()...)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].ListenerArn < out[j].ListenerArn })
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }

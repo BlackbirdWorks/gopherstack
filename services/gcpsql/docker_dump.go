@@ -9,33 +9,77 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 )
 
 const (
 	stderrLimit  = 512
 	connectLine  = `\connect `
 	dumpFileMode = 0o600
-	mysqlClient  = "mysql"
+	psqlBin      = "psql"
+	pgDumpBin    = "pg_dump"
 )
 
 var errExec = errors.New("command failed")
 
 func (e *dockerEngine) run(ctx context.Context, cmd []string) error {
-	res, err := e.rt.Exec(ctx, e.container(), cmd)
+	_, err := e.runOut(ctx, cmd)
+
+	return err
+}
+
+func (e *dockerEngine) runOut(ctx context.Context, cmd []string) (string, error) {
+	return e.runOutEnv(ctx, cmd, nil)
+}
+
+func (e *dockerEngine) runOutEnv(ctx context.Context, cmd, env []string) (string, error) {
+	name := cmdLabel(cmd)
+
+	res, err := container.ExecWithEnv(ctx, e.rt, e.container(), cmd, env)
 	if err != nil {
-		return fmt.Errorf("exec %s: %w", cmd[0], err)
+		return "", fmt.Errorf("%w: exec %s: %s", errExec, name, e.scrub(err.Error()))
 	}
 
 	if res.ExitCode != 0 {
-		msg := strings.TrimSpace(res.Stderr + res.Stdout)
+		msg := e.scrub(strings.TrimSpace(res.Stderr + res.Stdout))
 		if len(msg) > stderrLimit {
 			msg = msg[:stderrLimit]
 		}
 
-		return fmt.Errorf("%w: %s exited %d: %s", errExec, cmd[0], res.ExitCode, msg)
+		return "", fmt.Errorf("%w: %s exited %d: %s", errExec, name, res.ExitCode, msg)
 	}
 
-	return nil
+	return res.Stdout, nil
+}
+
+// cmdLabel maps argv to a fixed label so credentials in argv never reach errors or logs.
+func cmdLabel(cmd []string) string {
+	for _, a := range cmd {
+		switch a {
+		case psqlBin:
+			return psqlBin
+		case pgDumpBin:
+			return pgDumpBin
+		}
+	}
+
+	return "command"
+}
+
+// scrub redacts the engine's credentials from command output.
+func (e *dockerEngine) scrub(msg string) string {
+	e.mu.RLock("scrub")
+	secrets := []string{e.password, e.replPass}
+	e.mu.RUnlock()
+
+	for _, sec := range secrets {
+		if sec != "" {
+			msg = strings.ReplaceAll(msg, sec, "***")
+		}
+	}
+
+	return msg
 }
 
 func (e *dockerEngine) readDump(name string) ([]byte, error) {
@@ -56,16 +100,12 @@ func (e *dockerEngine) readDump(name string) ([]byte, error) {
 
 // Dump implements Engine.
 func (e *dockerEngine) Dump(ctx context.Context, dbs []string, opts DumpOptions) ([]byte, error) {
-	if e.kind == kindMySQL {
-		return e.dumpMySQL(ctx, dbs)
-	}
-
 	var out bytes.Buffer
 
 	for i, db := range dbs {
 		name := "dump" + strconv.Itoa(i) + ".sql"
 
-		cmd := []string{"pg_dump", "-U", pgAdminUser, "-d", db, "--clean", "--if-exists", "-f", dumpMount + "/" + name}
+		cmd := []string{pgDumpBin, "-U", pgAdminUser, "-d", db, "--clean", "--if-exists", "-f", dumpMount + "/" + name}
 		if opts.Portable {
 			cmd = append(cmd, "--no-owner", "--no-privileges")
 		}
@@ -94,29 +134,8 @@ func (e *dockerEngine) Dump(ctx context.Context, dbs []string, opts DumpOptions)
 	return out.Bytes(), nil
 }
 
-func (e *dockerEngine) dumpMySQL(ctx context.Context, dbs []string) ([]byte, error) {
-	if len(dbs) == 0 {
-		return nil, nil
-	}
-
-	cmd := append([]string{
-		"env", "MYSQL_PWD=" + e.pass(), "mysqldump", "-u" + mysqlAdminUser, "--single-transaction", "--routines",
-		"--add-drop-database", "-r", dumpMount + "/dump.sql", "--databases",
-	}, dbs...)
-
-	if err := e.run(ctx, cmd); err != nil {
-		return nil, err
-	}
-
-	return e.readDump("dump.sql")
-}
-
 // Restore implements Engine.
 func (e *dockerEngine) Restore(ctx context.Context, db string, data []byte) error {
-	if e.kind == kindMySQL {
-		return e.restoreFile(ctx, db, data)
-	}
-
 	for _, seg := range splitDump(db, data) {
 		if seg.db != pgAdminUser {
 			if err := e.CreateDatabase(ctx, seg.db, "", ""); err != nil &&
@@ -143,16 +162,7 @@ func (e *dockerEngine) restoreFile(ctx context.Context, db string, data []byte) 
 
 	file := dumpMount + "/in.sql"
 
-	if e.kind == kindPostgres {
-		return e.run(ctx, []string{"psql", "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
-	}
-
-	cmd := []string{"env", "MYSQL_PWD=" + e.pass(), mysqlClient, "-u" + mysqlAdminUser}
-	if db != "" {
-		cmd = append(cmd, "--database="+db)
-	}
-
-	return e.run(ctx, append(cmd, "-e", "source "+file))
+	return e.run(ctx, []string{psqlBin, "-U", pgAdminUser, "-d", db, "-v", "ON_ERROR_STOP=1", "-q", "-f", file})
 }
 
 type dumpSegment struct {

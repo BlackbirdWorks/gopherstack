@@ -107,11 +107,20 @@ var operationScopes = []string{ //nolint:gochecknoglobals // immutable catalog
 // of operationScopes (any API version). A rule with no such form yields none.
 func scopedOperationRules(r *annotations.HttpRule) []*annotations.HttpRule {
 	method, path := ruleVerb(r)
-	out := make([]*annotations.HttpRule, 0, len(operationScopes))
+	out := make([]*annotations.HttpRule, 0, len(operationScopes)+1)
 
-	for _, scope := range operationScopes {
+	for _, scope := range append([]string{""}, operationScopes...) {
 		scoped := strings.Replace(path, "/v1/{name=operations/**}", "/*/{name="+scope+"/operations/*}", 1)
-		if scoped == path {
+		if scope == "" {
+			if scoped = strings.Replace(
+				path,
+				"/v1/{name=operations/**}",
+				"/*/{name=operations/**}",
+				1,
+			); scoped == path {
+				continue
+			}
+		} else if scoped == path {
 			scoped = strings.Replace(path, "/v1/{name=operations}", "/*/{name="+scope+"}/operations", 1)
 		}
 
@@ -138,10 +147,17 @@ func scopedOperationRules(r *annotations.HttpRule) []*annotations.HttpRule {
 	return out
 }
 
-// rank puts verb-suffixed templates first so ".../x:verb" is never swallowed by ".../{name}"; the rest
-// keep proto declaration order, which is how Google frontends resolve overlapping templates.
+// rank puts verb-suffixed templates first so ".../x:verb" is never swallowed by ".../{name}", then templates that
+// end in a literal segment (".../tagKeys/namespaced") ahead of the variable ones that would also match them; the
+// rest keep proto declaration order, which is how Google frontends resolve overlapping templates.
 func rank(r *route) int {
 	if r.tmpl.verb != "" {
+		return 2 //nolint:mnd // verb templates sort first
+	}
+
+	last := len(r.tmpl.elems) - 1
+	if last >= 0 && r.tmpl.elems[last].kind == elemLiteral &&
+		!slices.ContainsFunc(r.tmpl.vars, func(v variable) bool { return v.start <= last && last < v.end }) {
 		return 1
 	}
 

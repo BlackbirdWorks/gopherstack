@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -116,7 +117,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpfirestore", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.UnaryInterceptor(logInterceptor(log)))
+	srv := gcpenforce.NewServer(ctx, "firestore.googleapis.com", grpc.UnaryInterceptor(logInterceptor(log)))
 	firestorepb.RegisterFirestoreServer(srv, &server{b: h.Backend})
 
 	h.srvMu.Lock("StartWorker")

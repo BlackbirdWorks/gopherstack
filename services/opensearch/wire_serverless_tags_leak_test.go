@@ -19,17 +19,19 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
 // captureTransport records the raw bytes of the last HTTP response, then
 // replays them so the real SDK deserializer still sees the full body.
 type captureTransport struct {
+	rt   http.RoundTripper
 	body []byte
 }
 
 func (c *captureTransport) Do(req *http.Request) (*http.Response, error) {
-	resp, err := http.DefaultTransport.RoundTrip(req)
+	resp, err := c.rt.RoundTrip(req)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +75,7 @@ func newCapturingTestServerlessClient(
 	)
 	require.NoError(t, err)
 
-	capture := &captureTransport{}
+	capture := &captureTransport{rt: testclient.New(t).Transport}
 
 	client := opensearchserverless.NewFromConfig(cfg, func(o *opensearchserverless.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)

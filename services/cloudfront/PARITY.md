@@ -240,8 +240,9 @@ items_still_open:
   - "Data plane unverified against real AWS: disabled distribution answers 403, redirect-to-https answers 301 (GET/HEAD) or 307 (other methods), POST to an S3 origin answers 403, and non-trailing-wildcard aliases are not matched."
   - "AnycastIPList.AnycastIps are always IPv4-formatted whatever IpAddressType says: the pinned SDK documents no ipv6 or dualstack address count, so the dualstack shape is unverifiable."
   - "CloudFront Functions origin helpers: parameters are validated against the documented shape but sslProtocols, ipAddressType, originShield, connectionTimeout, keepAliveTimeout and originAccessControlConfig signing settings have no data-plane effect; the exact AWS validation messages and the originIds object form are unverified against real AWS. The origin choice does not enter the cache key."
+  - "Lambda@Edge data plane (dataplane_edge*.go): the X-Cache labels LambdaGeneratedResponse/LambdaValidationError/LambdaExecutionError/LambdaLimitExceeded, the 5 s viewer-event cap (docs list only a 30 s quota), ignoring a viewer-response status change, and the origin-request header set (rebuilt from the outbound request, not the AWS-internal one) are unverified against real AWS. Origin failover groups do not re-run origin-request/response per member."
 structural_gaps:
-  - "Lambda@Edge and field-level encryption are not executed on the data plane: edge Lambda needs a regional edge runtime. CloudFront Functions (viewer-request/response) do run (dataplane_function.go)."
+  - "Field-level encryption is not executed on the data plane. CloudFront Functions (dataplane_function.go) and Lambda@Edge (dataplane_edge.go) do run."
   - "Viewer TLS is not terminated here: https is inferred from X-Forwarded-Proto/CloudFront-Forwarded-Proto or a TLS listener, so viewer certificates and SNI are not modelled."
   - "Real edge-location behaviour (multi-POP caches, origin shield, regional edge caches, Range-request caching, ErrorCachingMinTTL, origin failover groups, WAF, real-time logs) is not emulated."
   - "ManagedCertificateRequest: ValidationTokenHost is stored and reflected by GetManagedCertificateDetails, but the certificate itself needs real ACM DNS/HTTP validation, which no emulator performs."
@@ -261,6 +262,10 @@ NoSuchFunctionExists; ListFunctions/ListConnectionFunctions Stage filters use th
 Create/UpdateDistributionTenant store ManagedCertificateRequest and GetManagedCertificateDetails reflects
 its ValidationTokenHost (`TestManagedCertificateRequest_TokenHost`); the cached details are dropped on
 tenant update/delete.
+
+## 2026-10-28: Lambda@Edge data plane (gopherstack-49qct.68)
+
+Associations are validated on Create/Update/CreateWithTags (InvalidLambdaFunctionAssociation: numbered version in us-east-1 owned by the distribution account, existing version, valid event, IncludeBody on request events only, one function per event, no CloudFront Function on the same viewer event). The data plane invokes the Lambda backend through the narrow `LambdaEdge` interface wired in internal/app/cloudfront_dataplane.go. Sources: AWS docs "Lambda@Edge event structure", "Restrictions on edge functions", "Restrictions on Lambda@Edge", "Work with requests and responses", HTTP 502/503 troubleshooting pages.
 
 ## Notes
 

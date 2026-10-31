@@ -346,10 +346,6 @@ func (b *InMemoryBackend) buildPermissionLocked(spec PermissionSpec) (*storedPer
 		return p, nil
 	}
 
-	if strings.Count(link, "/")+1 != containerLinkSegments {
-		return nil, fmt.Errorf("%w: resourcePartitionKey requires a container resource", ErrInvalidPermission)
-	}
-
 	pk, err := parsePartitionKeyHeader(string(spec.PartitionKey))
 	if err != nil {
 		return nil, fmt.Errorf("%w: resourcePartitionKey is malformed", ErrInvalidPermission)
@@ -368,9 +364,12 @@ func (b *InMemoryBackend) resolveLinkLocked(link string) (string, error) {
 		return "", fmt.Errorf("%w: resource must link a container or a document", ErrInvalidPermission)
 	}
 
-	badDocSegment := len(segs) == documentLinkSegments && segs[4] != docsSegment
-	if segs[0] != dbsSegment || segs[2] != collsSegment || badDocSegment {
-		return "", fmt.Errorf("%w: resource must link a container or a document", ErrInvalidPermission)
+	_, childOK := collectionKindsFor(segs[len(segs)-2])
+	badChild := len(segs) == documentLinkSegments && (!childOK || segs[4] == conflictsSegment)
+
+	if segs[0] != dbsSegment || segs[2] != collsSegment || badChild {
+		return "", fmt.Errorf("%w: resource must link a container, document, stored procedure, trigger or UDF",
+			ErrInvalidPermission)
 	}
 
 	notFound := fmt.Errorf("%w: resource %q does not exist", ErrInvalidPermission, link)
@@ -390,6 +389,10 @@ func (b *InMemoryBackend) resolveLinkLocked(link string) (string, error) {
 	path := "dbs/" + dbID + "/colls/" + cID
 	if len(segs) == containerLinkSegments {
 		return path, nil
+	}
+
+	if segs[4] != docsSegment {
+		return b.resolveScriptLinkLocked(b.databases[dbID].Containers[cID], path, segs[4], segs[5], notFound)
 	}
 
 	for _, doc := range b.databases[dbID].Containers[cID].Documents {
@@ -413,4 +416,27 @@ func matchLinkSegment[T any](m map[string]*T, seg string, path func(id string) s
 	}
 
 	return "", false
+}
+
+// resolveScriptLinkLocked resolves a stored procedure, trigger or UDF link (id or RID) to its id-based path.
+func (b *InMemoryBackend) resolveScriptLinkLocked(
+	c *storedContainer, path, collection, seg string, notFound error,
+) (string, error) {
+	var scripts map[string]*storedScript
+
+	switch scriptKind(collection) {
+	case kindSproc:
+		scripts = c.Sprocs
+	case kindTrigger:
+		scripts = c.Triggers
+	case kindUDF:
+		scripts = c.UDFs
+	}
+
+	id, ok := matchLinkSegment(scripts, seg, func(id string) string { return path + "/" + collection + "/" + id })
+	if !ok {
+		return "", notFound
+	}
+
+	return path + "/" + collection + "/" + id, nil
 }

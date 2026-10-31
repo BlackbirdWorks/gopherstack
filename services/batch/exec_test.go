@@ -23,6 +23,7 @@ var errFakeIssue = errors.New("role not assumable")
 
 type fakeResult struct {
 	err   error
+	after <-chan struct{}
 	logs  []string
 	exit  int
 	block bool
@@ -67,10 +68,24 @@ func (f *fakeRunner) RunContainer(
 		return 0, res.err
 	}
 
+	if hooks.OnAddress != nil {
+		hooks.OnAddress("10.1.0.2")
+	}
+
 	hooks.OnStarted()
 
 	if len(res.logs) > 0 {
 		hooks.OnLog(res.logs)
+	}
+
+	if res.after != nil {
+		select {
+		case <-ctx.Done():
+			f.cancelled.Add(1)
+
+			return 0, ctx.Err()
+		case <-res.after:
+		}
 	}
 
 	if res.block || f.gate != nil {
@@ -637,7 +652,7 @@ func TestExecDependsOn(t *testing.T) {
 			second := e.submit(t, submitOpts{deps: []batch.JobDependency{{JobID: first.JobID}}})
 
 			e.waitStatus(t, first.JobID, "RUNNING")
-			assert.Equal(t, "PENDING", e.describe(t, second.JobID).Status)
+			e.waitStatus(t, second.JobID, "PENDING")
 			assert.Equal(t, int32(1), runner.calls.Load())
 
 			runner.gate <- struct{}{}

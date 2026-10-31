@@ -356,9 +356,10 @@ func engineEnv(lb *liveDB) []string {
 
 func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
 	s := container.Spec{
-		Name:  lb.ctrName,
-		Image: engineImage(lb.kind, lb.version),
-		Env:   engineEnv(lb),
+		Name:   lb.ctrName,
+		Labels: container.ServiceLabels("rds"),
+		Image:  engineImage(lb.kind, lb.version),
+		Env:    engineEnv(lb),
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
 		Network: plan.network,

@@ -11,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // TestIntegration_S3_CORS verifies CORS rule evaluation on OPTIONS preflight requests.
@@ -162,7 +164,7 @@ func TestIntegration_S3_CORS(t *testing.T) {
 				req.Header.Set("Access-Control-Request-Headers", tt.reqHeaders)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

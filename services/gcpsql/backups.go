@@ -177,7 +177,7 @@ func (b *InMemoryBackend) RestoreBackup(project, instance string, in RestoreBack
 	b.mu.Lock("RestoreBackup")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}

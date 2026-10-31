@@ -8,14 +8,17 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 22 (22 ok) |
-| Known gaps | 2 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 18 |
 | Deferred items | 5 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- RunInstances accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected.
+- Snapshot and AMI sharing is caller-aware only for resources created or copied by an explicit-account caller (OwnerID = that account); resources owned by the backend account stay visible to every caller, and instances, volumes and other resources are not account-scoped (gopherstack-tnqy.6).
+- RunInstances (in-memory provider) accepts any syntactically valid InstanceType and any ami-prefixed ImageId: the instance-type catalog is partial and many in-repo callers launch synthetic AMIs, so unknown-but-well-formed values are not rejected. The docker provider rejects an unknown ImageId with InvalidAMIID.NotFound.
+- Docker provider AMI binding: Windows and Bottlerocket seeded AMIs have no Linux container equivalent and run the configured default image; AMI Architecture does not select a platform-specific image (the host platform decides); deregistering an AMI does not remove its committed docker image; CreateImage snapshots the container filesystem only, not attached non-root EBS volumes or EBS snapshots.
+- Docker provider EBS volumes (opt-in): AttachVolume on a running instance copies data in and DetachVolume/terminate copy it back (Docker cannot add a mount to a live container), so runtime-attached data reaches the Docker volume at detach or terminate rather than continuously, the copy-sync registry is in memory (lost on restart), and a volume mounted at launch stays mounted after DetachVolume; the root volume has no Docker volume, so DeleteOnTermination=false on the root device does not retain it; Docker volumes of EBS volumes deleted by fleet or shutdown-behavior termination are reaped on the next Terminate or DeleteVolume call.
 - Filters the pinned SDK does not define: DescribeCapacityBlocks 'tags' (doc is only "the tags assigned"; checked api_op_DescribeCapacityBlocks.go), DescribeInstanceEventWindows 'instance-tag' (value syntax undocumented in api_op_DescribeInstanceEventWindows.go), DescribeVpcPeeringConnections 'status-message' (no message texts in the SDK or the VPC peering lifecycle page, which names states only).
 
 ### Structural gaps

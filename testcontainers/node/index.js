@@ -10,15 +10,15 @@ export const AZURE_ACCOUNT_KEY =
 
 export const AZURE_PORTS = {
   blob: 10000, queue: 10001, table: 10002, servicebus: 10003, keyvault: 10004,
-  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
+  eventhubs: 10005, arm: 10006, eventgrid: 10007, appconfig: 10008, file: 10009, monitor: 10013, graph: 10014, acr: 10011, storagevhost: 10010, cosmosdb: 8081,
 };
 
-export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155 };
+export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, identity: 8153, functions: 8154, core: 8155, queue: 8156, notifications: 8157, containerengine: 8158, mysql: 8159, logging: 8160, monitoring: 8161, nosql: 8162, apigateway: 8163, events: 8164, loadbalancer: 8165, artifacts: 8166, containerinstances: 8167 };
 
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
   cloudtasks: 8123, scheduler: 8124, iam: 8125, run: 8126, functions: 8128,
-  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, eventarc: 8138, workflows: 8139, dns: 8140, dnsserver: 8141, compute: 8142, bigquery: 9050,
+  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, eventarc: 8138, workflows: 8139, dns: 8140, dnsserver: 8141, compute: 8142, datastore: 8143, container: 8144, identitytoolkit: 8145, apigateway: 8146, batch: 8147, resourcemanager: 8148, bigquery: 9050,
 };
 
 const DATA_DIR = "/data";
@@ -112,7 +112,7 @@ export class StartedGopherstackContainer {
     );
   }
 
-  /** http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core), usable as the OCI SDK client host. */
+  /** http URL of an OCI service (objectstorage, vault, streaming, identity, functions, core, queue, notifications), usable as the OCI SDK client host. */
   getOciEndpoint(service) {
     const port = OCI_PORTS[String(service).toLowerCase()];
     if (port === undefined) throw new Error(`unknown oci service "${service}"`);

@@ -103,6 +103,9 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPSecretRotation(byName)
 	wireGCPWorkflows(byName)
 	wireGCPRun(byName)
+	wireGCPContainer(byName)
+	wireGCPIdentityToolkit(byName)
+	wireGCPBatch(byName)
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the

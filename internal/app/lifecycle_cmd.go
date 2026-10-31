@@ -26,6 +26,10 @@ const (
 	lifecycleStateFilePerm  = 0o600
 	lifecycleDefaultTail    = 100
 	lifecycleLogTailMaxByte = 1 << 20
+	lifecycleSocketInside   = "/var/run/docker.sock"
+	lifecycleSchemeHTTPS    = "https"
+	lifecycleStopGrace      = 2 * lifecycleStopTimeout
+	localstackAvailable     = "available"
 )
 
 var (
@@ -34,6 +38,8 @@ var (
 	errLifecycleStartFail  = errors.New("gopherstack failed to become ready")
 	errLifecycleBadEnv     = errors.New("invalid --env, want KEY=VALUE or KEY")
 	errLifecycleNoRuntime  = errors.New("container runtime does not support this operation")
+	errLifecycleHostOnly   = errors.New("--foreground and --docker-socket apply to container mode, not --host")
+	errLifecycleSocketPath = errors.New("--docker-socket-path requires --docker-socket")
 )
 
 // LifecycleTarget identifies the managed instance on disk.
@@ -44,17 +50,20 @@ type LifecycleTarget struct {
 
 // StartCmd is `gopherstack start`.
 type StartCmd struct {
-	LifecycleTarget `embed:""`
-	Image           string        `         name:"image"    env:"GOPHERSTACK_IMAGE" default:"ghcr.io/blackbirdworks/gopherstack" help:"Container image repository."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	Tag             string        `         name:"tag"      env:"GOPHERSTACK_TAG"   default:"latest"                             help:"Image tag."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	Bind            string        `         name:"bind"                             default:"127.0.0.1"                          help:"Host address to bind published ports to (default loopback)."`                           //nolint:lll // config struct tags are intentionally verbose
-	Port            string        `         name:"port"     env:"PORT"              default:"8000"                               help:"Host port for the main HTTP endpoint."`                                                 //nolint:lll // config struct tags are intentionally verbose
-	DataDir         string        `         name:"data-dir"                                                                      help:"Host directory mounted as the data dir (default with --persist: state dir)."`           //nolint:lll // config struct tags are intentionally verbose
-	Publish         []string      `         name:"publish"                                                                       help:"Extra container ports to publish, [HOSTPORT:]CONTAINERPORT (repeatable)."    short:"p"` //nolint:lll // config struct tags are intentionally verbose
-	Env             []string      `         name:"env"                                                                           help:"Environment for the server, KEY=VALUE or KEY (copied from this shell)."      short:"e"` //nolint:lll // config struct tags are intentionally verbose
-	Timeout         time.Duration `         name:"timeout"                          default:"90s"                                help:"How long to wait for the server to become healthy."`                                    //nolint:lll // config struct tags are intentionally verbose
-	Host            bool          `         name:"host"                                                                          help:"Run as a background host process instead of a container."`                              //nolint:lll // config struct tags are intentionally verbose
-	Persist         bool          `         name:"persist"                                                                       help:"Enable snapshot-based persistence across restarts."`                                    //nolint:lll // config struct tags are intentionally verbose
+	LifecycleTarget  `embed:""`
+	Image            string        `         name:"image"              env:"GOPHERSTACK_IMAGE" default:"ghcr.io/blackbirdworks/gopherstack" help:"Container image repository."`                                                                                                                                                                                                //nolint:lll // config struct tags are intentionally verbose
+	Tag              string        `         name:"tag"                env:"GOPHERSTACK_TAG"   default:"latest"                             help:"Image tag."`                                                                                                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Bind             string        `         name:"bind"                                       default:"127.0.0.1"                          help:"Host address to bind published ports to (default loopback)."`                                                                                                                                                                //nolint:lll // config struct tags are intentionally verbose
+	Port             string        `         name:"port"               env:"PORT"              default:"8000"                               help:"Host port for the main HTTP endpoint."`                                                                                                                                                                                      //nolint:lll // config struct tags are intentionally verbose
+	DataDir          string        `         name:"data-dir"                                                                                help:"Host directory mounted as the data dir (default with --persist: state dir)."`                                                                                                                                                //nolint:lll // config struct tags are intentionally verbose
+	DockerSocketPath string        `         name:"docker-socket-path"                                                                      help:"Host Docker socket to mount with --docker-socket (default: unix DOCKER_HOST, else /var/run/docker.sock)."`                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	Publish          []string      `         name:"publish"                                                                                 help:"Extra container ports to publish, [HOSTPORT:]CONTAINERPORT (repeatable)."                                                                                                                                         short:"p"` //nolint:lll // config struct tags are intentionally verbose
+	Env              []string      `         name:"env"                                                                                     help:"Environment for the server, KEY=VALUE or KEY (copied from this shell)."                                                                                                                                           short:"e"` //nolint:lll // config struct tags are intentionally verbose
+	Timeout          time.Duration `         name:"timeout"                                    default:"90s"                                help:"How long to wait for the server to become healthy."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Host             bool          `         name:"host"                                                                                    help:"Run as a background host process instead of a container."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	Foreground       bool          `         name:"foreground"                                                                              help:"Attach: stream container logs, stop on SIGINT/SIGTERM, exit with the container's exit code (container mode only)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
+	DockerSocket     bool          `         name:"docker-socket"                                                                           help:"SECURITY: mount the host Docker socket into the container for engine features (Lambda, ECS, RDS, ...). Grants the server root-equivalent control of the host Docker daemon; off by default. Container mode only."`           //nolint:lll // config struct tags are intentionally verbose
+	Persist          bool          `         name:"persist"                                                                                 help:"Enable snapshot-based persistence across restarts."`                                                                                                                                                                         //nolint:lll // config struct tags are intentionally verbose
 }
 
 // StopCmd is `gopherstack stop`.

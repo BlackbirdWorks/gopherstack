@@ -240,7 +240,7 @@ func filterByManagedType[T any](typeParam string, managed func(T) bool, items []
 	switch typeParam {
 	case "managed":
 		return filterSlice(items, managed)
-	case "custom":
+	case keyCustom:
 		return filterSlice(items, func(v T) bool { return !managed(v) })
 	default:
 		return items

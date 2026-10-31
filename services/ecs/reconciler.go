@@ -102,6 +102,7 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 	// lifecycle states (stop/start pipelines) before reconciling desired counts.
 	r.backend.stepTaskLifecycle(time.Now())
 	r.backend.stopELBUnhealthyTasks(ctx)
+	r.backend.stopUnhealthyServiceTasks()
 	r.sampleUtilization(ctx)
 	r.backend.ReconcileCapacity(ctx)
 

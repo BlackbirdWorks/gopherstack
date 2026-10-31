@@ -3,51 +3,18 @@ package gcprun
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sync/atomic"
 	"time"
-)
 
-const (
-	defaultMaxInstances = 100
-	// DefaultIdleTimeout is how long an idle instance above the minimum is kept; Cloud Run documents "up to 15 minutes".
-	DefaultIdleTimeout = 15 * time.Minute
-	minQueueTimeout    = 10 * time.Second
-	queueStartupFactor = 3.5
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 )
 
 var (
-	errQueueTimeout  = errors.New("no instance became available: the request timed out in the pending queue")
 	errRevisionGone  = errors.New("revision was removed")
-	errRetired       = errors.New("instance was retired while starting")
 	errInstanceStart = errors.New("instance failed to start")
 )
 
-// inst is one running copy of a revision: every container of the revision sharing a network namespace.
-type inst struct {
-	err       error
-	idle      Timer
-	mctx      context.Context
-	ports     map[int]int
-	cancel    context.CancelFunc
-	ready     chan struct{}
-	hostPorts []int
-	ids       []string
-	dirs      []string
-	seq       uint64
-	hostPort  int
-	inflight  int
-	cleaned   atomic.Bool
-	dead      bool
-}
-
-func (in *inst) id() string {
-	if len(in.ids) == 0 {
-		return ""
-	}
-
-	return in.ids[0]
-}
+// DefaultIdleTimeout is how long an idle instance above the minimum is kept; Cloud Run documents "up to 15 minutes".
+const DefaultIdleTimeout = gcpscale.DefaultIdleTimeout
 
 // SetIdleTimeout sets how long an idle instance above the revision's minimum is kept before it scales to zero.
 func (b *InMemoryBackend) SetIdleTimeout(d time.Duration) {
@@ -58,6 +25,22 @@ func (b *InMemoryBackend) SetIdleTimeout(d time.Duration) {
 		b.idleTimeout = d
 	}
 }
+
+func (b *InMemoryBackend) idleFor() time.Duration {
+	b.mu.RLock("idleFor")
+	defer b.mu.RUnlock()
+
+	return b.idleTimeout
+}
+
+// backendClock follows SetClock for pools created before the swap.
+type backendClock struct{ b *InMemoryBackend }
+
+func (c backendClock) Now() time.Time { return c.b.clk().Now() }
+
+func (c backendClock) NewTimer(d time.Duration) Timer { return c.b.clk().NewTimer(d) }
+
+func (c backendClock) AfterFunc(d time.Duration, f func()) Timer { return c.b.clk().AfterFunc(d, f) }
 
 func (b *InMemoryBackend) scalingLimits(r *revRec) (int, int) {
 	minN, maxN := int(r.pb.GetScaling().GetMinInstanceCount()), int(r.pb.GetScaling().GetMaxInstanceCount())
@@ -73,249 +56,77 @@ func (b *InMemoryBackend) scalingLimits(r *revRec) (int, int) {
 	}
 
 	if maxN <= 0 {
-		maxN = defaultMaxInstances
+		maxN = gcpscale.DefaultMaxInstances
 	}
 
 	return min(minN, maxN), maxN
 }
 
-func (r *revRec) liveCount() int {
-	n := 0
+func (b *InMemoryBackend) newPoolLocked(name string, r *revRec) *gcpscale.Pool[*inst] {
+	return gcpscale.New(lastSegment(name), gcpscale.Config[*inst]{
+		Start: func(ctx context.Context) (*inst, error) { return b.startInst(ctx, name) },
+		Stop:  b.teardownInst,
+		Limits: func() gcpscale.Limits {
+			b.mu.RLock("limits")
+			defer b.mu.RUnlock()
 
-	for _, in := range r.insts {
-		if !in.dead {
-			n++
-		}
-	}
+			minN, maxN := b.scalingLimits(r)
 
-	return n
-}
-
-func (r *revRec) notifyLocked() {
-	close(r.changed)
-	r.changed = make(chan struct{})
-}
-
-// pickLocked returns the first instance with a free request slot, preferring ones that already serve.
-func pickLocked(r *revRec, conc int) *inst {
-	var starting *inst
-
-	for _, in := range r.insts {
-		if in.dead || in.inflight >= conc {
-			continue
-		}
-
-		select {
-		case <-in.ready:
-			return in
-		default:
-			if starting == nil {
-				starting = in
+			return gcpscale.Limits{
+				Min: minN, Max: maxN, Concurrency: int(r.pb.GetMaxInstanceRequestConcurrency()),
 			}
-		}
-	}
-
-	return starting
+		},
+		Idle:  b.idleFor,
+		Clock: backendClock{b: b},
+		Base:  b.runCtx,
+	})
 }
 
-// growLocked adds a starting instance and brings it up in the background.
-func (b *InMemoryBackend) growLocked(name string, r *revRec) *inst {
-	in := &inst{ready: make(chan struct{}), seq: b.instSeq.Add(1)}
-	in.mctx, in.cancel = context.WithCancel(b.runCtx)
-	r.insts = append(r.insts, in)
-	pb := clone(r.pb)
-
-	b.wg.Go(func() { b.bringUp(name, in, pb) })
-
-	return in
-}
-
-func (b *InMemoryBackend) queueTimeout(r *revRec) time.Duration {
-	return max(minQueueTimeout, time.Duration(queueStartupFactor*float64(r.avgStart)))
-}
-
-// acquire reserves a request slot on an instance of the revision, starting one when every slot is taken and the
-// revision is below max instances, and queueing the request otherwise until it times out (HTTP 429).
-func (b *InMemoryBackend) acquire(ctx context.Context, name string) (*inst, func(), error) {
-	var deadline Timer
-
-	defer func() {
-		if deadline != nil {
-			deadline.Stop()
-		}
-	}()
-
-	for {
-		b.mu.Lock("acquire")
-
-		r := b.revisions[name]
-		if r == nil {
-			b.mu.Unlock()
-
-			return nil, nil, errRevisionGone
-		}
-
-		conc := max(int(r.pb.GetMaxInstanceRequestConcurrency()), 1)
-
-		in := pickLocked(r, conc)
-		if _, maxN := b.scalingLimits(r); in == nil && r.liveCount() < maxN {
-			in = b.growLocked(name, r)
-		}
-
-		if in != nil {
-			in.inflight++
-			stopTimer(in)
-			b.mu.Unlock()
-
-			return b.await(ctx, name, in)
-		}
-
-		changed, wait := r.changed, b.queueTimeout(r)
-		b.mu.Unlock()
-
-		if deadline == nil {
-			deadline = b.clk().NewTimer(wait)
-		}
-
-		select {
-		case <-changed:
-		case <-deadline.C():
-			return nil, nil, errQueueTimeout
-		case <-ctx.Done():
-			return nil, nil, fmt.Errorf("request cancelled while queued: %w", ctx.Err())
-		}
-	}
-}
-
-func stopTimer(in *inst) {
-	if in.idle != nil {
-		in.idle.Stop()
-		in.idle = nil
-	}
-}
-
-func (b *InMemoryBackend) await(ctx context.Context, name string, in *inst) (*inst, func(), error) {
-	select {
-	case <-in.ready:
-	case <-ctx.Done():
-		b.release(name, in)
-
-		return nil, nil, fmt.Errorf("request cancelled while the instance started: %w", ctx.Err())
-	}
-
-	if in.err != nil {
-		b.release(name, in)
-
-		return nil, nil, in.err
-	}
-
-	return in, func() { b.release(name, in) }, nil
-}
-
-// release frees a request slot and arms the idle timer when the instance has gone quiet.
-func (b *InMemoryBackend) release(name string, in *inst) {
-	b.mu.Lock("release")
+// poolFor returns the revision's instance pool, creating it on first use.
+func (b *InMemoryBackend) poolFor(name string) (*gcpscale.Pool[*inst], string, error) {
+	b.mu.Lock("poolFor")
 	defer b.mu.Unlock()
 
-	in.inflight--
-
-	if r := b.revisions[name]; r != nil {
-		r.notifyLocked()
-		b.armIdleLocked(name, r, in)
+	r := b.revisions[name]
+	if r == nil {
+		return nil, "", errRevisionGone
 	}
+
+	if r.pool == nil {
+		r.pool = b.newPoolLocked(name, r)
+	}
+
+	return r.pool, r.pb.GetService(), nil
 }
 
-func (b *InMemoryBackend) armIdleLocked(name string, r *revRec, in *inst) {
-	if in.dead || in.inflight > 0 || in.idle != nil || in.err != nil {
-		return
+func goneIfClosed(err error) error {
+	if errors.Is(err, gcpscale.ErrClosed) {
+		return errRevisionGone
 	}
 
-	select {
-	case <-in.ready:
-	default:
-		return
-	}
-
-	in.idle = b.clk().AfterFunc(b.idleTimeout, func() { b.idleExpired(name, r, in) })
+	return err
 }
 
-// idleExpired scales an instance to zero unless it is needed to keep the revision at its minimum.
-func (b *InMemoryBackend) idleExpired(name string, r *revRec, in *inst) {
-	b.mu.Lock("idleExpired")
-
-	minN, _ := b.scalingLimits(r)
-	if in.dead || in.inflight > 0 || r.liveCount() <= minN || b.revisions[name] != r {
-		in.idle = nil
-		b.mu.Unlock()
-
-		return
+// acquire reserves a request slot on an instance of the revision (see gcpscale.Pool.Acquire).
+func (b *InMemoryBackend) acquire(ctx context.Context, name string) (*inst, func(), error) {
+	pool, _, err := b.poolFor(name)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	b.detachLocked(r, in)
-	r.notifyLocked()
-	b.mu.Unlock()
+	in, release, err := pool.Acquire(ctx)
 
-	b.teardownInst(in)
-}
-
-// detachLocked marks in dead and removes it from the revision's pool.
-func (b *InMemoryBackend) detachLocked(r *revRec, in *inst) {
-	in.dead = true
-	stopTimer(in)
-
-	for i, x := range r.insts {
-		if x == in {
-			r.insts = append(r.insts[:i], r.insts[i+1:]...)
-
-			break
-		}
-	}
+	return in, release, goneIfClosed(err)
 }
 
 // ensure brings the revision to at least n instances and waits until they are ready.
 func (b *InMemoryBackend) ensure(ctx context.Context, name string, n int) error {
-	b.mu.Lock("ensure")
-
-	r := b.revisions[name]
-	if r == nil {
-		b.mu.Unlock()
-
-		return errRevisionGone
+	pool, _, err := b.poolFor(name)
+	if err != nil {
+		return err
 	}
 
-	_, maxN := b.scalingLimits(r)
-	for r.liveCount() < min(n, maxN) {
-		b.growLocked(name, r)
-	}
-
-	waits := make([]*inst, 0, n)
-
-	for _, in := range r.insts {
-		if !in.dead && len(waits) < n {
-			waits = append(waits, in)
-		}
-	}
-	b.mu.Unlock()
-
-	for _, in := range waits {
-		select {
-		case <-in.ready:
-		case <-ctx.Done():
-			return fmt.Errorf("waiting for instances: %w", ctx.Err())
-		}
-
-		if in.err != nil {
-			return in.err
-		}
-	}
-
-	b.mu.Lock("ensure.idle")
-	for _, in := range waits {
-		b.armIdleLocked(name, r, in)
-	}
-	b.mu.Unlock()
-
-	return nil
+	return goneIfClosed(pool.Ensure(ctx, n))
 }
 
 // startRevision makes sure the revision has the instances its scaling settings call for (at least one).
@@ -339,20 +150,25 @@ func (b *InMemoryBackend) startRevision(ctx context.Context, name string) error 
 func (b *InMemoryBackend) warmServing(svcName string) {
 	b.mu.RLock("warmServing")
 
-	var names []string
+	mins := map[string]int{}
 
 	for name, r := range b.revisions {
 		if r.pb.GetService() != svcName || !b.servingLocked(r) {
 			continue
 		}
 
-		if minN, _ := b.scalingLimits(r); minN > 0 && len(r.insts) < minN {
-			names = append(names, name)
+		if minN, _ := b.scalingLimits(r); minN > 0 {
+			mins[name] = minN
 		}
 	}
 	b.mu.RUnlock()
 
-	for _, name := range names {
+	for name, minN := range mins {
+		pool, _, err := b.poolFor(name)
+		if err != nil || pool.Live() >= minN {
+			continue
+		}
+
 		b.wg.Go(func() { _ = b.ensure(b.baseCtx(), name, b.minFor(name)) })
 	}
 }
@@ -372,20 +188,12 @@ func (b *InMemoryBackend) minFor(name string) int {
 
 // killInstance retires an instance whose liveness probe failed; Cloud Run starts a replacement on demand.
 func (b *InMemoryBackend) killInstance(name string, in *inst) {
-	b.mu.Lock("killInstance")
-
-	r := b.revisions[name]
-	if r == nil || in.dead {
-		b.mu.Unlock()
-
+	pool, svcName, err := b.poolFor(name)
+	if err != nil {
 		return
 	}
 
-	b.detachLocked(r, in)
-	r.notifyLocked()
-	svcName := r.pb.GetService()
-	b.mu.Unlock()
-
-	b.teardownInst(in)
-	b.warmServing(svcName)
+	if pool.Remove(func(x *inst) bool { return x == in }) {
+		b.warmServing(svcName)
+	}
 }
