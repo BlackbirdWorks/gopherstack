@@ -339,7 +339,7 @@ func (b *backend) iamDenials(
 // InitHooksRunInput selects registered init hook scripts to run.
 type InitHooksRunInput struct {
 	Stage  string `json:"stage"            jsonschema:"BOOT, START, READY or SHUTDOWN"`
-	Script string `json:"script,omitempty" jsonschema:"file name of one script as listed by init_hooks_list (default: every script in the stage)"`
+	Script string `json:"script,omitempty" jsonschema:"script file name from init_hooks_list (default: whole stage)"`
 }
 
 func (b *backend) initHooksRun(

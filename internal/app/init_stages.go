@@ -138,7 +138,7 @@ func buildInitRunHandler(st *localstackInitState) echo.HandlerFunc {
 		var req initRunRequest
 		if err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, initRunMaxBody)).
 			Decode(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid JSON body"})
+			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid request body"})
 		}
 
 		var m *inithooks.Manager

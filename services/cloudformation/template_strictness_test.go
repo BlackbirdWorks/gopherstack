@@ -316,9 +316,9 @@ func TestCreateStack_PropertyValidationToggle(t *testing.T) {
 	tests := []struct {
 		name       string
 		resource   string
-		disabled   bool
 		wantStatus string
 		wantReason string
+		disabled   bool
 	}{
 		{
 			name:       "unknown_property",

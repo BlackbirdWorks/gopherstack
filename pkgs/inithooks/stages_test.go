@@ -157,19 +157,22 @@ func TestManager_RunNamed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr   error
 		name      string
 		stage     inithooks.Stage
 		script    string
-		wantErr   error
+		wantOut   string
 		wantNames []string
 		wantExit  int
-		wantOut   string
 	}{
 		{name: "one", stage: inithooks.StageReady, script: "a.sh", wantNames: []string{"a.sh"}, wantOut: "hi"},
 		{name: "lower_stage", stage: "ready", script: "b.sh", wantNames: []string{"b.sh"}, wantExit: 4, wantOut: "bad"},
 		{name: "all", stage: inithooks.StageReady, wantNames: []string{"a.sh", "b.sh"}, wantExit: 4, wantOut: "hi"},
 		{name: "missing", stage: inithooks.StageReady, script: "c.sh", wantErr: inithooks.ErrUnknownScript},
-		{name: "traversal", stage: inithooks.StageReady, script: "../ready.d/a.sh", wantErr: inithooks.ErrUnknownScript},
+		{
+			name: "traversal", stage: inithooks.StageReady, script: "../ready.d/a.sh",
+			wantErr: inithooks.ErrUnknownScript,
+		},
 		{name: "wrong_stage", stage: inithooks.StageBoot, script: "a.sh", wantErr: inithooks.ErrUnknownScript},
 		{name: "bad_stage", stage: "nope", wantErr: inithooks.ErrUnknownStage},
 	}

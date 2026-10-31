@@ -18,9 +18,9 @@ const mcpPath = "/_gopherstack/mcp"
 
 // MCPConfig configures the built-in Model Context Protocol server.
 type MCPConfig struct {
-	Token   string `name:"token"   env:"GOPHERSTACK_MCP_TOKEN" help:"Bearer token required by the MCP endpoint. Without it only loopback clients are accepted."` //nolint:lll // config struct tags are intentionally verbose
-	ReadOnly bool  `name:"read-only" env:"GOPHERSTACK_MCP_READ_ONLY" help:"Expose only read-only MCP tools (no snapshots, resets, chaos or init hook runs)."` //nolint:lll // config struct tags are intentionally verbose
-	Enabled bool   `name:"enabled" env:"GOPHERSTACK_MCP"       help:"Serve MCP (streamable HTTP) at /_gopherstack/mcp."`                                         //nolint:lll // config struct tags are intentionally verbose
+	Token    string `name:"token"     env:"GOPHERSTACK_MCP_TOKEN"     help:"Bearer token required by the MCP endpoint. Without it only loopback clients are accepted."` //nolint:lll // config struct tags are intentionally verbose
+	Enabled  bool   `name:"enabled"   env:"GOPHERSTACK_MCP"           help:"Serve MCP (streamable HTTP) at /_gopherstack/mcp."`                                         //nolint:lll // config struct tags are intentionally verbose
+	ReadOnly bool   `name:"read-only" env:"GOPHERSTACK_MCP_READ_ONLY" help:"Expose only read-only MCP tools (no snapshots, resets, chaos or init hook runs)."`          //nolint:lll // config struct tags are intentionally verbose
 }
 
 // registerMCPEndpoint mounts the MCP endpoint on e; its tools call e in-process.
@@ -42,8 +42,8 @@ func registerMCPEndpoint(ctx context.Context, log *slog.Logger, e *echo.Echo, cf
 
 // McpCmd is `gopherstack mcp`: an MCP stdio server proxying a running instance.
 type McpCmd struct {
-	PodTarget `embed:""`
-	ReadOnly  bool `name:"read-only" env:"GOPHERSTACK_MCP_READ_ONLY" help:"Expose only read-only MCP tools."`
+	PodTarget `     embed:""`
+	ReadOnly  bool `         name:"read-only" env:"GOPHERSTACK_MCP_READ_ONLY" help:"Expose only read-only MCP tools."`
 }
 
 // Run serves MCP on stdin/stdout until the client disconnects.
@@ -60,9 +60,9 @@ func (c *McpCmd) serve(ctx context.Context, client mcpserver.Doer, t mcp.Transpo
 	}
 
 	srv := mcpserver.New(mcpserver.Options{
-		Doer:    client,
-		BaseURL: strings.TrimRight(c.Endpoint, "/"),
-		Version: version.Get(),
+		Doer:     client,
+		BaseURL:  strings.TrimRight(c.Endpoint, "/"),
+		Version:  version.Get(),
 		ReadOnly: c.ReadOnly,
 	})
 

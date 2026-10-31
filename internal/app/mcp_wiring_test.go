@@ -471,7 +471,10 @@ func TestMCPInitHooksRun(t *testing.T) {
 				cs := s.session(t, stdio)
 
 				if tt.wantErr {
-					res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: "init_hooks_run", Arguments: tt.args})
+					res, err := cs.CallTool(
+						t.Context(),
+						&mcp.CallToolParams{Name: "init_hooks_run", Arguments: tt.args},
+					)
 					require.NoError(t, err)
 					assert.True(t, res.IsError)
 

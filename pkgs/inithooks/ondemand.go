@@ -31,8 +31,8 @@ type ScriptRun struct {
 }
 
 type boundedBuffer struct {
-	mu        sync.Mutex
 	buf       []byte
+	mu        sync.Mutex
 	truncated bool
 }
 
