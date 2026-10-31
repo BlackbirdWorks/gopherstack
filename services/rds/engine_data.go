@@ -42,6 +42,8 @@ type engineSeed struct {
 	dbName   string
 	// replicate makes the unit a streaming replica of fromKey instead of a restored copy.
 	replicate bool
+	// logical starts PostgreSQL with wal_level=logical (rds.logical_replication=1 in the parameter group).
+	logical bool
 }
 
 func (s engineSeed) empty() bool { return s.dump == "" && s.fromKey == "" }

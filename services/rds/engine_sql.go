@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"sync"
 
 	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
@@ -134,8 +135,10 @@ func setEnginePassword(ctx context.Context, l EngineLogin, newPassword string) e
 
 // silenceDriverLogs stops the MySQL driver printing every refused probe while the container boots.
 func silenceDriverLogs() {
-	_ = mysql.SetLogger(discardLogger{})
+	silenceOnce.Do(func() { _ = mysql.SetLogger(discardLogger{}) })
 }
+
+var silenceOnce sync.Once //nolint:gochecknoglobals // guards the driver's process-wide logger
 
 type discardLogger struct{}
 

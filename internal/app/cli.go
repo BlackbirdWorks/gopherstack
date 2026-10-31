@@ -607,6 +607,7 @@ type CLI struct {
 	EKSEngine                     string                              `                                       name:"eks-engine"              env:"EKS_ENGINE"                          default:"stub"          help:"EKS engine mode: stub (metadata only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                          //nolint:lll // config struct tags are intentionally verbose
 	GKEEngine                     string                              `                                       name:"gke-engine"              env:"GKE_ENGINE"                          default:"stub"          help:"GKE engine mode: stub (control plane only) or docker (real single-node k3s cluster per CreateCluster)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
 	RDSEngine                     string                              `                                       name:"rds-engine"              env:"RDS_ENGINE"                          default:"stub"          help:"RDS engine mode: stub (metadata only) or docker (real database container)."`                                                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	DMSEngine                     string                              `                                       name:"dms-engine"              env:"DMS_ENGINE"                          default:"stub"          help:"DMS engine mode: stub (task state only) or docker (real full-load and CDC data movement)."`                                                                                                                  //nolint:lll // config struct tags are intentionally verbose
 	SageMakerEngine               string                              `                                       name:"sagemaker-engine"        env:"SAGEMAKER_ENGINE"                    default:"stub"          help:"SageMaker engine mode: stub (control plane only; InvokeEndpoint is unavailable) or docker (endpoints and jobs run model, training, processing and transform containers)."`                                   //nolint:lll // config struct tags are intentionally verbose
 	DocDBEngine                   string                              `                                       name:"docdb-engine"            env:"DOCDB_ENGINE"                        default:"stub"          help:"DocumentDB engine mode: stub (metadata only) or docker (real MongoDB container per cluster)."`                                                                                                               //nolint:lll // config struct tags are intentionally verbose
 	RedshiftEngine                string                              `                                       name:"redshift-engine"         env:"REDSHIFT_ENGINE"                     default:"stub"          help:"Redshift engine mode: stub (metadata only) or docker (real Postgres container per cluster; Data API runs SQL against it)."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
@@ -1681,6 +1682,9 @@ func (c *CLI) GetMQEngine() string { return c.engineMode("mq-engine", c.MQEngine
 
 // GetRDSEngine returns the RDS engine mode (rds.EngineModeConfig).
 func (c *CLI) GetRDSEngine() string { return c.engineMode("rds-engine", c.RDSEngine) }
+
+// GetDMSEngine returns the DMS engine mode (dms.EngineModeConfig).
+func (c *CLI) GetDMSEngine() string { return c.engineMode("dms-engine", c.DMSEngine) }
 
 // GetSageMakerEngine returns the SageMaker engine mode (sagemaker.EngineModeConfig).
 func (c *CLI) GetSageMakerEngine() string { return c.engineMode("sagemaker-engine", c.SageMakerEngine) }
@@ -4867,7 +4871,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	wireSecretsManagerKMS(byName["SecretsManager"], byName["KMS"])
 
 	// Route RDS Data API calls for docker-backed Aurora clusters to their real database.
-	wireRDSData(byName["RDSData"], byName["RDS"], byName["SecretsManager"])
+	wireRDSIntegrations(byName)
 	wireManagedMasterSecrets(byName)
 	wireSubnetLookups(byName)
 	wireDirectConnectMacSecSecrets(byName)

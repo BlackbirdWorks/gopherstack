@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/dbrepl"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -220,8 +222,28 @@ func (b *InMemoryBackend) replicaPlan(ctx context.Context, lb *liveDB) (replPlan
 	return plan, nil
 }
 
-func pgServerFlags() []string {
-	return []string{"-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
+const paramLogicalReplication = "rds.logical_replication"
+
+// pgServerFlags starts PostgreSQL like RDS: wal_level=replica unless the parameter group sets
+// rds.logical_replication=1.
+func pgServerFlags(logical bool) []string {
+	level := "wal_level=replica"
+	if logical {
+		level = "wal_level=logical"
+	}
+
+	return []string{"-c", level, "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
+}
+
+// logicalReplicationLocked reports whether the named parameter group sets rds.logical_replication to 1.
+func (b *InMemoryBackend) logicalReplicationLocked(group string, groups *store.Table[DBParameterGroup]) bool {
+	if group == "" {
+		return false
+	}
+
+	pg, ok := groups.Get(normalizeID(group))
+
+	return ok && pg.Parameters[paramLogicalReplication].ParameterValue == "1"
 }
 
 func mysqlServerFlags(lb *liveDB) []string {
@@ -241,7 +263,7 @@ func applyReplicationFlags(s *container.Spec, lb *liveDB, plan replPlan) {
 		return
 	}
 
-	args := append([]string{enginePostgres}, pgServerFlags()...)
+	args := append([]string{enginePostgres}, pgServerFlags(lb.logical)...)
 	if plan.network == "" {
 		s.Cmd = args
 

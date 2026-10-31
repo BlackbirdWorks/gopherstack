@@ -68,6 +68,7 @@ func engineEntries() []engineEntry {
 		},
 		{func(c *CLI) *string { return &c.OCIMySQL.Engine }, "oci-mysql-engine", "OCI_MYSQL_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.DMSEngine }, "dms-engine", "DMS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DocDBEngine }, "docdb-engine", "DOCDB_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.RedshiftEngine }, "redshift-engine", "REDSHIFT_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.NeptuneEngine }, "neptune-engine", "NEPTUNE_ENGINE", enginesStub},

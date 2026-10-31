@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -196,6 +197,7 @@ func (h *Handler) handleStartReplicationTask(
 	rt, err := h.Backend.StartReplicationTask(ctx, ptrconv.String(in.ReplicationTaskArn), ReplicationTaskCDCSettings{
 		CdcStartPosition: ptrconv.String(in.CdcStartPosition),
 		CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
+		StartType:        taskType,
 	})
 	if err != nil {
 		return nil, err
@@ -243,21 +245,80 @@ func (h *Handler) handleDeleteReplicationTask(
 }
 
 type replicationTaskJSON struct {
-	ReplicationTaskIdentifier string `json:"ReplicationTaskIdentifier"`
-	ReplicationTaskArn        string `json:"ReplicationTaskArn"`
-	SourceEndpointArn         string `json:"SourceEndpointArn"`
-	TargetEndpointArn         string `json:"TargetEndpointArn"`
-	ReplicationInstanceArn    string `json:"ReplicationInstanceArn"`
-	MigrationType             string `json:"MigrationType"`
-	TableMappings             string `json:"TableMappings,omitempty"`
-	ReplicationTaskSettings   string `json:"ReplicationTaskSettings,omitempty"`
-	Status                    string `json:"Status"`
-	CdcStartPosition          string `json:"CdcStartPosition,omitempty"`
-	CdcStopPosition           string `json:"CdcStopPosition,omitempty"`
-	TaskData                  string `json:"TaskData,omitempty"`
-	// ReplicationTaskCreationDate is wire-encoded as epoch seconds
-	// (awsjson1.1 unixTimestamp format) -- see pkgs/awstime.Epoch.
-	ReplicationTaskCreationDate float64 `json:"ReplicationTaskCreationDate,omitempty"`
+	ReplicationTaskStats        *replicationTaskStatsJSON `json:"ReplicationTaskStats,omitempty"`
+	Status                      string                    `json:"Status"`
+	CdcStopPosition             string                    `json:"CdcStopPosition,omitempty"`
+	TargetEndpointArn           string                    `json:"TargetEndpointArn"`
+	ReplicationInstanceArn      string                    `json:"ReplicationInstanceArn"`
+	MigrationType               string                    `json:"MigrationType"`
+	TableMappings               string                    `json:"TableMappings,omitempty"`
+	ReplicationTaskSettings     string                    `json:"ReplicationTaskSettings,omitempty"`
+	ReplicationTaskIdentifier   string                    `json:"ReplicationTaskIdentifier"`
+	SourceEndpointArn           string                    `json:"SourceEndpointArn"`
+	TaskData                    string                    `json:"TaskData,omitempty"`
+	CdcStartPosition            string                    `json:"CdcStartPosition,omitempty"`
+	StopReason                  string                    `json:"StopReason,omitempty"`
+	LastFailureMessage          string                    `json:"LastFailureMessage,omitempty"`
+	RecoveryCheckpoint          string                    `json:"RecoveryCheckpoint,omitempty"`
+	ReplicationTaskArn          string                    `json:"ReplicationTaskArn"`
+	ReplicationTaskStartDate    float64                   `json:"ReplicationTaskStartDate,omitempty"`
+	ReplicationTaskCreationDate float64                   `json:"ReplicationTaskCreationDate,omitempty"`
+}
+
+const percentComplete = 100
+
+// replicationTaskStatsJSON mirrors types.ReplicationTaskStats; dates are epoch seconds.
+type replicationTaskStatsJSON struct {
+	ElapsedTimeMillis       int64   `json:"ElapsedTimeMillis"`
+	FreshStartDate          float64 `json:"FreshStartDate,omitempty"`
+	FullLoadFinishDate      float64 `json:"FullLoadFinishDate,omitempty"`
+	FullLoadStartDate       float64 `json:"FullLoadStartDate,omitempty"`
+	StartDate               float64 `json:"StartDate,omitempty"`
+	StopDate                float64 `json:"StopDate,omitempty"`
+	FullLoadProgressPercent int32   `json:"FullLoadProgressPercent"`
+	TablesErrored           int32   `json:"TablesErrored"`
+	TablesLoaded            int32   `json:"TablesLoaded"`
+	TablesLoading           int32   `json:"TablesLoading"`
+	TablesQueued            int32   `json:"TablesQueued"`
+}
+
+func taskStats(rt *ReplicationTask) *replicationTaskStatsJSON {
+	if rt.StartDate.IsZero() {
+		return nil
+	}
+
+	st := &replicationTaskStatsJSON{
+		ElapsedTimeMillis: rt.ElapsedTimeMillis,
+		FreshStartDate:    awstime.Epoch(rt.StartDate),
+		FullLoadStartDate: awstime.Epoch(
+			rt.FullLoadStartDate,
+		),
+		FullLoadFinishDate: awstime.Epoch(rt.FullLoadFinishDate),
+		StartDate:          awstime.Epoch(rt.StartDate),
+		StopDate:           awstime.Epoch(rt.StopDate),
+	}
+
+	for _, ts := range rt.TableStats {
+		switch ts.TableState {
+		case "Table completed":
+			st.TablesLoaded++
+		case "Table error":
+			st.TablesErrored++
+		case "Full load", "Table is being reloaded":
+			st.TablesLoading++
+		default:
+			st.TablesQueued++
+		}
+	}
+
+	switch total := len(rt.TableStats); {
+	case !rt.FullLoadFinishDate.IsZero():
+		st.FullLoadProgressPercent = percentComplete
+	case total > 0:
+		st.FullLoadProgressPercent = int32(int(st.TablesLoaded) * percentComplete / total) //nolint:gosec // 0..100
+	}
+
+	return st
 }
 
 func rtToJSON(rt *ReplicationTask) replicationTaskJSON {
@@ -274,7 +335,12 @@ func rtToJSON(rt *ReplicationTask) replicationTaskJSON {
 		CdcStartPosition:            rt.CdcStartPosition,
 		CdcStopPosition:             rt.CdcStopPosition,
 		TaskData:                    rt.TaskData,
+		StopReason:                  rt.StopReason,
+		LastFailureMessage:          rt.LastFailureMessage,
+		RecoveryCheckpoint:          rt.RecoveryCheckpoint,
 		ReplicationTaskCreationDate: awstime.Epoch(rt.CreationTime),
+		ReplicationTaskStartDate:    awstime.Epoch(rt.StartDate),
+		ReplicationTaskStats:        taskStats(rt),
 	}
 }
 
@@ -290,6 +356,31 @@ type tableStatisticJSON struct {
 	ValidationPendingRecords     int64  `json:"ValidationPendingRecords"`
 	ValidationFailedRecords      int64  `json:"ValidationFailedRecords"`
 	ValidationSuspendedRecords   int64  `json:"ValidationSuspendedRecords"`
+	Inserts                      int64  `json:"Inserts"`
+	Updates                      int64  `json:"Updates"`
+	Deletes                      int64  `json:"Deletes"`
+	Ddls                         int64  `json:"Ddls"`
+	AppliedInserts               int64  `json:"AppliedInserts"`
+	AppliedUpdates               int64  `json:"AppliedUpdates"`
+	AppliedDeletes               int64  `json:"AppliedDeletes"`
+	AppliedDdls                  int64  `json:"AppliedDdls"`
+	FullLoadReloaded             bool   `json:"FullLoadReloaded"`
+	// Times are epoch seconds on the awsjson1.1 wire.
+	FullLoadStartTime float64 `json:"FullLoadStartTime,omitempty"`
+	FullLoadEndTime   float64 `json:"FullLoadEndTime,omitempty"`
+	LastUpdateTime    float64 `json:"LastUpdateTime,omitempty"`
+}
+
+func statJSON(ts TableStatistic) tableStatisticJSON {
+	return tableStatisticJSON{
+		SchemaName: ts.SchemaName, TableName: ts.TableName, TableState: ts.TableState,
+		ValidationState: "Not enabled", FullLoadRows: ts.FullLoadRows, FullLoadErrorRows: ts.FullLoadErrorRows,
+		Inserts: ts.Inserts, Updates: ts.Updates, Deletes: ts.Deletes,
+		AppliedInserts: ts.Inserts, AppliedUpdates: ts.Updates, AppliedDeletes: ts.Deletes,
+		FullLoadReloaded:  ts.FullLoadReloaded,
+		FullLoadStartTime: awstime.Epoch(ts.FullLoadStartTime), FullLoadEndTime: awstime.Epoch(ts.FullLoadEndTime),
+		LastUpdateTime: awstime.Epoch(ts.LastUpdateTime),
+	}
 }
 
 // tableMappingRule is used to parse table mappings JSON.
@@ -411,7 +502,14 @@ func (h *Handler) handleDescribeTableStatistics(
 		}, nil
 	}
 
-	all := buildTableStatistics(tasks[0].TableMappings)
+	var all []tableStatisticJSON
+	if len(tasks[0].TableStats) > 0 {
+		for _, ts := range tasks[0].TableStats {
+			all = append(all, statJSON(ts))
+		}
+	} else {
+		all = buildTableStatistics(tasks[0].TableMappings)
+	}
 
 	df := newDescribeFilters(in.Filters)
 
@@ -563,6 +661,18 @@ type reloadTablesInput struct {
 	TablesToReload     []map[string]any `json:"TablesToReload"`
 }
 
+func tableRefs(raw []map[string]any) []dmsengine.TableRef {
+	out := make([]dmsengine.TableRef, 0, len(raw))
+
+	for _, m := range raw {
+		schema, _ := m["SchemaName"].(string)
+		table, _ := m["TableName"].(string)
+		out = append(out, dmsengine.TableRef{Schema: schema, Name: table})
+	}
+
+	return out
+}
+
 type reloadTablesOutput struct {
 	ReplicationTaskArn string `json:"ReplicationTaskArn"`
 }
@@ -588,7 +698,7 @@ func (h *Handler) handleReloadTables(
 		)
 	}
 
-	rt, err := h.Backend.ReloadTables(ctx, taskArn)
+	rt, err := h.Backend.ReloadTables(ctx, taskArn, tableRefs(in.TablesToReload))
 	if err != nil {
 		return nil, err
 	}

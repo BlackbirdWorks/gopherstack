@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -28,6 +29,7 @@ func (b *InMemoryBackend) mustDescribeReplicationTasks(ctx context.Context) []*R
 type ReplicationTaskCDCSettings struct {
 	CdcStartPosition   string
 	CdcStopPosition    string
+	StartType          string
 	TaskData           string
 	ResourceIdentifier string
 	NewIdentifier      string
@@ -113,13 +115,12 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		b.tasksByEndpointARN[targetEndpointArn] = make(map[string]struct{})
 	}
 	b.tasksByEndpointARN[targetEndpointArn][taskARN] = struct{}{}
-	cp := *rt
 
-	return &cp, nil
+	return b.viewTask(rt), nil
 }
 
 func taskActive(rt *ReplicationTask) bool {
-	return rt.Status == statusRunning || rt.Status == statusStarting
+	return rt.Status == statusRunning || rt.Status == statusStarting || rt.Status == statusStopping
 }
 
 // DescribeReplicationTasks returns replication tasks matching filters (valid
@@ -142,10 +143,9 @@ func (b *InMemoryBackend) DescribeReplicationTasks(
 			continue
 		}
 
-		cp := *rt
-		result = append(result, &cp)
+		result = append(result, b.viewTask(rt))
 
-		if rt.Status == statusStarting {
+		if rt.Status == statusStarting && !b.hasRunLocked(rt.ReplicationTaskArn) {
 			rt.Status = statusRunning
 		}
 	}
@@ -175,7 +175,8 @@ func replicationTaskMatchesFilters(rt *ReplicationTask, filters DescribeFilters)
 	return filters.Matches("replication-instance-arn", rt.ReplicationInstanceArn)
 }
 
-// StartReplicationTask transitions a replication task to running status.
+// StartReplicationTask starts a replication task. With the engine enabled and both endpoints supported the task
+// moves data; otherwise it only changes state.
 func (b *InMemoryBackend) StartReplicationTask(
 	ctx context.Context, arnOrID string, cdc ReplicationTaskCDCSettings,
 ) (*ReplicationTask, error) {
@@ -195,7 +196,15 @@ func (b *InMemoryBackend) StartReplicationTask(
 		)
 	}
 
-	rt.Status = statusStarting
+	region := getRegion(ctx, b.region)
+
+	ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, rt.ReplicationInstanceArn))
+	if ok && ri.ReplicationInstanceStatus != statusAvailable {
+		return nil, fmt.Errorf(
+			"%w: replication instance %s is %s; it must be available to start a task",
+			ErrInvalidState, ri.ReplicationInstanceIdentifier, ri.ReplicationInstanceStatus,
+		)
+	}
 
 	if cdc.CdcStartPosition != "" {
 		rt.CdcStartPosition = cdc.CdcStartPosition
@@ -205,17 +214,22 @@ func (b *InMemoryBackend) StartReplicationTask(
 		rt.CdcStopPosition = cdc.CdcStopPosition
 	}
 
+	b.beginStartLocked(rt, cdc.StartType)
+
+	if src, tgt, found := b.taskEndpoints(region, rt); found && b.engineEligible(src, tgt) {
+		b.launchLocked(region, rt, src, tgt, cdc.StartType)
+	}
+
 	b.appendEvent(
-		getRegion(ctx, b.region), rt.ReplicationTaskArn, "replication-task",
+		region, rt.ReplicationTaskArn, "replication-task",
 		"Replication task "+rt.ReplicationTaskIdentifier+" started", []string{eventCategoryStateChange},
 	)
-	cp := *rt
 
-	return &cp, nil
+	return b.viewTask(rt), nil
 }
 
-// StopReplicationTask transitions a replication task to stopped status.
-// Real AWS rejects stopping a task that is not currently running.
+// StopReplicationTask stops a replication task. Real AWS rejects stopping a task that is not running; an engine
+// run reports "stopping" until its goroutine has wound down.
 func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID string) (*ReplicationTask, error) {
 	b.mu.Lock("StopReplicationTask")
 	defer b.mu.Unlock()
@@ -234,14 +248,19 @@ func (b *InMemoryBackend) StopReplicationTask(ctx context.Context, arnOrID strin
 		)
 	}
 
-	rt.Status = statusStopped
+	if b.stopRunLocked(rt) {
+		rt.Status = statusStopping
+
+		return b.viewTask(rt), nil
+	}
+
+	rt.Status, rt.StopDate, rt.StopReason = statusStopped, b.clock(), "Stop Reason NORMAL"
 	b.appendEvent(
 		getRegion(ctx, b.region), rt.ReplicationTaskArn, "replication-task",
 		"Replication task "+rt.ReplicationTaskIdentifier+" stopped", []string{eventCategoryStateChange},
 	)
-	cp := *rt
 
-	return &cp, nil
+	return b.viewTask(rt), nil
 }
 
 // DeleteReplicationTask deletes a replication task by ARN or identifier.
@@ -261,6 +280,9 @@ func (b *InMemoryBackend) DeleteReplicationTask(ctx context.Context, arnOrID str
 			)
 		}
 		cp := *rt
+		if src, _, found := b.taskEndpoints(region, rt); found {
+			b.releaseSlotAsync(src, rt.ReplicationTaskArn)
+		}
 		rt.Tags.Close()
 		b.replicationTasks.Delete(regionKey(region, id))
 		// Remove from reverse instance→tasks index.
@@ -393,15 +415,15 @@ func (b *InMemoryBackend) ModifyReplicationTask(
 		rt.TaskData = cdcSettings.TaskData
 	}
 
-	cp := *rt
-
-	return &cp, nil
+	return b.viewTask(rt), nil
 }
 
-// ReloadTables reloads the target tables of a running replication task with
-// source data. Real AWS only permits this while the task is RUNNING,
-// otherwise it throws InvalidResourceStateFault.
-func (b *InMemoryBackend) ReloadTables(ctx context.Context, arnOrID string) (*ReplicationTask, error) {
+// ReloadTables reloads tables of a running replication task from the source. Real AWS only permits this while
+// the task is RUNNING, otherwise it throws InvalidResourceStateFault. Engine-backed tasks re-copy the named
+// tables asynchronously; an empty refs list reloads nothing.
+func (b *InMemoryBackend) ReloadTables(
+	ctx context.Context, arnOrID string, refs []dmsengine.TableRef,
+) (*ReplicationTask, error) {
 	b.mu.Lock("ReloadTables")
 	defer b.mu.Unlock()
 
@@ -419,9 +441,23 @@ func (b *InMemoryBackend) ReloadTables(ctx context.Context, arnOrID string) (*Re
 		)
 	}
 
-	cp := *rt
+	if run, ok := b.eng.runsFor(rt.ReplicationTaskArn); ok && run.task != nil {
+		for _, ref := range refs {
+			if !run.task.Has(ref) {
+				return nil, fmt.Errorf(
+					"%w: table %s.%s is not part of task %s",
+					ErrNotFound,
+					ref.Schema,
+					ref.Name,
+					arnOrID,
+				)
+			}
+		}
 
-	return &cp, nil
+		b.reloadRun(run, run.task, refs)
+	}
+
+	return b.viewTask(rt), nil
 }
 
 // MoveReplicationTask moves a replication task to a different instance.
