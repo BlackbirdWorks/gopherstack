@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -335,6 +336,24 @@ func (b *backend) iamDenials(
 	return nil, out, nil
 }
 
+// InitHooksRunInput selects registered init hook scripts to run.
+type InitHooksRunInput struct {
+	Stage  string `json:"stage"            jsonschema:"BOOT, START, READY or SHUTDOWN"`
+	Script string `json:"script,omitempty" jsonschema:"file name of one script as listed by init_hooks_list (default: every script in the stage)"`
+}
+
+func (b *backend) initHooksRun(
+	ctx context.Context,
+	_ *mcp.CallToolRequest,
+	in InitHooksRunInput,
+) (*mcp.CallToolResult, DataOutput, error) {
+	if strings.ContainsAny(in.Script, `/\`) || in.Script == ".." || in.Script == "." {
+		return nil, DataOutput{}, fmt.Errorf("%w: script must be a registered file name", ErrBackend)
+	}
+
+	return b.data(ctx, http.MethodPost, "/_gopherstack/init/run", nil, in)
+}
+
 func (b *backend) initHooks(
 	ctx context.Context,
 	_ *mcp.CallToolRequest,
@@ -375,72 +394,89 @@ func clamp(v, def, maxV int) int {
 	return min(v, maxV)
 }
 
-func addTools(s *mcp.Server, b *backend) {
-	mcp.AddTool(s, &mcp.Tool{
+// addTool registers t unless the server is read-only and t can change state.
+func addTool[In, Out any](s *mcp.Server, ro bool, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out]) {
+	if ro && !t.Annotations.ReadOnlyHint {
+		return
+	}
+
+	mcp.AddTool(s, t, h)
+}
+
+func addTools(s *mcp.Server, b *backend, ro bool) {
+	addTool(s, ro, &mcp.Tool{
 		Name:        "gopherstack_health",
 		Description: "Report the running Gopherstack's version, uptime and the list of enabled and disabled services.",
 		Annotations: readOnly("Health and enabled services"),
 	}, b.health)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name:        "snapshot_list",
 		Description: "List saved state snapshots (pods) and their versions.",
 		Annotations: readOnly("List state snapshots"),
 	}, b.snapshotList)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name:        "snapshot_save",
 		Description: "Save the current in-memory state of all (or selected) services as a new snapshot version.",
 		Annotations: additive("Save state snapshot"),
 	}, b.snapshotSave)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "snapshot_load",
 		Description: "Restore a saved snapshot into the running server. " +
 			"Replaces current state of the loaded services unless merge is set.",
 		Annotations: destructive("Load state snapshot"),
 	}, b.snapshotLoad)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name:        "snapshot_delete",
 		Description: "Delete a saved snapshot version, or every version when no version is given.",
 		Annotations: destructive("Delete state snapshot"),
 	}, b.snapshotDelete)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "reset_state",
 		Description: "Erase in-memory state of every service, or only the named service. " +
 			"Cannot be undone unless a snapshot was saved.",
 		Annotations: destructive("Reset state"),
 	}, b.reset)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name:        "chaos_list_faults",
 		Description: "List the active chaos fault-injection rules.",
 		Annotations: readOnly("List chaos faults"),
 	}, b.faultsList)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "chaos_set_faults",
 		Description: "Replace (default) or append chaos fault rules that make matching AWS requests " +
 			"fail with a chosen error.",
 		Annotations: destructive("Set chaos faults"),
 	}, b.faultsSet)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name:        "chaos_clear_faults",
 		Description: "Remove every chaos fault rule.",
 		Annotations: destructive("Clear chaos faults"),
 	}, b.faultsClear)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "query_traces",
 		Description: "Query recent request traces (newest first, at most 100 retained) " +
 			"filtered by service, operation and HTTP status. " +
 			"Headers and bodies are never returned.",
 		Annotations: readOnly("Query request traces"),
 	}, b.traces)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "iam_denials",
 		Description: "Query IAM policy-evaluation denials (requires --enforce-iam or --iam-audit), " +
 			"including the deciding policy and a suggested fix.",
 		Annotations: readOnly("IAM policy denials"),
 	}, b.iamDenials)
-	mcp.AddTool(s, &mcp.Tool{
+	addTool(s, ro, &mcp.Tool{
 		Name: "init_hooks_list",
 		Description: "List init hook scripts per stage (BOOT, START, READY, SHUTDOWN) with completion state " +
 			"and results. Hooks run at startup only.",
 		Annotations: readOnly("List init hooks"),
 	}, b.initHooks)
+
+	addTool(s, ro, &mcp.Tool{
+		Name: "init_hooks_run",
+		Description: "Run init hook scripts already present in the configured stage directories, " +
+			"one script by name (from init_hooks_list) or a whole stage. " +
+			"Returns exit code and bounded output; arbitrary paths or inline scripts are rejected.",
+		Annotations: destructive("Run init hooks"),
+	}, b.initHooksRun)
 }

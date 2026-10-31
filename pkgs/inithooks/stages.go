@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -205,7 +206,7 @@ func (m *Manager) Run(ctx context.Context, stage Stage) {
 	for i, p := range paths {
 		m.setScript(stage, i, StateRunning, "")
 
-		if err := m.runScript(ctx, stage, p); err != nil {
+		if err := m.runScript(ctx, stage, p, nil); err != nil {
 			m.log.ErrorContext(ctx, "init hook: script failed", "stage", stage, "script", p, "error", err)
 			m.setScript(stage, i, StateError, err.Error())
 
@@ -234,7 +235,7 @@ func interpreter(path string) (string, error) {
 	return "", errNoPython
 }
 
-func (m *Manager) runScript(ctx context.Context, stage Stage, path string) error {
+func (m *Manager) runScript(ctx context.Context, stage Stage, path string, capture io.Writer) error {
 	interp, err := interpreter(path)
 	if err != nil {
 		return err
@@ -250,6 +251,10 @@ func (m *Manager) runScript(ctx context.Context, stage Stage, path string) error
 	stdout := &lineLogger{ctx: ctx, log: m.log, stage: stage, script: path, stream: "stdout"}
 	stderr := &lineLogger{ctx: ctx, log: m.log, stage: stage, script: path, stream: "stderr"}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+
+	if capture != nil {
+		cmd.Stdout, cmd.Stderr = io.MultiWriter(stdout, capture), io.MultiWriter(stderr, capture)
+	}
 
 	m.log.InfoContext(ctx, "init hook: running", "stage", stage, "script", path)
 

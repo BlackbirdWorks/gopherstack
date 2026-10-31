@@ -152,3 +152,69 @@ func TestManager_LegacyReadyDirs(t *testing.T) {
 		})
 	}
 }
+
+func TestManager_RunNamed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		stage     inithooks.Stage
+		script    string
+		wantErr   error
+		wantNames []string
+		wantExit  int
+		wantOut   string
+	}{
+		{name: "one", stage: inithooks.StageReady, script: "a.sh", wantNames: []string{"a.sh"}, wantOut: "hi"},
+		{name: "lower_stage", stage: "ready", script: "b.sh", wantNames: []string{"b.sh"}, wantExit: 4, wantOut: "bad"},
+		{name: "all", stage: inithooks.StageReady, wantNames: []string{"a.sh", "b.sh"}, wantExit: 4, wantOut: "hi"},
+		{name: "missing", stage: inithooks.StageReady, script: "c.sh", wantErr: inithooks.ErrUnknownScript},
+		{name: "traversal", stage: inithooks.StageReady, script: "../ready.d/a.sh", wantErr: inithooks.ErrUnknownScript},
+		{name: "wrong_stage", stage: inithooks.StageBoot, script: "a.sh", wantErr: inithooks.ErrUnknownScript},
+		{name: "bad_stage", stage: "nope", wantErr: inithooks.ErrUnknownStage},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			writeScript(t, root, "ready", "a.sh", "echo hi\n")
+			writeScript(t, root, "ready", "b.sh", "echo bad\nexit 4\n")
+
+			m := inithooks.NewManager(inithooks.ManagerConfig{Roots: []string{root}})
+			runs, err := m.RunNamed(t.Context(), tt.stage, tt.script)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			var names []string
+			for _, r := range runs {
+				names = append(names, r.Name)
+			}
+
+			assert.Equal(t, tt.wantNames, names)
+			assert.Contains(t, runs[len(runs)-1].Output+runs[0].Output, tt.wantOut)
+			assert.Equal(t, tt.wantExit, runs[len(runs)-1].ExitCode)
+		})
+	}
+}
+
+func TestManager_RunNamedBoundsOutput(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeScript(t, root, "ready", "big.sh", "yes x | head -c 100000\n")
+
+	m := inithooks.NewManager(inithooks.ManagerConfig{Roots: []string{root}})
+	runs, err := m.RunNamed(t.Context(), inithooks.StageReady, "big.sh")
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	assert.True(t, runs[0].Truncated)
+	assert.Len(t, runs[0].Output, inithooks.MaxCapturedOutput)
+}
