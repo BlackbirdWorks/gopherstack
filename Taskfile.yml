@@ -311,6 +311,11 @@ tasks:
       - bash scripts/gocache-trim.sh --if-low
       - go tool gotestsum --format pkgname -- -race -shuffle on -short ./...
 
+  routing-proof:
+    desc: Full (non-short) routing proof sweep, -race
+    cmds:
+      - go tool gotestsum --format pkgname -- -race -run 'Routing|GatesHold' -timeout 60m ./internal/app/
+
   leak-test:
     desc: Leak tests
     cmds:
