@@ -362,4 +362,12 @@ describe("new GCP console pages", () => {
       healthName: "GCPBatch",
     });
   });
+
+  it("registers Resource Manager", () => {
+    expect(gcpServiceById("resourcemanager")).toMatchObject({
+      portLabel: "gcpresourcemanager",
+      defaultPort: 8148,
+      healthName: "GCPResourceManager",
+    });
+  });
 });

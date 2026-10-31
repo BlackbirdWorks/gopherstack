@@ -426,6 +426,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpbatch",
     defaultPort: 8147,
   },
+  {
+    id: "resourcemanager",
+    label: "Resource Manager",
+    description: "Google Cloud organization, folders, projects, IAM policies and Service Usage",
+    healthName: "GCPResourceManager",
+    portLabel: "gcpresourcemanager",
+    defaultPort: 8148,
+  },
 ];
 
 export type OciService = {

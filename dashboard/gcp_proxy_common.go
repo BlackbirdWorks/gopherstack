@@ -170,6 +170,8 @@ func gcpHTTPStatus(code codes.Code) (int, string) {
 		return http.StatusBadRequest, "INVALID_ARGUMENT"
 	case codes.NotFound:
 		return http.StatusNotFound, "NOT_FOUND"
+	case codes.Aborted:
+		return http.StatusConflict, "ABORTED"
 	case codes.AlreadyExists:
 		return http.StatusConflict, "ALREADY_EXISTS"
 	case codes.FailedPrecondition:
@@ -251,5 +253,6 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerAzureFlexDBRoutes()
 	h.registerGCPAPIGatewayRoutes()
 	h.registerGCPBatchRoutes()
+	h.registerGCPResourceManagerRoutes()
 	h.registerAzureAPIMRoutes()
 }

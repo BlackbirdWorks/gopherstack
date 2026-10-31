@@ -119,6 +119,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "gcp-monitoring",
   "gcp-pubsub",
   "gcp-redis",
+  "gcp-resourcemanager",
   "gcp-run",
   "gcp-scheduler",
   "gcp-secretmanager",

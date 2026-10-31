@@ -117,6 +117,7 @@ import (
 	gcpmonitoringbackend "github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpredisbackend "github.com/blackbirdworks/gopherstack/services/gcpredis"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcprunbackend "github.com/blackbirdworks/gopherstack/services/gcprun"
 	gcpschedulerbackend "github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -608,6 +609,8 @@ type Config struct {
 	GCPIdentityToolkitOps *gcpidtkbackend.Handler
 	// GCPAPIGatewayOps is called in-process by the /dashboard/api/v1/gcp/apigateway proxy.
 	GCPAPIGatewayOps *gcpapigatewaybackend.Handler
+	// GCPResourceManagerOps is called in-process by the /dashboard/api/v1/gcp/resourcemanager proxy.
+	GCPResourceManagerOps *gcprmbackend.Handler
 	// GCPBatchOps is called in-process by the /dashboard/api/v1/gcp/batch proxy.
 	GCPBatchOps *gcpbatchbackend.Handler
 	// OCIContainerEngineOps is dispatched in-process by the /dashboard/api/v1/oci/containerengine proxy.

@@ -24,6 +24,9 @@ func (b *InMemoryBackend) CheckProject(project, service string) error {
 // SetEnforcement turns the opt-in project and API-enablement checks of the other GCP services on or off.
 func (h *Handler) SetEnforcement(s gcpenforce.Settings) { h.enforce = s }
 
+// Enforcement returns the active enforcement switches.
+func (h *Handler) Enforcement() gcpenforce.Settings { return h.enforce }
+
 // EnforcementGate returns the Gate the other GCP services consult, or nil when enforcement is off.
 func (h *Handler) EnforcementGate() *gcpenforce.Gate {
 	if !h.enforce.Enabled() {
