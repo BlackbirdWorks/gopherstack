@@ -44,6 +44,7 @@ type armSnapshot struct {
 	ContainerApps       *containerAppsSnapshot     `json:"containerApps,omitempty"`
 	ContainerService    *containerServiceSnapshot  `json:"containerService,omitempty"`
 	APIManagement       *apimSnapshot              `json:"apiManagement,omitempty"`
+	Authorization       *authorizationSnapshot     `json:"authorization,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -312,6 +313,10 @@ func (h *Handler) restoreInfra(snap armSnapshot) {
 	if p, ok := h.apimProvider(); ok {
 		p.restore(snap.APIManagement)
 	}
+
+	if p, ok := h.authorizationProvider(); ok {
+		p.restore(snap.Authorization)
+	}
 }
 
 // snapshotInfra adds the network, identity, compute, container apps and container service providers.
@@ -338,5 +343,9 @@ func (h *Handler) snapshotInfra(st *armSnapshot) {
 
 	if p, ok := h.apimProvider(); ok {
 		st.APIManagement = p.snapshot()
+	}
+
+	if p, ok := h.authorizationProvider(); ok {
+		st.Authorization = p.snapshot()
 	}
 }
