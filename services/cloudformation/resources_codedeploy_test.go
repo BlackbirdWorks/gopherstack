@@ -126,7 +126,8 @@ func TestCreateStack_CodeDeployNilBackend(t *testing.T) {
 		{
 			name: "deployment_group",
 			tmpl: `{"Resources":{"Grp":{"Type":"AWS::CodeDeploy::DeploymentGroup",
-"Properties":{"ApplicationName":"app","DeploymentGroupName":"grp"}}},
+"Properties":{"ApplicationName":"app","DeploymentGroupName":"grp",
+"ServiceRoleArn":"arn:aws:iam::000000000000:role/CodeDeployRole"}}},
 "Outputs":{"Id":{"Value":{"Ref":"Grp"}}}}`,
 		},
 	}

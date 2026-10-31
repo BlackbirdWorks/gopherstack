@@ -533,7 +533,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	pruneConditional(tmpl, resolvedParams)
 
 	if !disableValidation {
-		if propErr := validateTemplateProperties(tmpl); propErr != nil {
+		if propErr := b.validateProperties(tmpl); propErr != nil {
 			b.failAndRollback(stack, propErr.Error())
 
 			return
@@ -947,7 +947,7 @@ func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
 	pruneConditional(tmpl, resolvedParams)
 
 	if !disableValidation {
-		if propErr := validateTemplateProperties(tmpl); propErr != nil {
+		if propErr := b.validateProperties(tmpl); propErr != nil {
 			b.updateFailAndRollback(stack, propErr.Error())
 
 			return nil, nil

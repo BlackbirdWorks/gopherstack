@@ -309,3 +309,71 @@ func TestCreateStack_DuplicateExportMessage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Export with name shared is already exported by stack owner", stack.StackStatusReason)
 }
+
+func TestCreateStack_PropertyValidationToggle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		resource   string
+		disabled   bool
+		wantStatus string
+		wantReason string
+	}{
+		{
+			name:       "unknown_property",
+			resource:   `{"Type":"AWS::SQS::Queue","Properties":{"Bogus":"x"}}`,
+			wantStatus: "ROLLBACK_COMPLETE",
+			wantReason: "Encountered unsupported property Bogus",
+		},
+		{
+			name:       "wrong_type",
+			resource:   `{"Type":"AWS::SQS::Queue","Properties":{"DelaySeconds":"abc"}}`,
+			wantStatus: "ROLLBACK_COMPLETE",
+			wantReason: "#/DelaySeconds: expected type: number, found: String",
+		},
+		{
+			name:       "missing_required_from_spec",
+			resource:   `{"Type":"AWS::EKS::Cluster","Properties":{"RoleArn":"arn:aws:iam::000000000000:role/r"}}`,
+			wantStatus: "ROLLBACK_COMPLETE",
+			wantReason: "#: required key [ResourcesVpcConfig] not found",
+		},
+		{
+			name:       "intrinsic_skips_type_check",
+			resource:   `{"Type":"AWS::SQS::Queue","Properties":{"DelaySeconds":{"Ref":"AWS::StackName"}}}`,
+			wantStatus: "CREATE_COMPLETE",
+		},
+		{
+			name:       "valid",
+			resource:   `{"Type":"AWS::SQS::Queue","Properties":{"DelaySeconds":5}}`,
+			wantStatus: "CREATE_COMPLETE",
+		},
+		{
+			name:       "disabled_unknown_property",
+			resource:   `{"Type":"AWS::SQS::Queue","Properties":{"Bogus":"x"}}`,
+			disabled:   true,
+			wantStatus: "CREATE_COMPLETE",
+		},
+		{
+			name:       "disabled_missing_required",
+			resource:   `{"Type":"AWS::EKS::Cluster","Properties":{}}`,
+			disabled:   true,
+			wantStatus: "CREATE_COMPLETE",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			b.SetPropertyValidation(!tc.disabled)
+
+			stack, err := b.CreateStack(t.Context(), "pv-"+tc.name, `{"Resources":{"R":`+tc.resource+`}}`, nil,
+				cloudformation.StackOptions{})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantStatus, stack.StackStatus)
+			assert.Contains(t, stack.StackStatusReason, tc.wantReason)
+		})
+	}
+}

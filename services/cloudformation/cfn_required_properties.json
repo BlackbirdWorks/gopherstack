@@ -1,21 +1,687 @@
 {
+  "AWS::AccessAnalyzer::Analyzer": [
+    "Type"
+  ],
+  "AWS::AccessAnalyzer::ArchiveRule": [
+    "AnalyzerName",
+    "Filter",
+    "RuleName"
+  ],
+  "AWS::Amplify::App": [
+    "Name"
+  ],
+  "AWS::Amplify::Branch": [
+    "AppId",
+    "BranchName"
+  ],
+  "AWS::ApiGateway::Authorizer": [
+    "Name",
+    "RestApiId",
+    "Type"
+  ],
+  "AWS::ApiGateway::BasePathMapping": [
+    "DomainName"
+  ],
+  "AWS::ApiGateway::Deployment": [
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::DocumentationPart": [
+    "Location",
+    "Properties",
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::DocumentationVersion": [
+    "DocumentationVersion",
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::GatewayResponse": [
+    "ResponseType",
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::Method": [
+    "HttpMethod",
+    "ResourceId",
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::Model": [
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::RequestValidator": [
+    "RestApiId"
+  ],
   "AWS::ApiGateway::Resource": [
     "ParentId",
     "PathPart",
     "RestApiId"
   ],
+  "AWS::ApiGateway::Stage": [
+    "RestApiId"
+  ],
+  "AWS::ApiGateway::UsagePlanKey": [
+    "KeyId",
+    "KeyType",
+    "UsagePlanId"
+  ],
+  "AWS::ApiGateway::VpcLink": [
+    "Name",
+    "TargetArns"
+  ],
+  "AWS::ApiGatewayV2::ApiMapping": [
+    "ApiId",
+    "DomainName",
+    "Stage"
+  ],
+  "AWS::ApiGatewayV2::Authorizer": [
+    "ApiId",
+    "AuthorizerType",
+    "Name"
+  ],
+  "AWS::ApiGatewayV2::DomainName": [
+    "DomainName"
+  ],
+  "AWS::ApiGatewayV2::Integration": [
+    "ApiId",
+    "IntegrationType"
+  ],
+  "AWS::ApiGatewayV2::Route": [
+    "ApiId",
+    "RouteKey"
+  ],
+  "AWS::ApiGatewayV2::Stage": [
+    "ApiId",
+    "StageName"
+  ],
+  "AWS::ApiGatewayV2::VpcLink": [
+    "Name",
+    "SubnetIds"
+  ],
+  "AWS::AppConfig::Application": [
+    "Name"
+  ],
+  "AWS::AppConfig::ConfigurationProfile": [
+    "ApplicationId",
+    "LocationUri",
+    "Name"
+  ],
+  "AWS::AppConfig::DeploymentStrategy": [
+    "DeploymentDurationInMinutes",
+    "GrowthFactor",
+    "Name",
+    "ReplicateTo"
+  ],
+  "AWS::AppConfig::Environment": [
+    "ApplicationId",
+    "Name"
+  ],
+  "AWS::AppIntegrations::Application": [
+    "ApplicationSourceConfig",
+    "Name",
+    "Namespace"
+  ],
+  "AWS::AppIntegrations::DataIntegration": [
+    "KmsKey",
+    "Name",
+    "SourceURI"
+  ],
+  "AWS::AppIntegrations::EventIntegration": [
+    "EventBridgeBus",
+    "EventFilter",
+    "Name"
+  ],
+  "AWS::AppSync::ApiKey": [
+    "ApiId"
+  ],
+  "AWS::AppSync::ChannelNamespace": [
+    "ApiId",
+    "Name"
+  ],
+  "AWS::AppSync::DataSource": [
+    "ApiId",
+    "Name",
+    "Type"
+  ],
+  "AWS::AppSync::DomainName": [
+    "CertificateArn",
+    "DomainName"
+  ],
+  "AWS::AppSync::FunctionConfiguration": [
+    "ApiId",
+    "DataSourceName",
+    "Name"
+  ],
+  "AWS::AppSync::GraphQLApi": [
+    "AuthenticationType",
+    "Name"
+  ],
+  "AWS::AppSync::GraphQLSchema": [
+    "ApiId"
+  ],
+  "AWS::AppSync::Resolver": [
+    "ApiId",
+    "FieldName",
+    "TypeName"
+  ],
+  "AWS::ApplicationAutoScaling::ScalableTarget": [
+    "MaxCapacity",
+    "MinCapacity",
+    "ResourceId",
+    "ScalableDimension",
+    "ServiceNamespace"
+  ],
+  "AWS::ApplicationAutoScaling::ScalingPolicy": [
+    "PolicyName",
+    "PolicyType"
+  ],
+  "AWS::Athena::CapacityReservation": [
+    "Name",
+    "TargetDpus"
+  ],
+  "AWS::Athena::DataCatalog": [
+    "Name",
+    "Type"
+  ],
+  "AWS::Athena::NamedQuery": [
+    "Database",
+    "QueryString"
+  ],
+  "AWS::Athena::PreparedStatement": [
+    "QueryStatement",
+    "StatementName",
+    "WorkGroup"
+  ],
+  "AWS::Athena::WorkGroup": [
+    "Name"
+  ],
+  "AWS::AutoScaling::AutoScalingGroup": [
+    "MaxSize",
+    "MinSize"
+  ],
+  "AWS::AutoScaling::LaunchConfiguration": [
+    "ImageId",
+    "InstanceType"
+  ],
+  "AWS::AutoScaling::LifecycleHook": [
+    "AutoScalingGroupName",
+    "LifecycleTransition"
+  ],
+  "AWS::AutoScaling::ScalingPolicy": [
+    "AutoScalingGroupName"
+  ],
+  "AWS::AutoScaling::ScheduledAction": [
+    "AutoScalingGroupName"
+  ],
+  "AWS::Backup::BackupPlan": [
+    "BackupPlan"
+  ],
+  "AWS::Backup::BackupSelection": [
+    "BackupPlanId",
+    "BackupSelection"
+  ],
+  "AWS::Backup::BackupVault": [
+    "BackupVaultName"
+  ],
+  "AWS::Backup::Framework": [
+    "FrameworkControls"
+  ],
+  "AWS::Backup::ReportPlan": [
+    "ReportDeliveryChannel",
+    "ReportSetting"
+  ],
+  "AWS::Batch::ComputeEnvironment": [
+    "Type"
+  ],
+  "AWS::Batch::JobDefinition": [
+    "Type"
+  ],
+  "AWS::Batch::JobQueue": [
+    "Priority"
+  ],
+  "AWS::Batch::ServiceEnvironment": [
+    "CapacityLimits",
+    "ServiceEnvironmentType"
+  ],
+  "AWS::CertificateManager::Certificate": [
+    "DomainName"
+  ],
+  "AWS::CloudFront::CachePolicy": [
+    "CachePolicyConfig"
+  ],
+  "AWS::CloudFront::CloudFrontOriginAccessIdentity": [
+    "CloudFrontOriginAccessIdentityConfig"
+  ],
+  "AWS::CloudFront::ContinuousDeploymentPolicy": [
+    "ContinuousDeploymentPolicyConfig"
+  ],
+  "AWS::CloudFront::Distribution": [
+    "DistributionConfig"
+  ],
+  "AWS::CloudFront::Function": [
+    "FunctionCode",
+    "FunctionConfig",
+    "Name"
+  ],
+  "AWS::CloudFront::KeyGroup": [
+    "KeyGroupConfig"
+  ],
+  "AWS::CloudFront::KeyValueStore": [
+    "Name"
+  ],
+  "AWS::CloudFront::OriginAccessControl": [
+    "OriginAccessControlConfig"
+  ],
+  "AWS::CloudFront::OriginRequestPolicy": [
+    "OriginRequestPolicyConfig"
+  ],
+  "AWS::CloudFront::PublicKey": [
+    "PublicKeyConfig"
+  ],
+  "AWS::CloudFront::RealtimeLogConfig": [
+    "EndPoints",
+    "Fields",
+    "Name",
+    "SamplingRate"
+  ],
+  "AWS::CloudFront::ResponseHeadersPolicy": [
+    "ResponseHeadersPolicyConfig"
+  ],
+  "AWS::CloudHSM::Cluster": [
+    "HsmType"
+  ],
+  "AWS::CloudTrail::Trail": [
+    "IsLogging",
+    "S3BucketName"
+  ],
   "AWS::CloudWatch::Alarm": [
     "ComparisonOperator",
     "EvaluationPeriods"
   ],
+  "AWS::CloudWatch::CompositeAlarm": [
+    "AlarmRule"
+  ],
+  "AWS::CloudWatch::Dashboard": [
+    "DashboardBody"
+  ],
+  "AWS::CloudWatch::InsightRule": [
+    "RuleBody",
+    "RuleName",
+    "RuleState"
+  ],
+  "AWS::CloudWatch::MetricStream": [
+    "FirehoseArn",
+    "OutputFormat",
+    "RoleArn"
+  ],
+  "AWS::CodeArtifact::Domain": [
+    "DomainName"
+  ],
+  "AWS::CodeArtifact::PackageGroup": [
+    "DomainName",
+    "Pattern"
+  ],
+  "AWS::CodeArtifact::Repository": [
+    "DomainName",
+    "RepositoryName"
+  ],
+  "AWS::CodeBuild::Project": [
+    "Artifacts",
+    "Environment",
+    "ServiceRole",
+    "Source"
+  ],
+  "AWS::CodeBuild::ReportGroup": [
+    "ExportConfig",
+    "Type"
+  ],
+  "AWS::CodeDeploy::DeploymentGroup": [
+    "ApplicationName",
+    "ServiceRoleArn"
+  ],
+  "AWS::CodeGuruReviewer::RepositoryAssociation": [
+    "Name",
+    "Type"
+  ],
+  "AWS::CodePipeline::Pipeline": [
+    "RoleArn",
+    "Stages"
+  ],
+  "AWS::Cognito::IdentityPool": [
+    "AllowUnauthenticatedIdentities"
+  ],
+  "AWS::Cognito::IdentityPoolRoleAttachment": [
+    "IdentityPoolId"
+  ],
+  "AWS::Cognito::UserPoolClient": [
+    "UserPoolId"
+  ],
+  "AWS::Cognito::UserPoolDomain": [
+    "Domain",
+    "UserPoolId"
+  ],
+  "AWS::Cognito::UserPoolGroup": [
+    "UserPoolId"
+  ],
+  "AWS::Cognito::UserPoolIdentityProvider": [
+    "ProviderDetails",
+    "ProviderName",
+    "ProviderType",
+    "UserPoolId"
+  ],
+  "AWS::Cognito::UserPoolResourceServer": [
+    "Identifier",
+    "Name",
+    "UserPoolId"
+  ],
+  "AWS::Config::AggregationAuthorization": [
+    "AuthorizedAccountId",
+    "AuthorizedAwsRegion"
+  ],
+  "AWS::Config::ConfigRule": [
+    "Source"
+  ],
+  "AWS::Config::ConfigurationRecorder": [
+    "RoleARN"
+  ],
+  "AWS::Config::ConformancePack": [
+    "ConformancePackName"
+  ],
+  "AWS::Config::DeliveryChannel": [
+    "S3BucketName"
+  ],
+  "AWS::Config::RemediationConfiguration": [
+    "ConfigRuleName",
+    "TargetId",
+    "TargetType"
+  ],
+  "AWS::Config::StoredQuery": [
+    "QueryExpression",
+    "QueryName"
+  ],
+  "AWS::Connect::AgentStatus": [
+    "InstanceArn",
+    "Name",
+    "State"
+  ],
+  "AWS::Connect::ApprovedOrigin": [
+    "InstanceId",
+    "Origin"
+  ],
+  "AWS::Connect::ContactFlow": [
+    "Content",
+    "InstanceArn",
+    "Name",
+    "Type"
+  ],
+  "AWS::Connect::ContactFlowModule": [
+    "Content",
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::DataTable": [
+    "InstanceArn",
+    "Name",
+    "Status",
+    "TimeZone",
+    "ValueLockLevel"
+  ],
+  "AWS::Connect::DataTableAttribute": [
+    "DataTableArn",
+    "InstanceArn",
+    "Name",
+    "ValueType"
+  ],
+  "AWS::Connect::EmailAddress": [
+    "EmailAddress",
+    "InstanceArn"
+  ],
+  "AWS::Connect::EvaluationForm": [
+    "InstanceArn",
+    "Items",
+    "Status",
+    "Title"
+  ],
+  "AWS::Connect::HoursOfOperation": [
+    "Config",
+    "InstanceArn",
+    "Name",
+    "TimeZone"
+  ],
+  "AWS::Connect::Instance": [
+    "Attributes",
+    "IdentityManagementType"
+  ],
+  "AWS::Connect::InstanceStorageConfig": [
+    "InstanceArn",
+    "ResourceType",
+    "StorageType"
+  ],
+  "AWS::Connect::IntegrationAssociation": [
+    "InstanceId",
+    "IntegrationArn",
+    "IntegrationType"
+  ],
+  "AWS::Connect::PhoneNumber": [
+    "TargetArn"
+  ],
+  "AWS::Connect::PredefinedAttribute": [
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::Prompt": [
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::Queue": [
+    "HoursOfOperationArn",
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::QuickConnect": [
+    "InstanceArn",
+    "Name",
+    "QuickConnectConfig"
+  ],
+  "AWS::Connect::RoutingProfile": [
+    "DefaultOutboundQueueArn",
+    "Description",
+    "InstanceArn",
+    "MediaConcurrencies",
+    "Name"
+  ],
+  "AWS::Connect::Rule": [
+    "Actions",
+    "Function",
+    "InstanceArn",
+    "Name",
+    "PublishStatus",
+    "TriggerEventSource"
+  ],
+  "AWS::Connect::SecurityKey": [
+    "InstanceId",
+    "Key"
+  ],
+  "AWS::Connect::SecurityProfile": [
+    "InstanceArn",
+    "SecurityProfileName"
+  ],
+  "AWS::Connect::TaskTemplate": [
+    "InstanceArn"
+  ],
+  "AWS::Connect::TrafficDistributionGroup": [
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::UseCase": [
+    "InstanceId",
+    "IntegrationAssociationId",
+    "UseCaseType"
+  ],
+  "AWS::Connect::User": [
+    "InstanceArn",
+    "RoutingProfileArn",
+    "SecurityProfileArns",
+    "Username"
+  ],
+  "AWS::Connect::UserHierarchyGroup": [
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::Connect::View": [
+    "Actions",
+    "InstanceArn",
+    "Name",
+    "Template"
+  ],
+  "AWS::Connect::ViewVersion": [
+    "ViewArn"
+  ],
+  "AWS::Connect::Vocabulary": [
+    "Content",
+    "InstanceId",
+    "LanguageCode",
+    "VocabularyName"
+  ],
+  "AWS::Connect::Workspace": [
+    "InstanceArn",
+    "Name"
+  ],
+  "AWS::DataSync::LocationS3": [
+    "S3Config"
+  ],
+  "AWS::DataSync::Task": [
+    "DestinationLocationArn",
+    "SourceLocationArn"
+  ],
+  "AWS::DocDB::DBClusterParameterGroup": [
+    "Description",
+    "Family",
+    "Parameters"
+  ],
+  "AWS::DocDB::DBInstance": [
+    "DBClusterIdentifier",
+    "DBInstanceClass"
+  ],
+  "AWS::DocDB::DBSubnetGroup": [
+    "DBSubnetGroupDescription",
+    "SubnetIds"
+  ],
+  "AWS::DocDB::GlobalCluster": [
+    "GlobalClusterIdentifier"
+  ],
+  "AWS::DynamoDB::GlobalTable": [
+    "Replicas"
+  ],
   "AWS::DynamoDB::Table": [
     "KeySchema"
+  ],
+  "AWS::EC2::CapacityReservation": [
+    "InstanceCount",
+    "InstancePlatform",
+    "InstanceType"
+  ],
+  "AWS::EC2::CarrierGateway": [
+    "VpcId"
+  ],
+  "AWS::EC2::ClientVpnAuthorizationRule": [
+    "ClientVpnEndpointId",
+    "TargetNetworkCidr"
+  ],
+  "AWS::EC2::ClientVpnEndpoint": [
+    "AuthenticationOptions",
+    "ConnectionLogOptions",
+    "ServerCertificateArn"
+  ],
+  "AWS::EC2::ClientVpnRoute": [
+    "ClientVpnEndpointId",
+    "DestinationCidrBlock"
+  ],
+  "AWS::EC2::ClientVpnTargetNetworkAssociation": [
+    "ClientVpnEndpointId"
+  ],
+  "AWS::EC2::CustomerGateway": [
+    "IpAddress",
+    "Type"
+  ],
+  "AWS::EC2::EgressOnlyInternetGateway": [
+    "VpcId"
+  ],
+  "AWS::EC2::FlowLog": [
+    "ResourceId",
+    "ResourceType"
+  ],
+  "AWS::EC2::Host": [
+    "AvailabilityZone"
+  ],
+  "AWS::EC2::IPAMPool": [
+    "AddressFamily",
+    "IpamScopeId"
+  ],
+  "AWS::EC2::IPAMPoolCidr": [
+    "IpamPoolId"
+  ],
+  "AWS::EC2::IPAMScope": [
+    "IpamId"
+  ],
+  "AWS::EC2::InstanceConnectEndpoint": [
+    "SubnetId"
+  ],
+  "AWS::EC2::KeyPair": [
+    "KeyName"
+  ],
+  "AWS::EC2::LaunchTemplate": [
+    "LaunchTemplateData"
+  ],
+  "AWS::EC2::NetworkAcl": [
+    "VpcId"
+  ],
+  "AWS::EC2::NetworkAclEntry": [
+    "NetworkAclId",
+    "Protocol",
+    "RuleAction",
+    "RuleNumber"
+  ],
+  "AWS::EC2::NetworkInsightsPath": [
+    "Protocol",
+    "Source"
+  ],
+  "AWS::EC2::NetworkInterface": [
+    "SubnetId"
+  ],
+  "AWS::EC2::NetworkInterfacePermission": [
+    "AwsAccountId",
+    "NetworkInterfaceId",
+    "Permission"
+  ],
+  "AWS::EC2::PrefixList": [
+    "AddressFamily",
+    "PrefixListName"
+  ],
+  "AWS::EC2::Route": [
+    "RouteTableId"
+  ],
+  "AWS::EC2::RouteServer": [
+    "AmazonSideAsn"
+  ],
+  "AWS::EC2::RouteServerEndpoint": [
+    "RouteServerId",
+    "SubnetId"
+  ],
+  "AWS::EC2::RouteServerPeer": [
+    "BgpOptions",
+    "PeerAddress",
+    "RouteServerEndpointId"
   ],
   "AWS::EC2::RouteTable": [
     "VpcId"
   ],
   "AWS::EC2::SecurityGroup": [
     "GroupDescription"
+  ],
+  "AWS::EC2::SecurityGroupEgress": [
+    "GroupId",
+    "IpProtocol"
+  ],
+  "AWS::EC2::SecurityGroupIngress": [
+    "IpProtocol"
   ],
   "AWS::EC2::Subnet": [
     "VpcId"
@@ -24,8 +690,280 @@
     "RouteTableId",
     "SubnetId"
   ],
+  "AWS::EC2::TrafficMirrorFilterRule": [
+    "DestinationCidrBlock",
+    "RuleAction",
+    "RuleNumber",
+    "SourceCidrBlock",
+    "TrafficDirection",
+    "TrafficMirrorFilterId"
+  ],
+  "AWS::EC2::TrafficMirrorSession": [
+    "NetworkInterfaceId",
+    "SessionNumber",
+    "TrafficMirrorFilterId",
+    "TrafficMirrorTargetId"
+  ],
+  "AWS::EC2::TransitGatewayAttachment": [
+    "SubnetIds",
+    "TransitGatewayId",
+    "VpcId"
+  ],
+  "AWS::EC2::TransitGatewayMulticastDomain": [
+    "TransitGatewayId"
+  ],
+  "AWS::EC2::TransitGatewayPeeringAttachment": [
+    "PeerAccountId",
+    "PeerRegion",
+    "PeerTransitGatewayId",
+    "TransitGatewayId"
+  ],
+  "AWS::EC2::TransitGatewayRoute": [
+    "DestinationCidrBlock",
+    "TransitGatewayRouteTableId"
+  ],
+  "AWS::EC2::TransitGatewayRouteTable": [
+    "TransitGatewayId"
+  ],
+  "AWS::EC2::TransitGatewayVpcAttachment": [
+    "SubnetIds",
+    "TransitGatewayId",
+    "VpcId"
+  ],
+  "AWS::EC2::VPCDHCPOptionsAssociation": [
+    "DhcpOptionsId",
+    "VpcId"
+  ],
+  "AWS::EC2::VPCEndpoint": [
+    "VpcId"
+  ],
+  "AWS::EC2::VPCGatewayAttachment": [
+    "VpcId"
+  ],
+  "AWS::EC2::VPCPeeringConnection": [
+    "PeerVpcId",
+    "VpcId"
+  ],
+  "AWS::EC2::VPNConnection": [
+    "CustomerGatewayId",
+    "Type"
+  ],
+  "AWS::EC2::VPNGateway": [
+    "Type"
+  ],
+  "AWS::EC2::VolumeAttachment": [
+    "InstanceId",
+    "VolumeId"
+  ],
+  "AWS::ECR::RegistryPolicy": [
+    "PolicyText"
+  ],
+  "AWS::ECR::RepositoryCreationTemplate": [
+    "AppliedFor",
+    "Prefix"
+  ],
+  "AWS::ECS::ClusterCapacityProviderAssociations": [
+    "Cluster",
+    "DefaultCapacityProviderStrategy"
+  ],
+  "AWS::ECS::PrimaryTaskSet": [
+    "Cluster",
+    "Service",
+    "TaskSetId"
+  ],
+  "AWS::ECS::TaskSet": [
+    "Cluster",
+    "Service",
+    "TaskDefinition"
+  ],
+  "AWS::EFS::AccessPoint": [
+    "FileSystemId"
+  ],
+  "AWS::EFS::MountTarget": [
+    "FileSystemId",
+    "SecurityGroups",
+    "SubnetId"
+  ],
+  "AWS::EKS::AccessEntry": [
+    "ClusterName",
+    "PrincipalArn"
+  ],
+  "AWS::EKS::Addon": [
+    "AddonName",
+    "ClusterName"
+  ],
+  "AWS::EKS::Cluster": [
+    "ResourcesVpcConfig",
+    "RoleArn"
+  ],
+  "AWS::EKS::FargateProfile": [
+    "ClusterName",
+    "PodExecutionRoleArn",
+    "Selectors"
+  ],
+  "AWS::EKS::IdentityProviderConfig": [
+    "ClusterName",
+    "Type"
+  ],
+  "AWS::EKS::Nodegroup": [
+    "ClusterName",
+    "NodeRole",
+    "Subnets"
+  ],
+  "AWS::EKS::PodIdentityAssociation": [
+    "ClusterName",
+    "Namespace",
+    "RoleArn",
+    "ServiceAccount"
+  ],
+  "AWS::EMR::Cluster": [
+    "Instances",
+    "JobFlowRole",
+    "Name",
+    "ServiceRole"
+  ],
+  "AWS::ElastiCache::CacheCluster": [
+    "CacheNodeType",
+    "Engine",
+    "NumCacheNodes"
+  ],
+  "AWS::ElastiCache::GlobalReplicationGroup": [
+    "Members"
+  ],
+  "AWS::ElastiCache::ParameterGroup": [
+    "CacheParameterGroupFamily",
+    "Description"
+  ],
+  "AWS::ElastiCache::ReplicationGroup": [
+    "ReplicationGroupDescription"
+  ],
+  "AWS::ElastiCache::SecurityGroup": [
+    "Description"
+  ],
+  "AWS::ElastiCache::SubnetGroup": [
+    "Description",
+    "SubnetIds"
+  ],
+  "AWS::ElastiCache::User": [
+    "Engine",
+    "UserId",
+    "UserName"
+  ],
+  "AWS::ElastiCache::UserGroup": [
+    "Engine",
+    "UserGroupId",
+    "UserIds"
+  ],
+  "AWS::ElasticLoadBalancingV2::Listener": [
+    "DefaultActions",
+    "LoadBalancerArn"
+  ],
+  "AWS::ElasticLoadBalancingV2::ListenerRule": [
+    "Actions",
+    "Conditions",
+    "Priority"
+  ],
+  "AWS::Events::ApiDestination": [
+    "ConnectionArn",
+    "HttpMethod",
+    "InvocationEndpoint"
+  ],
+  "AWS::Events::Archive": [
+    "SourceArn"
+  ],
+  "AWS::Events::Endpoint": [
+    "EventBuses",
+    "RoutingConfig"
+  ],
+  "AWS::Events::EventBus": [
+    "Name"
+  ],
+  "AWS::Events::EventBusPolicy": [
+    "StatementId"
+  ],
+  "AWS::GlobalAccelerator::Accelerator": [
+    "Name"
+  ],
+  "AWS::GlobalAccelerator::CrossAccountAttachment": [
+    "Name"
+  ],
+  "AWS::GlobalAccelerator::EndpointGroup": [
+    "EndpointGroupRegion",
+    "ListenerArn"
+  ],
+  "AWS::GlobalAccelerator::Listener": [
+    "AcceleratorArn",
+    "PortRanges",
+    "Protocol"
+  ],
+  "AWS::Glue::Blueprint": [
+    "BlueprintLocation",
+    "Name"
+  ],
+  "AWS::Glue::Connection": [
+    "CatalogId",
+    "ConnectionInput"
+  ],
+  "AWS::Glue::Crawler": [
+    "Role",
+    "Targets"
+  ],
+  "AWS::Glue::Database": [
+    "CatalogId",
+    "DatabaseInput"
+  ],
+  "AWS::Glue::DevEndpoint": [
+    "RoleArn"
+  ],
+  "AWS::Glue::Job": [
+    "Command",
+    "Role"
+  ],
+  "AWS::Glue::Partition": [
+    "CatalogId",
+    "DatabaseName",
+    "PartitionInput",
+    "TableName"
+  ],
+  "AWS::Glue::Registry": [
+    "Name"
+  ],
+  "AWS::Glue::Schema": [
+    "Compatibility",
+    "DataFormat",
+    "Name"
+  ],
+  "AWS::Glue::SecurityConfiguration": [
+    "EncryptionConfiguration",
+    "Name"
+  ],
+  "AWS::Glue::Table": [
+    "CatalogId",
+    "DatabaseName"
+  ],
+  "AWS::Glue::Trigger": [
+    "Actions",
+    "Type"
+  ],
+  "AWS::GuardDuty::Detector": [
+    "Enable"
+  ],
+  "AWS::GuardDuty::IPSet": [
+    "Format",
+    "Location"
+  ],
+  "AWS::IAM::AccessKey": [
+    "UserName"
+  ],
+  "AWS::IAM::GroupPolicy": [
+    "GroupName",
+    "PolicyName"
+  ],
   "AWS::IAM::InstanceProfile": [
     "Roles"
+  ],
+  "AWS::IAM::ManagedPolicy": [
+    "PolicyDocument"
   ],
   "AWS::IAM::Policy": [
     "PolicyDocument",
@@ -34,9 +972,109 @@
   "AWS::IAM::Role": [
     "AssumeRolePolicyDocument"
   ],
+  "AWS::IAM::RolePolicy": [
+    "PolicyName",
+    "RoleName"
+  ],
+  "AWS::IAM::UserPolicy": [
+    "PolicyName",
+    "UserName"
+  ],
+  "AWS::IAM::UserToGroupAddition": [
+    "GroupName",
+    "Users"
+  ],
+  "AWS::IAM::VirtualMFADevice": [
+    "Users"
+  ],
+  "AWS::IoT::Authorizer": [
+    "AuthorizerFunctionArn"
+  ],
+  "AWS::IoT::Certificate": [
+    "Status"
+  ],
+  "AWS::IoT::CustomMetric": [
+    "MetricType"
+  ],
+  "AWS::IoT::Dimension": [
+    "StringValues",
+    "Type"
+  ],
+  "AWS::IoT::FleetMetric": [
+    "MetricName"
+  ],
+  "AWS::IoT::JobTemplate": [
+    "Description",
+    "JobTemplateId"
+  ],
+  "AWS::IoT::MitigationAction": [
+    "ActionParams",
+    "RoleArn"
+  ],
+  "AWS::IoT::Policy": [
+    "PolicyDocument"
+  ],
+  "AWS::IoT::ProvisioningTemplate": [
+    "ProvisioningRoleArn",
+    "TemplateBody"
+  ],
+  "AWS::IoT::RoleAlias": [
+    "RoleArn"
+  ],
+  "AWS::IoT::ScheduledAudit": [
+    "Frequency",
+    "TargetCheckNames"
+  ],
+  "AWS::IoT::TopicRule": [
+    "TopicRulePayload"
+  ],
   "AWS::KMS::Alias": [
     "AliasName",
     "TargetKeyId"
+  ],
+  "AWS::KMS::ReplicaKey": [
+    "KeyPolicy",
+    "PrimaryKeyArn"
+  ],
+  "AWS::KafkaConnect::Connector": [
+    "Capacity",
+    "ConnectorConfiguration",
+    "ConnectorName",
+    "KafkaCluster",
+    "KafkaClusterClientAuthentication",
+    "KafkaClusterEncryptionInTransit",
+    "KafkaConnectVersion",
+    "Plugins",
+    "ServiceExecutionRoleArn"
+  ],
+  "AWS::KafkaConnect::CustomPlugin": [
+    "ContentType",
+    "Location",
+    "Name"
+  ],
+  "AWS::KafkaConnect::WorkerConfiguration": [
+    "Name",
+    "PropertiesFileContent"
+  ],
+  "AWS::Kinesis::ResourcePolicy": [
+    "ResourceArn",
+    "ResourcePolicy"
+  ],
+  "AWS::Kinesis::StreamConsumer": [
+    "ConsumerName",
+    "StreamARN"
+  ],
+  "AWS::Lambda::Alias": [
+    "FunctionName",
+    "FunctionVersion",
+    "Name"
+  ],
+  "AWS::Lambda::CodeSigningConfig": [
+    "AllowedPublishers"
+  ],
+  "AWS::Lambda::EventInvokeConfig": [
+    "FunctionName",
+    "Qualifier"
   ],
   "AWS::Lambda::EventSourceMapping": [
     "FunctionName"
@@ -45,35 +1083,462 @@
     "Code",
     "Role"
   ],
+  "AWS::Lambda::LayerVersion": [
+    "Content"
+  ],
+  "AWS::Lambda::LayerVersionPermission": [
+    "Action",
+    "LayerVersionArn",
+    "Principal"
+  ],
   "AWS::Lambda::Permission": [
     "Action",
     "FunctionName",
     "Principal"
   ],
+  "AWS::Lambda::ResourcePolicy": [
+    "PolicyDocument",
+    "ResourceArn"
+  ],
+  "AWS::Lambda::Url": [
+    "AuthType",
+    "TargetFunctionArn"
+  ],
+  "AWS::Lambda::Version": [
+    "FunctionName"
+  ],
+  "AWS::Logs::Delivery": [
+    "DeliveryDestinationArn",
+    "DeliverySourceName"
+  ],
+  "AWS::Logs::DeliveryDestination": [
+    "Name"
+  ],
+  "AWS::Logs::DeliverySource": [
+    "Name"
+  ],
+  "AWS::Logs::Destination": [
+    "DestinationName",
+    "RoleArn",
+    "TargetArn"
+  ],
+  "AWS::Logs::Integration": [
+    "IntegrationName",
+    "IntegrationType",
+    "ResourceConfig"
+  ],
   "AWS::Logs::LogStream": [
     "LogGroupName"
+  ],
+  "AWS::Logs::MetricFilter": [
+    "FilterPattern",
+    "LogGroupName",
+    "MetricTransformations"
+  ],
+  "AWS::Logs::QueryDefinition": [
+    "Name",
+    "QueryString"
+  ],
+  "AWS::Logs::ResourcePolicy": [
+    "PolicyDocument",
+    "PolicyName"
+  ],
+  "AWS::Logs::ScheduledQuery": [
+    "ExecutionRoleArn",
+    "Name",
+    "QueryLanguage",
+    "QueryString",
+    "ScheduleExpression"
+  ],
+  "AWS::Logs::SubscriptionFilter": [
+    "DestinationArn",
+    "FilterPattern",
+    "LogGroupName"
+  ],
+  "AWS::MSK::Cluster": [
+    "BrokerNodeGroupInfo",
+    "ClusterName",
+    "KafkaVersion",
+    "NumberOfBrokerNodes"
+  ],
+  "AWS::Macie::AllowList": [
+    "Criteria",
+    "Name"
+  ],
+  "AWS::Macie::FindingsFilter": [
+    "FindingCriteria",
+    "Name"
+  ],
+  "AWS::MemoryDB::ACL": [
+    "ACLName"
+  ],
+  "AWS::MemoryDB::Cluster": [
+    "ACLName",
+    "ClusterName",
+    "NodeType"
+  ],
+  "AWS::MemoryDB::ParameterGroup": [
+    "Family",
+    "ParameterGroupName"
+  ],
+  "AWS::MemoryDB::SubnetGroup": [
+    "SubnetGroupName",
+    "SubnetIds"
+  ],
+  "AWS::MemoryDB::User": [
+    "UserName"
+  ],
+  "AWS::Neptune::DBClusterParameterGroup": [
+    "Description",
+    "Family",
+    "Parameters"
+  ],
+  "AWS::Neptune::DBInstance": [
+    "DBInstanceClass"
+  ],
+  "AWS::Neptune::DBParameterGroup": [
+    "Description",
+    "Family",
+    "Parameters"
+  ],
+  "AWS::Neptune::DBSubnetGroup": [
+    "DBSubnetGroupDescription",
+    "SubnetIds"
+  ],
+  "AWS::NetworkManager::ConnectAttachment": [
+    "CoreNetworkId",
+    "EdgeLocation",
+    "Options",
+    "TransportAttachmentId"
+  ],
+  "AWS::NetworkManager::ConnectPeer": [
+    "ConnectAttachmentId",
+    "PeerAddress"
+  ],
+  "AWS::NetworkManager::CoreNetwork": [
+    "GlobalNetworkId"
+  ],
+  "AWS::NetworkManager::CustomerGatewayAssociation": [
+    "CustomerGatewayArn",
+    "DeviceId",
+    "GlobalNetworkId"
+  ],
+  "AWS::NetworkManager::Device": [
+    "GlobalNetworkId"
+  ],
+  "AWS::NetworkManager::DirectConnectGatewayAttachment": [
+    "CoreNetworkId",
+    "DirectConnectGatewayArn",
+    "EdgeLocations"
+  ],
+  "AWS::NetworkManager::Link": [
+    "Bandwidth",
+    "GlobalNetworkId",
+    "SiteId"
+  ],
+  "AWS::NetworkManager::LinkAssociation": [
+    "DeviceId",
+    "GlobalNetworkId",
+    "LinkId"
+  ],
+  "AWS::NetworkManager::Site": [
+    "GlobalNetworkId"
+  ],
+  "AWS::NetworkManager::SiteToSiteVpnAttachment": [
+    "CoreNetworkId",
+    "VpnConnectionArn"
+  ],
+  "AWS::NetworkManager::TransitGatewayPeering": [
+    "CoreNetworkId",
+    "TransitGatewayArn"
+  ],
+  "AWS::NetworkManager::TransitGatewayRegistration": [
+    "GlobalNetworkId",
+    "TransitGatewayArn"
+  ],
+  "AWS::NetworkManager::TransitGatewayRouteTableAttachment": [
+    "PeeringId",
+    "TransitGatewayRouteTableArn"
+  ],
+  "AWS::NetworkManager::VpcAttachment": [
+    "CoreNetworkId",
+    "SubnetArns",
+    "VpcArn"
+  ],
+  "AWS::Oam::Link": [
+    "ResourceTypes",
+    "SinkIdentifier"
+  ],
+  "AWS::Oam::Sink": [
+    "Name"
+  ],
+  "AWS::Pipes::Pipe": [
+    "RoleArn",
+    "Source",
+    "Target"
+  ],
+  "AWS::RDS::DBClusterParameterGroup": [
+    "Description",
+    "Family",
+    "Parameters"
+  ],
+  "AWS::RDS::DBParameterGroup": [
+    "Description",
+    "Family"
+  ],
+  "AWS::RDS::DBProxy": [
+    "DBProxyName",
+    "EngineFamily",
+    "RoleArn",
+    "VpcSubnetIds"
+  ],
+  "AWS::RDS::DBProxyEndpoint": [
+    "DBProxyEndpointName",
+    "DBProxyName",
+    "VpcSubnetIds"
+  ],
+  "AWS::RDS::DBSubnetGroup": [
+    "DBSubnetGroupDescription",
+    "SubnetIds"
+  ],
+  "AWS::RDS::EventSubscription": [
+    "SnsTopicArn"
+  ],
+  "AWS::RDS::OptionGroup": [
+    "EngineName",
+    "MajorEngineVersion",
+    "OptionGroupDescription"
+  ],
+  "AWS::RUM::AppMonitor": [
+    "Name"
+  ],
+  "AWS::Redshift::Cluster": [
+    "ClusterType",
+    "DBName",
+    "MasterUsername",
+    "NodeType"
+  ],
+  "AWS::Redshift::ClusterParameterGroup": [
+    "Description",
+    "ParameterGroupFamily"
+  ],
+  "AWS::Redshift::ClusterSubnetGroup": [
+    "Description",
+    "SubnetIds"
+  ],
+  "AWS::ResilienceHub::App": [
+    "AppTemplateBody",
+    "Name",
+    "ResourceMappings"
+  ],
+  "AWS::ResilienceHub::ResiliencyPolicy": [
+    "Policy",
+    "PolicyName",
+    "Tier"
+  ],
+  "AWS::Route53::HealthCheck": [
+    "HealthCheckConfig"
+  ],
+  "AWS::Route53::RecordSet": [
+    "Name",
+    "Type"
+  ],
+  "AWS::Route53Resolver::FirewallRuleGroupAssociation": [
+    "FirewallRuleGroupId",
+    "Priority",
+    "VpcId"
+  ],
+  "AWS::Route53Resolver::OutpostResolver": [
+    "Name",
+    "OutpostArn",
+    "PreferredInstanceType"
+  ],
+  "AWS::Route53Resolver::ResolverEndpoint": [
+    "Direction",
+    "IpAddresses",
+    "SecurityGroupIds"
+  ],
+  "AWS::Route53Resolver::ResolverRule": [
+    "RuleType"
+  ],
+  "AWS::Route53Resolver::ResolverRuleAssociation": [
+    "ResolverRuleId",
+    "VPCId"
   ],
   "AWS::S3::BucketPolicy": [
     "Bucket",
     "PolicyDocument"
   ],
+  "AWS::SES::EmailIdentity": [
+    "EmailIdentity"
+  ],
   "AWS::SNS::Subscription": [
     "Protocol",
+    "TopicArn"
+  ],
+  "AWS::SNS::TopicInlinePolicy": [
+    "PolicyDocument",
     "TopicArn"
   ],
   "AWS::SNS::TopicPolicy": [
     "PolicyDocument",
     "Topics"
   ],
+  "AWS::SQS::QueueInlinePolicy": [
+    "PolicyDocument",
+    "Queue"
+  ],
   "AWS::SQS::QueuePolicy": [
     "PolicyDocument",
     "Queues"
+  ],
+  "AWS::SSM::Association": [
+    "Name"
+  ],
+  "AWS::SSM::Document": [
+    "Content"
+  ],
+  "AWS::SSM::MaintenanceWindow": [
+    "AllowUnassociatedTargets",
+    "Cutoff",
+    "Duration",
+    "Name",
+    "Schedule"
+  ],
+  "AWS::SSM::MaintenanceWindowTarget": [
+    "ResourceType",
+    "Targets",
+    "WindowId"
+  ],
+  "AWS::SSM::MaintenanceWindowTask": [
+    "Priority",
+    "TaskArn",
+    "TaskType",
+    "WindowId"
   ],
   "AWS::SSM::Parameter": [
     "Type",
     "Value"
   ],
+  "AWS::SSM::PatchBaseline": [
+    "Name"
+  ],
+  "AWS::SSM::ResourceDataSync": [
+    "SyncName"
+  ],
+  "AWS::SSM::ResourcePolicy": [
+    "Policy",
+    "ResourceArn"
+  ],
+  "AWS::SageMaker::CodeRepository": [
+    "GitConfig"
+  ],
+  "AWS::SageMaker::Domain": [
+    "AuthMode",
+    "DefaultUserSettings",
+    "DomainName"
+  ],
+  "AWS::SageMaker::Endpoint": [
+    "EndpointConfigName"
+  ],
+  "AWS::SageMaker::EndpointConfig": [
+    "ProductionVariants"
+  ],
+  "AWS::SageMaker::FeatureGroup": [
+    "EventTimeFeatureName",
+    "FeatureDefinitions",
+    "FeatureGroupName",
+    "RecordIdentifierFeatureName"
+  ],
+  "AWS::SageMaker::Image": [
+    "ImageName",
+    "ImageRoleArn"
+  ],
+  "AWS::SageMaker::ImageVersion": [
+    "BaseImage",
+    "ImageName"
+  ],
+  "AWS::SageMaker::ModelPackageGroup": [
+    "ModelPackageGroupName"
+  ],
+  "AWS::SageMaker::NotebookInstance": [
+    "InstanceType",
+    "RoleArn"
+  ],
+  "AWS::SageMaker::Pipeline": [
+    "PipelineDefinition",
+    "PipelineName",
+    "RoleArn"
+  ],
+  "AWS::SageMaker::Project": [
+    "ProjectName"
+  ],
+  "AWS::SageMaker::Workteam": [
+    "MemberDefinitions"
+  ],
+  "AWS::Scheduler::Schedule": [
+    "FlexibleTimeWindow",
+    "ScheduleExpression",
+    "Target"
+  ],
+  "AWS::SecretsManager::ResourcePolicy": [
+    "ResourcePolicy",
+    "SecretId"
+  ],
+  "AWS::SecretsManager::RotationSchedule": [
+    "SecretId"
+  ],
+  "AWS::SecretsManager::SecretTargetAttachment": [
+    "SecretId",
+    "TargetId",
+    "TargetType"
+  ],
+  "AWS::ServiceDiscovery::HttpNamespace": [
+    "Name"
+  ],
+  "AWS::ServiceDiscovery::Instance": [
+    "InstanceAttributes",
+    "ServiceId"
+  ],
+  "AWS::ServiceDiscovery::PrivateDnsNamespace": [
+    "Name"
+  ],
+  "AWS::ServiceDiscovery::PublicDnsNamespace": [
+    "Name"
+  ],
+  "AWS::StepFunctions::Activity": [
+    "Name"
+  ],
   "AWS::StepFunctions::StateMachine": [
     "RoleArn"
+  ],
+  "AWS::StepFunctions::StateMachineVersion": [
+    "StateMachineArn"
+  ],
+  "AWS::Transfer::Profile": [
+    "As2Id",
+    "ProfileType"
+  ],
+  "AWS::Transfer::Workflow": [
+    "Steps"
+  ],
+  "AWS::WAFv2::IPSet": [
+    "Addresses",
+    "IPAddressVersion",
+    "Scope"
+  ],
+  "AWS::WAFv2::RuleGroup": [
+    "Capacity",
+    "Scope",
+    "VisibilityConfig"
+  ],
+  "AWS::WAFv2::WebACL": [
+    "DefaultAction",
+    "Scope",
+    "VisibilityConfig"
+  ],
+  "AWS::WAFv2::WebACLAssociation": [
+    "ResourceArn",
+    "WebACLArn"
   ]
 }
