@@ -75,10 +75,10 @@ families:
 gaps: []
 items_still_open:
   - "Docker runtime container definition: firelensConfiguration and awsfirelens log routing (a task using either fails with TaskFailedToStart instead of starting the log router), resourceRequirements (GPU), non-awslogs logConfiguration drivers, ephemeralStorage and task-level cpu/memory cgroups are stored but not applied to the Docker container."
-  - "Docker runtime volumes: efsVolumeConfiguration and configuredAtLaunch (EBS) volumes fail the task with a TaskFailedToStart stoppedReason instead of mounting; networkMode host/none/awsvpc ENI semantics and pidMode/ipcMode 'task' are not mapped (pidMode/ipcMode 'host' and ipcMode 'none' are)."
-  - "Docker runtime dependsOn: the stoppedReason text for a failed dependency is unverified against real ECS; the default dependency timeout is 3 minutes. Launch is asynchronous (PROVISIONING, PENDING, ACTIVATING, RUNNING); pullStartedAt/pullStoppedAt bracket the whole launch (no per-image pull timing), and PROVISIONING tasks in a restored snapshot are not resumed."
+  - "Docker runtime volumes: configuredAtLaunch (EBS) volumes fail the task with a TaskFailedToStart stoppedReason instead of mounting; networkMode host/none/awsvpc ENI semantics and pidMode/ipcMode 'task' are not mapped (pidMode/ipcMode 'host' and ipcMode 'none' are)."
+  - "Docker runtime dependsOn: the stoppedReason text for a failed dependency is unverified (no AWS doc publishes it; the task just moves to STOPPED per ContainerDefinition.startTimeout). Launch is asynchronous (PROVISIONING, PENDING, ACTIVATING, RUNNING); pullStartedAt/pullStoppedAt bracket the whole launch (no per-image pull timing), and PROVISIONING tasks in a restored snapshot are not resumed."
   - "ECS Exec: sessions exist only on the docker runtime with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied."
-  - "Docker runtime health: an UNHEALTHY essential container is reported (container and task healthStatus) but does not replace the task as a service scheduler would; container restarts are applied but restart counts are not reported."
+  - "Docker runtime health: container restarts are applied but restart counts are not reported."
 structural_gaps:
   - "Service Connect: ServiceConnectConfiguration is stored and echoed, and ListServicesByNamespace matches on it, but Service Connect proxies and its Cloud Map instance registration are not modeled."
   - "Cloud Map registration of bridge/host-mode EC2 tasks: container instances have no modeled private IP, so only awsvpc tasks (ENI IP) are registered; tasks carry no placement AZ, so AVAILABILITY_ZONE is <region>a."
@@ -90,6 +90,14 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-10-30: EFS volumes, unhealthy-task replacement
+
+efsVolumeConfiguration volumes on the docker runtime bind-mount the emulator's EFS host storage (services/efs, the same mechanism as Lambda's FileSystemConfig): with authorizationConfig.accessPointId the access point's root directory is mounted (rootDirectory must be omitted or "/", per the ECS EFS volumes guide; the access point must belong to fileSystemId), otherwise rootDirectory under the file system. The access point's POSIX user becomes the user (and secondary groups) of each container that mounts the volume and sets no `user`. transitEncryption and iam are accepted and need no TLS/SigV4 locally. A missing file system/access point, a rootDirectory/access point conflict or an unwired EFS fails the task TaskFailedToStart with stoppedReason "ResourceInitializationError: failed to invoke EFS utils commands to set up EFS volumes: <detail>" (the documented ResourceInitializationError text, stopped-task-error-codes / resource-initialization-error; the exact text real ECS emits for a missing access point is unverified). Tests: TestRunTask_EFSVolume, TestResolveVolumeMount, TestECSEFSResolverWiring, docker-gated TestDockerRunnerLiveEFSAccessPoint.
+
+The reconciler stops RUNNING service tasks whose task healthStatus is UNHEALTHY with stoppedReason "Task failed container health checks" and stopCode ServiceSchedulerInitiated, ignoring them until the service's healthCheckGracePeriodSeconds has elapsed since startedAt (injectable clock), and scaleUp launches the replacement within maximumPercent. Unhealthy tasks do not count as healthy so minimumHealthyPercent does not hold the stop back. Standalone tasks are never replaced. The stoppedReason text is the commonly seen ECS wording and is not in the published docs. Tests: TestStopUnhealthyServiceTasks, TestReconciler_ReplacesUnhealthyServiceTask, docker-gated TestDockerRunnerLiveUnhealthyServiceTaskReplaced.
+
+dependsOn: the 3-minute default dependency wait matches the ECS agent default ECS_CONTAINER_START_TIMEOUT (3m Linux; github.com/aws/amazon-ecs-agent README) and the 30s stopTimeout default matches ContainerDefinition.stopTimeout; the failed-dependency stoppedReason stays unverified.
 
 ### 2026-10-27: Docker runtime applies container-definition parameters
 

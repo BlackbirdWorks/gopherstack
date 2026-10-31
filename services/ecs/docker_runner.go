@@ -130,6 +130,7 @@ type realDockerRunner struct {
 	healthHandler     func(taskArn, containerName, status string)
 	reasonHandler     func(taskArn, containerName, reason string)
 	secretLookup      func(ctx context.Context, valueFrom string) (string, error)
+	efsLookup         func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error)
 	registryAuth      func(ctx context.Context, cd ContainerDefinition) (string, error)
 	envFileLookup     func(ctx context.Context, cd ContainerDefinition) ([]string, error)
 	taskEnv           func(task *Task, containerName string) []string

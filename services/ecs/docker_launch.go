@@ -198,6 +198,10 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 	}
 
 	plan, err := r.resolveVolumes(ctx, task, td)
+	if _, isLaunch := errors.AsType[*taskLaunchError](err); isLaunch {
+		return err
+	}
+
 	if err != nil {
 		return &taskLaunchError{Reason: "Task failed to start: " + err.Error(), Err: err}
 	}
@@ -374,6 +378,16 @@ func (r *realDockerRunner) SetRegistryAuthResolver(
 	r.registryAuth = fn
 }
 
+// SetEFSVolumeResolver wires the lookup that resolves efsVolumeConfiguration volumes to host directories.
+func (r *realDockerRunner) SetEFSVolumeResolver(
+	fn func(region string, cfg *EFSVolumeConfiguration) (EFSVolumeMount, error),
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.efsLookup = fn
+}
+
 // SetEnvFileResolver wires the lookup that reads a container's environmentFiles.
 func (r *realDockerRunner) SetEnvFileResolver(fn func(ctx context.Context, cd ContainerDefinition) ([]string, error)) {
 	r.mu.Lock()
@@ -548,6 +562,7 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 		return "", &taskLaunchError{Reason: "Task failed to start: " + err.Error(), Err: err}
 	}
 
+	applyVolumeIdentity(cfg, hostCfg, cd, l.plan)
 	maps.Copy(cfg.Labels, managedLabels(l, cd, len(diverted) > 0))
 
 	resp, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, "")
