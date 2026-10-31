@@ -371,8 +371,11 @@ func TestInstanceUpdate(t *testing.T) {
 			status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
 		},
 		{
-			name: "minimal above most", res: &computepb.Instance{Description: s("d")}, minimal: "RESTART", most: "REFRESH",
-			status: stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
+			name:    "minimal above most",
+			res:     &computepb.Instance{Description: s("d")},
+			minimal: "RESTART",
+			most:    "REFRESH",
+			status:  stRunning, errCode: http.StatusBadRequest, errToken: "invalid",
 		},
 		{
 			name:     "bad minimal",
