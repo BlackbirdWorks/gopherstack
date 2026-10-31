@@ -315,7 +315,6 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	settings Settings
 	ctx     context.Context
 	metrics cwmetric.Sink
 	mu      *lockmetrics.RWMutex
@@ -385,6 +384,7 @@ type InMemoryBackend struct {
 	deliveryTimeout time.Duration
 	tableMu         sync.Mutex
 	closing         atomic.Bool
+	settings        Settings
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.

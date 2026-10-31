@@ -25,7 +25,10 @@ func TestPutRule_PatternReasons(t *testing.T) {
 		{"or_one_element", `{"$or":[{"a":[1]}]}`, "There must have at least 2 Objects in $or relationship."},
 		{"or_non_object", `{"$or":[1,2]}`, "Only JSON object is allowed in array of $or relationship."},
 		{"anything_but_object", `{"a":[{"anything-but":{"bogus":"x"}}]}`, "Unsupported anything-but pattern: bogus"},
-		{"anything_but_bool", `{"a":[{"anything-but":true}]}`, "Value of anything-but must be an array or single string/number value."},
+		{
+			"anything_but_bool", `{"a":[{"anything-but":true}]}`,
+			"Value of anything-but must be an array or single string/number value.",
+		},
 		{"anything_but_mixed", `{"a":[{"anything-but":["x",1]}]}`, "mixed type is not supported"},
 		{"exists_bad", `{"a":[{"exists":"x"}]}`, "exists match pattern must be either true or false."},
 	}

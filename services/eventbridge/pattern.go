@@ -11,7 +11,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
 )
 
-const anythingButMixedMsg = "Inside anything but list, either all values are number or string, mixed type is not supported"
+const (
+	anythingButMixedMsg = "Inside anything but list, either all values are number or string, " +
+		"mixed type is not supported"
+	minOrAlternatives = 2
+)
+
+// reasonErr builds an event-ruler parse reason, passed through verbatim to the wire.
+func reasonErr(reason string) error { return fmt.Errorf("%w: %s", ErrInvalidParameter, reason) }
 
 type compiledPattern struct {
 	pattern               map[string]any
@@ -88,17 +95,17 @@ func validatePatternObject(pattern map[string]any) error {
 func validateOrCombinator(val any) error {
 	alts, ok := val.([]any)
 	if !ok {
-		return fmt.Errorf("%w: It must be an Array followed with $or.", ErrInvalidParameter)
+		return reasonErr("It must be an Array followed with $or.")
 	}
 
-	if len(alts) < 2 {
-		return fmt.Errorf("%w: There must have at least 2 Objects in $or relationship.", ErrInvalidParameter)
+	if len(alts) < minOrAlternatives {
+		return reasonErr("There must have at least 2 Objects in $or relationship.")
 	}
 
 	for _, alt := range alts {
 		subPat, isMap := alt.(map[string]any)
 		if !isMap {
-			return fmt.Errorf("%w: Only JSON object is allowed in array of $or relationship.", ErrInvalidParameter)
+			return reasonErr("Only JSON object is allowed in array of $or relationship.")
 		}
 
 		if err := validatePatternObject(subPat); err != nil {
@@ -139,7 +146,7 @@ func validateMatcherObject(field string, m map[string]any) error {
 		}
 
 		if key == "anything-but" {
-			if err := validateAnythingButValue(field, val); err != nil {
+			if err := validateAnythingButValue(val); err != nil {
 				return err
 			}
 
@@ -161,12 +168,12 @@ func validateMatcherObject(field string, m map[string]any) error {
 // only numbers." (eb-event-patterns-content-based-filtering.html#eb-filtering-anything-but).
 // A map or array element would decode to a non-comparable Go type and panic
 // matchAnythingBut's containment check, so this is also the fix for that.
-func validateAnythingButValue(field string, v any) error {
+func validateAnythingButValue(v any) error {
 	switch ab := v.(type) {
 	case string, float64:
 		return nil
 	case map[string]any:
-		return validateAnythingButObject(field, ab)
+		return validateAnythingButObject(ab)
 	case []any:
 		var strs, nums int
 
@@ -177,20 +184,17 @@ func validateAnythingButValue(field string, v any) error {
 			case float64:
 				nums++
 			default:
-				return fmt.Errorf("%w: %s", ErrInvalidParameter, anythingButMixedMsg)
+				return reasonErr(anythingButMixedMsg)
 			}
 		}
 
 		if strs > 0 && nums > 0 {
-			return fmt.Errorf("%w: %s", ErrInvalidParameter, anythingButMixedMsg)
+			return reasonErr(anythingButMixedMsg)
 		}
 
 		return nil
 	default:
-		return fmt.Errorf(
-			"%w: Value of anything-but must be an array or single string/number value.",
-			ErrInvalidParameter,
-		)
+		return reasonErr("Value of anything-but must be an array or single string/number value.")
 	}
 }
 
@@ -198,13 +202,13 @@ func validateAnythingButValue(field string, v any) error {
 // matcher (e.g. {"anything-but": {"prefix": "init"}}). Must match the keys
 // matchAnythingButObject recognizes, so an unrecognized key is rejected at
 // compile time instead of silently never matching.
-func validateAnythingButObject(field string, ab map[string]any) error {
+func validateAnythingButObject(ab map[string]any) error {
 	for key := range ab {
 		if key == matcherNumeric || slices.Contains(anythingButStringMatcherKeys(), key) {
 			continue
 		}
 
-		return fmt.Errorf("%w: Unsupported anything-but pattern: %s", ErrInvalidParameter, key)
+		return reasonErr("Unsupported anything-but pattern: " + key)
 	}
 
 	return nil
