@@ -204,7 +204,7 @@ func (b *InMemoryBackend) insertFirewall(project string, in *computeapi.Firewall
 		f.Direction = dirIngress
 	}
 
-	if f.Priority == 0 && !hasForced(in.ForceSendFields, "Priority") {
+	if f.Priority == 0 && !hasForced(in.ForceSendFields, fieldPriority) {
 		f.Priority = defaultFirewallPrio
 	}
 
@@ -249,7 +249,7 @@ func (b *InMemoryBackend) getFirewall(project, name string) (*computeapi.Firewal
 
 func viewFirewall(f *computeapi.Firewall) *computeapi.Firewall {
 	out := clone(f)
-	out.ForceSendFields = []string{"Disabled", "Priority"}
+	out.ForceSendFields = []string{"Disabled", fieldPriority}
 
 	return out
 }
@@ -319,7 +319,7 @@ func (b *InMemoryBackend) updateFirewall(
 		next.Direction = cur.Direction
 	}
 
-	if next.Priority == 0 && !hasForced(next.ForceSendFields, "Priority") {
+	if next.Priority == 0 && !hasForced(next.ForceSendFields, fieldPriority) {
 		next.Priority = defaultFirewallPrio
 	}
 

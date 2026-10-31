@@ -38,6 +38,11 @@ func (b *InMemoryBackend) networkViewLocked(project string, n *computeapi.Networ
 
 	sort.Strings(out.Subnetworks)
 
+	out.Peerings = b.peeringsViewLocked(n)
+	if len(out.Peerings) == 0 {
+		out.Peerings = nil
+	}
+
 	return out
 }
 
@@ -82,7 +87,7 @@ func (b *InMemoryBackend) systemRouteLocked(project string, n *computeapi.Networ
 
 	name := sysRoutePrefix + hex.EncodeToString(buf[:])
 	b.routes[key(project, name)] = &computeapi.Route{
-		Kind: "compute#route", Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
+		Kind: kindRoute, Id: newID(), CreationTimestamp: b.stamp(), Name: name, Network: n.SelfLink,
 		Description: "Default route to the Internet.", DestRange: "0.0.0.0/0", Priority: defaultRoutePrio,
 		NextHopGateway: globalLink(project, "gateways", defaultGateway), SelfLink: globalLink(project, "routes", name),
 	}
@@ -152,6 +157,7 @@ func (b *InMemoryBackend) insertNetwork(
 	}
 
 	b.systemRouteLocked(project, n)
+	b.syncSubnetRoutesLocked(project, n)
 
 	return b.newOpLocked("insert", netTarget(project, n), b.timing.Done), nil
 }
@@ -184,6 +190,10 @@ func (b *InMemoryBackend) listNetworks(project string) []entry {
 }
 
 func (b *InMemoryBackend) networkUserLocked(project string, n *computeapi.Network) string {
+	if len(n.Peerings) > 0 {
+		return trimURL(n.Peerings[0].Network)
+	}
+
 	if by := b.networkRefsLocked(project, n); by != "" {
 		return by
 	}
@@ -228,7 +238,7 @@ func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Networ
 }
 
 func isSystemRoute(r *computeapi.Route) bool {
-	return strings.HasPrefix(r.Name, sysRoutePrefix) && r.NextHopGateway != ""
+	return isSubnetRoute(r) || strings.HasPrefix(r.Name, sysRoutePrefix) && r.NextHopGateway != ""
 }
 
 func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Operation, error) {
@@ -262,9 +272,10 @@ func (b *InMemoryBackend) deleteNetwork(project, name string) (*computeapi.Opera
 }
 
 var networkPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
-	"name": true, "routingConfig": true, "mtu": true, "description": true,
-	"networkFirewallPolicyEnforcementOrder": true, "kind": true, "id": true, "selfLink": true,
-	"creationTimestamp": true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
+	jsonName: true, "routingConfig": true, "mtu": true, jsonDesc: true,
+	"networkFirewallPolicyEnforcementOrder": true, jsonKind: true, "id": true, jsonSelfLink: true,
+	jsonCreated: true, "autoCreateSubnetworks": true, "subnetworks": true, "selfLinkWithId": true,
+	"peerings": true,
 }
 
 func (b *InMemoryBackend) patchNetwork(

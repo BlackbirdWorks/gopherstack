@@ -143,6 +143,8 @@ func TestRestoreRejectsBadSnapshots(t *testing.T) {
 	}{
 		{"null instance", `{"instances":{"p/z/x":null},"version":1}`, true},
 		{"null network", `{"networks":{"p/x":null},"version":1}`, true},
+		{"null security policy", `{"securityPolicies":{"p/global/x":null},"version":1}`, true},
+		{"null resource policy", `{"resourcePolicies":{"p/r/x":null},"version":1}`, true},
 		{"instance without body", `{"instances":{"p/z/x":{"phase":"start"}},"version":1}`, true},
 		{"router without body", `{"routers":{"p/r/x":{}},"version":1}`, true},
 		{"operation without body", `{"ops":{"k":{}},"version":1}`, true},

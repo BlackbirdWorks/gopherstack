@@ -17,6 +17,7 @@ func (h *Handler) registerNetworkOps() {
 	h.registerSubnetOps()
 	h.registerFirewallOps()
 	h.registerRouteOps()
+	h.registerPeeringOps()
 }
 
 func (h *Handler) registerVPCOps() {

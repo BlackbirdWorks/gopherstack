@@ -50,6 +50,8 @@ const (
 	hostArtifactPort        = "18134"
 	containerCloudBuildPort = "8136/tcp"
 	hostCloudBuildPort      = "18136"
+	containerComputePort    = "8142/tcp"
+	hostComputePort         = "18142"
 
 	containerPubSubPort   = "8085/tcp"
 	containerSecretsPort  = "8086/tcp"
@@ -84,6 +86,7 @@ var (
 	spannerEndpoint    = "http://localhost:" + hostSpannerPort + "/v1/"
 	artifactEndpoint   = "http://localhost:" + hostArtifactPort + "/v1/"
 	cloudBuildEndpoint = "http://localhost:" + hostCloudBuildPort + "/v1/"
+	computeEndpoint    = "http://localhost:" + hostComputePort + "/compute/v1/"
 )
 
 func TestMain(m *testing.M) {
@@ -192,7 +195,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			containerStoragePort, containerBigQueryPort, containerPubSubPort, containerSecretsPort,
 			containerKMSPort, containerTasksPort, containerSchedulePort, containerSQLPort,
 			containerLoggingPort, containerRedisPort, containerMonitoringPort, containerSpannerPort,
-			containerArtifactPort, containerCloudBuildPort,
+			containerArtifactPort, containerCloudBuildPort, containerComputePort,
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = fixedPortMap(map[string]string{
@@ -210,6 +213,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 				containerSpannerPort:    hostSpannerPort,
 				containerArtifactPort:   hostArtifactPort,
 				containerCloudBuildPort: hostCloudBuildPort,
+				containerComputePort:    hostComputePort,
 			})
 		},
 		WaitingFor: wait.ForAll(
@@ -227,6 +231,7 @@ func startContainer(ctx context.Context, logger *slog.Logger) (testcontainers.Co
 			wait.ForListeningPort(containerSpannerPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerArtifactPort).WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort(containerCloudBuildPort).WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort(containerComputePort).WithStartupTimeout(60*time.Second),
 		),
 	}
 

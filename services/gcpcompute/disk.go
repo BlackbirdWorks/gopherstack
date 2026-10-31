@@ -122,7 +122,8 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 		return nil, err
 	}
 
-	if apiErr := validLabels(in.Labels); apiErr != nil {
+	policies, apiErr := b.diskLabelsAndPoliciesLocked(project, zone, in)
+	if apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -162,6 +163,7 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 		LabelFingerprint:       labelFP(in.Labels),
 		PhysicalBlockSizeBytes: physBlockBytes,
 		Architecture:           archX86,
+		ResourcePolicies:       policies,
 	}
 
 	if src.image != nil {
@@ -398,4 +400,13 @@ func (b *InMemoryBackend) setSnapshotLabels(project, name string, req labelsRequ
 		target{project: project, scope: scopeGlobal, collection: "snapshots", name: name, id: s.Id},
 		b.timing.Done,
 	), nil
+}
+
+func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(project, zone string, in *computeapi.Disk) ([]string, *APIError) {
+	if err := validLabels(in.Labels); err != nil {
+		return nil, err
+	}
+
+	return b.resolveResPoliciesLocked(
+		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds())
 }
