@@ -1283,7 +1283,7 @@ func (b *InMemoryBackend) computeObjectHashes(
 		}
 	}
 
-	n, err := io.Copy(io.MultiWriter(writers...), body)
+	n, err := copyPooled(io.MultiWriter(writers...), body)
 	if err != nil {
 		return 0, nil, "", nil, err
 	}
