@@ -143,8 +143,15 @@ func (m *Manager) setScript(stage Stage, idx int, st State, errMsg string) {
 	})
 }
 
-// listScripts returns the sorted .sh/.py script paths directly inside dir.
-func listScripts(dir string) []string {
+// listScripts returns the sorted .sh/.py script paths directly inside root/sub.
+func listScripts(root, sub string) []string {
+	base := filepath.Clean(root)
+	dir := filepath.Join(base, sub)
+
+	if dir != base && !strings.HasPrefix(dir, strings.TrimSuffix(base, string(filepath.Separator))+string(filepath.Separator)) {
+		return nil
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -174,7 +181,7 @@ func (m *Manager) discover(stage Stage) []string {
 	var out []string
 
 	for _, root := range m.roots {
-		out = append(out, listScripts(filepath.Join(root, strings.ToLower(string(stage))+".d"))...)
+		out = append(out, listScripts(root, strings.ToLower(string(stage))+".d")...)
 	}
 
 	if stage != StageReady {
@@ -182,7 +189,7 @@ func (m *Manager) discover(stage Stage) []string {
 	}
 
 	for _, dir := range m.legacy {
-		if legacy := listScripts(dir); len(legacy) > 0 {
+		if legacy := listScripts(dir, ""); len(legacy) > 0 {
 			m.log.Warn("init hook: legacy directory is deprecated; move scripts to <root>/ready.d", "dir", dir)
 
 			out = append(out, legacy...)

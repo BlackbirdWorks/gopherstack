@@ -474,15 +474,21 @@ func ociLBLoopback(addr string) bool {
 	return err == nil && ip.IsLoopback()
 }
 
+// ociLBPinnedBase is a placeholder authority; the transport dials the emulator-owned loopback address instead.
+const ociLBPinnedBase = "http://listener.invalid/"
+
 func ociLBSend(c *echo.Context, addr, rel string, in ociLBTryIn) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), ociLBTryTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, in.Method, "http://"+addr+rel, strings.NewReader(in.Body))
+	req, err := http.NewRequestWithContext(
+		ctx, in.Method, ociLBPinnedBase+strings.TrimPrefix(rel, "/"), strings.NewReader(in.Body),
+	)
 	if err != nil {
 		return ociInvalid(c, "invalid Load Balancer try-it request")
 	}
 
+	req.Host = addr
 	if in.VirtualHost != "" {
 		req.Host = in.VirtualHost
 	}

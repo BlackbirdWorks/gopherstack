@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -53,11 +55,26 @@ func (e *ACIEngine) SetProbeHooks(
 	}
 }
 
+// aciProbeTLSConfig skips certificate verification only for loopback targets (emulator-run containers, like
+// kubelet probes); policy 2026-10-31.
+func aciProbeTLSConfig(rawURL string) *tls.Config {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return cfg
+	}
+
+	if ip, perr := netip.ParseAddr(u.Hostname()); perr == nil && ip.IsLoopback() {
+		cfg.InsecureSkipVerify = true //nolint:gosec // loopback emulator containers only
+	}
+
+	return cfg
+}
+
 func defaultACIHTTPProbe(ctx context.Context, p ACIHTTPProbe) (int, error) {
 	tr := httpclient.NewTransport()
-	tr.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // probes ignore certificates, like kubelet
-	}
+	tr.TLSClientConfig = aciProbeTLSConfig(p.URL)
 
 	client := &http.Client{Transport: tr, Timeout: p.Timeout}
 	defer tr.CloseIdleConnections()

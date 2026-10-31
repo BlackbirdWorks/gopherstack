@@ -47,7 +47,7 @@ func (h *Handler) json(c *echo.Context, status int, v any) error {
 }
 
 func (h *Handler) entity(c *echo.Context, status int, context string, m map[string]any) error {
-	out := make(map[string]any, len(m)+1)
+	out := make(map[string]any, len(m))
 	out["@odata.context"] = odataBase(c.Request()) + "/$metadata#" + context + "/$entity"
 	maps.Copy(out, m)
 

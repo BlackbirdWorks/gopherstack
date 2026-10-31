@@ -57,16 +57,17 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 // scripts found in the configured roots can run; name is matched against
 // discovered base names, never used as a path.
 func (m *Manager) RunNamed(ctx context.Context, stage Stage, name string) ([]ScriptRun, error) {
-	stage = Stage(strings.ToUpper(string(stage)))
-
-	known := false
+	want := Stage(strings.ToUpper(string(stage)))
+	stage = ""
 
 	for _, s := range Stages() {
-		known = known || s == stage
+		if s == want {
+			stage = s
+		}
 	}
 
-	if !known {
-		return nil, fmt.Errorf("%w: %q", ErrUnknownStage, stage)
+	if stage == "" {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownStage, want)
 	}
 
 	paths := m.discover(stage)
