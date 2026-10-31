@@ -657,6 +657,7 @@ type CLI struct {
 	GCPArtifactRegistry           gcparbackend.Settings             `embed:"" prefix:"gcp-artifacts-"`
 	GCPSQL                        gcpsqlbackend.Settings            `embed:"" prefix:"gcp-sql-"`
 	OCIContainerEngine            ocioke.Settings                   `embed:"" prefix:"oci-oke-"`
+	OCIContainerInstances         ocicontainerinstances.Settings    `embed:""`
 	OCIMySQL                      ocimysqlbackend.Settings          `embed:"" prefix:"oci-mysql-"`
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
@@ -744,7 +745,6 @@ type CLI struct {
 	OCIEvents                     ocievents.Settings                `embed:"" prefix:"oci-events-"`
 	OCILoadBalancer               ociloadbalancer.Settings          `embed:"" prefix:"oci-loadbalancer-"`
 	OCIArtifacts                  ociartifacts.Settings             `embed:"" prefix:"oci-artifacts-"`
-	OCIContainerInstances         ocicontainerinstances.Settings    `embed:"" prefix:"oci-container-instances-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
