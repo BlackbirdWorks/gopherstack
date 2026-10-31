@@ -243,6 +243,7 @@ import (
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ociartifacts "github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -743,6 +744,7 @@ type CLI struct {
 	OCIEvents                     ocievents.Settings                `embed:"" prefix:"oci-events-"`
 	OCILoadBalancer               ociloadbalancer.Settings          `embed:"" prefix:"oci-loadbalancer-"`
 	OCIArtifacts                  ociartifacts.Settings             `embed:"" prefix:"oci-artifacts-"`
+	OCIContainerInstances         ocicontainerinstances.Settings    `embed:"" prefix:"oci-container-instances-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -2766,6 +2768,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIEvents", "ocievents", cli.OCIEvents.Port},
 		{"OCILoadBalancer", "ociloadbalancer", cli.OCILoadBalancer.Port},
 		{"OCIArtifacts", "ociartifacts", cli.OCIArtifacts.Port},
+		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
 	}
 }
 
@@ -3780,6 +3783,7 @@ func wireCrossServiceDependencies(
 	wireOCIEvents(byName)
 	wireOCILoadBalancer(byName)
 	wireOCIArtifacts(byName)
+	wireOCIContainerInstances(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5282,6 +5286,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocievents.Provider{},
 		&ociloadbalancer.Provider{},
 		&ociartifacts.Provider{},
+		&ocicontainerinstances.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
