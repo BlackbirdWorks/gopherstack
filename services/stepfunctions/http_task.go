@@ -133,7 +133,12 @@ func (a *sdkAdapter) invokeHTTP(ctx context.Context, call asl.SDKCall) (any, err
 		return nil, err
 	}
 
-	return doHTTP(client, req)
+	trace := httpTraceFrom(ctx)
+	if trace != nil {
+		trace.recordRequest(req, creds)
+	}
+
+	return doHTTP(client, req, trace)
 }
 
 func (a *sdkAdapter) connectionCredentials(ctx context.Context, arn string) (ConnectionCredentials, error) {
@@ -472,7 +477,7 @@ func redirectPolicy(secretHeader string) func(*http.Request, []*http.Request) er
 	}
 }
 
-func doHTTP(client *http.Client, req *http.Request) (any, error) {
+func doHTTP(client *http.Client, req *http.Request, trace *httpTrace) (any, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, transportFailure(req.Context(), err)
@@ -486,6 +491,10 @@ func doHTTP(client *http.Client, req *http.Request) (any, error) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseBytes+1))
 	if err != nil {
 		return nil, transportFailure(req.Context(), err)
+	}
+
+	if trace != nil {
+		trace.recordResponse(resp, data)
 	}
 
 	if len(data) > httpMaxResponseBytes {

@@ -339,3 +339,27 @@ func TestIntrinsics_UndocumentedFunctionsRejected(t *testing.T) {
 		})
 	}
 }
+
+func TestDecodeReaderItems_ParquetLimits(t *testing.T) {
+	t.Parallel()
+
+	oversizedFooter := append(make([]byte, 16), 0, 0, 0x60, 0, 'P', 'A', 'R', '1')
+
+	tests := []struct {
+		wantErr error
+		name    string
+		data    []byte
+	}{
+		{name: "footer_over_5mb", data: oversizedFooter, wantErr: asl.ErrParquetFooterTooLarge},
+		{name: "not_parquet", data: []byte("plain text, no magic"), wantErr: asl.ErrParquetInvalid},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := asl.DecodeReaderItems(tt.data, &asl.ReaderConfig{InputType: "PARQUET"})
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}

@@ -2680,12 +2680,6 @@ var ErrS3ListReaderNotConfigured = errors.New("S3 list reader not configured for
 // this emulator doesn't recognize.
 var ErrItemReaderUnsupportedResource = errors.New("ItemReader: unsupported Resource")
 
-// ErrParquetUnsupported is returned for InputType PARQUET, which this
-// emulator doesn't decode (no pure-Go Parquet reader dependency) -- see PARITY.md.
-var ErrParquetUnsupported = errors.New(
-	"ItemReader: InputType PARQUET is not supported by this emulator",
-)
-
 // ErrItemReaderInvalidData is returned when ItemReader S3 object cannot be parsed as items.
 var ErrItemReaderInvalidData = errors.New(
 	"ItemReader: unable to parse S3 object as JSON array or JSON lines",
@@ -3068,7 +3062,7 @@ func decodeReaderItems(data []byte, cfg *ReaderConfig) ([]any, error) {
 	case "", "JSON":
 		return decodeJSONItems(data, cfg)
 	case "PARQUET":
-		return nil, ErrParquetUnsupported
+		return decodeParquetItems(data)
 	default:
 		return nil, fmt.Errorf("%w: unsupported InputType %q", ErrItemReaderInvalidData, inputType)
 	}
