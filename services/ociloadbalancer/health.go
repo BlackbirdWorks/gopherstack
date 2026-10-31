@@ -65,12 +65,12 @@ func (s *hstate) record(result string, retries int, at time.Time) {
 
 type probeTarget struct {
 	rt      http.RoundTripper
-	be      Backend
-	key     string
-	hc      HealthChecker
-	tlsOn   bool
 	dialer  func(ctx context.Context, network, addr string) (net.Conn, error)
+	key     string
+	be      Backend
+	hc      HealthChecker
 	retries int
+	tlsOn   bool
 }
 
 func healthKey(lbID, set, backend string) string { return lbID + "|" + set + "|" + backend }
@@ -311,8 +311,10 @@ func aggregate(ok, warn, crit, unknown int) string {
 
 func (d *dataPlane) setHealth(lb *LoadBalancer, bs *BackendSet) BackendSetHealthWire {
 	out := BackendSetHealthWire{
-		WarningStateBackendNames: []string{}, CriticalStateBackendNames: []string{}, UnknownStateBackendNames: []string{},
-		TotalBackendCount: len(bs.Backends),
+		WarningStateBackendNames:  []string{},
+		CriticalStateBackendNames: []string{},
+		UnknownStateBackendNames:  []string{},
+		TotalBackendCount:         len(bs.Backends),
 	}
 
 	var ok int

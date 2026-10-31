@@ -21,54 +21,98 @@ func TestCreateValidation(t *testing.T) {
 		code   string
 		status int
 	}{
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeDetails = nil }, "flexible needs details", "MissingParameter", 400},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeDetails = nil },
+			"flexible needs details",
+			"MissingParameter",
+			400,
+		},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.ShapeDetails = &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(50), MaximumBandwidthInMbps: sp(10)}
+			d.ShapeDetails = &loadbalancer.ShapeDetails{
+				MinimumBandwidthInMbps: new(50),
+				MaximumBandwidthInMbps: new(10),
+			}
 		}, "min above max", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.ShapeDetails = &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(10), MaximumBandwidthInMbps: sp(9000)}
+			d.ShapeDetails = &loadbalancer.ShapeDetails{
+				MinimumBandwidthInMbps: new(10),
+				MaximumBandwidthInMbps: new(9000),
+			}
 		}, "max above limit", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.ShapeDetails = &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(5), MaximumBandwidthInMbps: sp(10)}
+			d.ShapeDetails = &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: new(5), MaximumBandwidthInMbps: new(10)}
 		}, "min below limit", "InvalidParameter", 400},
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeName = sp("100Mbps") }, "fixed shape with details", "InvalidParameter", 400},
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeName = sp("huge") }, "unknown shape", "InvalidParameter", 400},
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.SubnetIds = []string{} }, "no subnets", "MissingParameter", 400},
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.SubnetIds = []string{"a", "b", "c"} }, "three subnets", "InvalidParameter", 400},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeName = new("100Mbps") },
+			"fixed shape with details",
+			"InvalidParameter",
+			400,
+		},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.ShapeName = new("huge") },
+			"unknown shape",
+			"InvalidParameter",
+			400,
+		},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.SubnetIds = []string{} },
+			"no subnets",
+			"MissingParameter",
+			400,
+		},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.SubnetIds = []string{"a", "b", "c"} },
+			"three subnets",
+			"InvalidParameter",
+			400,
+		},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.IsPrivate = sp(true)
+			d.IsPrivate = new(true)
 			d.SubnetIds = []string{"a", "b"}
 		}, "private two subnets", "InvalidParameter", 400},
-		{func(d *loadbalancer.CreateLoadBalancerDetails) { d.CompartmentId = sp(otherCompart) }, "unknown compartment", "NotAuthorizedOrNotFound", 404},
+		{
+			func(d *loadbalancer.CreateLoadBalancerDetails) { d.CompartmentId = new(otherCompart) },
+			"unknown compartment",
+			"NotAuthorizedOrNotFound",
+			404,
+		},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.ReservedIps = []loadbalancer.ReservedIp{{Id: sp("x")}}
+			d.ReservedIps = []loadbalancer.ReservedIp{{Id: new("x")}}
 		}, "reserved ips", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bad name": {Policy: sp("ROUND_ROBIN"), HealthChecker: hc()}}
+			d.BackendSets = map[string]loadbalancer.BackendSetDetails{
+				"bad name": {Policy: new("ROUND_ROBIN"), HealthChecker: hc()},
+			}
 		}, "backend set name with space", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": {Policy: sp("RANDOM"), HealthChecker: hc()}}
+			d.BackendSets = map[string]loadbalancer.BackendSetDetails{
+				"bs": {Policy: new("RANDOM"), HealthChecker: hc()},
+			}
 		}, "unknown policy", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": {Policy: sp("ROUND_ROBIN"),
-				HealthChecker: &loadbalancer.HealthCheckerDetails{Protocol: sp("ICMP")}}}
+			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": {Policy: new("ROUND_ROBIN"),
+				HealthChecker: &loadbalancer.HealthCheckerDetails{Protocol: new("ICMP")}}}
 		}, "unknown health protocol", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
 			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": {
-				DefaultBackendSetName: sp("missing"), Port: sp(80), Protocol: sp("HTTP"),
+				DefaultBackendSetName: new("missing"), Port: new(80), Protocol: new("HTTP"),
 			}}
 		}, "listener unknown backend set", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": {Policy: sp("ROUND_ROBIN"), HealthChecker: hc()}}
+			d.BackendSets = map[string]loadbalancer.BackendSetDetails{
+				"bs": {Policy: new("ROUND_ROBIN"), HealthChecker: hc()},
+			}
 			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": {
-				DefaultBackendSetName: sp("bs"), Port: sp(80), Protocol: sp("HTTP2"),
+				DefaultBackendSetName: new("bs"), Port: new(80), Protocol: new("HTTP2"),
 			}}
 		}, "http2 needs tls", "InvalidParameter", 400},
 		{func(d *loadbalancer.CreateLoadBalancerDetails) {
-			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": {Policy: sp("ROUND_ROBIN"), HealthChecker: hc()}}
+			d.BackendSets = map[string]loadbalancer.BackendSetDetails{
+				"bs": {Policy: new("ROUND_ROBIN"), HealthChecker: hc()},
+			}
 			d.Listeners = map[string]loadbalancer.ListenerDetails{
-				"a": {DefaultBackendSetName: sp("bs"), Port: sp(80), Protocol: sp("HTTP")},
-				"b": {DefaultBackendSetName: sp("bs"), Port: sp(80), Protocol: sp("HTTP")},
+				"a": {DefaultBackendSetName: new("bs"), Port: new(80), Protocol: new("HTTP")},
+				"b": {DefaultBackendSetName: new("bs"), Port: new(80), Protocol: new("HTTP")},
 			}
 		}, "duplicate listener port", "Conflict", 409},
 	}
@@ -80,7 +124,10 @@ func TestCreateValidation(t *testing.T) {
 			d := baseDetails(tt.name)
 			tt.mutate(&d)
 
-			_, err := e.lb.CreateLoadBalancer(t.Context(), loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: d})
+			_, err := e.lb.CreateLoadBalancer(
+				t.Context(),
+				loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: d},
+			)
 			se := svcErr(t, err)
 			assert.Equal(t, tt.status, se.GetHTTPStatusCode())
 			assert.Equal(t, tt.code, se.GetCode())
@@ -95,7 +142,7 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 	e.backend.SetSubnetResolver(func(id string) (string, bool) { return "10.0.1.0/24", id == testSubnet })
 
 	d := baseDetails("lifecycle")
-	d.IsPrivate = sp(true)
+	d.IsPrivate = new(true)
 	d.FreeformTags = map[string]string{"env": "test"}
 	id, wrID := e.create(t, d)
 
@@ -113,7 +160,7 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 	assert.Equal(t, id, *wr.LoadBalancerId)
 
 	_, err = e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
-		LoadBalancerId: &id, UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{DisplayName: sp("x")},
+		LoadBalancerId: &id, DisplayName: new("x"),
 	})
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
@@ -127,25 +174,23 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 	assert.Equal(t, loadbalancer.WorkRequestLifecycleStateSucceeded, wr.LifecycleState)
 	assert.NotNil(t, wr.TimeFinished)
 
-	t.Run("update", func(t *testing.T) {
-		resp, uerr := e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
-			LoadBalancerId: &id, IfMatch: sp("stale"),
-			UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{DisplayName: sp("renamed")},
+	{ // update
+		_, uerr := e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
+			LoadBalancerId: &id, IfMatch: new("stale"),
+			DisplayName: new("renamed"),
 		})
 		require.Error(t, uerr)
 		assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, uerr).GetHTTPStatusCode())
 
-		resp, uerr = e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
+		resp, uerr := e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
 			LoadBalancerId: &id, IfMatch: got.ETag,
-			UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{
-				DisplayName: sp("renamed"), IsDeleteProtectionEnabled: sp(true),
-			},
+			DisplayName: new("renamed"), IsDeleteProtectionEnabled: new(true),
 		})
 		require.NoError(t, uerr)
 		assert.NotEmpty(t, *resp.OpcWorkRequestId)
 
 		_, uerr = e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
-			LoadBalancerId: &id, UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{DisplayName: sp("again")},
+			LoadBalancerId: &id, DisplayName: new("again"),
 		})
 		assert.Equal(t, "Conflict", svcErr(t, uerr).GetCode())
 
@@ -155,14 +200,14 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 		assert.Equal(t, "renamed", *after.DisplayName)
 		assert.NotEqual(t, *got.ETag, *after.ETag)
 		assert.Equal(t, "test", after.FreeformTags["env"])
-	})
+	}
 
-	t.Run("delete protection then delete", func(t *testing.T) {
+	{ // delete protection then delete
 		_, derr := e.lb.DeleteLoadBalancer(t.Context(), loadbalancer.DeleteLoadBalancerRequest{LoadBalancerId: &id})
 		assert.Equal(t, http.StatusConflict, svcErr(t, derr).GetHTTPStatusCode())
 
 		_, derr = e.lb.UpdateLoadBalancer(t.Context(), loadbalancer.UpdateLoadBalancerRequest{
-			LoadBalancerId: &id, UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{IsDeleteProtectionEnabled: sp(false)},
+			LoadBalancerId: &id, IsDeleteProtectionEnabled: new(false),
 		})
 		require.NoError(t, derr)
 		e.settle()
@@ -174,12 +219,15 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 		e.settle()
 		assert.Equal(t, loadbalancer.LoadBalancerLifecycleStateDeleted, e.get(t, id).LifecycleState)
 
-		list, lerr := e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{CompartmentId: sp(testCompartment)})
+		list, lerr := e.lb.ListLoadBalancers(
+			t.Context(),
+			loadbalancer.ListLoadBalancersRequest{CompartmentId: new(testCompartment)},
+		)
 		require.NoError(t, lerr)
 		assert.Empty(t, list.Items)
 
 		list, lerr = e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{
-			CompartmentId: sp(testCompartment), LifecycleState: loadbalancer.LoadBalancerLifecycleStateDeleted,
+			CompartmentId: new(testCompartment), LifecycleState: loadbalancer.LoadBalancerLifecycleStateDeleted,
 		})
 		require.NoError(t, lerr)
 		assert.Len(t, list.Items, 1)
@@ -187,7 +235,7 @@ func TestLifecycleAndWorkRequests(t *testing.T) {
 		wrs, lerr := e.lb.ListWorkRequests(t.Context(), loadbalancer.ListWorkRequestsRequest{LoadBalancerId: &id})
 		require.NoError(t, lerr)
 		assert.GreaterOrEqual(t, len(wrs.Items), 4)
-	})
+	}
 }
 
 func TestListFiltersAndCatalogs(t *testing.T) {
@@ -198,14 +246,14 @@ func TestListFiltersAndCatalogs(t *testing.T) {
 	e.mkLB(t, baseDetails("beta"))
 
 	other := baseDetails("gamma")
-	other.CompartmentId = sp(otherCompart)
+	other.CompartmentId = new(otherCompart)
 	e.mkLB(t, other)
 
 	t.Run("by compartment", func(t *testing.T) {
 		t.Parallel()
 
 		resp, err := e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{
-			CompartmentId: sp(testCompartment), SortBy: loadbalancer.ListLoadBalancersSortByDisplayname,
+			CompartmentId: new(testCompartment), SortBy: loadbalancer.ListLoadBalancersSortByDisplayname,
 			SortOrder: loadbalancer.ListLoadBalancersSortOrderAsc,
 		})
 		require.NoError(t, err)
@@ -218,13 +266,13 @@ func TestListFiltersAndCatalogs(t *testing.T) {
 		t.Parallel()
 
 		resp, err := e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{
-			CompartmentId: sp(testCompartment), DisplayName: sp("beta"),
+			CompartmentId: new(testCompartment), DisplayName: new("beta"),
 		})
 		require.NoError(t, err)
 		assert.Len(t, resp.Items, 1)
 
 		resp, err = e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{
-			CompartmentId: sp(testCompartment), Limit: new(int64(1)),
+			CompartmentId: new(testCompartment), Limit: new(int64(1)),
 		})
 		require.NoError(t, err)
 		assert.Len(t, resp.Items, 1)
@@ -234,7 +282,7 @@ func TestListFiltersAndCatalogs(t *testing.T) {
 	t.Run("missing compartment", func(t *testing.T) {
 		t.Parallel()
 
-		status, body, _ := rawDo(t, http.MethodGet, e.base+"/20170115/loadBalancers", "")
+		status, body := rawDo(t, e.base+"/20170115/loadBalancers")
 		assert.Equal(t, http.StatusBadRequest, status)
 		assert.Contains(t, body, "MissingParameter")
 	})
@@ -242,21 +290,27 @@ func TestListFiltersAndCatalogs(t *testing.T) {
 	t.Run("catalogs", func(t *testing.T) {
 		t.Parallel()
 
-		shapes, err := e.lb.ListShapes(t.Context(), loadbalancer.ListShapesRequest{CompartmentId: sp(testCompartment)})
+		shapes, err := e.lb.ListShapes(t.Context(), loadbalancer.ListShapesRequest{CompartmentId: new(testCompartment)})
 		require.NoError(t, err)
 
-		var names []string
+		names := make([]string, 0, len(shapes.Items))
 		for _, s := range shapes.Items {
 			names = append(names, *s.Name)
 		}
 
 		assert.Contains(t, names, "flexible")
 
-		pol, err := e.lb.ListPolicies(t.Context(), loadbalancer.ListPoliciesRequest{CompartmentId: sp(testCompartment)})
+		pol, err := e.lb.ListPolicies(
+			t.Context(),
+			loadbalancer.ListPoliciesRequest{CompartmentId: new(testCompartment)},
+		)
 		require.NoError(t, err)
 		assert.Len(t, pol.Items, 3)
 
-		proto, err := e.lb.ListProtocols(t.Context(), loadbalancer.ListProtocolsRequest{CompartmentId: sp(testCompartment)})
+		proto, err := e.lb.ListProtocols(
+			t.Context(),
+			loadbalancer.ListProtocolsRequest{CompartmentId: new(testCompartment)},
+		)
 		require.NoError(t, err)
 		assert.Len(t, proto.Items, 3)
 	})
@@ -264,7 +318,7 @@ func TestListFiltersAndCatalogs(t *testing.T) {
 	t.Run("unknown load balancer", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := e.lb.GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: sp("nope")})
+		_, err := e.lb.GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: new("nope")})
 		assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 	})
 }
@@ -276,19 +330,19 @@ func TestShapeAndNSGUpdates(t *testing.T) {
 	id := e.mkLB(t, baseDetails("shape"))
 
 	tests := []struct {
-		name    string
 		details loadbalancer.UpdateLoadBalancerShapeDetails
+		name    string
 		wantErr bool
 	}{
-		{"widen flexible", loadbalancer.UpdateLoadBalancerShapeDetails{
-			ShapeName:    sp("flexible"),
-			ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(20), MaximumBandwidthInMbps: sp(500)},
-		}, false},
-		{"bad flexible", loadbalancer.UpdateLoadBalancerShapeDetails{
-			ShapeName:    sp("flexible"),
-			ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(20), MaximumBandwidthInMbps: sp(10)},
-		}, true},
-		{"fixed shape", loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: sp("400Mbps")}, false},
+		{name: "widen flexible", details: loadbalancer.UpdateLoadBalancerShapeDetails{
+			ShapeName:    new("flexible"),
+			ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: new(20), MaximumBandwidthInMbps: new(500)},
+		}},
+		{name: "bad flexible", wantErr: true, details: loadbalancer.UpdateLoadBalancerShapeDetails{
+			ShapeName:    new("flexible"),
+			ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: new(20), MaximumBandwidthInMbps: new(10)},
+		}},
+		{name: "fixed shape", details: loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: new("400Mbps")}},
 	}
 
 	for _, tt := range tests {
@@ -311,8 +365,8 @@ func TestShapeAndNSGUpdates(t *testing.T) {
 	e.settle()
 
 	_, err := e.lb.UpdateNetworkSecurityGroups(t.Context(), loadbalancer.UpdateNetworkSecurityGroupsRequest{
-		LoadBalancerId:                     &id,
-		UpdateNetworkSecurityGroupsDetails: loadbalancer.UpdateNetworkSecurityGroupsDetails{NetworkSecurityGroupIds: []string{"nsg1"}},
+		LoadBalancerId:          &id,
+		NetworkSecurityGroupIds: []string{"nsg1"},
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -321,7 +375,7 @@ func TestShapeAndNSGUpdates(t *testing.T) {
 	e.settle()
 
 	_, err = e.lb.ChangeLoadBalancerCompartment(t.Context(), loadbalancer.ChangeLoadBalancerCompartmentRequest{
-		LoadBalancerId: &id, ChangeLoadBalancerCompartmentDetails: loadbalancer.ChangeLoadBalancerCompartmentDetails{CompartmentId: sp(otherCompart)},
+		LoadBalancerId: &id, CompartmentId: new(otherCompart),
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -346,7 +400,10 @@ func TestAuthEnforcement(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, tt.opts)
-			_, err := e.lb.ListLoadBalancers(t.Context(), loadbalancer.ListLoadBalancersRequest{CompartmentId: sp(testCompartment)})
+			_, err := e.lb.ListLoadBalancers(
+				t.Context(),
+				loadbalancer.ListLoadBalancersRequest{CompartmentId: new(testCompartment)},
+			)
 
 			if tt.wantCode == http.StatusOK {
 				require.NoError(t, err)
@@ -362,7 +419,7 @@ func TestAuthEnforcement(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t, envOpts{enforce: true, register: true})
-		status, body, _ := rawDo(t, http.MethodGet, e.base+"/20170115/loadBalancers?compartmentId=x", "")
+		status, body := rawDo(t, e.base+"/20170115/loadBalancers?compartmentId=x")
 		assert.Equal(t, http.StatusUnauthorized, status)
 		assert.Contains(t, body, "NotAuthenticated")
 	})
@@ -371,7 +428,7 @@ func TestAuthEnforcement(t *testing.T) {
 		t.Parallel()
 
 		e := newEnv(t, envOpts{})
-		status, body, _ := rawDo(t, http.MethodGet, e.base+"/20170115/nothing", "")
+		status, body := rawDo(t, e.base+"/20170115/nothing")
 		assert.Equal(t, http.StatusNotFound, status)
 		assert.Contains(t, body, "NotFound")
 	})

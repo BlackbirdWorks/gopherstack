@@ -6,14 +6,12 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -122,7 +120,14 @@ func newEnv(t *testing.T, opts envOpts) *env {
 		require.NoError(t, err)
 	}
 
-	prov := common.NewRawConfigurationProvider(testTenancy, testUser, ociloadbalancer.Region, kp.fprint, kp.privPEM, nil)
+	prov := common.NewRawConfigurationProvider(
+		testTenancy,
+		testUser,
+		ociloadbalancer.Region,
+		kp.fprint,
+		kp.privPEM,
+		nil,
+	)
 	e := &env{backend: be, handler: h, clock: clock, port: h.Port, base: fmt.Sprintf("http://localhost:%d", h.Port)}
 
 	var err error
@@ -151,10 +156,10 @@ func svcErr(t *testing.T, err error) common.ServiceError {
 	return se
 }
 
-func rawDo(t *testing.T, method, url, body string) (int, string, http.Header) {
+func rawDo(t *testing.T, url string) (int, string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, http.NoBody)
 	require.NoError(t, err)
 
 	req.Header.Set("Content-Type", "application/json")
@@ -167,16 +172,14 @@ func rawDo(t *testing.T, method, url, body string) (int, string, http.Header) {
 	out, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	return resp.StatusCode, string(out), resp.Header
+	return resp.StatusCode, string(out)
 }
-
-func sp[T any](v T) *T { return &v }
 
 // testBackend is a loopback HTTP backend that identifies itself and can be made unhealthy.
 type testBackend struct {
 	srv     *httptest.Server
-	healthy atomic.Bool
 	name    string
+	healthy atomic.Bool
 }
 
 func (b *testBackend) ip() string {
@@ -208,7 +211,7 @@ func (b *testBackend) handler() http.Handler {
 		w.Header().Set("X-Backend", b.name)
 		w.Header().Set("Echo-X-Added", r.Header.Get("X-Added"))
 		w.Header().Set("Echo-Host", r.Host)
-		w.Header().Set("Echo-XFF", r.Header.Get("X-Forwarded-For"))
+		w.Header().Set("Echo-Xff", r.Header.Get("X-Forwarded-For"))
 		w.Header().Set("Set-Cookie", "sid=abc; Path=/")
 		_, _ = io.WriteString(w, b.name+" "+r.URL.Path)
 	})
@@ -239,18 +242,24 @@ func startTLSBackend(t *testing.T, name string, cert tls.Certificate) *testBacke
 }
 
 func (b *testBackend) detail() loadbalancer.BackendDetails {
-	return loadbalancer.BackendDetails{IpAddress: sp(b.ip()), Port: sp(b.port())}
+	return loadbalancer.BackendDetails{IpAddress: new(b.ip()), Port: new(b.port())}
 }
 
 // hc is a fast health checker: one failed check marks a backend critical.
 func hc() *loadbalancer.HealthCheckerDetails {
 	return &loadbalancer.HealthCheckerDetails{
-		Protocol: sp("HTTP"), UrlPath: sp("/health"), Retries: sp(0), IntervalInMillis: sp(1000), TimeoutInMillis: sp(1000),
+		Protocol: new(
+			"HTTP",
+		),
+		UrlPath:          new("/health"),
+		Retries:          new(0),
+		IntervalInMillis: new(1000),
+		TimeoutInMillis:  new(1000),
 	}
 }
 
 func backendSet(policy string, bs ...*testBackend) loadbalancer.BackendSetDetails {
-	d := loadbalancer.BackendSetDetails{Policy: sp(policy), HealthChecker: hc()}
+	d := loadbalancer.BackendSetDetails{Policy: new(policy), HealthChecker: hc()}
 	for _, b := range bs {
 		d.Backends = append(d.Backends, b.detail())
 	}
@@ -260,8 +269,8 @@ func backendSet(policy string, bs ...*testBackend) loadbalancer.BackendSetDetail
 
 func baseDetails(name string) loadbalancer.CreateLoadBalancerDetails {
 	return loadbalancer.CreateLoadBalancerDetails{
-		CompartmentId: sp(testCompartment), DisplayName: sp(name), ShapeName: sp("flexible"),
-		ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: sp(10), MaximumBandwidthInMbps: sp(100)},
+		CompartmentId: new(testCompartment), DisplayName: new(name), ShapeName: new("flexible"),
+		ShapeDetails: &loadbalancer.ShapeDetails{MinimumBandwidthInMbps: new(10), MaximumBandwidthInMbps: new(100)},
 		SubnetIds:    []string{testSubnet},
 	}
 }
@@ -269,11 +278,17 @@ func baseDetails(name string) loadbalancer.CreateLoadBalancerDetails {
 func (e *env) create(t *testing.T, d loadbalancer.CreateLoadBalancerDetails) (string, string) {
 	t.Helper()
 
-	resp, err := e.lb.CreateLoadBalancer(t.Context(), loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: d})
+	resp, err := e.lb.CreateLoadBalancer(
+		t.Context(),
+		loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: d},
+	)
 	require.NoError(t, err)
 	require.NotNil(t, resp.OpcWorkRequestId)
 
-	wr, err := e.lb.GetWorkRequest(t.Context(), loadbalancer.GetWorkRequestRequest{WorkRequestId: resp.OpcWorkRequestId})
+	wr, err := e.lb.GetWorkRequest(
+		t.Context(),
+		loadbalancer.GetWorkRequestRequest{WorkRequestId: resp.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 
 	return *wr.LoadBalancerId, *resp.OpcWorkRequestId
@@ -356,34 +371,25 @@ func (e *env) do(t *testing.T, url, host, method string, headers map[string]stri
 	return dataResp{status: resp.StatusCode, body: string(out), header: resp.Header}
 }
 
-func tlsClient(t *testing.T, certPEM []byte, serverName string) *http.Client {
+func tlsClient(t *testing.T, certPEM []byte) *http.Client {
 	t.Helper()
 
 	pool := x509.NewCertPool()
 	require.True(t, pool.AppendCertsFromPEM(certPEM))
 
 	tr := httpclient.NewTransport()
-	tr.TLSClientConfig = &tls.Config{RootCAs: pool, ServerName: serverName, MinVersion: tls.VersionTLS12}
+	tr.TLSClientConfig = &tls.Config{RootCAs: pool, ServerName: "localhost", MinVersion: tls.VersionTLS12}
 	c := &http.Client{Transport: tr}
 	t.Cleanup(c.CloseIdleConnections)
 
 	return c
 }
 
-func genCert(t *testing.T) (certPEM, keyPEM []byte) {
+func genCert(t *testing.T) ([]byte, []byte) {
 	t.Helper()
 
 	c, k, err := devtls.GenerateSelfSignedCertPEM("localhost")
 	require.NoError(t, err)
 
 	return c, k
-}
-
-func jsonOf(t *testing.T, v any) string {
-	t.Helper()
-
-	b, err := json.Marshal(v)
-	require.NoError(t, err)
-
-	return string(b)
 }

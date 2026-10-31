@@ -36,7 +36,15 @@ const (
 	redirectTokenQuery = "{query}"
 )
 
-var restrictedHeaders = []string{"host", "content-length", "transfer-encoding", "connection", "upgrade", "te"} //nolint:gochecknoglobals // immutable
+//nolint:gochecknoglobals // immutable
+var restrictedHeaders = []string{
+	"host",
+	"content-length",
+	"transfer-encoding",
+	"connection",
+	"upgrade",
+	"te",
+}
 
 func checkHeaderName(h string) *APIError {
 	if h == "" {
@@ -106,7 +114,8 @@ func normalizeRedirect(r Rule) (Rule, *APIError) {
 		return r, errMissing("REDIRECT needs redirectUri")
 	}
 
-	if p := r.RedirectURI.Protocol; p != nil && !slices.Contains([]string{schemeHTTP, schemeHTTPS, "{protocol}"}, strings.ToLower(*p)) {
+	if p := r.RedirectURI.Protocol; p != nil &&
+		!slices.Contains([]string{schemeHTTP, schemeHTTPS, "{protocol}"}, strings.ToLower(*p)) {
 		return r, errParam("redirectUri protocol must be http, https or {protocol}")
 	}
 
@@ -171,7 +180,8 @@ func checkConditions(r Rule, allowPath bool) *APIError {
 				return errParam(r.Action + " does not accept PATH conditions")
 			}
 
-			if !slices.Contains([]string{matchExact, matchLongest, matchPrefix, matchSuffix}, c.Operator) || c.AttributeValue == "" {
+			if !slices.Contains([]string{matchExact, matchLongest, matchPrefix, matchSuffix}, c.Operator) ||
+				c.AttributeValue == "" {
 				return errParam("PATH conditions need attributeValue and a match operator")
 			}
 		case "SOURCE_VCN_ID", "SOURCE_VCN_IP_ADDRESS":
@@ -212,7 +222,10 @@ func conditionsMatch(conds []RuleCondition, r *http.Request, ip netip.Addr) bool
 				return true
 			}
 		case condPath:
-			if pathMatches(PathRoute{Path: c.AttributeValue, PathMatchType: MatchType{MatchType: c.Operator}}, r.URL.Path) {
+			if pathMatches(
+				PathRoute{Path: c.AttributeValue, PathMatchType: MatchType{MatchType: c.Operator}},
+				r.URL.Path,
+			) {
 				return true
 			}
 		}
@@ -223,9 +236,9 @@ func conditionsMatch(conds []RuleCondition, r *http.Request, ip netip.Addr) bool
 
 // reqScope describes the client connection a request arrived on.
 type reqScope struct {
+	ip     netip.Addr
 	scheme string
 	port   int
-	ip     netip.Addr
 }
 
 func clientAddr(r *http.Request) netip.Addr {
@@ -254,20 +267,7 @@ func applyRequestRules(sets []*RuleSet, r *http.Request, sc reqScope) (*directRe
 		items = append(items, s.Items...)
 	}
 
-	allows := 0
-	allowed := false
-
-	for _, it := range items {
-		if it.Action != actAllow {
-			continue
-		}
-
-		allows++
-
-		allowed = allowed || conditionsMatch(it.Conditions, r, sc.ip)
-	}
-
-	if allows > 0 && !allowed {
+	if !allowedByRules(items, r, sc.ip) {
 		return &directReply{status: forbiddenStatus}, nil
 	}
 
@@ -293,6 +293,21 @@ func applyRequestRules(sets []*RuleSet, r *http.Request, sc reqScope) (*directRe
 	}
 
 	return nil, resp
+}
+
+// allowedByRules reports whether the request passes the ALLOW rules: with none present everything passes.
+func allowedByRules(items []Rule, r *http.Request, ip netip.Addr) bool {
+	allows, allowed := 0, false
+
+	for _, it := range items {
+		if it.Action == actAllow {
+			allows++
+
+			allowed = allowed || conditionsMatch(it.Conditions, r, ip)
+		}
+	}
+
+	return allows == 0 || allowed
 }
 
 func extendHeader(h http.Header, it Rule) {
@@ -353,8 +368,8 @@ func redirectTarget(u *RedirectURI, r *http.Request, sc reqScope) string {
 	}
 
 	h := repl.Replace(tokenOr(u.Host, "{host}"))
-	if !(scheme == schemeHTTP && port == strconv.Itoa(defaultHTTPPort)) &&
-		!(scheme == schemeHTTPS && port == strconv.Itoa(defaultHTTPSPort)) {
+	if (scheme != schemeHTTP || port != strconv.Itoa(defaultHTTPPort)) &&
+		(scheme != schemeHTTPS || port != strconv.Itoa(defaultHTTPSPort)) {
 		h = net.JoinHostPort(strings.Trim(h, "[]"), port)
 	}
 

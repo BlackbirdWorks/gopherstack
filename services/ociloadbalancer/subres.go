@@ -9,34 +9,73 @@ func equalFold(a, b string) bool { return strings.EqualFold(a, b) }
 
 func subresourceOps() map[string]opFunc {
 	return map[string]opFunc{
-		opCreateListener: (*Handler).createListener, opUpdateListener: (*Handler).updateListener,
-		opDeleteListener:    deleteByName("DeleteListener", "listenerName", func(lb *LoadBalancer) map[string]*Listener { return lb.Listeners }),
+		opCreateListener: (*Handler).createListener,
+		opUpdateListener: (*Handler).updateListener,
+		opDeleteListener: deleteByName(
+			"DeleteListener",
+			"listenerName",
+			func(lb *LoadBalancer) map[string]*Listener { return lb.Listeners },
+		),
 		opListListenerRules: (*Handler).listListenerRules,
 
-		opCreateHostname: (*Handler).createHostname, opUpdateHostname: (*Handler).updateHostname,
+		opCreateHostname: (*Handler).createHostname,
+		opUpdateHostname: (*Handler).updateHostname,
 		opGetHostname:    getByName("name", func(lb *LoadBalancer) map[string]*Hostname { return lb.Hostnames }),
 		opListHostnames:  listAll(func(lb *LoadBalancer) map[string]*Hostname { return lb.Hostnames }),
-		opDeleteHostname: deleteByName("DeleteHostname", "name", func(lb *LoadBalancer) map[string]*Hostname { return lb.Hostnames }),
+		opDeleteHostname: deleteByName(
+			"DeleteHostname",
+			"name",
+			func(lb *LoadBalancer) map[string]*Hostname { return lb.Hostnames },
+		),
 
-		opCreatePRS: (*Handler).createPathRouteSet, opUpdatePRS: (*Handler).updatePathRouteSet,
-		opGetPRS:    getByName("pathRouteSetName", func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets }),
-		opListPRS:   listAll(func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets }),
-		opDeletePRS: deleteByName("DeletePathRouteSet", "pathRouteSetName", func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets }),
+		opCreatePRS: (*Handler).createPathRouteSet,
+		opUpdatePRS: (*Handler).updatePathRouteSet,
+		opGetPRS: getByName(
+			"pathRouteSetName",
+			func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets },
+		),
+		opListPRS: listAll(func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets }),
+		opDeletePRS: deleteByName(
+			"DeletePathRouteSet",
+			"pathRouteSetName",
+			func(lb *LoadBalancer) map[string]*PathRouteSet { return lb.PathRouteSets },
+		),
 
-		opCreateRP: (*Handler).createRoutingPolicy, opUpdateRP: (*Handler).updateRoutingPolicy,
-		opGetRP:    getByName("routingPolicyName", func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies }),
-		opListRP:   listAll(func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies }),
-		opDeleteRP: deleteByName("DeleteRoutingPolicy", "routingPolicyName", func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies }),
+		opCreateRP: (*Handler).createRoutingPolicy,
+		opUpdateRP: (*Handler).updateRoutingPolicy,
+		opGetRP: getByName(
+			"routingPolicyName",
+			func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies },
+		),
+		opListRP: listAll(func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies }),
+		opDeleteRP: deleteByName(
+			"DeleteRoutingPolicy",
+			"routingPolicyName",
+			func(lb *LoadBalancer) map[string]*RoutingPolicy { return lb.RoutingPolicies },
+		),
 
-		opCreateRS: (*Handler).createRuleSet, opUpdateRS: (*Handler).updateRuleSet,
+		opCreateRS: (*Handler).createRuleSet,
+		opUpdateRS: (*Handler).updateRuleSet,
 		opGetRS:    getByName("ruleSetName", func(lb *LoadBalancer) map[string]*RuleSet { return lb.RuleSets }),
 		opListRS:   listAll(func(lb *LoadBalancer) map[string]*RuleSet { return lb.RuleSets }),
-		opDeleteRS: deleteByName("DeleteRuleSet", "ruleSetName", func(lb *LoadBalancer) map[string]*RuleSet { return lb.RuleSets }),
+		opDeleteRS: deleteByName(
+			"DeleteRuleSet",
+			"ruleSetName",
+			func(lb *LoadBalancer) map[string]*RuleSet { return lb.RuleSets },
+		),
 
-		opCreateSuite: (*Handler).createSuite, opUpdateSuite: (*Handler).updateSuite,
-		opGetSuite:    getByName("name", func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites }),
-		opListSuites:  listAll(func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites }),
-		opDeleteSuite: deleteByName("DeleteSSLCipherSuite", "name", func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites }),
+		opCreateSuite: (*Handler).createSuite,
+		opUpdateSuite: (*Handler).updateSuite,
+		opGetSuite: getByName(
+			"name",
+			func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites },
+		),
+		opListSuites: listAll(func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites }),
+		opDeleteSuite: deleteByName(
+			"DeleteSSLCipherSuite",
+			"name",
+			func(lb *LoadBalancer) map[string]*SSLCipherSuite { return lb.SSLCipherSuites },
+		),
 
 		opCreateCert: (*Handler).createCertificate,
 		opListCerts:  listAll(func(lb *LoadBalancer) map[string]*Certificate { return lb.Certificates }),
@@ -102,8 +141,8 @@ func (h *Handler) updateListener(q *req) error {
 }
 
 type listenerRuleSummary struct {
-	Rule        Rule   `json:"rule"`
 	RuleSetName string `json:"ruleSetName"`
+	Rule        Rule   `json:"rule"`
 }
 
 func (h *Handler) listListenerRules(q *req) error {
@@ -171,76 +210,96 @@ func (h *Handler) updateHostname(q *req) error {
 }
 
 func (h *Handler) createPathRouteSet(q *req) error {
-	return mutateBody(h, q, "CreatePathRouteSet", func(_ *InMemoryBackend, lb *LoadBalancer, in *pathRouteSetIn) *APIError {
-		if _, dup := lb.PathRouteSets[in.Name]; dup {
-			return errConflict("path route set " + in.Name + " already exists")
-		}
+	return mutateBody(
+		h,
+		q,
+		"CreatePathRouteSet",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *pathRouteSetIn) *APIError {
+			if _, dup := lb.PathRouteSets[in.Name]; dup {
+				return errConflict("path route set " + in.Name + " already exists")
+			}
 
-		ps, err := buildPathRouteSet(in.Name, in)
-		if err != nil {
-			return err
-		}
+			ps, err := buildPathRouteSet(in.Name, in)
+			if err != nil {
+				return err
+			}
 
-		lb.PathRouteSets[in.Name] = ps
+			lb.PathRouteSets[in.Name] = ps
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) updatePathRouteSet(q *req) error {
 	name := q.param("pathRouteSetName")
 
-	return mutateBody(h, q, "UpdatePathRouteSet", func(_ *InMemoryBackend, lb *LoadBalancer, in *pathRouteSetIn) *APIError {
-		if _, err := lookup(lb.PathRouteSets, name); err != nil {
-			return err
-		}
+	return mutateBody(
+		h,
+		q,
+		"UpdatePathRouteSet",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *pathRouteSetIn) *APIError {
+			if _, err := lookup(lb.PathRouteSets, name); err != nil {
+				return err
+			}
 
-		ps, err := buildPathRouteSet(name, in)
-		if err != nil {
-			return err
-		}
+			ps, err := buildPathRouteSet(name, in)
+			if err != nil {
+				return err
+			}
 
-		lb.PathRouteSets[name] = ps
+			lb.PathRouteSets[name] = ps
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) createRoutingPolicy(q *req) error {
-	return mutateBody(h, q, "CreateRoutingPolicy", func(_ *InMemoryBackend, lb *LoadBalancer, in *routingPolicyIn) *APIError {
-		if _, dup := lb.RoutingPolicies[in.Name]; dup {
-			return errConflict("routing policy " + in.Name + " already exists")
-		}
+	return mutateBody(
+		h,
+		q,
+		"CreateRoutingPolicy",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *routingPolicyIn) *APIError {
+			if _, dup := lb.RoutingPolicies[in.Name]; dup {
+				return errConflict("routing policy " + in.Name + " already exists")
+			}
 
-		rp, err := buildRoutingPolicy(in.Name, in, "")
-		if err != nil {
-			return err
-		}
+			rp, err := buildRoutingPolicy(in.Name, in, "")
+			if err != nil {
+				return err
+			}
 
-		lb.RoutingPolicies[in.Name] = rp
+			lb.RoutingPolicies[in.Name] = rp
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) updateRoutingPolicy(q *req) error {
 	name := q.param("routingPolicyName")
 
-	return mutateBody(h, q, "UpdateRoutingPolicy", func(_ *InMemoryBackend, lb *LoadBalancer, in *routingPolicyIn) *APIError {
-		cur, err := lookup(lb.RoutingPolicies, name)
-		if err != nil {
-			return err
-		}
+	return mutateBody(
+		h,
+		q,
+		"UpdateRoutingPolicy",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *routingPolicyIn) *APIError {
+			cur, err := lookup(lb.RoutingPolicies, name)
+			if err != nil {
+				return err
+			}
 
-		rp, err := buildRoutingPolicy(name, in, cur.ConditionLanguageVersion)
-		if err != nil {
-			return err
-		}
+			rp, err := buildRoutingPolicy(name, in, cur.ConditionLanguageVersion)
+			if err != nil {
+				return err
+			}
 
-		lb.RoutingPolicies[name] = rp
+			lb.RoutingPolicies[name] = rp
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) createRuleSet(q *req) error {
@@ -280,39 +339,49 @@ func (h *Handler) updateRuleSet(q *req) error {
 }
 
 func (h *Handler) createSuite(q *req) error {
-	return mutateBody(h, q, "CreateSSLCipherSuite", func(_ *InMemoryBackend, lb *LoadBalancer, in *cipherSuiteIn) *APIError {
-		if _, dup := lb.SSLCipherSuites[in.Name]; dup {
-			return errConflict("SSL cipher suite " + in.Name + " already exists")
-		}
+	return mutateBody(
+		h,
+		q,
+		"CreateSSLCipherSuite",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *cipherSuiteIn) *APIError {
+			if _, dup := lb.SSLCipherSuites[in.Name]; dup {
+				return errConflict("SSL cipher suite " + in.Name + " already exists")
+			}
 
-		cs, err := buildCipherSuite(in.Name, in)
-		if err != nil {
-			return err
-		}
+			cs, err := buildCipherSuite(in.Name, in)
+			if err != nil {
+				return err
+			}
 
-		lb.SSLCipherSuites[in.Name] = cs
+			lb.SSLCipherSuites[in.Name] = cs
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) updateSuite(q *req) error {
 	name := q.param("name")
 
-	return mutateBody(h, q, "UpdateSSLCipherSuite", func(_ *InMemoryBackend, lb *LoadBalancer, in *cipherSuiteIn) *APIError {
-		if _, err := lookup(lb.SSLCipherSuites, name); err != nil {
-			return err
-		}
+	return mutateBody(
+		h,
+		q,
+		"UpdateSSLCipherSuite",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *cipherSuiteIn) *APIError {
+			if _, err := lookup(lb.SSLCipherSuites, name); err != nil {
+				return err
+			}
 
-		cs, err := buildCipherSuite(name, in)
-		if err != nil {
-			return err
-		}
+			cs, err := buildCipherSuite(name, in)
+			if err != nil {
+				return err
+			}
 
-		lb.SSLCipherSuites[name] = cs
+			lb.SSLCipherSuites[name] = cs
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func (h *Handler) createCertificate(q *req) error {
@@ -331,13 +400,25 @@ func (h *Handler) deleteCertificate(q *req) error {
 
 func backendSetOps() map[string]opFunc {
 	return map[string]opFunc{
-		opCreateBS: (*Handler).createBackendSet, opUpdateBS: (*Handler).updateBackendSet,
-		opGetBS:    getByName("backendSetName", func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets }),
-		opListBS:   listAll(func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets }),
-		opDeleteBS: deleteByName("DeleteBackendSet", "backendSetName", func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets }),
-		opGetHC:    (*Handler).getHealthChecker, opUpdateHC: (*Handler).updateHealthChecker,
-		opCreateBE: (*Handler).createBackend, opGetBE: (*Handler).getBackend, opListBE: (*Handler).listBackends,
-		opUpdateBE: (*Handler).updateBackend, opDeleteBE: (*Handler).deleteBackend,
+		opCreateBS: (*Handler).createBackendSet,
+		opUpdateBS: (*Handler).updateBackendSet,
+		opGetBS: getByName(
+			"backendSetName",
+			func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets },
+		),
+		opListBS: listAll(func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets }),
+		opDeleteBS: deleteByName(
+			"DeleteBackendSet",
+			"backendSetName",
+			func(lb *LoadBalancer) map[string]*BackendSet { return lb.BackendSets },
+		),
+		opGetHC:    (*Handler).getHealthChecker,
+		opUpdateHC: (*Handler).updateHealthChecker,
+		opCreateBE: (*Handler).createBackend,
+		opGetBE:    (*Handler).getBackend,
+		opListBE:   (*Handler).listBackends,
+		opUpdateBE: (*Handler).updateBackend,
+		opDeleteBE: (*Handler).deleteBackend,
 	}
 }
 
@@ -391,21 +472,26 @@ func (h *Handler) getHealthChecker(q *req) error {
 func (h *Handler) updateHealthChecker(q *req) error {
 	name := q.param("backendSetName")
 
-	return mutateBody(h, q, "UpdateHealthChecker", func(_ *InMemoryBackend, lb *LoadBalancer, in *healthCheckerIn) *APIError {
-		bs, err := lookup(lb.BackendSets, name)
-		if err != nil {
-			return err
-		}
+	return mutateBody(
+		h,
+		q,
+		"UpdateHealthChecker",
+		func(_ *InMemoryBackend, lb *LoadBalancer, in *healthCheckerIn) *APIError {
+			bs, err := lookup(lb.BackendSets, name)
+			if err != nil {
+				return err
+			}
 
-		hc, err := buildHealthChecker(in)
-		if err != nil {
-			return err
-		}
+			hc, err := buildHealthChecker(in)
+			if err != nil {
+				return err
+			}
 
-		bs.HealthChecker = hc
+			bs.HealthChecker = hc
 
-		return nil
-	})
+			return nil
+		},
+	)
 }
 
 func findBackend(bs *BackendSet, name string) int {

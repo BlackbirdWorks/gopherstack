@@ -143,7 +143,12 @@ func acceptedWR(q *req, wr string, err error) error {
 }
 
 // mutateBody decodes the body and applies fn to the addressed load balancer.
-func mutateBody[I any](h *Handler, q *req, typ string, fn func(b *InMemoryBackend, lb *LoadBalancer, in *I) *APIError) error {
+func mutateBody[I any](
+	h *Handler,
+	q *req,
+	typ string,
+	fn func(b *InMemoryBackend, lb *LoadBalancer, in *I) *APIError,
+) error {
 	return withBody(q, func(in I) (string, error) {
 		return h.Backend.Mutate(q.param("loadBalancerId"), q.ifMatch(), typ, false, func(lb *LoadBalancer) *APIError {
 			return fn(h.Backend, lb, &in)

@@ -23,13 +23,17 @@ func TestSnapshotRestore(t *testing.T) {
 	d.FreeformTags = map[string]string{"k": "v"}
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a)}
 	d.Certificates = map[string]loadbalancer.CertificateDetails{
-		"cert": {CertificateName: sp("cert"), PublicCertificate: sp(string(certPEM)), PrivateKey: sp(string(keyPEM))},
+		"cert": {
+			CertificateName:   new("cert"),
+			PublicCertificate: new(string(certPEM)),
+			PrivateKey:        new(string(keyPEM)),
+		},
 	}
 	d.Listeners = map[string]loadbalancer.ListenerDetails{
-		"plain": listener("bs"),
+		"plain": listener(),
 		"tls": {
-			DefaultBackendSetName: sp("bs"), Port: sp(443), Protocol: sp("HTTP"),
-			SslConfiguration: &loadbalancer.SslConfigurationDetails{CertificateName: sp("cert")},
+			DefaultBackendSetName: new("bs"), Port: new(443), Protocol: new("HTTP"),
+			SslConfiguration: &loadbalancer.SslConfigurationDetails{CertificateName: new("cert")},
 		},
 	}
 	id := src.mkLB(t, d)
@@ -44,37 +48,41 @@ func TestSnapshotRestore(t *testing.T) {
 	assert.Equal(t, loadbalancer.LoadBalancerLifecycleStateActive, got.LifecycleState)
 	assert.Contains(t, got.Certificates, "cert")
 
-	t.Run("listeners reopen and route", func(t *testing.T) {
+	{ // listeners reopen and route
 		r := dst.call(t, id, httpPort, "", "/again", nil)
 		assert.Equal(t, http.StatusOK, r.status)
 		assert.Equal(t, "a /again", r.body)
-	})
+	}
 
-	t.Run("private keys are not restored", func(t *testing.T) {
-		conn, err := tls.Dial("tcp", dst.addr(t, id, 443), tlsClient(t, certPEM, "localhost").Transport.(*http.Transport).TLSClientConfig)
-		if err == nil {
+	{ // private keys are not restored
+		conn, dialErr := tls.Dial(
+			"tcp",
+			dst.addr(t, id, 443),
+			tlsClient(t, certPEM).Transport.(*http.Transport).TLSClientConfig,
+		)
+		if dialErr == nil {
 			_ = conn.Close()
 		}
 
-		require.Error(t, err)
-	})
+		require.Error(t, dialErr)
+	}
 
-	t.Run("work requests survive", func(t *testing.T) {
+	{ // work requests survive
 		wrs, err := dst.lb.ListWorkRequests(t.Context(), loadbalancer.ListWorkRequestsRequest{LoadBalancerId: &id})
 		require.NoError(t, err)
 		assert.NotEmpty(t, wrs.Items)
-	})
+	}
 
-	t.Run("restore of garbage fails", func(t *testing.T) {
+	{ // restore of garbage fails
 		require.Error(t, dst.backend.Restore(t.Context(), []byte("{")))
-	})
+	}
 
-	t.Run("reset closes listeners", func(t *testing.T) {
+	{ // reset closes listeners
 		dst.backend.Reset()
 		assert.Empty(t, dst.backend.Endpoints())
 		_, err := dst.lb.GetLoadBalancer(t.Context(), loadbalancer.GetLoadBalancerRequest{LoadBalancerId: &id})
 		assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
-	})
+	}
 }
 
 type cfgStub struct{ s ociloadbalancer.Settings }
@@ -90,20 +98,20 @@ func TestProviderInit(t *testing.T) {
 	require.ErrorIs(t, err, ociloadbalancer.ErrNilAppContext)
 
 	tests := []struct {
-		name string
 		cfg  any
+		name string
 		port int
 	}{
-		{"defaults", nil, ociloadbalancer.DefaultPort},
-		{"from config", cfgStub{ociloadbalancer.Settings{Port: 9999, EnforceAuth: true}}, 9999},
+		{name: "defaults", port: ociloadbalancer.DefaultPort},
+		{name: "from config", cfg: cfgStub{ociloadbalancer.Settings{Port: 9999, EnforceAuth: true}}, port: 9999},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			reg, err := p.Init(&service.AppContext{Config: tt.cfg})
-			require.NoError(t, err)
+			reg, initErr := p.Init(&service.AppContext{Config: tt.cfg})
+			require.NoError(t, initErr)
 
 			h, ok := reg.(*ociloadbalancer.Handler)
 			require.True(t, ok)

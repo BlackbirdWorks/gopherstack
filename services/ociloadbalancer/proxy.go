@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,7 @@ const (
 	defaultRequestIDHeader = "X-Request-Id"
 	routeCookie            = "X-Oracle-BMC-LBS-Route"
 	dialTimeout            = 10 * time.Second
+	pipeDirections         = 2
 )
 
 func hostOnly(h string) string {
@@ -185,7 +187,14 @@ func (d *dataPlane) serveHTTP(w http.ResponseWriter, r *http.Request, s portSpec
 	d.proxy(w, r, lb, l, ch, respRules)
 }
 
-func (d *dataPlane) proxy(w http.ResponseWriter, r *http.Request, lb *LoadBalancer, l *Listener, ch *chosen, respRules []Rule) {
+func (d *dataPlane) proxy(
+	w http.ResponseWriter,
+	r *http.Request,
+	lb *LoadBalancer,
+	l *Listener,
+	ch *chosen,
+	respRules []Rule,
+) {
 	scheme := schemeHTTP
 	if ch.set.SSL != nil {
 		scheme = schemeHTTPS
@@ -249,7 +258,13 @@ type idleTransport struct {
 
 func (t idleTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
-	timer := time.AfterFunc(t.idle, cancel)
+
+	var fired atomic.Bool
+
+	timer := time.AfterFunc(t.idle, func() {
+		fired.Store(true)
+		cancel()
+	})
 
 	resp, err := t.rt.RoundTrip(req.WithContext(ctx))
 	timer.Stop()
@@ -257,7 +272,7 @@ func (t idleTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		cancel()
 
-		if errors.Is(ctx.Err(), context.Canceled) && req.Context().Err() == nil {
+		if fired.Load() {
 			return nil, context.DeadlineExceeded
 		}
 
@@ -330,7 +345,8 @@ func (d *dataPlane) choose(lb *LoadBalancer, bs *BackendSet, ip netip.Addr, r *h
 
 	if r != nil {
 		pick = stickyBackend(bs, r, slices.Concat(regular, backup, drained))
-		if pick == nil && stickyCookie(bs, r) != "" && bs.LBCookiePersistence != nil && boolOr(bs.LBCookiePersistence.DisableFallback) {
+		if pick == nil && stickyCookie(bs, r) != "" && bs.LBCookiePersistence != nil &&
+			boolOr(bs.LBCookiePersistence.DisableFallback) {
 			return nil, http.StatusBadGateway
 		}
 	}
@@ -443,9 +459,9 @@ func stickCookie(resp *http.Response, ch *chosen) {
 			name = lc.CookieName
 		}
 
-		ck := &http.Cookie{
+		ck := &http.Cookie{ //nolint:gosec // attributes come from the listener configuration
 			Name: name, Value: routeValue(ch.be), Path: "/", Domain: lc.Domain, Secure: boolOr(lc.IsSecure),
-			HttpOnly: boolOr(lc.IsHTTPOnly),
+			HttpOnly: boolOr(lc.IsHTTPOnly), SameSite: http.SameSiteLaxMode,
 		}
 		if lc.Path != "" {
 			ck.Path = lc.Path
@@ -459,7 +475,12 @@ func stickCookie(resp *http.Response, ch *chosen) {
 	case ch.set.SessionPersistence != nil:
 		for _, ck := range resp.Cookies() {
 			if ck.Name == ch.set.SessionPersistence.CookieName {
-				resp.Header.Add("Set-Cookie", (&http.Cookie{Name: routeCookie, Value: routeValue(ch.be), Path: "/"}).String())
+				resp.Header.Add(
+					"Set-Cookie",
+					(&http.Cookie{ //nolint:gosec // route cookie is opaque and path-scoped
+						Name: routeCookie, Value: routeValue(ch.be), Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
+					}).String(),
+				)
 
 				return
 			}
@@ -486,7 +507,7 @@ func (c idleConn) Write(p []byte) (int, error) {
 }
 
 func pipe(a, b net.Conn, idle time.Duration) {
-	done := make(chan struct{}, 2)
+	done := make(chan struct{}, pipeDirections)
 	ia, ib := idleConn{Conn: a, idle: idle}, idleConn{Conn: b, idle: idle}
 
 	go func() { _, _ = io.Copy(ib, ia); done <- struct{}{} }()

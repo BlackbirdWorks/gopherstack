@@ -2,6 +2,7 @@ package ociloadbalancer
 
 import (
 	"crypto/tls"
+	"slices"
 	"strconv"
 )
 
@@ -53,11 +54,5 @@ var (
 )
 
 func isBuiltinSuite(name string) bool {
-	for _, s := range builtinSuites {
-		if s == name {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(builtinSuites, name)
 }

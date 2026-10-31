@@ -3,6 +3,7 @@ package ociloadbalancer
 import (
 	"cmp"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"net/netip"
 	"slices"
@@ -26,6 +27,7 @@ const (
 	defaultTransit   = 2 * time.Second
 	publicPoolBase   = "198.18.0.0/15"
 	reservedHosts    = 4
+	addrBits         = 32
 )
 
 // InMemoryBackend holds every load balancer and work request under one lock.
@@ -260,7 +262,7 @@ func (b *InMemoryBackend) allocIP(cidr string) string {
 		prefix = netip.MustParsePrefix(publicPoolBase)
 	}
 
-	hosts := int64(1) << (32 - prefix.Bits())
+	hosts := int64(1) << (addrBits - prefix.Bits())
 	if hosts <= reservedHosts+1 {
 		return prefix.Masked().Addr().String()
 	}
@@ -268,8 +270,7 @@ func (b *InMemoryBackend) allocIP(cidr string) string {
 	off := reservedHosts + (b.ipSeq-1)%(hosts-reservedHosts-1)
 	addr := prefix.Masked().Addr()
 	raw := addr.As4()
-	n := uint32(raw[0])<<24 | uint32(raw[1])<<16 | uint32(raw[2])<<8 | uint32(raw[3])
-	n += uint32(off) //nolint:gosec // off < 2^32 by construction
+	binary.BigEndian.PutUint32(raw[:], binary.BigEndian.Uint32(raw[:])+uint32(off)) //nolint:gosec // off < 2^32
 
-	return netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}).String()
+	return netip.AddrFrom4(raw).String()
 }

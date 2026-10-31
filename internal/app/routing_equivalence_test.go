@@ -253,7 +253,8 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"GCPIdentityToolkit", "GCPAPIGateway",
 		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
 		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
-		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring", "OCINoSQL", "OCIAPIGateway", "OCIEvents", "OCILoadBalancer",
+		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring", "OCINoSQL", "OCIAPIGateway", "OCIEvents",
+		"OCILoadBalancer",
 	}
 
 	for _, e := range entries {

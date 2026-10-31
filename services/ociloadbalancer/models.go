@@ -64,9 +64,9 @@ type SSLConfig struct {
 
 // ConnectionConfig tunes listener connections.
 type ConnectionConfig struct {
-	IdleTimeout                    int64    `json:"idleTimeout"`
 	BackendTCPProxyProtocolVersion *int     `json:"backendTcpProxyProtocolVersion,omitempty"`
 	BackendTCPProxyProtocolOptions []string `json:"backendTcpProxyProtocolOptions,omitempty"`
+	IdleTimeout                    int64    `json:"idleTimeout"`
 }
 
 // Listener accepts client connections.
@@ -132,10 +132,10 @@ type BackendSet struct {
 	SessionPersistence    *SessionPersistence  `json:"sessionPersistenceConfiguration,omitempty"`
 	LBCookiePersistence   *LBCookiePersistence `json:"lbCookieSessionPersistenceConfiguration,omitempty"`
 	BackendMaxConnections *int                 `json:"backendMaxConnections,omitempty"`
-	HealthChecker         HealthChecker        `json:"healthChecker"`
 	Name                  string               `json:"name"`
 	Policy                string               `json:"policy"`
 	Backends              []Backend            `json:"backends"`
+	HealthChecker         HealthChecker        `json:"healthChecker"`
 }
 
 // Hostname is a virtual hostname.

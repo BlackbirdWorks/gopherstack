@@ -202,7 +202,8 @@ func (d *dataPlane) sync() {
 	for _, w := range open {
 		p, err := d.open(w)
 		if err != nil {
-			logger.Load(d.baseCtx).ErrorContext(d.baseCtx, "ociloadbalancer: open listener", "port", w.port, "error", err)
+			logger.Load(d.baseCtx).
+				ErrorContext(d.baseCtx, "ociloadbalancer: open listener", "port", w.port, "error", err)
 
 			continue
 		}
@@ -249,8 +250,8 @@ func (d *dataPlane) prune() {
 }
 
 func lbOfKey(k string) string {
-	if i := strings.IndexByte(k, '|'); i >= 0 {
-		return k[:i]
+	if before, _, ok := strings.Cut(k, "|"); ok {
+		return before
 	}
 
 	return k
@@ -288,9 +289,12 @@ func (d *dataPlane) open(s portSpec) (*portListener, error) {
 		return p, nil
 	}
 
-	var accept net.Listener = ln
+	var accept = ln
 	if s.tls {
-		accept = tls.NewListener(ln, &tls.Config{GetConfigForClient: d.frontTLS(s.lbID, s.port), MinVersion: tls.VersionTLS12})
+		accept = tls.NewListener(
+			ln,
+			&tls.Config{GetConfigForClient: d.frontTLS(s.lbID, s.port), MinVersion: tls.VersionTLS12},
+		)
 	}
 
 	p.wg.Go(func() { d.acceptTCP(ctx, p, accept) })
@@ -517,7 +521,11 @@ func (d *dataPlane) frontTLS(lbID string, port int) func(*tls.ClientHelloInfo) (
 			return nil, fmt.Errorf("%w: certificate %s has no private key", errBackendTLS, l.SSL.CertificateName)
 		}
 
-		cfg := &tls.Config{Certificates: []tls.Certificate{*key}, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"}}
+		cfg := &tls.Config{
+			Certificates: []tls.Certificate{*key},
+			MinVersion:   tls.VersionTLS12,
+			NextProtos:   []string{"http/1.1"},
+		}
 		if l.Protocol == protoHTTP2 {
 			cfg.NextProtos = []string{"h2", "http/1.1"}
 		}

@@ -16,8 +16,8 @@ import (
 
 const httpPort = 80
 
-func listener(set string) loadbalancer.ListenerDetails {
-	return loadbalancer.ListenerDetails{DefaultBackendSetName: sp(set), Port: sp(httpPort), Protocol: sp("HTTP")}
+func listener() loadbalancer.ListenerDetails {
+	return loadbalancer.ListenerDetails{DefaultBackendSetName: new("bs"), Port: new(httpPort), Protocol: new("HTTP")}
 }
 
 func tally(t *testing.T, e *env, lbID string, n int) map[string]int {
@@ -38,16 +38,18 @@ func TestBalancingPolicies(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		policy string
-		wa, wb int
-		n      int
-		check  func(t *testing.T, got map[string]int)
+		want     map[string]int
+		name     string
+		policy   string
+		wa       int
+		wb       int
+		n        int
+		distinct int
 	}{
-		{"round robin", "ROUND_ROBIN", 1, 1, 6, func(t *testing.T, got map[string]int) { assert.Equal(t, map[string]int{"a": 3, "b": 3}, got) }},
-		{"weighted round robin", "ROUND_ROBIN", 3, 1, 8, func(t *testing.T, got map[string]int) { assert.Equal(t, map[string]int{"a": 6, "b": 2}, got) }},
-		{"ip hash", "IP_HASH", 1, 1, 5, func(t *testing.T, got map[string]int) { assert.Len(t, got, 1) }},
-		{"least connections", "LEAST_CONNECTIONS", 1, 1, 4, func(t *testing.T, got map[string]int) { assert.Equal(t, 4, got["a"]+got["b"]) }},
+		{name: "round robin", policy: "ROUND_ROBIN", wa: 1, wb: 1, n: 6, want: map[string]int{"a": 3, "b": 3}},
+		{name: "weighted round robin", policy: "ROUND_ROBIN", wa: 3, wb: 1, n: 8, want: map[string]int{"a": 6, "b": 2}},
+		{name: "ip hash", policy: "IP_HASH", wa: 1, wb: 1, n: 5, distinct: 1},
+		{name: "least connections", policy: "LEAST_CONNECTIONS", wa: 1, wb: 1, n: 4, distinct: 2},
 	}
 
 	for _, tt := range tests {
@@ -57,14 +59,22 @@ func TestBalancingPolicies(t *testing.T) {
 			e := newEnv(t, envOpts{})
 			a, b := startBackend(t, "a"), startBackend(t, "b")
 			set := backendSet(tt.policy, a, b)
-			set.Backends[0].Weight, set.Backends[1].Weight = sp(tt.wa), sp(tt.wb)
+			set.Backends[0].Weight, set.Backends[1].Weight = new(tt.wa), new(tt.wb)
 
 			d := baseDetails(tt.name)
 			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 			id := e.mkLB(t, d)
 
-			tt.check(t, tally(t, e, id, tt.n))
+			got := tally(t, e, id, tt.n)
+			if tt.want != nil {
+				assert.Equal(t, tt.want, got)
+
+				return
+			}
+
+			assert.LessOrEqual(t, len(got), tt.distinct)
+			assert.Equal(t, tt.n, got["a"]+got["b"])
 		})
 	}
 }
@@ -76,14 +86,14 @@ func TestHealthCheckFailover(t *testing.T) {
 	a, b := startBackend(t, "a"), startBackend(t, "b")
 	d := baseDetails("failover")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a, b)}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id := e.mkLB(t, d)
 
 	assert.Equal(t, map[string]int{"a": 2, "b": 2}, tally(t, e, id, 4))
 
 	health := func() loadbalancer.BackendSetHealthStatusEnum {
 		resp, err := e.lb.GetBackendSetHealth(t.Context(), loadbalancer.GetBackendSetHealthRequest{
-			LoadBalancerId: &id, BackendSetName: sp("bs"),
+			LoadBalancerId: &id, BackendSetName: new("bs"),
 		})
 		require.NoError(t, err)
 
@@ -100,19 +110,26 @@ func TestHealthCheckFailover(t *testing.T) {
 
 	bname := a.ip() + ":" + itoa(a.port())
 	bh, err := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
-		LoadBalancerId: &id, BackendSetName: sp("bs"), BackendName: &bname,
+		LoadBalancerId: &id, BackendSetName: new("bs"), BackendName: &bname,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, loadbalancer.BackendHealthStatusCritical, bh.Status)
 	require.Len(t, bh.HealthCheckResults, 1)
-	assert.Equal(t, loadbalancer.HealthCheckResultHealthCheckStatusInvalidStatusCode, bh.HealthCheckResults[0].HealthCheckStatus)
+	assert.Equal(
+		t,
+		loadbalancer.HealthCheckResultHealthCheckStatusInvalidStatusCode,
+		bh.HealthCheckResults[0].HealthCheckStatus,
+	)
 
 	lbh, err := e.lb.GetLoadBalancerHealth(t.Context(), loadbalancer.GetLoadBalancerHealthRequest{LoadBalancerId: &id})
 	require.NoError(t, err)
 	assert.Equal(t, loadbalancer.LoadBalancerHealthStatusWarning, lbh.Status)
 	assert.Equal(t, []string{"bs"}, lbh.WarningStateBackendSetNames)
 
-	summaries, err := e.lb.ListLoadBalancerHealths(t.Context(), loadbalancer.ListLoadBalancerHealthsRequest{CompartmentId: sp(testCompartment)})
+	summaries, err := e.lb.ListLoadBalancerHealths(
+		t.Context(),
+		loadbalancer.ListLoadBalancerHealthsRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.Len(t, summaries.Items, 1)
 
@@ -137,12 +154,12 @@ func TestBackupDrainOffline(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	a, b, c := startBackend(t, "a"), startBackend(t, "b"), startBackend(t, "c")
 	set := backendSet("ROUND_ROBIN", a, b, c)
-	set.Backends[1].Backup = sp(true)
-	set.Backends[2].Offline = sp(true)
+	set.Backends[1].Backup = new(true)
+	set.Backends[2].Offline = new(true)
 
 	d := baseDetails("roles")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id := e.mkLB(t, d)
 
 	assert.Equal(t, map[string]int{"a": 3}, tally(t, e, id, 3))
@@ -159,43 +176,71 @@ func TestRoutingByPathPolicyAndHostname(t *testing.T) {
 	web, api, admin := startBackend(t, "web"), startBackend(t, "api"), startBackend(t, "admin")
 	d := baseDetails("routes")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{
-		"web": backendSet("ROUND_ROBIN", web), "api": backendSet("ROUND_ROBIN", api), "admin": backendSet("ROUND_ROBIN", admin),
+		"web": backendSet(
+			"ROUND_ROBIN",
+			web,
+		),
+		"api":   backendSet("ROUND_ROBIN", api),
+		"admin": backendSet("ROUND_ROBIN", admin),
 	}
 	d.Hostnames = map[string]loadbalancer.HostnameDetails{
-		"hApi":   {Name: sp("hApi"), Hostname: sp("api.example.com")},
-		"hAdmin": {Name: sp("hAdmin"), Hostname: sp("*.admin.example.com")},
+		"hApi":   {Name: new("hApi"), Hostname: new("api.example.com")},
+		"hAdmin": {Name: new("hAdmin"), Hostname: new("*.admin.example.com")},
 	}
 	d.PathRouteSets = map[string]loadbalancer.PathRouteSetDetails{
 		"paths": {PathRoutes: []loadbalancer.PathRoute{
 			prefix("/api", "api"),
-			{Path: sp("/exact"), BackendSetName: sp("admin"), PathMatchType: &loadbalancer.PathMatchType{MatchType: loadbalancer.PathMatchTypeMatchTypeExactMatch}},
-			{Path: sp(".css"), BackendSetName: sp("admin"), PathMatchType: &loadbalancer.PathMatchType{MatchType: loadbalancer.PathMatchTypeMatchTypeSuffixMatch}},
+			{
+				Path:           new("/exact"),
+				BackendSetName: new("admin"),
+				PathMatchType:  &loadbalancer.PathMatchType{MatchType: loadbalancer.PathMatchTypeMatchTypeExactMatch},
+			},
+			{
+				Path:           new(".css"),
+				BackendSetName: new("admin"),
+				PathMatchType:  &loadbalancer.PathMatchType{MatchType: loadbalancer.PathMatchTypeMatchTypeSuffixMatch},
+			},
 		}},
 	}
 	d.Listeners = map[string]loadbalancer.ListenerDetails{
-		"vhostApi":   {DefaultBackendSetName: sp("api"), Port: sp(81), Protocol: sp("HTTP"), HostnameNames: []string{"hApi"}},
-		"vhostAdmin": {DefaultBackendSetName: sp("admin"), Port: sp(81), Protocol: sp("HTTP"), HostnameNames: []string{"hAdmin"}},
-		"paths":      {DefaultBackendSetName: sp("web"), Port: sp(80), Protocol: sp("HTTP"), PathRouteSetName: sp("paths")},
+		"vhostApi": {
+			DefaultBackendSetName: new("api"),
+			Port:                  new(81),
+			Protocol:              new("HTTP"),
+			HostnameNames:         []string{"hApi"},
+		},
+		"vhostAdmin": {
+			DefaultBackendSetName: new("admin"),
+			Port:                  new(81),
+			Protocol:              new("HTTP"),
+			HostnameNames:         []string{"hAdmin"},
+		},
+		"paths": {
+			DefaultBackendSetName: new("web"),
+			Port:                  new(80),
+			Protocol:              new("HTTP"),
+			PathRouteSetName:      new("paths"),
+		},
 	}
 	id := e.mkLB(t, d)
 
 	tests := []struct {
 		name   string
-		port   int
 		host   string
 		path   string
 		want   string
+		port   int
 		status int
 	}{
-		{"default set", 80, "", "/home", "web", 200},
-		{"prefix route", 80, "", "/API/v1", "api", 200},
-		{"exact route", 80, "", "/exact", "admin", 200},
-		{"suffix route", 80, "", "/site/app.css", "admin", 200},
-		{"exact miss falls to default", 80, "", "/exact/more", "web", 200},
-		{"exact hostname", 81, "api.example.com", "/", "api", 200},
-		{"wildcard hostname", 81, "x.admin.example.com", "/", "admin", 200},
-		{"hostname with port", 81, "api.example.com:81", "/", "api", 200},
-		{"unmatched hostname", 81, "other.example.com", "/", "", 404},
+		{name: "default set", port: 80, host: "", path: "/home", want: "web", status: 200},
+		{name: "prefix route", port: 80, host: "", path: "/API/v1", want: "api", status: 200},
+		{name: "exact route", port: 80, host: "", path: "/exact", want: "admin", status: 200},
+		{name: "suffix route", port: 80, host: "", path: "/site/app.css", want: "admin", status: 200},
+		{name: "exact miss falls to default", port: 80, host: "", path: "/exact/more", want: "web", status: 200},
+		{name: "exact hostname", port: 81, host: "api.example.com", path: "/", want: "api", status: 200},
+		{name: "wildcard hostname", port: 81, host: "x.admin.example.com", path: "/", want: "admin", status: 200},
+		{name: "hostname with port", port: 81, host: "api.example.com:81", path: "/", want: "api", status: 200},
+		{name: "unmatched hostname", port: 81, host: "other.example.com", path: "/", want: "", status: 404},
 	}
 
 	for _, tt := range tests {
@@ -216,13 +261,22 @@ func TestRoutingByPathPolicyAndHostname(t *testing.T) {
 
 		_, err := e.lb.CreateRoutingPolicy(t.Context(), loadbalancer.CreateRoutingPolicyRequest{
 			LoadBalancerId: &id,
-			CreateRoutingPolicyDetails: loadbalancer.CreateRoutingPolicyDetails{
-				Name: sp("rp"), ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
-				Rules: []loadbalancer.RoutingRule{
-					{Name: sp("byHeader"), Condition: sp("any(http.request.headers[(i 'X-Tier')] eq 'gold', http.request.url.query['tier'] eq 'gold')"),
-						Actions: []loadbalancer.Action{loadbalancer.ForwardToBackendSet{BackendSetName: sp("api")}}},
-					{Name: sp("byPath"), Condition: sp("all(http.request.url.path ew '.png', http.request.method eq 'GET')"),
-						Actions: []loadbalancer.Action{loadbalancer.ForwardToBackendSet{BackendSetName: sp("admin")}}},
+			Name: new(
+				"rp",
+			),
+			ConditionLanguageVersion: loadbalancer.CreateRoutingPolicyDetailsConditionLanguageVersionV1,
+			Rules: []loadbalancer.RoutingRule{
+				{
+					Name: new("byHeader"),
+					Condition: new(
+						"any(http.request.headers[(i 'X-Tier')] eq 'gold', http.request.url.query['tier'] eq 'gold')",
+					),
+					Actions: []loadbalancer.Action{loadbalancer.ForwardToBackendSet{BackendSetName: new("api")}},
+				},
+				{
+					Name:      new("byPath"),
+					Condition: new("all(http.request.url.path ew '.png', http.request.method eq 'GET')"),
+					Actions:   []loadbalancer.Action{loadbalancer.ForwardToBackendSet{BackendSetName: new("admin")}},
 				},
 			},
 		})
@@ -231,9 +285,13 @@ func TestRoutingByPathPolicyAndHostname(t *testing.T) {
 
 		_, err = e.lb.CreateListener(t.Context(), loadbalancer.CreateListenerRequest{
 			LoadBalancerId: &id,
-			CreateListenerDetails: loadbalancer.CreateListenerDetails{
-				Name: sp("policy"), DefaultBackendSetName: sp("web"), Port: sp(82), Protocol: sp("HTTP"), RoutingPolicyName: sp("rp"),
-			},
+			Name: new(
+				"policy",
+			),
+			DefaultBackendSetName: new("web"),
+			Port:                  new(82),
+			Protocol:              new("HTTP"),
+			RoutingPolicyName:     new("rp"),
 		})
 		require.NoError(t, err)
 		e.settle()
@@ -265,33 +323,49 @@ func TestRuleSets(t *testing.T) {
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a)}
 	d.RuleSets = map[string]loadbalancer.RuleSetDetails{
 		"headers": {Items: []loadbalancer.Rule{
-			loadbalancer.AddHttpRequestHeaderRule{Header: sp("X-Added"), Value: sp("yes")},
-			loadbalancer.ExtendHttpRequestHeaderValueRule{Header: sp("X-Added"), Prefix: sp("<"), Suffix: sp(">")},
-			loadbalancer.AddHttpResponseHeaderRule{Header: sp("X-Resp"), Value: sp("lb")},
-			loadbalancer.RemoveHttpResponseHeaderRule{Header: sp("Set-Cookie")},
+			loadbalancer.AddHttpRequestHeaderRule{Header: new("X-Added"), Value: new("yes")},
+			loadbalancer.ExtendHttpRequestHeaderValueRule{Header: new("X-Added"), Prefix: new("<"), Suffix: new(">")},
+			loadbalancer.AddHttpResponseHeaderRule{Header: new("X-Resp"), Value: new("lb")},
+			loadbalancer.RemoveHttpResponseHeaderRule{Header: new("Set-Cookie")},
 		}},
 		"redirects": {Items: []loadbalancer.Rule{
 			loadbalancer.RedirectRule{
 				Conditions: []loadbalancer.RuleCondition{loadbalancer.PathMatchCondition{
-					AttributeValue: sp("/old"), Operator: loadbalancer.PathMatchConditionOperatorPrefixMatch,
+					AttributeValue: new("/old"), Operator: loadbalancer.PathMatchConditionOperatorPrefixMatch,
 				}},
-				ResponseCode: sp(301),
-				RedirectUri:  &loadbalancer.RedirectUri{Protocol: sp("https"), Host: sp("new.example.com"), Port: sp(8443), Path: sp("/moved/{path}")},
+				ResponseCode: new(301),
+				RedirectUri: &loadbalancer.RedirectUri{
+					Protocol: new("https"),
+					Host:     new("new.example.com"),
+					Port:     new(8443),
+					Path:     new("/moved/{path}"),
+				},
 			},
 		}},
 		"methods": {Items: []loadbalancer.Rule{
-			loadbalancer.ControlAccessUsingHttpMethodsRule{AllowedMethods: []string{"GET", "HEAD"}, StatusCode: sp(405)},
+			loadbalancer.ControlAccessUsingHttpMethodsRule{
+				AllowedMethods: []string{"GET", "HEAD"},
+				StatusCode:     new(405),
+			},
 		}},
 		"allow": {Items: []loadbalancer.Rule{
-			loadbalancer.AllowRule{Conditions: []loadbalancer.RuleCondition{loadbalancer.SourceIpAddressCondition{AttributeValue: sp("10.0.0.0/8")}}},
+			loadbalancer.AllowRule{
+				Conditions: []loadbalancer.RuleCondition{
+					loadbalancer.SourceIpAddressCondition{AttributeValue: new("10.0.0.0/8")},
+				},
+			},
 		}},
 		"allowLocal": {Items: []loadbalancer.Rule{
-			loadbalancer.AllowRule{Conditions: []loadbalancer.RuleCondition{loadbalancer.SourceIpAddressCondition{AttributeValue: sp("127.0.0.0/8")}}},
+			loadbalancer.AllowRule{
+				Conditions: []loadbalancer.RuleCondition{
+					loadbalancer.SourceIpAddressCondition{AttributeValue: new("127.0.0.0/8")},
+				},
+			},
 		}},
 	}
 	mk := func(port int, sets ...string) loadbalancer.ListenerDetails {
-		l := listener("bs")
-		l.Port, l.RuleSetNames = sp(port), sets
+		l := listener()
+		l.Port, l.RuleSetNames = new(port), sets
 
 		return l
 	}
@@ -309,7 +383,7 @@ func TestRuleSets(t *testing.T) {
 		assert.Equal(t, "<yes>", r.header.Get("Echo-X-Added"))
 		assert.Equal(t, "lb", r.header.Get("X-Resp"))
 		assert.Empty(t, r.header.Get("Set-Cookie"))
-		assert.NotEmpty(t, r.header.Get("Echo-XFF"))
+		assert.NotEmpty(t, r.header.Get("Echo-Xff"))
 	})
 
 	t.Run("redirect", func(t *testing.T) {
@@ -350,20 +424,31 @@ func TestTLSTermination(t *testing.T) {
 	d := baseDetails("tls")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a)}
 	d.Certificates = map[string]loadbalancer.CertificateDetails{
-		"cert": {CertificateName: sp("cert"), PublicCertificate: sp(string(certPEM)), PrivateKey: sp(string(keyPEM))},
+		"cert": {
+			CertificateName:   new("cert"),
+			PublicCertificate: new(string(certPEM)),
+			PrivateKey:        new(string(keyPEM)),
+		},
 	}
-	ssl := &loadbalancer.SslConfigurationDetails{CertificateName: sp("cert")}
+	ssl := &loadbalancer.SslConfigurationDetails{CertificateName: new("cert")}
 	d.Listeners = map[string]loadbalancer.ListenerDetails{
-		"https":  {DefaultBackendSetName: sp("bs"), Port: sp(443), Protocol: sp("HTTP"), SslConfiguration: ssl},
-		"h2":     {DefaultBackendSetName: sp("bs"), Port: sp(444), Protocol: sp("HTTP2"), SslConfiguration: ssl},
-		"tcptls": {DefaultBackendSetName: sp("bs"), Port: sp(445), Protocol: sp("TCP"), SslConfiguration: ssl},
+		"https":  {DefaultBackendSetName: new("bs"), Port: new(443), Protocol: new("HTTP"), SslConfiguration: ssl},
+		"h2":     {DefaultBackendSetName: new("bs"), Port: new(444), Protocol: new("HTTP2"), SslConfiguration: ssl},
+		"tcptls": {DefaultBackendSetName: new("bs"), Port: new(445), Protocol: new("TCP"), SslConfiguration: ssl},
 	}
 	id := e.mkLB(t, d)
 
 	t.Run("https terminates and forwards plain", func(t *testing.T) {
 		t.Parallel()
 
-		r := e.do(t, "https://"+e.addr(t, id, 443)+"/secure", "", http.MethodGet, nil, tlsClient(t, certPEM, "localhost"))
+		r := e.do(
+			t,
+			"https://"+e.addr(t, id, 443)+"/secure",
+			"",
+			http.MethodGet,
+			nil,
+			tlsClient(t, certPEM),
+		)
 		assert.Equal(t, 200, r.status)
 		assert.Equal(t, "a /secure", r.body)
 	})
@@ -372,22 +457,32 @@ func TestTLSTermination(t *testing.T) {
 		t.Parallel()
 
 		other, _ := genCert(t)
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+e.addr(t, id, 443)+"/", http.NoBody)
+		req, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			"https://"+e.addr(t, id, 443)+"/",
+			http.NoBody,
+		)
 		require.NoError(t, err)
 
-		_, err = tlsClient(t, other, "localhost").Do(req)
+		_, err = tlsClient(t, other).Do(req)
 		require.Error(t, err)
 	})
 
 	t.Run("http2 negotiated", func(t *testing.T) {
 		t.Parallel()
 
-		c := tlsClient(t, certPEM, "localhost")
+		c := tlsClient(t, certPEM)
 		tr, ok := c.Transport.(*http.Transport)
 		require.True(t, ok)
 
 		tr.ForceAttemptHTTP2 = true
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+e.addr(t, id, 444)+"/", http.NoBody)
+		req, err := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			"https://"+e.addr(t, id, 444)+"/",
+			http.NoBody,
+		)
 		require.NoError(t, err)
 
 		resp, err := c.Do(req)
@@ -402,7 +497,7 @@ func TestTLSTermination(t *testing.T) {
 	t.Run("tls terminated tcp", func(t *testing.T) {
 		t.Parallel()
 
-		pool := tlsClient(t, certPEM, "localhost").Transport.(*http.Transport).TLSClientConfig
+		pool := tlsClient(t, certPEM).Transport.(*http.Transport).TLSClientConfig
 		conn, err := tls.Dial("tcp", e.addr(t, id, 445), pool)
 		require.NoError(t, err)
 
@@ -448,13 +543,15 @@ func TestBackendTLSVerification(t *testing.T) {
 			be := startTLSBackend(t, "secure", pair)
 			set := backendSet("ROUND_ROBIN", be)
 			set.SslConfiguration = &loadbalancer.SslConfigurationDetails{
-				CertificateName: sp("ca"), VerifyPeerCertificate: sp(true),
+				CertificateName: new("ca"), VerifyPeerCertificate: new(true),
 			}
 
 			d := baseDetails("backend-tls")
-			d.Certificates = map[string]loadbalancer.CertificateDetails{"ca": {CertificateName: sp("ca"), CaCertificate: sp(tt.ca)}}
+			d.Certificates = map[string]loadbalancer.CertificateDetails{
+				"ca": {CertificateName: new("ca"), CaCertificate: new(tt.ca)},
+			}
 			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 			id := e.mkLB(t, d)
 
 			r := e.call(t, id, httpPort, "", "/tls", nil)
@@ -468,12 +565,12 @@ func TestExternalBackendRefused(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	set := loadbalancer.BackendSetDetails{
-		Policy: sp("ROUND_ROBIN"), HealthChecker: hc(),
-		Backends: []loadbalancer.BackendDetails{{IpAddress: sp("192.0.2.1"), Port: sp(80)}},
+		Policy: new("ROUND_ROBIN"), HealthChecker: hc(),
+		Backends: []loadbalancer.BackendDetails{{IpAddress: new("192.0.2.1"), Port: new(80)}},
 	}
 	d := baseDetails("external")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id := e.mkLB(t, d)
 
 	start := time.Now()
@@ -483,11 +580,15 @@ func TestExternalBackendRefused(t *testing.T) {
 
 	bname := "192.0.2.1:80"
 	bh, err := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
-		LoadBalancerId: &id, BackendSetName: sp("bs"), BackendName: &bname,
+		LoadBalancerId: &id, BackendSetName: new("bs"), BackendName: &bname,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, loadbalancer.BackendHealthStatusCritical, bh.Status)
-	assert.Equal(t, loadbalancer.HealthCheckResultHealthCheckStatusConnectFailed, bh.HealthCheckResults[0].HealthCheckStatus)
+	assert.Equal(
+		t,
+		loadbalancer.HealthCheckResultHealthCheckStatusConnectFailed,
+		bh.HealthCheckResults[0].HealthCheckStatus,
+	)
 }
 
 func TestUnhealthyButUndecidedBackendIsDialled(t *testing.T) {
@@ -495,12 +596,12 @@ func TestUnhealthyButUndecidedBackendIsDialled(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	set := backendSet("ROUND_ROBIN")
-	set.Backends = []loadbalancer.BackendDetails{{IpAddress: sp("192.0.2.1"), Port: sp(80)}}
-	set.HealthChecker.Retries = sp(3)
+	set.Backends = []loadbalancer.BackendDetails{{IpAddress: new("192.0.2.1"), Port: new(80)}}
+	set.HealthChecker.Retries = new(3)
 
 	d := baseDetails("undecided")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id := e.mkLB(t, d)
 
 	r := e.call(t, id, httpPort, "", "/", nil)
@@ -513,12 +614,17 @@ func TestTCPListener(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	a := startBackend(t, "a")
 	set := backendSet("ROUND_ROBIN", a)
-	set.HealthChecker = &loadbalancer.HealthCheckerDetails{Protocol: sp("TCP"), Retries: sp(0), IntervalInMillis: sp(1000), TimeoutInMillis: sp(1000)}
+	set.HealthChecker = &loadbalancer.HealthCheckerDetails{
+		Protocol:         new("TCP"),
+		Retries:          new(0),
+		IntervalInMillis: new(1000),
+		TimeoutInMillis:  new(1000),
+	}
 
 	d := baseDetails("tcp")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
 	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": {
-		DefaultBackendSetName: sp("bs"), Port: sp(7000), Protocol: sp("TCP"),
+		DefaultBackendSetName: new("bs"), Port: new(7000), Protocol: new("TCP"),
 		ConnectionConfiguration: &loadbalancer.ConnectionConfiguration{IdleTimeout: new(int64(30))},
 	}}
 	id := e.mkLB(t, d)
@@ -544,9 +650,9 @@ func TestSessionPersistenceAndRequestID(t *testing.T) {
 	set.LbCookieSessionPersistenceConfiguration = &loadbalancer.LbCookieSessionPersistenceConfigurationDetails{}
 
 	d := baseDetails("sticky")
-	d.IsRequestIdEnabled = sp(true)
+	d.IsRequestIdEnabled = new(true)
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id := e.mkLB(t, d)
 
 	first := e.call(t, id, httpPort, "", "/", nil)
@@ -573,7 +679,7 @@ func TestLifecycleOfListeners(t *testing.T) {
 	a := startBackend(t, "a")
 	d := baseDetails("serving")
 	d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": backendSet("ROUND_ROBIN", a)}
-	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener("bs")}
+	d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 	id, _ := e.create(t, d)
 
 	assert.Empty(t, e.backend.Endpoints(), "creating load balancers do not serve")
@@ -581,24 +687,24 @@ func TestLifecycleOfListeners(t *testing.T) {
 	e.settle()
 	require.Len(t, e.backend.Endpoints(), 1)
 
-	t.Run("admin endpoint", func(t *testing.T) {
-		status, body, _ := rawDo(t, http.MethodGet, e.base+"/_gopherstack/loadbalancer/endpoints", "")
+	{ // admin endpoint
+		status, body := rawDo(t, e.base+"/_gopherstack/loadbalancer/endpoints")
 		assert.Equal(t, http.StatusOK, status)
 		assert.Contains(t, body, id)
 		assert.Contains(t, body, "127.0.0.1:")
-	})
+	}
 
-	t.Run("listener address in load balancer view", func(t *testing.T) {
-		status, body, _ := rawDo(t, http.MethodGet, e.base+"/20170115/loadBalancers/"+id, "")
+	{ // listener address in load balancer view
+		status, body := rawDo(t, e.base+"/20170115/loadBalancers/"+id)
 		assert.Equal(t, http.StatusOK, status)
 		assert.Contains(t, body, "gopherstackAddress")
-	})
+	}
 
-	t.Run("delete stops serving", func(t *testing.T) {
+	{ // delete stops serving
 		_, err := e.lb.DeleteLoadBalancer(t.Context(), loadbalancer.DeleteLoadBalancerRequest{LoadBalancerId: &id})
 		require.NoError(t, err)
 
 		e.settle()
 		assert.Empty(t, e.backend.Endpoints())
-	})
+	}
 }

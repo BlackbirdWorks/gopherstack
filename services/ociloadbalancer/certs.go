@@ -56,7 +56,8 @@ func caChain(ca string) [][]byte {
 func encryptedKey(key string) bool {
 	blk, _ := pem.Decode([]byte(key))
 
-	return blk != nil && (blk.Type == "ENCRYPTED PRIVATE KEY" || strings.Contains(blk.Headers["Proc-Type"], "ENCRYPTED"))
+	return blk != nil &&
+		(blk.Type == "ENCRYPTED PRIVATE KEY" || strings.Contains(blk.Headers["Proc-Type"], "ENCRYPTED"))
 }
 
 // buildCertificate validates a certificate bundle. The returned TLS key pair (nil without a private key) is

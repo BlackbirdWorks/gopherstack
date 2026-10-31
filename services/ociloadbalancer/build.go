@@ -24,8 +24,10 @@ const (
 
 var (
 	nameRE     = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	hostnameRE = regexp.MustCompile(`^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(\.\*)?$`)
-	tokenRE    = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+	hostnameRE = regexp.MustCompile(
+		`^(\*\.)?([A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*(\.\*)?$`,
+	)
+	tokenRE = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 )
 
 func checkName(kind, name string) *APIError {
@@ -41,17 +43,16 @@ func checkName(kind, name string) *APIError {
 }
 
 type backendIn struct {
-	IPAddress      string `json:"ipAddress"`
 	Port           *int   `json:"port"`
 	Weight         *int   `json:"weight"`
 	MaxConnections *int   `json:"maxConnections"`
 	Backup         *bool  `json:"backup"`
 	Drain          *bool  `json:"drain"`
 	Offline        *bool  `json:"offline"`
+	IPAddress      string `json:"ipAddress"`
 }
 
 type healthCheckerIn struct {
-	Protocol          string  `json:"protocol"`
 	URLPath           *string `json:"urlPath"`
 	Port              *int    `json:"port"`
 	ReturnCode        *int    `json:"returnCode"`
@@ -60,6 +61,7 @@ type healthCheckerIn struct {
 	IntervalInMillis  *int    `json:"intervalInMillis"`
 	ResponseBodyRegex *string `json:"responseBodyRegex"`
 	IsForcePlainText  *bool   `json:"isForcePlainText"`
+	Protocol          string  `json:"protocol"`
 }
 
 type backendSetIn struct {
@@ -118,9 +120,15 @@ func buildHealthChecker(in *healthCheckerIn) (HealthChecker, *APIError) {
 	}
 
 	hc := HealthChecker{
-		Protocol: strings.ToUpper(in.Protocol), Port: intOr(in.Port, 0), ReturnCode: intOr(in.ReturnCode, defaultReturn),
-		Retries: intOr(in.Retries, defaultRetries), TimeoutInMillis: intOr(in.TimeoutInMillis, defaultTimeout),
-		IntervalInMillis: intOr(in.IntervalInMillis, defaultInterval), IsForcePlainText: boolOr(in.IsForcePlainText),
+		Protocol: strings.ToUpper(
+			in.Protocol,
+		),
+		Port:             intOr(in.Port, 0),
+		ReturnCode:       intOr(in.ReturnCode, defaultReturn),
+		Retries:          intOr(in.Retries, defaultRetries),
+		TimeoutInMillis:  intOr(in.TimeoutInMillis, defaultTimeout),
+		IntervalInMillis: intOr(in.IntervalInMillis, defaultInterval),
+		IsForcePlainText: boolOr(in.IsForcePlainText),
 	}
 
 	if in.ResponseBodyRegex != nil {
@@ -186,7 +194,9 @@ func buildBackendSet(name string, in *backendSetIn) (*BackendSet, *APIError) {
 	}
 
 	if in.SessionPersistence != nil && in.LBCookiePersistence != nil {
-		return nil, errParam("sessionPersistenceConfiguration and lbCookieSessionPersistenceConfiguration are mutually exclusive")
+		return nil, errParam(
+			"sessionPersistenceConfiguration and lbCookieSessionPersistenceConfiguration are mutually exclusive",
+		)
 	}
 
 	if err = checkPersistence(in); err != nil {
@@ -278,7 +288,9 @@ func checkListenerShape(l *Listener) *APIError {
 	}
 
 	if l.Protocol == protoTCP && (len(l.Hostnames) > 0 || l.PathRoutes != "" || l.Policy != "" || len(l.RuleSets) > 0) {
-		return errParam("hostnameNames, pathRouteSetName, routingPolicyName and ruleSetNames apply to HTTP listeners only")
+		return errParam(
+			"hostnameNames, pathRouteSetName, routingPolicyName and ruleSetNames apply to HTTP listeners only",
+		)
 	}
 
 	if l.PathRoutes != "" && l.Policy != "" {
@@ -291,14 +303,20 @@ func checkListenerShape(l *Listener) *APIError {
 		}
 	}
 
-	if c := l.Connection; c != nil {
-		if c.IdleTimeout < 1 {
-			return errParam("connectionConfiguration idleTimeout must be positive")
-		}
+	return checkConnection(l.Connection)
+}
 
-		if c.BackendTCPProxyProtocolVersion != nil || len(c.BackendTCPProxyProtocolOptions) > 0 {
-			return errUnsupported("backend TCP proxy protocol")
-		}
+func checkConnection(c *ConnectionConfig) *APIError {
+	if c == nil {
+		return nil
+	}
+
+	if c.IdleTimeout < 1 {
+		return errParam("connectionConfiguration idleTimeout must be positive")
+	}
+
+	if c.BackendTCPProxyProtocolVersion != nil || len(c.BackendTCPProxyProtocolOptions) > 0 {
+		return errUnsupported("backend TCP proxy protocol")
 	}
 
 	return nil
@@ -359,7 +377,9 @@ func buildPathRouteSet(name string, in *pathRouteSetIn) (*PathRouteSet, *APIErro
 		}
 
 		if !slices.Contains([]string{matchExact, matchLongest, matchPrefix, matchSuffix}, r.PathMatchType.MatchType) {
-			return nil, errParam("pathMatchType.matchType must be EXACT_MATCH, FORCE_LONGEST_PREFIX_MATCH, PREFIX_MATCH or SUFFIX_MATCH")
+			return nil, errParam(
+				"pathMatchType.matchType must be EXACT_MATCH, FORCE_LONGEST_PREFIX_MATCH, PREFIX_MATCH or SUFFIX_MATCH",
+			)
 		}
 	}
 
@@ -408,7 +428,9 @@ func buildRoutingPolicy(name string, in *routingPolicyIn, keepVersion string) (*
 		}
 
 		if len(r.Actions) != 1 || r.Actions[0].Name != "FORWARD_TO_BACKENDSET" || r.Actions[0].BackendSetName == "" {
-			return nil, errParam("rule " + r.Name + " needs exactly one FORWARD_TO_BACKENDSET action with backendSetName")
+			return nil, errParam(
+				"rule " + r.Name + " needs exactly one FORWARD_TO_BACKENDSET action with backendSetName",
+			)
 		}
 	}
 

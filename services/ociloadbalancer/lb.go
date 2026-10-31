@@ -14,6 +14,7 @@ const (
 	minFlexMbps = 10
 	maxFlexMbps = 8000
 	maxSubnets  = 2
+	minSharing  = 2
 )
 
 type createLBIn struct {
@@ -86,7 +87,9 @@ func checkShape(name string, d *ShapeDetails) *APIError {
 	}
 
 	if d.Minimum < minFlexMbps || d.Maximum > maxFlexMbps || d.Minimum > d.Maximum {
-		return errParam("flexible shape bandwidth must satisfy 10 <= minimumBandwidthInMbps <= maximumBandwidthInMbps <= 8000")
+		return errParam(
+			"flexible shape bandwidth must satisfy 10 <= minimumBandwidthInMbps <= maximumBandwidthInMbps <= 8000",
+		)
 	}
 
 	return nil
@@ -231,9 +234,13 @@ func buildNestedConfig(lb *LoadBalancer, in *createLBIn) *APIError {
 
 func newLB() *LoadBalancer {
 	return &LoadBalancer{
-		Listeners: map[string]*Listener{}, Hostnames: map[string]*Hostname{}, SSLCipherSuites: map[string]*SSLCipherSuite{},
-		Certificates: map[string]*Certificate{}, BackendSets: map[string]*BackendSet{},
-		PathRouteSets: map[string]*PathRouteSet{}, RuleSets: map[string]*RuleSet{},
+		Listeners:       map[string]*Listener{},
+		Hostnames:       map[string]*Hostname{},
+		SSLCipherSuites: map[string]*SSLCipherSuite{},
+		Certificates:    map[string]*Certificate{},
+		BackendSets:     map[string]*BackendSet{},
+		PathRouteSets:   map[string]*PathRouteSet{},
+		RuleSets:        map[string]*RuleSet{},
 		RoutingPolicies: map[string]*RoutingPolicy{},
 	}
 }
@@ -263,7 +270,13 @@ func (b *InMemoryBackend) createLB(in *createLBIn) (string, error) {
 	lb := newLB()
 	lb.ID, lb.CompartmentID, lb.DisplayName = newOCID("loadbalancer"), in.CompartmentID, in.DisplayName
 	lb.ShapeName, lb.ShapeDetails, lb.SubnetIDs, lb.NSGs = in.ShapeName, in.ShapeDetails, in.SubnetIDs, in.NSGs
-	lb.IsPrivate, lb.DeleteProtected, lb.RequestIDOn = boolOr(in.IsPrivate), boolOr(in.DeleteProtected), boolOr(in.RequestIDOn)
+	lb.IsPrivate, lb.DeleteProtected, lb.RequestIDOn = boolOr(
+		in.IsPrivate,
+	), boolOr(
+		in.DeleteProtected,
+	), boolOr(
+		in.RequestIDOn,
+	)
 	lb.RequestIDHeader, lb.Tags, lb.State = in.RequestIDHeader, in.Tags, stateCreating
 	lb.TimeCreated, lb.TransitionAt, lb.Etag = now, b.transitionAt(), newEtag()
 
@@ -373,6 +386,24 @@ func (b *InMemoryBackend) mutate(
 
 // validateLB checks every cross-reference of a load balancer.
 func (b *InMemoryBackend) validateLB(lb *LoadBalancer) *APIError {
+	if err := validateSets(lb); err != nil {
+		return err
+	}
+
+	if err := validateRoutes(lb); err != nil {
+		return err
+	}
+
+	for _, l := range lb.Listeners {
+		if err := validateListenerRefs(lb, l); err != nil {
+			return err
+		}
+	}
+
+	return checkPortSharing(lb)
+}
+
+func validateSets(lb *LoadBalancer) *APIError {
 	for name, bs := range lb.BackendSets {
 		if bs.SSL != nil {
 			if err := checkBackendSSL(lb, bs.SSL); err != nil {
@@ -385,6 +416,10 @@ func (b *InMemoryBackend) validateLB(lb *LoadBalancer) *APIError {
 		}
 	}
 
+	return nil
+}
+
+func validateRoutes(lb *LoadBalancer) *APIError {
 	for _, ps := range lb.PathRouteSets {
 		for _, r := range ps.PathRoutes {
 			if _, ok := lb.BackendSets[r.BackendSetName]; !ok {
@@ -396,18 +431,14 @@ func (b *InMemoryBackend) validateLB(lb *LoadBalancer) *APIError {
 	for _, rp := range lb.RoutingPolicies {
 		for _, r := range rp.Rules {
 			if _, ok := lb.BackendSets[r.Actions[0].BackendSetName]; !ok {
-				return errParam("routing policy " + rp.Name + " references unknown backend set " + r.Actions[0].BackendSetName)
+				return errParam(
+					"routing policy " + rp.Name + " references unknown backend set " + r.Actions[0].BackendSetName,
+				)
 			}
 		}
 	}
 
-	for _, l := range lb.Listeners {
-		if err := validateListenerRefs(lb, l); err != nil {
-			return err
-		}
-	}
-
-	return checkPortSharing(lb)
+	return nil
 }
 
 func checkBackendSSL(lb *LoadBalancer, s *SSLConfig) *APIError {
@@ -492,7 +523,7 @@ func checkPortSharing(lb *LoadBalancer) *APIError {
 	}
 
 	for port, ls := range byPort {
-		if len(ls) < 2 {
+		if len(ls) < minSharing {
 			continue
 		}
 

@@ -55,10 +55,10 @@ type literal struct {
 }
 
 type cmpNode struct {
-	rhs  literal
-	key  literal
 	attr string
 	op   string
+	rhs  literal
+	key  literal
 }
 
 func fold(l literal, s string) string {
