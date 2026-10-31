@@ -284,6 +284,7 @@ func registerLocalProviders(
 	registry.Register(web)
 	registry.Register(network)
 	registry.Register(msi)
+	registry.Register(NewAuthorizationProvider(settings.TenantID, msi))
 	registry.Register(NewComputeProvider(backend, network, ids))
 
 	return ids

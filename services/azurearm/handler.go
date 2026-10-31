@@ -226,7 +226,12 @@ func (h *Handler) dispatch(c *echo.Context, segs []string) error {
 		}
 	}
 
+	if locked, lockErr := h.enforceLocks(c, segs); locked {
+		return lockErr
+	}
+
 	err := h.dispatchARMResource(c, segs)
+	h.cleanupAuthorization(c, segs)
 	h.notifyResourceChange(c, segs)
 
 	return err
@@ -440,7 +445,8 @@ var armResourceRoutes = []armRoute{
 // armResourceRoutes.
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 	for _, table := range [][]armRoute{
-		eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes, appConfigRoutes, containerRegistryRoutes,
+		authorizationRoutes, eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes, appConfigRoutes,
+		containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
 		storageFileServiceRoutes, apimRoutes, armResourceRoutes,
