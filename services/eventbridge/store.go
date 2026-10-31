@@ -384,6 +384,7 @@ type InMemoryBackend struct {
 	deliveryTimeout time.Duration
 	tableMu         sync.Mutex
 	closing         atomic.Bool
+	settings        Settings
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.

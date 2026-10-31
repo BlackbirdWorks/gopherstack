@@ -67,7 +67,7 @@ func TestEventBridgeDashboard_Rules(t *testing.T) {
 		Name:               "test-rule",
 		EventBusName:       "rules-bus",
 		State:              "ENABLED",
-		ScheduleExpression: "rate(5 minutes)",
+		EventPattern:       `{"source":["test"]}`,
 	})
 	require.NoError(t, err)
 
