@@ -100,6 +100,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "gcp",
   "gcp-apigateway",
   "gcp-artifactregistry",
+  "gcp-batch",
   "gcp-bigquery",
   "gcp-bigtable",
   "gcp-cloudbuild",

@@ -173,3 +173,8 @@ func (c *CLI) GetGCPIdentityToolkitHandler() service.Registerable { return c.gcp
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPAPIGatewayHandler() service.Registerable { return c.gcpAPIGatewayHandler }
+
+// GetGCPBatchHandler returns the GCPBatch handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGCPBatchHandler() service.Registerable { return c.gcpBatchHandler }

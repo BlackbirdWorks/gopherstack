@@ -325,4 +325,12 @@ describe("new GCP console pages", () => {
     });
     expect(azureServiceById("apim")?.portLabel).toBe("azurearm");
   });
+
+  it("registers Cloud Batch", () => {
+    expect(gcpServiceById("batch")).toMatchObject({
+      portLabel: "gcpbatch",
+      defaultPort: 8147,
+      healthName: "GCPBatch",
+    });
+  });
 });

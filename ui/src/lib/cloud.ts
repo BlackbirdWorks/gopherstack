@@ -418,6 +418,14 @@ export const GCP_SERVICES: readonly GcpService[] = [
     portLabel: "gcpapigateway",
     defaultPort: 8146,
   },
+  {
+    id: "batch",
+    label: "Cloud Batch",
+    description: "Google Cloud Batch jobs, task groups and tasks",
+    healthName: "GCPBatch",
+    portLabel: "gcpbatch",
+    defaultPort: 8147,
+  },
 ];
 
 export type OciService = {

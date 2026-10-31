@@ -26,6 +26,7 @@
 	import ComputeDashboard from '#lib/components/gcp/ComputeDashboard.svelte';
 	import DatastoreDashboard from '#lib/components/gcp/DatastoreDashboard.svelte';
 	import ApiGatewayDashboard from '#lib/components/gcp/ApiGatewayDashboard.svelte';
+	import BatchDashboard from '#lib/components/gcp/BatchDashboard.svelte';
 	import IdentityPlatformDashboard from '#lib/components/gcp/IdentityPlatformDashboard.svelte';
 	import KubernetesDashboard from '#lib/components/gcp/KubernetesDashboard.svelte';
 	import SecretManagerDashboard from '#lib/components/gcp/SecretManagerDashboard.svelte';
@@ -95,6 +96,8 @@
 	<IdentityPlatformDashboard />
 {:else if service?.id === 'apigateway'}
 	<ApiGatewayDashboard />
+{:else if service?.id === 'batch'}
+	<BatchDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="gcp-service-placeholder">
 	{#if !service}
