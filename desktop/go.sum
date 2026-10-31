@@ -48,12 +48,16 @@ cloud.google.com/go/pubsub/v2 v2.7.0 h1:MFrBTZZa6PDWZzCi4NJRsHKMm2w0a4oAaYNqwjgb
 cloud.google.com/go/pubsub/v2 v2.7.0/go.mod h1:JaFvWNVRk3Knoil/4M1ECeLOaI9D8drbmJWypQlK5aM=
 cloud.google.com/go/redis v1.26.0 h1:RgLGd28s+EBqXxwk82SMn0aU0WvlmFezpniY9MGhgNQ=
 cloud.google.com/go/redis v1.26.0/go.mod h1:nHRRMFXWJv7GfVQEbg0sQzN1MGIkl/q0mSOYG2l6Ylg=
+cloud.google.com/go/resourcemanager v1.18.1 h1:xdaDmfzM08PA2Zs8hU8ej1TXQTJAcRoHbvQpaAEPYj0=
+cloud.google.com/go/resourcemanager v1.18.1/go.mod h1:LjIioOpdFo5J1aFG9R51YqeBN5L55vElAG70dzFD/wg=
 cloud.google.com/go/run v1.23.0 h1:JvTkOn+8h+QicGzBPWjgSrwpTcs2b6zJkusfEnmvkGo=
 cloud.google.com/go/run v1.23.0/go.mod h1:ZCGrir3QdVgAJsVChr2nlQTfaknro8nwpEZwJDRHHhI=
 cloud.google.com/go/scheduler v1.17.0 h1:jFAEvWG9QDwDWYMgrXZBFi+f1EehetCmM0VE7OpPqJw=
 cloud.google.com/go/scheduler v1.17.0/go.mod h1:16h1vcu+XuadWlJjfKaUn3TWyzedOH+RGoylY2EQix8=
 cloud.google.com/go/secretmanager v1.22.0 h1:c9nPLiK4IZeT/zDyLjvNaBw1BHNkp0Ysybj1FfFIAPQ=
 cloud.google.com/go/secretmanager v1.22.0/go.mod h1:aDN9cW5x6Y8QVj32snakZv96vYyW7Nf1P+eqZGH8408=
+cloud.google.com/go/serviceusage v1.16.1 h1:V5ULuLqQ+vu5FqkNB/66FlsyudFdofA5tI4C3U0p/rQ=
+cloud.google.com/go/serviceusage v1.16.1/go.mod h1:2klVRUAhaQNJbIVYlOcWC2D0R/J1TTUQFqCLyaaIs+8=
 cloud.google.com/go/spanner v1.96.1 h1:pLmq5/Fj+Yu6YGRBz9oMPm3ZRQIeG14FYBWFwhZZaIA=
 cloud.google.com/go/spanner v1.96.1/go.mod h1:VqMSp/YlTofUq1q6ekkXBAmhAs6X860YL0I8wo7i+k0=
 cloud.google.com/go/storage v1.69.0 h1:jAAMC1411HEh78nKsU0Zns+eFj3TnhjAWIhg5Ud/XBM=

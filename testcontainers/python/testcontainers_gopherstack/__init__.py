@@ -66,6 +66,7 @@ GCP_PORTS = {
     "identitytoolkit": 8145,
     "apigateway": 8146,
     "batch": 8147,
+    "resourcemanager": 8148,
     "bigquery": 9050,
 }
 

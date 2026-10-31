@@ -18,7 +18,7 @@ export const OCI_PORTS = { objectstorage: 8150, vault: 8151, streaming: 8152, id
 export const GCP_PORTS = {
   storage: 4443, firestore: 8080, pubsub: 8085, secretmanager: 8086, kms: 8087,
   cloudtasks: 8123, scheduler: 8124, iam: 8125, run: 8126, functions: 8128,
-  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, eventarc: 8138, workflows: 8139, dns: 8140, dnsserver: 8141, compute: 8142, datastore: 8143, container: 8144, identitytoolkit: 8145, apigateway: 8146, batch: 8147, bigquery: 9050,
+  sql: 8130, logging: 8131, monitoring: 8132, redis: 8133, artifactregistry: 8134, spanner: 8135, cloudbuild: 8136, bigtable: 8137, eventarc: 8138, workflows: 8139, dns: 8140, dnsserver: 8141, compute: 8142, datastore: 8143, container: 8144, identitytoolkit: 8145, apigateway: 8146, batch: 8147, resourcemanager: 8148, bigquery: 9050,
 };
 
 const DATA_DIR = "/data";

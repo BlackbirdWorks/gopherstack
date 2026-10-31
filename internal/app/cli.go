@@ -173,6 +173,7 @@ import (
 	gcpapigatewaybackend "github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpbatchbackend "github.com/blackbirdworks/gopherstack/services/gcpbatch"
+	gcprmbackend "github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	gcpbigquerybackend "github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
@@ -658,6 +659,7 @@ type CLI struct {
 	AgentCore                     agentcorebackend.Settings         `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings     `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings          `embed:"" prefix:"gcp-batch-"`
+	GCPResourceManager            gcprmbackend.Settings             `embed:"" prefix:"gcp-resourcemanager-"`
 	GCPSpanner                    gcpspannerbackend.Settings        `embed:"" prefix:"gcp-spanner-"`
 	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
 	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
@@ -888,6 +890,9 @@ func (c *CLI) GetGCPAPIGatewaySettings() gcpapigatewaybackend.Settings { return 
 
 // GetGCPBatchSettings returns Batch settings (gcpbatch.ConfigProvider).
 func (c *CLI) GetGCPBatchSettings() gcpbatchbackend.Settings { return c.GCPBatch }
+
+// GetGCPResourceManagerSettings returns Resource Manager and Service Usage settings (gcpresourcemanager.ConfigProvider).
+func (c *CLI) GetGCPResourceManagerSettings() gcprmbackend.Settings { return c.GCPResourceManager }
 
 // GetGCPContainerSettings returns Kubernetes Engine settings (gcpcontainer.ConfigProvider).
 func (c *CLI) GetGCPContainerSettings() gcpcontainerbackend.Settings { return c.GCPContainer }
@@ -2722,6 +2727,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"GCPIdentityToolkit", "gcpidentitytoolkit", cli.GCPIdentityToolkit.Port},
 		{"GCPAPIGateway", "gcpapigateway", cli.GCPAPIGateway.Port},
 		{"GCPBatch", "gcpbatch", cli.GCPBatch.Port},
+		{"GCPResourceManager", "gcpresourcemanager", cli.GCPResourceManager.Port},
 		{"GCPLogging", "gcplogging", cli.GCPLogging.Port},
 		{"GCPMonitoring", "gcpmonitoring", cli.GCPMonitoring.Port},
 		{"GCPRedis", "gcpredis", cli.GCPRedis.Port},
@@ -5298,6 +5304,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&gcpidtkbackend.Provider{},
 		&gcpapigatewaybackend.Provider{},
 		&gcpbatchbackend.Provider{},
+		&gcprmbackend.Provider{},
 		&gcploggingbackend.Provider{},
 		&gcpmonitoringbackend.Provider{},
 		&gcpredisbackend.Provider{},
