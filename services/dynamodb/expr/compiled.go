@@ -40,12 +40,12 @@ const (
 // src is a pre-resolved operand: a constant placeholder value, a missing placeholder,
 // a path with attribute names substituted, or any other node evaluated generically.
 type src struct {
-	err  error
 	raw  any
 	node Node
+	err  error
 	path []PathElement
-	op   operand
 	str  string
+	op   operand
 	kind srcKind
 }
 
@@ -102,6 +102,7 @@ func (s *src) operand(e *Evaluator, item map[string]any) (operand, error) {
 		return s.op, nil
 	case srcMissing:
 		return operand{}, s.err
+	case srcNode, srcPath:
 	}
 
 	raw, err := s.rawValue(e, item)
@@ -159,7 +160,7 @@ func (e *Evaluator) compileBool(node Node) boolFn {
 }
 
 func (e *Evaluator) compileGeneric(node Node) boolFn {
-	return func(item map[string]any) (bool, error) {
+	return func(_ map[string]any) (bool, error) {
 		v, err := e.Evaluate(node)
 		if err != nil {
 			return false, err
@@ -237,7 +238,7 @@ func (e *Evaluator) compileBetween(n *BetweenExpr) boolFn {
 // compileFunction returns nil for functions or argument shapes left to the generic path.
 func (e *Evaluator) compileFunction(n *FunctionExpr) boolFn {
 	switch n.Name {
-	case "begins_with":
+	case funcBeginsWith:
 		if len(n.Args) != twoArgs {
 			return nil
 		}
@@ -257,7 +258,7 @@ func (e *Evaluator) compileFunction(n *FunctionExpr) boolFn {
 
 			return strings.HasPrefix(s, p), nil
 		}
-	case "attribute_exists", "attribute_not_exists":
+	case funcAttributeExists, funcAttributeNotExists:
 		if len(n.Args) != 1 {
 			return nil
 		}
@@ -267,7 +268,7 @@ func (e *Evaluator) compileFunction(n *FunctionExpr) boolFn {
 			return nil
 		}
 
-		path, want := e.resolvePathNames(p.Elements), n.Name == "attribute_exists"
+		path, want := e.resolvePathNames(p.Elements), n.Name == funcAttributeExists
 
 		return func(item map[string]any) (bool, error) {
 			_, exists := e.walkPath(item, path)

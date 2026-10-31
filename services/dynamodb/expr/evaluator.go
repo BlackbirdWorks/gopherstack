@@ -79,6 +79,13 @@ var (
 	)
 )
 
+// DynamoDB function names shared by the lexer, evaluator and compiler.
+const (
+	funcBeginsWith         = "begins_with"
+	funcAttributeExists    = "attribute_exists"
+	funcAttributeNotExists = "attribute_not_exists"
+)
+
 // twoArgs is the expected argument count for two-argument functions.
 const twoArgs = 2
 
@@ -276,11 +283,11 @@ func (e *Evaluator) evaluateFunction(n *FunctionExpr) (any, error) {
 	switch n.Name {
 	case "size":
 		return e.evalSizeFunc(n)
-	case "attribute_exists":
+	case funcAttributeExists:
 		return e.evalAttributeExistsFunc(n)
-	case "attribute_not_exists":
+	case funcAttributeNotExists:
 		return e.evalAttributeNotExistsFunc(n)
-	case "begins_with":
+	case funcBeginsWith:
 		return e.evalBeginsWithFunc(n)
 	case "contains":
 		return e.evalContainsFunc(n)
