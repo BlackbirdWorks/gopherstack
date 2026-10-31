@@ -1,9 +1,7 @@
 package gcpdns_test
 
 import (
-	"net"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -84,29 +82,4 @@ func assertAPIError(t *testing.T, err error, status int, reason string) {
 
 func rrset(name, typ string, ttl int64, data ...string) *dnsapi.ResourceRecordSet {
 	return &dnsapi.ResourceRecordSet{Name: name, Type: typ, Ttl: ttl, Rrdatas: data}
-}
-
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	for range 50 {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		require.NoError(t, err)
-
-		port := l.Addr().(*net.TCPAddr).Port
-		_ = l.Close()
-
-		pc, err := net.ListenPacket("udp", "127.0.0.1:"+strconv.Itoa(port))
-		if err != nil {
-			continue
-		}
-
-		_ = pc.Close()
-
-		return port
-	}
-
-	t.Fatal("no free tcp+udp port")
-
-	return 0
 }

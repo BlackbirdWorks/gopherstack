@@ -314,7 +314,7 @@ func TestDockerPullsFromEmulatorRegistry(t *testing.T) {
 	art.SetNamespace(registryNS)
 
 	ah := ociartifacts.NewHandler(art)
-	ah.Port = freePort(t)
+	ah.Port = 0
 
 	require.NoError(t, ah.StartWorker(t.Context()))
 	t.Cleanup(func() { ah.Shutdown(context.Background()) })

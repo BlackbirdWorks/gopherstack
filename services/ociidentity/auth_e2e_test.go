@@ -21,7 +21,7 @@ func storageEnv(t *testing.T, e *env, link bool) string {
 
 	be := oss.NewInMemoryBackend()
 	h := oss.NewHandler(be)
-	h.Port = freePort(t)
+	h.Port = 0
 	h.EnforceAuth = true
 
 	if link {

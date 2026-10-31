@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -175,20 +174,6 @@ type envOpts struct {
 	noNet    bool
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer l.Close()
-
-	tcp, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-
-	return tcp.Port
-}
-
 func newEnv(t *testing.T, opts envOpts) *env {
 	t.Helper()
 
@@ -216,7 +201,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	}
 
 	h := oke.NewHandler(be)
-	h.Port = freePort(t)
+	h.Port = 0
 	h.EnforceAuth = opts.enforce
 
 	require.NoError(t, h.StartWorker(t.Context()))

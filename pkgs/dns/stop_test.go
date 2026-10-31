@@ -3,6 +3,7 @@ package dns_test
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -87,4 +88,24 @@ func TestServer_StartFailureStopsOtherServer(t *testing.T) {
 
 	require.Error(t, s.Start(t.Context()))
 	require.NoError(t, s.Stop())
+}
+
+func TestServer_EphemeralPort(t *testing.T) {
+	t.Parallel()
+
+	s, err := gopherDNS.New(gopherDNS.Config{ListenAddr: "127.0.0.1:0"})
+	require.NoError(t, err)
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { _ = s.Stop() })
+	require.NotZero(t, s.Port())
+
+	var d net.Dialer
+
+	conn, err := d.DialContext(t.Context(), "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port())))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	udp, err := d.DialContext(t.Context(), "udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port())))
+	require.NoError(t, err)
+	require.NoError(t, udp.Close())
 }

@@ -18,8 +18,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/miekg/dns"
@@ -44,6 +46,12 @@ const defaultTTL = 60
 
 // ErrInvalidResolveIP is returned when the configured resolve IP cannot be parsed.
 var ErrInvalidResolveIP = errors.New("invalid resolve IP")
+
+// ErrUnexpectedAddr is returned when a listener reports a non-TCP address.
+var ErrUnexpectedAddr = errors.New("dns: unexpected listener address type")
+
+// ErrEphemeralBind is returned when no port free on both TCP and UDP was found.
+var ErrEphemeralBind = errors.New("dns: no ephemeral port free on both tcp and udp")
 
 // ErrIPv4Required is returned when the configured resolve IP is not an IPv4 address.
 var ErrIPv4Required = errors.New("resolve IP must be an IPv4 address")
@@ -85,7 +93,8 @@ type Server struct {
 	listenAddr string
 	resolveIP  net.IP
 
-	stopOnce sync.Once
+	boundPort atomic.Int64
+	stopOnce  sync.Once
 }
 
 // New creates a new Server with the given config.
@@ -205,6 +214,15 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := dns.NewServeMux()
 	mux.HandleFunc(".", s.handleQuery)
 
+	tcpLn, udpPc, err := bindEphemeral(ctx, s.listenAddr)
+	if err != nil {
+		return err
+	}
+
+	if tcpLn != nil {
+		s.setBoundPort(tcpLn.Addr())
+	}
+
 	udpReady := make(chan struct{})
 	tcpReady := make(chan struct{})
 	udpErrCh := make(chan error, 1)
@@ -213,6 +231,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.udpServer = &dns.Server{
 		Addr:              s.listenAddr,
 		Net:               "udp",
+		PacketConn:        udpPc,
 		Handler:           mux,
 		ReadTimeout:       DefaultReadTimeout,
 		WriteTimeout:      DefaultWriteTimeout,
@@ -222,6 +241,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.tcpServer = &dns.Server{
 		Addr:              s.listenAddr,
 		Net:               "tcp",
+		Listener:          tcpLn,
 		Handler:           mux,
 		ReadTimeout:       DefaultReadTimeout,
 		WriteTimeout:      DefaultWriteTimeout,
@@ -235,7 +255,7 @@ func (s *Server) Start(ctx context.Context) error {
 	go udpRun.serve(udpErrCh)
 	go tcpRun.serve(tcpErrCh)
 
-	err := waitForReady(ctx, udpReady, udpErrCh, tcpErrCh)
+	err = waitForReady(ctx, udpReady, udpErrCh, tcpErrCh)
 	if err == nil {
 		err = waitForReady(ctx, tcpReady, udpErrCh, tcpErrCh)
 	}
@@ -513,3 +533,49 @@ func SyntheticHostname(resourceID, randomSuffix, region, serviceType string) str
 func isServerClosed(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "server closed")
 }
+
+// ephemeralBindAttempts bounds the retries when the UDP twin of an OS-assigned TCP port is taken.
+const ephemeralBindAttempts = 32
+
+// bindEphemeral pre-binds a TCP listener and UDP socket on one OS-assigned port when addr's port
+// is 0, keeping both open so nothing can take them before the servers start. Other addrs return nils.
+func bindEphemeral(ctx context.Context, addr string) (net.Listener, net.PacketConn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port != "0" {
+		return nil, nil, nil
+	}
+
+	var lc net.ListenConfig
+
+	for range ephemeralBindAttempts {
+		ln, lerr := lc.Listen(ctx, "tcp", addr)
+		if lerr != nil {
+			return nil, nil, fmt.Errorf("dns ephemeral tcp: %w", lerr)
+		}
+
+		tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+		if !ok {
+			_ = ln.Close()
+
+			return nil, nil, fmt.Errorf("%w: %T", ErrUnexpectedAddr, ln.Addr())
+		}
+
+		pc, perr := lc.ListenPacket(ctx, "udp", net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port)))
+		if perr == nil {
+			return ln, pc, nil
+		}
+
+		_ = ln.Close()
+	}
+
+	return nil, nil, ErrEphemeralBind
+}
+
+func (s *Server) setBoundPort(a net.Addr) {
+	if t, ok := a.(*net.TCPAddr); ok {
+		s.boundPort.Store(int64(t.Port))
+	}
+}
+
+// Port returns the TCP/UDP port the server is bound to, or 0 before Start binds an ephemeral port.
+func (s *Server) Port() int { return int(s.boundPort.Load()) }

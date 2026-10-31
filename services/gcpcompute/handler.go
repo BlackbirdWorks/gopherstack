@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -280,12 +280,12 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpcompute", "listener")
 	log := logger.Load(workerCtx)
 
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("gcpcompute: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(log))

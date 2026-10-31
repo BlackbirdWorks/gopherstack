@@ -132,16 +132,18 @@ func TestStartWorkerPortConflict(t *testing.T) {
 	t.Parallel()
 
 	first := gcpdns.NewHandler(gcpdns.NewInMemoryBackend())
-	first.Port, first.DNSPort = freePort(t), freePort(t)
+	first.Port, first.DNSEphemeral = 0, true
 	require.NoError(t, first.StartWorker(t.Context()))
 	t.Cleanup(func() { first.Shutdown(t.Context()) })
+	require.NotZero(t, first.Port)
+	require.NotZero(t, first.DNSPort)
 
 	for name, ports := range map[string][2]int{
-		"rest port taken": {first.Port, freePort(t)},
-		"dns port taken":  {freePort(t), first.DNSPort},
+		"rest port taken": {first.Port, 0},
+		"dns port taken":  {0, first.DNSPort},
 	} {
 		second := gcpdns.NewHandler(gcpdns.NewInMemoryBackend())
-		second.Port, second.DNSPort = ports[0], ports[1]
+		second.Port, second.DNSPort, second.DNSEphemeral = ports[0], ports[1], ports[1] == 0
 		require.Error(t, second.StartWorker(t.Context()), name)
 		second.Shutdown(t.Context())
 	}

@@ -3,7 +3,6 @@ package azureeventgrid_test
 import (
 	"bytes"
 	"crypto/tls"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -232,19 +231,6 @@ func TestOperationExtraction(t *testing.T) {
 	)
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	var lc net.ListenConfig
-
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer ln.Close()
-
-	return ln.Addr().(*net.TCPAddr).Port
-}
-
 func TestWorkerServesHTTPSAndDelivers(t *testing.T) {
 	t.Parallel()
 
@@ -262,9 +248,11 @@ func TestWorkerServesHTTPSAndDelivers(t *testing.T) {
 	_, err = b.PutSubscription(t.Context(), "t1", "s", map[string]any{"destination": dest})
 	require.NoError(t, err)
 
-	port := freePort(t)
-	h := eg.NewHandler(b, eg.Settings{Port: port})
+	h := eg.NewHandler(b, eg.Settings{})
+	h.Port = 0
 	require.NoError(t, h.StartWorker(t.Context()))
+
+	port := h.Port
 
 	t.Cleanup(func() { h.Shutdown(t.Context()) })
 
@@ -297,8 +285,8 @@ func TestStartWorkerRejectsHalfConfiguredTLS(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tt.settings.Port = freePort(t)
 			h := eg.NewHandler(eg.NewInMemoryBackend(), tt.settings)
+			h.Port = 0
 			require.Error(t, h.StartWorker(t.Context()))
 		})
 	}

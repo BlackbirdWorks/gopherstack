@@ -77,7 +77,7 @@ func newONS(t *testing.T, e *env) *onsEnv {
 	nb.SetTransition(0)
 
 	h := ons.NewHandler(nb)
-	h.Port = freePort(t)
+	h.Port = 0
 	require.NoError(t, h.StartWorker(t.Context()))
 	t.Cleanup(func() { h.Shutdown(context.Background()) })
 

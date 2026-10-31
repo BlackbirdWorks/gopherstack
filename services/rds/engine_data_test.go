@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
@@ -391,18 +392,6 @@ func TestEngineClusterSnapshotAndPointInTimeRestore(t *testing.T) {
 	}
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-
-	return port
-}
-
 func dialable(t *testing.T, port int) bool {
 	t.Helper()
 
@@ -428,9 +417,11 @@ func TestEngineModifyDBPortNumberRebindsEndpoint(t *testing.T) {
 			f.readySource(t, tt.engine)
 
 			oldPort := f.instance(t, "src").Port
-			newPort := freePort(t)
+			newPort, err := portalloc.AcquireEphemeral()
+			require.NoError(t, err)
+			t.Cleanup(func() { portalloc.ReleaseEphemeral(newPort) })
 
-			_, err := f.b.ModifyDBInstance("src", "", 0, rds.DBInstanceOptions{DBPortNumber: newPort})
+			_, err = f.b.ModifyDBInstance("src", "", 0, rds.DBInstanceOptions{DBPortNumber: newPort})
 			require.NoError(t, err)
 			assert.Equal(t, newPort, f.instance(t, "src").Port)
 			assert.True(t, dialable(t, newPort))
