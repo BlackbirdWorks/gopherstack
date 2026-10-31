@@ -99,33 +99,17 @@ type Evaluator struct {
 
 	// Snapshot, when set, is a read-only pre-update item used instead of copying Item.
 	Snapshot map[string]any
-
-	// operands memoises placeholder values after unwrap and numeric parse; see Memoize.
-	operands map[string]operand
 }
 
-// operand is a value placeholder resolved once: the unwrapped value and its numeric parse.
+// operand is an unwrapped value with its numeric parse.
 type operand struct {
 	unwrapped any
 	num       float64
 	isNum     bool
 }
 
-// Memoize makes comparisons resolve each :value placeholder once instead of per Evaluate
-// call. Only valid while AttrValues is unchanged, and not safe for concurrent use.
-func (e *Evaluator) Memoize() {
-	e.operands = map[string]operand{}
-}
-
 // resolveOperand evaluates n and returns its unwrapped value with numeric parse.
 func (e *Evaluator) resolveOperand(n Node) (operand, error) {
-	ph, isPlaceholder := n.(*ValuePlaceholder)
-	if isPlaceholder && e.operands != nil {
-		if op, ok := e.operands[ph.Name]; ok {
-			return op, nil
-		}
-	}
-
 	raw, err := e.Evaluate(n)
 	if err != nil {
 		return operand{}, err
@@ -133,10 +117,6 @@ func (e *Evaluator) resolveOperand(n Node) (operand, error) {
 
 	op := operand{unwrapped: e.unwrapAttributeValue(raw)}
 	op.num, op.isNum = e.parseUnwrappedNumeric(op.unwrapped)
-
-	if isPlaceholder && e.operands != nil {
-		e.operands[ph.Name] = op
-	}
 
 	return op, nil
 }
@@ -612,6 +592,7 @@ func (e *Evaluator) unwrapAttributeValue(v any) any {
 	if !ok {
 		return v
 	}
+
 	if val, exists := m["S"]; exists {
 		return val
 	}
@@ -929,20 +910,44 @@ func (e *Evaluator) getValueAtPath(item map[string]any, path []PathElement) (any
 	if len(path) == 0 {
 		return nil, false
 	}
+
+	return e.walk(item, path, true)
+}
+
+// resolveName substitutes a #name placeholder; unknown placeholders stay literal.
+func (e *Evaluator) resolveName(name string) string {
+	if strings.HasPrefix(name, "#") {
+		if resolved, ok := e.AttrNames[name]; ok {
+			return resolved
+		}
+	}
+
+	return name
+}
+
+// walkPath follows a path whose names were already resolved by resolvePathNames.
+func (e *Evaluator) walkPath(item map[string]any, path []PathElement) (any, bool) {
+	return e.walk(item, path, false)
+}
+
+func (e *Evaluator) walk(item map[string]any, path []PathElement, resolve bool) (any, bool) {
+	if len(path) == 0 {
+		return nil, false
+	}
+
 	current := any(item)
 	for i, elem := range path {
-		isLast := i == len(path)-1
-		var val any
-		var exists bool
-
-		name := elem.Name
-		if strings.HasPrefix(name, "#") {
-			if resolved, ok := e.AttrNames[name]; ok {
-				name = resolved
-			}
-		}
+		var (
+			val    any
+			exists bool
+		)
 
 		if elem.Type == ElementKey {
+			name := elem.Name
+			if resolve {
+				name = e.resolveName(name)
+			}
+
 			val, exists = e.navigateMap(current, name)
 		} else {
 			val, exists = e.navigateList(current, elem.Index)
@@ -951,9 +956,11 @@ func (e *Evaluator) getValueAtPath(item map[string]any, path []PathElement) (any
 		if !exists {
 			return nil, false
 		}
-		if isLast {
+
+		if i == len(path)-1 {
 			return val, true
 		}
+
 		current = e.unwrapAttributeValue(val)
 	}
 

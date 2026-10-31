@@ -401,6 +401,23 @@ func BenchmarkE2E_DynamoDB(b *testing.B) {
 		}
 	})
 
+	b.Run("scan_filter_fn_10k", func(b *testing.B) {
+		b.ReportAllocs()
+
+		for b.Loop() {
+			_, err := c.Scan(ctx, &sdkdynamodb.ScanInput{
+				TableName:                aws.String(e2eDDBTable),
+				FilterExpression:         aws.String("begins_with(#n, :p) AND val > :v AND attribute_exists(pk)"),
+				ExpressionAttributeNames: map[string]string{"#n": "name"},
+				ExpressionAttributeValues: map[string]ddbtypes.AttributeValue{
+					":p": &ddbtypes.AttributeValueMemberS{Value: "name 9"},
+					":v": &ddbtypes.AttributeValueMemberN{Value: "9000"},
+				},
+			})
+			require.NoError(b, err)
+		}
+	})
+
 	b.Run("batchwrite_25", func(b *testing.B) {
 		b.ReportAllocs()
 
