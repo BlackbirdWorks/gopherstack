@@ -72,7 +72,8 @@ func AwaitWait(ctx context.Context, res dockercontainer.WaitResult) (dockerconta
 		go func() {
 			select {
 			case <-res.Result:
-			case <-res.Error:
+			case err := <-res.Error:
+				_ = err
 			}
 		}()
 

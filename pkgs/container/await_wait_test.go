@@ -44,11 +44,11 @@ func TestAwaitWait(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr   error
 		name      string
 		mode      string
-		cancel    bool
-		wantErr   error
 		wantCode  int64
+		cancel    bool
 		wantCtxEr bool
 	}{
 		{name: "ctx_cancelled_before_result", mode: "result", cancel: true, wantCtxEr: true},
