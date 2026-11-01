@@ -20,7 +20,7 @@
 - KMS-encrypted secrets and automap_substitutions are not supported.
 - options.pool, machine_type and disk_size_gb do not change where or how steps run, and queue_ttl never expires a build.
 - results.build_step_images, build_step_outputs, source_provenance file hashes, warnings and the FETCHSOURCE/PUSH timing entries are not populated; only the BUILD timing, step timing and artifact timing are.
-- Artifacts other than artifacts.objects (Maven, Python, npm, Go modules) are not uploaded because the Artifact Registry emulator only stores Docker images, and artifacts.images is not honoured beyond images.
+- artifacts.images (the Artifacts.images list) is not honoured beyond the top-level images; uploaded package URIs are the emulator's choice: Maven <repository>/<group path>/<artifactId>/<version>/<artifactId>-<version><ext>, Python <repository>/<file>, npm <repository>/<name>/-/<file>.tgz and Go https://<location>-go.pkg.dev/<project>/<repository>/<escaped module>/@v/<version>.zip (UNVERIFIED against the live service); an npm package_path is packed from the directory itself (no .npmignore or npm pack semantics) and a Go module is zipped with golang.org/x/mod/zip from source_path.
 - Images can only be pushed to the Artifact Registry emulator; gcr.io and other registries fail the build.
 - Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host.
 - Locations are path parameters only: the v1 API has no ListLocations, and any location id is accepted.
