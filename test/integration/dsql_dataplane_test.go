@@ -93,14 +93,9 @@ func startDSQLDockerServer(t *testing.T) string {
 	base := "http://127.0.0.1:" + strconv.Itoa(ports[0])
 
 	require.Eventually(t, func() bool {
-		resp, gerr := http.Get(base + "/_gopherstack/dsql/ca.pem") //nolint:noctx,gosec // local readiness probe
-		if gerr != nil {
-			return false
-		}
+		_, gerr := httpGetBody(t.Context(), base+"/_gopherstack/dsql/ca.pem")
 
-		_ = resp.Body.Close()
-
-		return resp.StatusCode == http.StatusOK
+		return gerr == nil
 	}, dsqlDataPlaneBootMax, 200*time.Millisecond, "server with DSQL docker engine did not start")
 
 	return base
@@ -128,7 +123,7 @@ func httpGetBody(ctx context.Context, u string) ([]byte, error) {
 		return nil, err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noKeepAliveClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
