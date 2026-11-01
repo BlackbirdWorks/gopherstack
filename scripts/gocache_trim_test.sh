@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # gocache-trim.sh must never wipe the cache; it only deletes entries older than the thresholds.
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 c=$(mktemp -d); trap 'rm -rf "$c"' EXIT
-seed() { rm -rf "$c"/*; mkdir -p "$c/ab"; echo x >"$c/ab/new"; echo x >"$c/ab/old"; touch -d '2 days ago' "$c/ab/old"; echo x >"$c/ab/mid"; touch -d '5 hours ago' "$c/ab/mid"; }
+seed() { rm -rf "${c:?}"/*; mkdir -p "$c/ab"; echo x >"$c/ab/new"; echo x >"$c/ab/old"; touch -d '2 days ago' "$c/ab/old"; echo x >"$c/ab/mid"; touch -d '5 hours ago' "$c/ab/mid"; }
 run() { GOCACHE="$c" GOCACHE_CLEAN_GB=0 "$@" 2>&1; }
 
 seed; out=$(run env GOCACHE_MAX_GB=0 GOCACHE_MIN_FREE_GB=0 bash scripts/gocache-trim.sh --if-low); rc=$?
