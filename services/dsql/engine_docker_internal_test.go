@@ -319,24 +319,43 @@ func TestDockerDataPlane(t *testing.T) {
 				msg   string
 				stmts []string
 			}{
-				{name: "ddl then dml", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
-					stmts: []string{"CREATE TABLE r1 (a int)", "INSERT INTO rules_items VALUES (1000000, 'x')"}},
-				{name: "dml then ddl", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
-					stmts: []string{"INSERT INTO rules_items VALUES (1000001, 'x')", "CREATE TABLE r2 (a int)"}},
-				{name: "two ddl", code: "0A000", msg: "only one DDL statement is allowed per transaction",
-					stmts: []string{"CREATE TABLE r3 (a int)", "CREATE TABLE r4 (a int)"}},
-				{name: "3001 rows", code: "54000", msg: "transaction row limit exceeded",
-					stmts: []string{"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(1, 3001) g"}},
-				{name: "3000 rows across statements", code: "54000", msg: "transaction row limit exceeded",
+				{
+					name: "ddl then dml", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
+					stmts: []string{"CREATE TABLE r1 (a int)", "INSERT INTO rules_items VALUES (1000000, 'x')"},
+				},
+				{
+					name: "dml then ddl", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
+					stmts: []string{"INSERT INTO rules_items VALUES (1000001, 'x')", "CREATE TABLE r2 (a int)"},
+				},
+				{
+					name: "two ddl", code: "0A000", msg: "only one DDL statement is allowed per transaction",
+					stmts: []string{"CREATE TABLE r3 (a int)", "CREATE TABLE r4 (a int)"},
+				},
+				{
+					name: "3001 rows", code: "54000", msg: "transaction row limit exceeded",
+					stmts: []string{"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(1, 3001) g"},
+				},
+				{
+					name: "3000 rows across statements", code: "54000", msg: "transaction row limit exceeded",
 					stmts: []string{
 						"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(10001, 12000) g",
 						"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(20001, 22000) g",
-					}},
+					},
+				},
 				{name: "3000 rows ok", stmts: []string{
-					"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(30001, 33000) g"}},
-				{name: "reads next to ddl ok", stmts: []string{"SELECT count(*) FROM rules_items", "CREATE TABLE r5 (a int)"}},
-				{name: "update counts rows", code: "54000", msg: "transaction row limit exceeded",
-					stmts: []string{"UPDATE rules_items SET v = 'y' WHERE id > 30000", "DELETE FROM rules_items WHERE id > 30000 AND id < 30002"}},
+					"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(30001, 33000) g",
+				}},
+				{
+					name:  "reads next to ddl ok",
+					stmts: []string{"SELECT count(*) FROM rules_items", "CREATE TABLE r5 (a int)"},
+				},
+				{
+					name: "update counts rows", code: "54000", msg: "transaction row limit exceeded",
+					stmts: []string{
+						"UPDATE rules_items SET v = 'y' WHERE id > 30000",
+						"DELETE FROM rules_items WHERE id > 30000 AND id < 30002",
+					},
+				},
 			}
 
 			for _, tt := range tests {

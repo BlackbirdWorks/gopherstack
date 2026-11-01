@@ -2,9 +2,9 @@ package integration_test
 
 import (
 	"context"
-	"encoding/json"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -22,8 +22,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	dsqlauth "github.com/aws/aws-sdk-go-v2/feature/dsql/auth"
-	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	dsqlsdk "github.com/aws/aws-sdk-go-v2/service/dsql"
+	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
@@ -205,7 +205,8 @@ func TestIntegration_DSQL_DataPlane(t *testing.T) {
 
 	conn := connect(ctx)
 
-	t.Run("ddl dml and async index", func(t *testing.T) {
+	{
+		// ddl dml and async index
 		_, err = conn.Exec(ctx, "CREATE TABLE items (id int PRIMARY KEY, v text)")
 		require.NoError(t, err)
 
@@ -230,9 +231,10 @@ func TestIntegration_DSQL_DataPlane(t *testing.T) {
 
 		require.NoError(t, conn.QueryRow(ctx, "SELECT status FROM sys.jobs WHERE job_id = $1", job).Scan(&status))
 		assert.Equal(t, "completed", status)
-	})
+	}
 
-	t.Run("documented limits", func(t *testing.T) {
+	{
+		// documented limits
 		var pgErr *pgconn.PgError
 
 		_, err = conn.Exec(ctx, "CREATE INDEX plain_v ON items (v)")
@@ -246,7 +248,7 @@ func TestIntegration_DSQL_DataPlane(t *testing.T) {
 		require.ErrorAs(t, err, &pgErr)
 		assert.Equal(t, "54000", pgErr.Code)
 		require.NoError(t, tx.Rollback(ctx))
-	})
+	}
 
 	_, err = client.DeleteCluster(ctx, &dsqlsdk.DeleteClusterInput{Identifier: created.Identifier})
 	require.NoError(t, err)
