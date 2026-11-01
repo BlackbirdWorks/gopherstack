@@ -250,6 +250,7 @@ import (
 	ocidatabase "github.com/blackbirdworks/gopherstack/services/ocidatabase"
 	ocidns "github.com/blackbirdworks/gopherstack/services/ocidns"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
+	ocifilestorage "github.com/blackbirdworks/gopherstack/services/ocifilestorage"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ociloadbalancer "github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
@@ -504,6 +505,7 @@ type CLI struct {
 	ociContainerInstancesHandler  service.Registerable
 	ociDNSHandler                 service.Registerable
 	ociDatabaseHandler            service.Registerable
+	ociFileStorageHandler         service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -673,6 +675,7 @@ type CLI struct {
 	OCIContainerInstances         ocicontainerinstances.Settings      `embed:""`
 	OCIMySQL                      ocimysqlbackend.Settings            `embed:"" prefix:"oci-mysql-"`
 	OCIDatabase                   ocidatabase.Settings                `embed:"" prefix:"oci-database-"`
+	OCIFileStorage                ocifilestorage.Settings             `embed:"" prefix:"oci-filestorage-"`
 	AgentCore                     agentcorebackend.Settings           `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings       `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings            `embed:"" prefix:"gcp-batch-"`
@@ -2826,6 +2829,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIDNS", "ocidns", cli.OCIDNS.Port},
 		{"OCIDNSServer", "ocidns-server", cli.OCIDNS.DNSPort},
 		{"OCIDatabase", "ocidatabase", cli.OCIDatabase.Port},
+		{"OCIFileStorage", "ocifilestorage", cli.OCIFileStorage.Port},
 	}
 }
 
@@ -3564,6 +3568,7 @@ func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociContainerInstancesHandler = byName["OCIContainerInstances"]
 	cli.ociDNSHandler = byName["OCIDNS"]
 	cli.ociDatabaseHandler = byName["OCIDatabase"]
+	cli.ociFileStorageHandler = byName["OCIFileStorage"]
 
 	storeAdditionalCLIHandlers(cli, byName)
 }
@@ -3848,6 +3853,7 @@ func wireCrossServiceDependencies(
 	wireOCIContainerInstances(byName)
 	wireOCIDNS(byName)
 	wireOCIDatabase(byName)
+	wireOCIFileStorage(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5354,6 +5360,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ocicontainerinstances.Provider{},
 		&ocidns.Provider{},
 		&ocidatabase.Provider{},
+		&ocifilestorage.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},

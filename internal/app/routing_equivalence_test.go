@@ -255,6 +255,7 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
 		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring", "OCINoSQL", "OCIAPIGateway", "OCIEvents",
 		"OCILoadBalancer", "OCIArtifacts", "OCIContainerInstances", "OCIDNS", "OCIDatabase",
+		"OCIFileStorage",
 	}
 
 	for _, e := range entries {
