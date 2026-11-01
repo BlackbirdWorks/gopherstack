@@ -568,7 +568,10 @@ func (c *StatusCmd) run(ctx context.Context, d *lifecycleDeps) error {
 	h, err := d.health(ctx, endpoint)
 	if err != nil {
 		if c.JSON {
-			_ = json.MarshalEncode(jsontext.NewEncoder(d.Out, jsonx.V1()), statusReport{Endpoint: endpoint, Managed: managed})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(d.Out, jsonx.V1()),
+				statusReport{Endpoint: endpoint, Managed: managed},
+			)
 		} else {
 			fmt.Fprintf(d.Out, "gopherstack is not running (%s)\n", endpoint)
 		}

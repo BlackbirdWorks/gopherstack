@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,10 +22,14 @@ type goldenSendInput struct {
 func TestJSONErrorResponseGolden(t *testing.T) {
 	t.Parallel()
 
-	b, err := service.JSONErrorResponse{Type: "com.amazonaws.sqs#QueueDoesNotExist", Message: "queue <x> & y"}.MarshalJSON()
+	resp := service.JSONErrorResponse{Type: "com.amazonaws.sqs#QueueDoesNotExist", Message: "queue <x> & y"}
+	b, err := resp.MarshalJSON()
 	require.NoError(t, err)
 
-	assert.Equal(t, `{"__type":"com.amazonaws.sqs#QueueDoesNotExist","message":"queue \u003cx\u003e \u0026 y","Message":"queue \u003cx\u003e \u0026 y"}`, string(b))
+	esc := strings.NewReplacer("<", "\\u003c", ">", "\\u003e", "&", "\\u0026").Replace("queue <x> & y")
+	want := `{"__type":"com.amazonaws.sqs#QueueDoesNotExist","message":"` + esc + `","Message":"` + esc + `"}`
+
+	assert.Equal(t, want, string(b))
 }
 
 func TestHandleJSONGoldenDecode(t *testing.T) {
@@ -36,13 +41,23 @@ func TestHandleJSONGoldenDecode(t *testing.T) {
 		want    goldenSendInput
 		wantErr string
 	}{
-		{name: "basic", body: `{"QueueUrl":"u","MessageBody":"b","DelaySeconds":5,"MessageAttributes":{"a":"b"}}`,
-			want: goldenSendInput{QueueURL: "u", MessageBody: "b", DelaySeconds: new(int32(5)), Attributes: map[string]string{"a": "b"}}},
+		{
+			name: "basic",
+			body: `{"QueueUrl":"u","MessageBody":"b","DelaySeconds":5,"MessageAttributes":{"a":"b"}}`,
+			want: goldenSendInput{
+				QueueURL: "u", MessageBody: "b", DelaySeconds: new(int32(5)),
+				Attributes: map[string]string{"a": "b"},
+			},
+		},
 		{name: "case insensitive and unknown", body: `{"queueurl":"u","MESSAGEBODY":"b","extra":1}`,
 			want: goldenSendInput{QueueURL: "u", MessageBody: "b"}},
 		{name: "null members", body: `{"QueueUrl":null,"MessageAttributes":null}`, want: goldenSendInput{}},
 		{name: "empty body", body: ``, want: goldenSendInput{}},
-		{name: "type mismatch", body: `{"QueueUrl":5}`, wantErr: "json: cannot unmarshal number into Go struct field goldenSendInput.QueueUrl of type string"},
+		{
+			name:    "type mismatch",
+			body:    `{"QueueUrl":5}`,
+			wantErr: "json: cannot unmarshal number into Go struct field goldenSendInput.QueueUrl of type string",
+		},
 		{name: "truncated", body: `{"QueueUrl":`, wantErr: "unexpected end of JSON input"},
 	}
 

@@ -16,9 +16,9 @@ func TestV1Semantics(t *testing.T) {
 	t.Parallel()
 
 	type in struct {
-		S []int          `json:"s"`
-		M map[string]int `json:"m"`
 		H string         `json:"h"`
+		M map[string]int `json:"m"`
+		S []int          `json:"s"`
 	}
 
 	b, err := json.Marshal(in{H: "<&>"}, jsonx.V1())
@@ -41,7 +41,8 @@ func TestUseNumber(t *testing.T) {
 
 	var got any
 
-	err := json.Unmarshal([]byte(`{"a":1.50,"b":[2,"x",true,null,{"c":3}],"d":"s"}`), &got, jsonx.V1(), jsonx.UseNumber())
+	doc := `{"a":1.50,"b":[2,"x",true,null,{"c":3}],"d":"s"}`
+	err := json.Unmarshal([]byte(doc), &got, jsonx.V1(), jsonx.UseNumber())
 	require.NoError(t, err)
 
 	m, ok := got.(map[string]any)

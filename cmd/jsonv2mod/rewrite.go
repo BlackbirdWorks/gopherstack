@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -20,6 +21,8 @@ const (
 	localPrefix  = "github.com/blackbirdworks/gopherstack"
 	optV1        = "jsonx.V1()"
 )
+
+var errOverlap = errors.New("overlapping edits")
 
 type finding struct {
 	msg  string
@@ -42,6 +45,7 @@ type stream struct {
 	name    string
 	opts    []string
 	edits   []edit
+	decodes []*ast.CallExpr
 	decoder bool
 	bad     bool
 }
@@ -65,7 +69,7 @@ func (r *rewriter) add(start, end int, text string) {
 	r.edits = append(r.edits, edit{start: start, end: end, text: text})
 }
 
-func (r *rewriter) report(p token.Pos, format string, a ...any) {
+func (r *rewriter) reportf(p token.Pos, format string, a ...any) {
 	r.findings = append(r.findings, finding{line: r.fset.Position(p).Line, msg: fmt.Sprintf(format, a...)})
 }
 
@@ -204,31 +208,35 @@ func enclosing(d ast.Decl, n ast.Node) *ast.BlockStmt {
 	return best
 }
 
+func (r *rewriter) declIdents(d ast.Decl) map[*ast.Ident]bool {
+	out := map[*ast.Ident]bool{}
+
+	ast.Inspect(d, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for _, l := range x.Lhs {
+				if id, ok := l.(*ast.Ident); ok && r.streams[id.Name] != nil {
+					out[id] = true
+				}
+			}
+		case *ast.ValueSpec:
+			for _, id := range x.Names {
+				out[id] = true
+			}
+		}
+
+		return true
+	})
+
+	return out
+}
+
 func (r *rewriter) rewriteStreamUses(d ast.Decl) {
 	if len(r.streams) == 0 {
 		return
 	}
 
-	declIdents := map[*ast.Ident]bool{}
-
-	for _, s := range r.streams {
-		ast.Inspect(d, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.AssignStmt:
-				for _, l := range x.Lhs {
-					if id, ok := l.(*ast.Ident); ok && id.Name == s.name {
-						declIdents[id] = true
-					}
-				}
-			case *ast.ValueSpec:
-				for _, id := range x.Names {
-					declIdents[id] = true
-				}
-			}
-
-			return true
-		})
-	}
+	decls := r.declIdents(d)
 
 	var stack []ast.Node
 
@@ -241,75 +249,100 @@ func (r *rewriter) rewriteStreamUses(d ast.Decl) {
 
 		stack = append(stack, n)
 
-		id, ok := n.(*ast.Ident)
-		if !ok || declIdents[id] || r.streams[id.Name] == nil {
-			return true
+		if id, ok := n.(*ast.Ident); ok && !decls[id] && r.streams[id.Name] != nil {
+			r.streamUse(r.streams[id.Name], id, stack)
 		}
-
-		r.streamUse(r.streams[id.Name], id, stack)
 
 		return true
 	})
 }
 
+// Stack offsets from the identifier at the top: selector, call, statement, block.
+const (
+	stackSel   = 2
+	stackCall  = 3
+	stackStmt  = 4
+	stackBlock = 5
+)
+
 func (r *rewriter) streamUse(s *stream, id *ast.Ident, stack []ast.Node) {
 	n := len(stack)
-	if n < 3 {
+	if n < stackCall {
 		s.bad = true
 
 		return
 	}
 
-	sel, ok := stack[n-2].(*ast.SelectorExpr)
-	call, isCall := stack[n-3].(*ast.CallExpr)
+	sel, isSel := stack[n-stackSel].(*ast.SelectorExpr)
+	call, isCall := stack[n-stackCall].(*ast.CallExpr)
 
-	if !ok || sel.X != id || !isCall || call.Fun != sel {
+	if !isSel || sel.X != id || !isCall || call.Fun != sel {
 		s.bad = true
-		r.report(id.Pos(), "%s escapes (not a plain method call); rewrite by hand", s.name)
+
+		r.reportf(id.Pos(), "%s escapes (not a plain method call); rewrite by hand", s.name)
 
 		return
 	}
 
 	var stmt *ast.ExprStmt
 
-	if n >= 5 {
-		if es, ok := stack[n-4].(*ast.ExprStmt); ok && stack[n-5] == ast.Node(s.block) {
-			stmt = es
-		}
+	if n >= stackBlock && stack[n-stackBlock] == ast.Node(s.block) {
+		stmt, _ = stack[n-stackStmt].(*ast.ExprStmt)
 	}
 
-	method, argc := sel.Sel.Name, len(call.Args)
+	var handled bool
+	if s.decoder {
+		handled = r.decoderMethod(s, call, sel.Sel.Name, stmt)
+	} else {
+		handled = r.encoderMethod(s, call, sel.Sel.Name, stmt)
+	}
 
-	switch {
-	case s.decoder && method == "Decode" && argc == 1:
-		s.add(r, r.off(call.Pos()), r.off(call.Args[0].Pos()), r.jsonName+".UnmarshalDecode("+s.name+", ")
-		s.add(r, r.off(call.Args[0].End()), r.off(call.End()), ", "+optV1+r.extra(s)+")")
-	case !s.decoder && method == "Encode" && argc == 1:
-		s.add(r, r.off(call.Pos()), r.off(call.Args[0].Pos()), r.jsonName+".MarshalEncode("+s.name+", ")
-	case s.decoder && method == "UseNumber" && argc == 0 && stmt != nil:
-		s.opts = append(s.opts, "jsonx.UseNumber()")
-		s.edits = append(s.edits, r.stmtEdit(stmt))
-	case s.decoder && method == "DisallowUnknownFields" && argc == 0 && stmt != nil:
-		s.opts = append(s.opts, r.jsonName+".RejectUnknownMembers(true)")
-		s.edits = append(s.edits, r.stmtEdit(stmt))
-	case !s.decoder && method == "SetEscapeHTML" && argc == 1 && stmt != nil:
-		s.opts = append(s.opts, "jsontext.EscapeForHTML("+r.text(call.Args[0], call.Args[0])+")")
-		s.edits = append(s.edits, r.stmtEdit(stmt))
-	case !s.decoder && method == "SetIndent" && argc == 2 && stmt != nil:
-		s.opts = append(s.opts, r.indentOpts(call.Args[0], call.Args[1])...)
-		s.edits = append(s.edits, r.stmtEdit(stmt))
-	default:
+	if !handled {
 		s.bad = true
-		r.report(call.Pos(), "%s.%s has no mechanical v2 equivalent; rewrite by hand", s.name, method)
+
+		r.reportf(call.Pos(), "%s.%s has no mechanical v2 equivalent; rewrite by hand", s.name, sel.Sel.Name)
 	}
 }
 
-func (r *rewriter) extra(s *stream) string {
-	if !s.decoder || len(s.opts) == 0 {
-		return ""
+func (r *rewriter) decoderMethod(s *stream, call *ast.CallExpr, method string, stmt *ast.ExprStmt) bool {
+	argc := len(call.Args)
+
+	switch {
+	case method == "Decode" && argc == 1:
+		s.decodes = append(s.decodes, call)
+	case method == "UseNumber" && argc == 0 && stmt != nil:
+		s.opts = append(s.opts, "jsonx.UseNumber()")
+		s.edits = append(s.edits, r.stmtEdit(stmt))
+	case method == "DisallowUnknownFields" && argc == 0 && stmt != nil:
+		s.opts = append(s.opts, r.jsonName+".RejectUnknownMembers(true)")
+		s.edits = append(s.edits, r.stmtEdit(stmt))
+	default:
+		return false
 	}
 
-	return ", " + strings.Join(s.opts, ", ")
+	return true
+}
+
+func (r *rewriter) encoderMethod(s *stream, call *ast.CallExpr, method string, stmt *ast.ExprStmt) bool {
+	argc := len(call.Args)
+
+	switch {
+	case method == "Encode" && argc == 1:
+		s.edits = append(s.edits, edit{
+			start: r.off(call.Pos()), end: r.off(call.Args[0].Pos()),
+			text: r.jsonName + ".MarshalEncode(" + s.name + ", ",
+		})
+	case method == "SetEscapeHTML" && argc == 1 && stmt != nil:
+		s.opts = append(s.opts, "jsontext.EscapeForHTML("+r.text(call.Args[0], call.Args[0])+")")
+		s.edits = append(s.edits, r.stmtEdit(stmt))
+	case method == "SetIndent" && argc == 2 && stmt != nil:
+		s.opts = append(s.opts, r.indentOpts(call.Args[0], call.Args[1])...)
+		s.edits = append(s.edits, r.stmtEdit(stmt))
+	default:
+		return false
+	}
+
+	return true
 }
 
 func (r *rewriter) indentOpts(prefix, indent ast.Expr) []string {
@@ -324,10 +357,6 @@ func (r *rewriter) indentOpts(prefix, indent ast.Expr) []string {
 	}
 
 	return opts
-}
-
-func (s *stream) add(r *rewriter, start, end int, text string) {
-	s.edits = append(s.edits, edit{start: start, end: end, text: text})
 }
 
 func (r *rewriter) stmtEdit(s *ast.ExprStmt) edit {
@@ -346,27 +375,32 @@ func (r *rewriter) stmtEdit(s *ast.ExprStmt) edit {
 
 func (r *rewriter) emitStreams() {
 	for _, s := range r.streams {
-		if s.bad {
+		fun, ok := s.call.Fun.(*ast.SelectorExpr)
+		if s.bad || !ok {
 			continue
 		}
 
 		r.edits = append(r.edits, s.edits...)
-
-		fun := s.call.Fun.(*ast.SelectorExpr)
-		if s.decoder {
-			r.add(r.off(fun.Pos()), r.off(fun.End()), "jsontext.NewDecoder")
-
-			continue
-		}
-
-		r.add(r.off(fun.Pos()), r.off(fun.End()), "jsontext.NewEncoder")
 
 		opts := ", " + optV1
 		if len(s.opts) > 0 {
 			opts += ", " + strings.Join(s.opts, ", ")
 		}
 
-		r.add(r.off(s.call.Rparen), r.off(s.call.Rparen), opts)
+		if !s.decoder {
+			r.add(r.off(fun.Pos()), r.off(fun.End()), "jsontext.NewEncoder")
+			end := r.off(s.call.Args[0].End())
+			r.add(end, end, opts)
+
+			continue
+		}
+
+		r.add(r.off(fun.Pos()), r.off(fun.End()), "jsontext.NewDecoder")
+
+		for _, c := range s.decodes {
+			r.add(r.off(c.Pos()), r.off(c.Args[0].Pos()), r.jsonName+".UnmarshalDecode("+s.name+", ")
+			r.add(r.off(c.Args[0].End()), r.off(c.End()), opts+")")
+		}
 	}
 }
 
@@ -389,7 +423,8 @@ func (r *rewriter) callExpr(call *ast.CallExpr) {
 	switch {
 	case r.isJSON(call.Fun, "Marshal") && argc == 1, r.isJSON(call.Fun, "Unmarshal") && argc == 2:
 		r.consumed[call.Fun] = true
-		r.add(r.off(call.Rparen), r.off(call.Rparen), ", "+optV1)
+		end := r.off(call.Args[len(call.Args)-1].End())
+		r.add(end, end, ", "+optV1)
 	case r.isJSON(call.Fun, "MarshalIndent") && argc == 3:
 		r.marshalIndent(call)
 	case r.isJSON(call.Fun, "Valid") && argc == 1:
@@ -402,28 +437,29 @@ func (r *rewriter) callExpr(call *ast.CallExpr) {
 }
 
 func (r *rewriter) marshalIndent(call *ast.CallExpr) {
-	prefix, ok1 := call.Args[1].(*ast.BasicLit)
-	indent, ok2 := call.Args[2].(*ast.BasicLit)
-
-	for _, lit := range []*ast.BasicLit{prefix, indent} {
-		if lit == nil {
+	for _, arg := range call.Args[1:] {
+		lit, isLit := arg.(*ast.BasicLit)
+		if !isLit {
 			continue
 		}
 
 		if s, err := strconv.Unquote(lit.Value); err == nil && strings.Trim(s, " \t\r\n") != "" {
-			r.report(call.Pos(), "MarshalIndent with non-whitespace indent %s; v2 panics, rewrite by hand", lit.Value)
+			r.reportf(call.Pos(), "MarshalIndent with non-whitespace indent %s; v2 panics, rewrite by hand", lit.Value)
 
 			return
 		}
 	}
 
-	_, _ = ok1, ok2
-	sel := call.Fun.(*ast.SelectorExpr)
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+
 	r.consumed[call.Fun] = true
 	r.add(r.off(sel.Sel.Pos()), r.off(sel.Sel.End()), "Marshal")
 
 	opts := append([]string{optV1}, r.indentOpts(call.Args[1], call.Args[2])...)
-	r.add(r.off(call.Args[0].End()), r.off(call.Rparen), ", "+strings.Join(opts, ", "))
+	r.add(r.off(call.Args[0].End()), r.off(call.Args[2].End()), ", "+strings.Join(opts, ", "))
 }
 
 func (r *rewriter) chain(call *ast.CallExpr) {
@@ -442,7 +478,7 @@ func (r *rewriter) chain(call *ast.CallExpr) {
 	switch {
 	case r.isJSON(inner.Fun, "NewDecoder") && outer.Sel.Name == "Decode":
 		if r.hasComment(r.off(call.Pos()), r.off(call.End())) {
-			r.report(call.Pos(), "comment inside NewDecoder(...).Decode chain; rewrite by hand")
+			r.reportf(call.Pos(), "comment inside NewDecoder(...).Decode chain; rewrite by hand")
 
 			return
 		}
@@ -453,7 +489,7 @@ func (r *rewriter) chain(call *ast.CallExpr) {
 		r.add(r.off(call.Args[0].End()), r.off(call.End()), ", "+optV1+")")
 	case r.isJSON(inner.Fun, "NewEncoder") && outer.Sel.Name == "Encode":
 		if r.hasComment(r.off(call.Pos()), r.off(call.End())) {
-			r.report(call.Pos(), "comment inside NewEncoder(...).Encode chain; rewrite by hand")
+			r.reportf(call.Pos(), "comment inside NewEncoder(...).Encode chain; rewrite by hand")
 
 			return
 		}
@@ -479,7 +515,7 @@ func (r *rewriter) rewriteSelectors(d ast.Decl) {
 			r.add(r.off(sel.Pos()), r.off(sel.End()), "jsonx.Number")
 		case "Marshaler", "Unmarshaler":
 		default:
-			r.report(sel.Pos(), "%s.%s has no mechanical v2 equivalent; rewrite by hand", r.jsonName, sel.Sel.Name)
+			r.reportf(sel.Pos(), "%s.%s has no mechanical v2 equivalent; rewrite by hand", r.jsonName, sel.Sel.Name)
 		}
 
 		return true
@@ -494,7 +530,7 @@ func (r *rewriter) apply() ([]byte, error) {
 
 	for _, e := range r.edits {
 		if e.end > prev {
-			return nil, fmt.Errorf("overlapping edits at offset %d", e.start)
+			return nil, fmt.Errorf("%w at offset %d", errOverlap, e.start)
 		}
 
 		out = append(out[:e.start], append([]byte(e.text), out[e.end:]...)...)
@@ -502,6 +538,44 @@ func (r *rewriter) apply() ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+type importInfo struct {
+	v1Spec     *ast.ImportSpec
+	firstLocal *ast.ImportSpec
+	last       *ast.ImportSpec
+	have       map[string]bool
+	used       map[string]bool
+}
+
+func scanImports(file *ast.File) importInfo {
+	info := importInfo{have: map[string]bool{}, used: map[string]bool{}}
+
+	for _, imp := range file.Imports {
+		p, _ := strconv.Unquote(imp.Path.Value)
+		info.have[p] = true
+		info.last = imp
+
+		if p == v1Path {
+			info.v1Spec = imp
+		}
+
+		if info.firstLocal == nil && strings.HasPrefix(p, localPrefix) {
+			info.firstLocal = imp
+		}
+	}
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok {
+			if id, isID := sel.X.(*ast.Ident); isID {
+				info.used[id.Name] = true
+			}
+		}
+
+		return true
+	})
+
+	return info
 }
 
 // fixImports swaps the v1 import for v2 (or drops it when unused after the
@@ -514,46 +588,23 @@ func fixImports(path string, src []byte, jsonName string) ([]byte, error) {
 		return nil, fmt.Errorf("rewritten file does not parse: %w", err)
 	}
 
-	used := map[string]bool{}
+	info := scanImports(file)
+	off := func(p token.Pos) int { return fset.Position(p).Offset }
+	spec := info.v1Spec
 
-	ast.Inspect(file, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok {
-				used[id.Name] = true
-			}
-		}
+	if decl := importDecl(file, spec); !decl.Lparen.IsValid() {
+		block := "import (\n\t" + string(src[off(spec.Pos()):off(spec.End())]) + "\n)"
+		out := append(append(append([]byte(nil), src[:off(decl.Pos())]...), block...), src[off(decl.End()):]...)
 
-		return true
-	})
-
-	have := map[string]bool{}
-
-	var v1Spec *ast.ImportSpec
-
-	var firstLocal, last *ast.ImportSpec
-
-	for _, imp := range file.Imports {
-		p, _ := strconv.Unquote(imp.Path.Value)
-		have[p] = true
-		last = imp
-
-		if p == v1Path {
-			v1Spec = imp
-		}
-
-		if firstLocal == nil && strings.HasPrefix(p, localPrefix) {
-			firstLocal = imp
-		}
+		return fixImports(path, out, jsonName)
 	}
 
 	var edits []edit
 
-	off := func(p token.Pos) int { return fset.Position(p).Offset }
-
-	if used[jsonName] {
-		edits = append(edits, edit{start: off(v1Spec.Path.Pos()), end: off(v1Spec.Path.End()), text: strconv.Quote(v2Path)})
+	if info.used[jsonName] {
+		edits = append(edits, edit{start: off(spec.Path.Pos()), end: off(spec.Path.End()), text: strconv.Quote(v2Path)})
 	} else {
-		start, end := off(v1Spec.Pos()), off(v1Spec.End())
+		start, end := off(spec.Pos()), off(spec.End())
 		for start > 0 && (src[start-1] == ' ' || src[start-1] == '\t') {
 			start--
 		}
@@ -565,17 +616,20 @@ func fixImports(path string, src []byte, jsonName string) ([]byte, error) {
 		edits = append(edits, edit{start: start, end: end})
 	}
 
-	if used["jsontext"] && !have[jsontextPath] {
-		edits = append(edits, edit{start: off(v1Spec.End()), end: off(v1Spec.End()), text: "\n\t" + strconv.Quote(jsontextPath)})
+	if info.used["jsontext"] && !info.have[jsontextPath] {
+		edits = append(
+			edits,
+			edit{start: off(spec.End()), end: off(spec.End()), text: "\n\t" + strconv.Quote(jsontextPath)},
+		)
 	}
 
-	if used["jsonx"] && !have[jsonxPath] {
-		switch {
-		case firstLocal != nil:
-			edits = append(edits, edit{start: off(firstLocal.Pos()), end: off(firstLocal.Pos()), text: strconv.Quote(jsonxPath) + "\n\t"})
-		default:
-			edits = append(edits, edit{start: off(last.End()), end: off(last.End()), text: "\n\n\t" + strconv.Quote(jsonxPath)})
+	if info.used["jsonx"] && !info.have[jsonxPath] {
+		at, text := off(info.last.End()), "\n\n\t"+strconv.Quote(jsonxPath)
+		if info.firstLocal != nil {
+			at, text = off(info.firstLocal.Pos()), strconv.Quote(jsonxPath)+"\n\t"
 		}
+
+		edits = append(edits, edit{start: at, end: at, text: text})
 	}
 
 	sort.SliceStable(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
@@ -586,4 +640,14 @@ func fixImports(path string, src []byte, jsonName string) ([]byte, error) {
 	}
 
 	return format.Source(out)
+}
+
+func importDecl(file *ast.File, spec *ast.ImportSpec) *ast.GenDecl {
+	for _, d := range file.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT && g.Pos() <= spec.Pos() && spec.End() <= g.End() {
+			return g
+		}
+	}
+
+	return nil
 }

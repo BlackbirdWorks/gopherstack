@@ -3210,7 +3210,8 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port), func(resp *http.Response) bool {
 		var body map[string]any
 
-		return json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()) == nil && body["completed"] == true
+		return json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()) == nil &&
+			body["completed"] == true
 	})
 
 	for _, tt := range tests {

@@ -3,7 +3,7 @@
 //
 // Usage:
 //
-//	go run ./cmd/jsonv2mod [-n] [-skip dir,...] path...
+//	go run ./cmd/jsonv2mod [-n] [-skip frag,...] path...
 //
 // Each path is a Go file or a directory walked recursively. Files are
 // rewritten in place (-n lists them instead). Constructs that cannot be
@@ -14,64 +14,106 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
+const (
+	exitLeftovers = 1
+	exitFailure   = 2
+	fileMode      = 0o600
+)
+
+type options struct {
+	out, errOut io.Writer
+	skips       []string
+	dry         bool
+}
+
 func main() {
 	dry := flag.Bool("n", false, "list files that would change without writing")
 	skip := flag.String("skip", "", "comma-separated path fragments to skip")
 	flag.Parse()
 
-	skips := strings.Split(*skip, ",")
-	changed, leftovers := 0, 0
+	opts := options{out: os.Stdout, errOut: os.Stderr, skips: strings.Split(*skip, ","), dry: *dry}
 
-	for _, root := range flag.Args() {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
+	sum, err := opts.run(flag.Args())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "jsonv2mod:", err)
+		os.Exit(exitFailure)
+	}
+
+	fmt.Fprintf(os.Stderr, "jsonv2mod: %d files changed, %d leftovers\n", sum.changed, sum.leftovers)
+
+	if sum.leftovers > 0 {
+		os.Exit(exitLeftovers)
+	}
+}
+
+type summary struct{ changed, leftovers int }
+
+func (o options) run(roots []string) (summary, error) {
+	var (
+		files []string
+		sum   summary
+	)
+
+	for _, root := range roots {
+		walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".go") && !skipped(path, o.skips) {
+				files = append(files, path)
 			}
 
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || skipped(path, skips) {
-				return nil
-			}
-
-			res, err := processFile(path)
-			if err != nil {
-				return err
-			}
-
-			for _, f := range res.findings {
-				fmt.Fprintf(os.Stderr, "%s:%d: %s\n", path, f.line, f.msg)
-				leftovers++
-			}
-
-			if res.out == nil {
-				return nil
-			}
-
-			changed++
-			fmt.Println(path)
-
-			if *dry {
-				return nil
-			}
-
-			return os.WriteFile(path, res.out, 0o644)
+			return err
 		})
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "jsonv2mod:", err)
-			os.Exit(2)
+		if walkErr != nil {
+			return sum, walkErr
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "jsonv2mod: %d files changed, %d leftovers\n", changed, leftovers)
+	for _, path := range files {
+		one, err := o.process(path)
+		if err != nil {
+			return sum, err
+		}
 
-	if leftovers > 0 {
-		os.Exit(1)
+		sum.changed += one.changed
+		sum.leftovers += one.leftovers
 	}
+
+	return sum, nil
+}
+
+func (o options) process(path string) (summary, error) {
+	var sum summary
+
+	res, err := processFile(path)
+	if err != nil {
+		return sum, err
+	}
+
+	for _, f := range res.findings {
+		fmt.Fprintf(o.errOut, "%s:%d: %s\n", path, f.line, f.msg)
+
+		sum.leftovers++
+	}
+
+	if res.out == nil {
+		return sum, nil
+	}
+
+	sum.changed++
+
+	fmt.Fprintln(o.out, path)
+
+	if o.dry {
+		return sum, nil
+	}
+
+	return sum, os.WriteFile(path, res.out, fileMode)
 }
 
 func skipped(path string, skips []string) bool {

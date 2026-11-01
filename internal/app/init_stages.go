@@ -138,7 +138,11 @@ func buildInitRunHandler(st *localstackInitState) echo.HandlerFunc {
 		}
 
 		var req initRunRequest
-		if err := json.UnmarshalDecode(jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, initRunMaxBody)), &req, jsonx.V1()); err != nil {
+		if err := json.UnmarshalDecode(
+			jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, initRunMaxBody)),
+			&req,
+			jsonx.V1(),
+		); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid request body"})
 		}
 

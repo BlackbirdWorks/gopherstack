@@ -37,8 +37,14 @@ import (
 	jsonv1 "encoding/json"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"strconv"
+)
+
+var (
+	errInvalidNumber = errors.New("json: invalid number literal")
+	errNotNumber     = errors.New("json: cannot unmarshal into jsonx.Number")
 )
 
 // V1 is the full option set that reproduces encoding/json v1 behavior.
@@ -66,7 +72,7 @@ func (n Number) MarshalJSON() ([]byte, error) {
 	}
 
 	if !jsontext.Value(n).IsValid() || jsontext.Value(n).Kind() != '0' {
-		return nil, fmt.Errorf("json: invalid number literal %q", string(n))
+		return nil, fmt.Errorf("%w %q", errInvalidNumber, string(n))
 	}
 
 	return []byte(n), nil
@@ -86,13 +92,13 @@ func (n *Number) UnmarshalJSON(b []byte) error {
 		}
 
 		if lit := jsontext.Value(s); !lit.IsValid() || lit.Kind() != '0' {
-			return fmt.Errorf("json: invalid number literal %q", string(s))
+			return fmt.Errorf("%w %q", errInvalidNumber, string(s))
 		}
 
 		*n = Number(s)
 	case 'n':
 	default:
-		return fmt.Errorf("json: cannot unmarshal %s into Go value of type jsonx.Number", v.Kind())
+		return fmt.Errorf("%w: %s", errNotNumber, v.Kind())
 	}
 
 	return nil

@@ -50,7 +50,7 @@ func (r *Resolver) RegisterEmulated(host, user, pass string) {
 }
 
 func encodeAuth(ac authConfig) string {
-	raw, err := json.Marshal(ac, jsonx.V1()) //nolint:gosec // credentials are the payload of the X-Registry-Auth header
+	raw, err := json.Marshal(ac, jsonx.V1())
 	if err != nil {
 		return ""
 	}

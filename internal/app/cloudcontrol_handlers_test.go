@@ -336,7 +336,10 @@ func TestCloudControlSubnetIPv6(t *testing.T) {
 			require.NoError(t, err)
 
 			var props map[string]any
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props, jsonx.V1()))
+			require.NoError(
+				t,
+				json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props, jsonx.V1()),
+			)
 			assert.Equal(t, []any{v6}, props["Ipv6CidrBlocks"])
 			assert.Equal(t, azID, props["AvailabilityZoneId"])
 			assert.Equal(t, true, props["AssignIpv6AddressOnCreation"])

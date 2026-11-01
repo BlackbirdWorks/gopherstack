@@ -322,7 +322,10 @@ func TestLifecycleStatusServiceHealth(t *testing.T) {
 				Services: []string{"S3", "SQS"}, Disabled: []string{"SNS"},
 			})
 		case "/_localstack/health":
-			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), localstackHealthResponse{Services: map[string]string{"s3": "available"}})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				localstackHealthResponse{Services: map[string]string{"s3": "available"}},
+			)
 		default:
 			http.NotFound(w, r)
 		}

@@ -23,8 +23,8 @@ type goldenAttr struct {
 }
 
 type goldenScanOutput struct {
-	Items            []map[string]*goldenAttr `json:"Items"`
 	LastEvaluatedKey map[string]*goldenAttr   `json:"LastEvaluatedKey,omitempty"`
+	Items            []map[string]*goldenAttr `json:"Items"`
 	Count            int32                    `json:"Count"`
 	ScannedCount     int32                    `json:"ScannedCount"`
 }
@@ -55,8 +55,6 @@ type goldenMetricOutput struct {
 	Results   []goldenMetricResult `json:"MetricDataResults"`
 }
 
-func goldenStr(s string) *string { return &s }
-
 func TestWireGoldenJSONRPC(t *testing.T) {
 	t.Parallel()
 
@@ -73,18 +71,20 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 			name: "dynamodb scan",
 			payload: goldenScanOutput{
 				Items: []map[string]*goldenAttr{{
-					"id":   {S: goldenStr("a<b>&c \"q\"")},
-					"n":    {N: goldenStr("1.50")},
+					"id":   {S: new("a<b>&c \"q\"")},
+					"n":    {N: new("1.50")},
 					"bin":  {B: []byte{1, 2, 3}},
 					"nul":  {NULL: &yes},
-					"m":    {M: map[string]*goldenAttr{"z": {S: goldenStr("1")}, "a": {S: goldenStr("2")}}},
-					"list": {L: []*goldenAttr{{S: goldenStr("x")}, {N: goldenStr("2")}}},
+					"m":    {M: map[string]*goldenAttr{"z": {S: new("1")}, "a": {S: new("2")}}},
+					"list": {L: []*goldenAttr{{S: new("x")}, {N: new("2")}}},
 				}},
 				Count:        1,
 				ScannedCount: 1,
 			},
-			body: `{"Items":[{"bin":{"B":"AQID"},"id":{"S":"a\u003cb\u003e\u0026c\u2028\"q\""},"list":{"L":[{"S":"x"},{"N":"2"}]},"m":{"M":{"a":{"S":"2"},"z":{"S":"1"}}},"n":{"N":"1.50"},"nul":{"NULL":true}}],"Count":1,"ScannedCount":1}`,
-			crc:  "2457307943",
+			body: `{"Items":[{"bin":{"B":"AQID"},"id":{"S":"a\u003cb\u003e\u0026c\u2028\"q\""},` +
+				`"list":{"L":[{"S":"x"},{"N":"2"}]},"m":{"M":{"a":{"S":"2"},"z":{"S":"1"}}},` +
+				`"n":{"N":"1.50"},"nul":{"NULL":true}}],"Count":1,"ScannedCount":1}`,
+			crc: "2457307943",
 		},
 		{
 			name:    "dynamodb empty scan",
@@ -99,8 +99,9 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 				Body:      `{"k":"<v>"}`,
 				MD5:       "abc",
 			}}},
-			body: `{"Messages":[{"Attributes":null,"MessageId":"m-1","Body":"{\"k\":\"\u003cv\u003e\"}","MD5OfBody":"abc"}]}`,
-			crc:  "2547812670",
+			body: `{"Messages":[{"Attributes":null,"MessageId":"m-1",` +
+				`"Body":"{\"k\":\"\u003cv\u003e\"}","MD5OfBody":"abc"}]}`,
+			crc: "2547812670",
 		},
 		{
 			name:    "sqs empty",
@@ -118,8 +119,11 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 				Values:     []float64{1.5, 2, 1e21, 0.000001, 1e-7, 100, 123456789012},
 				Extra:      jsontext.Value(` { "a" : [1, 2] } `),
 			}}},
-			body: `{"MetricDataResults":[{"Id":"q1","Label":"CPU \u003cavg\u003e","StatusCode":"Complete","Timestamps":[1741064767.1230001,1741064827.1230001],"Values":[1.5,2,1e+21,0.000001,1e-7,100,123456789012],"Messages":null,"Extra":{"a":[1,2]}}]}`,
-			crc:  "2076035819",
+			body: `{"MetricDataResults":[{"Id":"q1","Label":"CPU \u003cavg\u003e",` +
+				`"StatusCode":"Complete","Timestamps":[1741064767.1230001,1741064827.1230001],` +
+				`"Values":[1.5,2,1e+21,0.000001,1e-7,100,123456789012],"Messages":null,` +
+				`"Extra":{"a":[1,2]}}]}`,
+			crc: "2076035819",
 		},
 	}
 

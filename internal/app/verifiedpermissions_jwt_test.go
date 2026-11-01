@@ -306,7 +306,10 @@ func newOIDCServer(t *testing.T) *oidcServer {
 	t.Cleanup(o.srv.Close)
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{"issuer": o.srv.URL, "jwks_uri": o.srv.URL + "/keys"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"issuer": o.srv.URL, "jwks_uri": o.srv.URL + "/keys"},
+		)
 	})
 	mux.HandleFunc("/keys", func(w http.ResponseWriter, _ *http.Request) {
 		o.jwksHits.Add(1)

@@ -114,7 +114,12 @@ func (h *lsHandler) getEffects(c *echo.Context) error {
 
 func (h *lsHandler) postEffects(c *echo.Context) error {
 	var in localstackEffects
-	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil || in.Latency < 0 {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(c.Request().Body),
+		&in,
+		jsonx.V1(),
+	); err != nil ||
+		in.Latency < 0 {
 		return badRequest(c, errInvalidEffects)
 	}
 
