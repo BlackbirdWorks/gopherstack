@@ -264,3 +264,27 @@ func TestYumRepositoryServesUploadedPackages(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, rpm, got)
 }
+
+func TestOSPackageRepositoriesSurviveSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "apt-snap", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
+	e.createRepo(t, "go-snap", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_GO})
+
+	svc := restService(t, e)
+	uploadApt(t, svc, "apt-snap", makeDeb(t, "snap", "1.0", "amd64"))
+	require.NoError(t, uploadGoModule(t, svc, "go-snap", makeModuleZip(t, "example.com/snap", "v1.0.0")))
+
+	snap := e.handler.Backend.Snapshot(t.Context())
+
+	e2 := newEnv(t, "")
+	require.NoError(t, e2.handler.Backend.Restore(t.Context(), snap))
+
+	_, packages := getBody(t, "http://127.0.0.1:"+e2.port+"/apt/projects/"+project+"/dists/apt-snap/main/binary-amd64/Packages")
+	assert.Equal(t, "snap", fieldOf(string(packages), "Package"))
+
+	code, list := getBody(t, "http://127.0.0.1:"+e2.port+"/go/"+project+"/go-snap/example.com/snap/@v/list")
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "v1.0.0\n", string(list))
+}

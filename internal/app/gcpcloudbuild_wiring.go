@@ -90,6 +90,7 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 
 	if ar, ok := byName["GCPArtifactRegistry"].(*gcparbackend.Handler); ok {
 		svc.RegistryAddr = "localhost:" + strconv.Itoa(ar.Port)
+		svc.Packages = ar.Backend
 	}
 
 	return svc
@@ -99,6 +100,7 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPRedis(byName)
 	wireGCPCloudBuild(byName)
+	wireGCPArtifactRegistry(byName)
 	wireGCPEventarc(byName)
 	wireGCPSecretRotation(byName)
 	wireGCPWorkflows(byName)
@@ -132,5 +134,15 @@ func wireGCPSecretRotation(byName map[string]service.Registerable) {
 
 	if okSM && okPS {
 		sm.Backend.SetPublisher(logSinkPublisher{b: ps.Backend})
+	}
+}
+
+// wireGCPArtifactRegistry lets the apt and yum import RPCs read objects from the GCS emulator.
+func wireGCPArtifactRegistry(byName map[string]service.Registerable) {
+	ar, okAR := byName["GCPArtifactRegistry"].(*gcparbackend.Handler)
+	gcs, okGCS := byName["GCPStorage"].(*gcpstoragebackend.Handler)
+
+	if okAR && okGCS {
+		ar.Backend.SetObjectStore(gcsObjectStore{b: gcs.Backend})
 	}
 }

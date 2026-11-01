@@ -49,6 +49,8 @@ type Services struct {
 	Logs    gcpserve.LogSink
 	// RegistryAddr is the Artifact Registry emulator's host:port as the docker daemon reaches it.
 	RegistryAddr string
+	// Packages receives artifacts.maven_artifacts, python_packages, npm_packages and go_modules.
+	Packages PackageRegistry
 	// GitImage runs git for gitSource and repoSource; empty uses DefaultGitImage.
 	GitImage string
 	// RepoBase is the base URL (http, https or file) repoSource repo_names resolve under as

@@ -69,7 +69,7 @@ func makeRPM(t *testing.T, name, version, release, arch string) []byte {
 		Requires: mustRelations(t, "bash >= 4.0"), Provides: mustRelations(t, name+" = "+version+"-"+release),
 	})
 	require.NoError(t, err)
-	r.AddFile(rpmpack.RPMFile{Name: "/usr/bin/" + name, Body: []byte("#!/bin/sh\n"), Mode: 0o755})
+	r.AddFile(rpmpack.RPMFile{Name: "/usr/bin/" + name, Body: []byte("#!/bin/sh\necho "+name+"-ran\n"), Mode: 0o755})
 
 	var buf bytes.Buffer
 	require.NoError(t, r.Write(&buf))
