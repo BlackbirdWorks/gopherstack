@@ -189,6 +189,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.61.4
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.55.3
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.112.2
+	github.com/aws/aws-sdk-go-v2/service/lambdaweb v1.2.5
 	github.com/aws/aws-sdk-go-v2/service/lightsail v1.66.4
 	github.com/aws/aws-sdk-go-v2/service/macie2 v1.59.3
 	github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.40.3
@@ -365,8 +366,8 @@ require (
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.8 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.8 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.7 // indirect

@@ -85,6 +85,7 @@ func engineEntries() []engineEntry {
 		{func(c *CLI) *string { return &c.CodeBuild.Engine }, "codebuild-engine", "CODEBUILD_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.Glue.Engine }, "glue-engine", "GLUE_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DSQL.Engine }, "dsql-engine", "DSQL_ENGINE", enginesStub},
+		{func(c *CLI) *string { return &c.LambdaWeb.Engine }, "lambdaweb-engine", "LAMBDAWEB_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.Transcribe.Engine }, "transcribe-engine", "TRANSCRIBE_ENGINE", enginesStub},
 	}
 }
