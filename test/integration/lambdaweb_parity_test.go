@@ -176,7 +176,7 @@ func TestIntegration_LambdaWeb_Lifecycle(t *testing.T) {
 
 		req.Host = host
 
-		resp, doErr := http.DefaultClient.Do(req)
+		resp, doErr := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 		require.NoError(t, doErr)
 		_ = resp.Body.Close()
 
