@@ -15,14 +15,16 @@ import (
 
 const readinessHelper = "waitForServerReady"
 
-var readinessPaths = []string{"/_gopherstack/health", "/_localstack/health", "/_localstack/init/ready"}
+func readinessPaths() []string {
+	return []string{"/_gopherstack/health", "/_localstack/health", "/_localstack/init/ready"}
+}
 
 func mentionsReadinessPath(n ast.Node) bool {
 	found := false
 
 	ast.Inspect(n, func(x ast.Node) bool {
 		if lit, ok := x.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-			for _, p := range readinessPaths {
+			for _, p := range readinessPaths() {
 				if strings.Contains(lit.Value, p) {
 					found = true
 				}
@@ -54,22 +56,33 @@ func isFixedDeadlineExpr(x ast.Node) bool {
 	return false
 }
 
+func isNowAdd(x ast.Node) bool {
+	call, ok := x.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Add" {
+		return false
+	}
+
+	inner, ok := sel.X.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+
+	s2, ok := inner.Fun.(*ast.SelectorExpr)
+
+	return ok && s2.Sel.Name == "Now"
+}
+
 func hasFixedDeadline(fn ast.Node) bool {
 	found := false
 
 	ast.Inspect(fn, func(x ast.Node) bool {
-		if isFixedDeadlineExpr(x) {
+		if isFixedDeadlineExpr(x) || isNowAdd(x) {
 			found = true
-		}
-
-		if call, ok := x.(*ast.CallExpr); ok {
-			if sel, isSel := call.Fun.(*ast.SelectorExpr); isSel && sel.Sel.Name == "Add" {
-				if inner, isCall := sel.X.(*ast.CallExpr); isCall {
-					if s2, isSel2 := inner.Fun.(*ast.SelectorExpr); isSel2 && s2.Sel.Name == "Now" {
-						found = true
-					}
-				}
-			}
 		}
 
 		return !found
