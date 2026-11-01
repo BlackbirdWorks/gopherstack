@@ -20,7 +20,10 @@ const (
 	wafMaxBodyKb   = 2000
 	wafMaxUploadMb = 4000
 	wafMaxRatePri  = 100
-	wafStateOn     = "Enabled"
+	wafStateOn     = netEnabled
+	wafRuleInvalid = "Invalid"
+	agwActionStart = "start"
+	agwActionStop  = "stop"
 	wafPropRules   = "customRules"
 	wafPropManaged = "managedRules"
 	wafPropPS      = "policySettings"
@@ -46,9 +49,9 @@ func (p *NetworkProvider) AGWAction(id ResourceID, action string) error {
 	}
 
 	switch strings.ToLower(action) {
-	case "start":
+	case agwActionStart:
 		gw.Obj.Aux[agwStateKey] = agwRunning
-	case "stop":
+	case agwActionStop:
 		gw.Obj.Aux[agwStateKey] = agwStopped
 	default:
 		return ErrResourceNotFound
@@ -152,7 +155,8 @@ func (p *NetworkProvider) healthGroups(id ResourceID) ([]agwHealthGroup, error) 
 			add(refIDOf(pm.Props["defaultBackendAddressPool"]), refIDOf(pm.Props["defaultBackendHttpSettings"]))
 
 			for _, e := range anyList(pm.Props[agwPropPathRs]) {
-				rp := propsOf(e.(map[string]any)) //nolint:forcetypeassert // validated on write
+				em, _ := e.(map[string]any)
+				rp := propsOf(em)
 				add(refIDOf(rp[agwPropPool]), refIDOf(rp[agwPropHTTPS]))
 			}
 		}
@@ -162,11 +166,12 @@ func (p *NetworkProvider) healthGroups(id ResourceID) ([]agwHealthGroup, error) 
 }
 
 func agwLeaf(id string) string {
-	if i := strings.LastIndex(id, "/"); i >= 0 {
-		return id[i+1:]
+	_, leaf, found := strings.CutLast(id, "/")
+	if !found {
+		return id
 	}
 
-	return id
+	return leaf
 }
 
 func (p *NetworkProvider) healthGroup(gw *netParent, poolID, setID string) agwHealthGroup {
@@ -240,7 +245,8 @@ func healthOf(ctx context.Context, s agwServer) map[string]any {
 	ip, err := netip.ParseAddr(s.address)
 	if err != nil || !ip.IsLoopback() {
 		out["health"] = healthUnknown
-		out["healthProbeLog"] = "Backend " + s.address + " is not a loopback address; the emulator has no data plane route to it."
+		out["healthProbeLog"] = "Backend " + s.address + " is not a loopback address; " +
+			"the emulator has no data plane route to it."
 
 		return out
 	}
@@ -301,12 +307,11 @@ func runAGWProbe(ctx context.Context, s agwServer) (int, string, error) {
 }
 
 func statusMatches(spec string, status int) bool {
-	for _, part := range strings.Split(spec, ",") {
+	for part := range strings.SplitSeq(spec, ",") {
 		part = strings.TrimSpace(part)
 
 		lo, hi, isRange := strings.Cut(part, "-")
 		a, err := strconv.Atoi(lo)
-
 		if err != nil {
 			continue
 		}
@@ -433,12 +438,12 @@ func normWAFRules(raw []any) ([]any, error) {
 }
 
 func checkWAFRule(rule map[string]any) error {
-	act, ok := canonEnum(strOf(rule, "action"), []string{"Allow", "Block", "Log", "JSChallenge"})
+	act, ok := canonEnum(strOf(rule, "action"), []string{ruleAllow, "Block", "Log", "JSChallenge"})
 	if !ok {
 		return netBad("Custom rule action must be Allow, Block, Log or JSChallenge.")
 	}
 
-	rt, ok := canonEnum(strOf(rule, "ruleType"), []string{"MatchRule", "RateLimitRule", "Invalid"})
+	rt, ok := canonEnum(strOf(rule, "ruleType"), []string{"MatchRule", "RateLimitRule", wafRuleInvalid})
 	if !ok {
 		return netBad("Custom rule ruleType must be MatchRule, RateLimitRule or Invalid.")
 	}
@@ -458,26 +463,33 @@ func checkWAFRule(rule map[string]any) error {
 
 	for _, c := range conds {
 		cm, _ := c.(map[string]any)
-
-		if _, ok = canonEnum(strOf(cm, "operator"), wafOperators); !ok {
-			return netBad("Match condition operator %s is invalid.", strOf(cm, "operator"))
+		if err := checkWAFCondition(cm); err != nil {
+			return err
 		}
+	}
 
-		if len(anyList(cm["matchVariables"])) == 0 || len(anyList(cm["matchValues"])) == 0 {
-			return netBad("Match condition requires matchVariables and matchValues.")
+	return nil
+}
+
+func checkWAFCondition(cm map[string]any) error {
+	if _, ok := canonEnum(strOf(cm, "operator"), wafOperators); !ok {
+		return netBad("Match condition operator %s is invalid.", strOf(cm, "operator"))
+	}
+
+	if len(anyList(cm["matchVariables"])) == 0 || len(anyList(cm["matchValues"])) == 0 {
+		return netBad("Match condition requires matchVariables and matchValues.")
+	}
+
+	for _, v := range anyList(cm["matchVariables"]) {
+		vm, _ := v.(map[string]any)
+		if _, ok := canonEnum(strOf(vm, "variableName"), wafVariables); !ok {
+			return netBad("Match variable %s is invalid.", strOf(vm, "variableName"))
 		}
+	}
 
-		for _, v := range anyList(cm["matchVariables"]) {
-			vm, _ := v.(map[string]any)
-			if _, ok = canonEnum(strOf(vm, "variableName"), wafVariables); !ok {
-				return netBad("Match variable %s is invalid.", strOf(vm, "variableName"))
-			}
-		}
-
-		for _, t := range strList(cm["transforms"]) {
-			if _, ok = canonEnum(t, wafTransforms); !ok {
-				return netBad("Transform %s is invalid.", t)
-			}
+	for _, t := range strList(cm["transforms"]) {
+		if _, ok := canonEnum(t, wafTransforms); !ok {
+			return netBad("Transform %s is invalid.", t)
 		}
 	}
 
@@ -487,14 +499,22 @@ func checkWAFRule(rule map[string]any) error {
 //nolint:gochecknoglobals // read-only tables
 var (
 	wafOperators = []string{
-		"Any", "BeginsWith", "Contains", "EndsWith", "Equal", "GeoMatch", "GreaterThan", "GreaterThanOrEqual",
+		fwAny, "BeginsWith", "Contains", "EndsWith", "Equal", "GeoMatch", "GreaterThan", "GreaterThanOrEqual",
 		"IPMatch", "LessThan", "LessThanOrEqual", "Regex",
 	}
 	wafVariables = []string{
 		"PostArgs", "QueryString", "RemoteAddr", "RequestBody", "RequestCookies", "RequestHeaders", "RequestMethod",
 		"RequestUri",
 	}
-	wafTransforms = []string{"HtmlEntityDecode", "Lowercase", "RemoveNulls", "Trim", "UrlDecode", "UrlEncode", "Uppercase"}
+	wafTransforms = []string{
+		"HtmlEntityDecode",
+		"Lowercase",
+		"RemoveNulls",
+		"Trim",
+		"UrlDecode",
+		"UrlEncode",
+		"Uppercase",
+	}
 )
 
 func normWAFManaged(raw any) (map[string]any, error) {
@@ -539,7 +559,9 @@ func normWAFManaged(raw any) (map[string]any, error) {
 	return out, nil
 }
 
-func (p *NetworkProvider) wafUsers(polID string) (gws, listeners, pathRules []string) {
+func (p *NetworkProvider) wafUsers(polID string) ([]string, []string, []string) {
+	var gws, listeners, pathRules []string
+
 	for _, gw := range p.ofType(netAGWs) {
 		hit := strings.EqualFold(subID(gw.Obj.Props, agwPropPolicy), polID)
 
@@ -557,7 +579,10 @@ func (p *NetworkProvider) wafUsers(polID string) (gws, listeners, pathRules []st
 				if strings.EqualFold(subID(propsOf(m), agwPropPolicy), polID) {
 					hit = true
 
-					pathRules = append(pathRules, gw.armID()+"/"+agwPathMaps+"/"+pm.Name+"/"+agwPropPathRs+"/"+strOf(m, fieldName))
+					pathRules = append(
+						pathRules,
+						gw.armID()+"/"+agwPathMaps+"/"+pm.Name+"/"+agwPropPathRs+"/"+strOf(m, fieldName),
+					)
 				}
 			}
 		}
@@ -580,7 +605,7 @@ func (p *NetworkProvider) bodyWAF(id ResourceID, it *netParent) map[string]any {
 	props[agwListeners] = idRefs(ls)
 	props["pathBasedRules"] = idRefs(prs)
 	props[fieldProvisioningState] = netStatusSucceeded
-	props["resourceState"] = "Enabled"
+	props["resourceState"] = netEnabled
 
 	return p.envelope(id, netWAFs, &it.Obj, props)
 }

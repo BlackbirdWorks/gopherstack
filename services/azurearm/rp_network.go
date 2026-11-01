@@ -153,7 +153,10 @@ var _ ResourceProvider = (*NetworkProvider)(nil)
 // NewNetworkProvider creates a provider; types it does not model fall through to backend's generic store.
 func NewNetworkProvider(backend *InMemoryBackend) *NetworkProvider {
 	return &NetworkProvider{
-		mu: lockmetrics.New("azurearm.networkprovider"), backend: backend, items: map[string]*netParent{}, ops: map[string]map[string]any{},
+		mu:      lockmetrics.New("azurearm.networkprovider"),
+		backend: backend,
+		items:   map[string]*netParent{},
+		ops:     map[string]map[string]any{},
 	}
 }
 
@@ -580,16 +583,8 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 		return p.putASG(id, body)
 	case netPEs:
 		return p.putPE(id, body)
-	case netAGWs:
-		return p.putAGW(id, body)
-	case netWAFs:
-		return p.putWAF(id, body)
-	case netFWs:
-		return p.putFW(id, body)
-	case netFWPols:
-		return p.putFWPol(id, body)
-	case netIPGroups:
-		return p.putIPGroup(id, body)
+	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
+		return p.putGatewayTop(top, id, body)
 	default:
 		return p.putZone(id, body)
 	}
@@ -681,16 +676,8 @@ func (p *NetworkProvider) bodyTop(id ResourceID, it *netParent) map[string]any {
 		return p.bodyASG(id, it)
 	case netPEs:
 		return p.bodyPE(id, it)
-	case netAGWs:
-		return p.bodyAGW(id, it)
-	case netWAFs:
-		return p.bodyWAF(id, it)
-	case netFWs:
-		return p.bodyFW(id, it)
-	case netFWPols:
-		return p.bodyFWPol(id, it)
-	case netIPGroups:
-		return p.bodyIPGroup(id, it)
+	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
+		return p.bodyGatewayTop(id, it)
 	default:
 		return p.bodyZone(id, it)
 	}
@@ -849,7 +836,7 @@ func (p *NetworkProvider) bodyKid(parent *netParent, kt string, id ResourceID, k
 	case peZoneGroups:
 		return p.bodyZoneGroup(parent, id, k)
 	case fpRCGs:
-		return p.bodyRCG(parent, id, k)
+		return p.bodyRCG(parent, k)
 	default:
 		if parent.Type == netLBs {
 			return p.bodyLBKid(parent, kt, id, k)

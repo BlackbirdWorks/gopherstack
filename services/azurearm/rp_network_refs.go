@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -35,7 +36,7 @@ func (p *NetworkProvider) checkNewTopDelete(it *netParent) error {
 		return p.checkFWPolDelete(it)
 	case netIPGroups:
 		fws, pols := p.ipGroupUsers(it.armID())
-		if users := append(fws, pols...); len(users) > 0 {
+		if users := slices.Concat(fws, pols); len(users) > 0 {
 			return netErr(http.StatusBadRequest, "InUseIpGroupCannotBeDeleted",
 				"IP group %s is referenced by %s and cannot be deleted.", it.armID(), users[0])
 		}
@@ -56,6 +57,10 @@ func (p *NetworkProvider) checkNICRefs(nicID, loc string, cfgs []any) error {
 		cfgID := nicID + "/" + netIPConfigs + "/" + strOf(m, fieldName)
 		cp := propsOf(m)
 
+		if err := p.checkNICSubnetFree(cp); err != nil {
+			return err
+		}
+
 		for _, v := range anyList(cp[propNICPools]) {
 			if _, ok := p.lbKidByID(refIDOf(v), lbPools); !ok {
 				return refMissing(refIDOf(v))
@@ -63,7 +68,7 @@ func (p *NetworkProvider) checkNICRefs(nicID, loc string, cfgs []any) error {
 		}
 
 		for _, v := range anyList(cp[propNICAGWPools]) {
-			if _, ok := p.agwPoolByID(refIDOf(v)); !ok {
+			if !p.agwPoolExists(refIDOf(v)) {
 				return refMissing(refIDOf(v))
 			}
 		}
@@ -124,11 +129,7 @@ func (p *NetworkProvider) dropMissingListRefs(cp map[string]any) {
 
 		return ok
 	})
-	keep(propNICAGWPools, func(id string) bool {
-		_, ok := p.agwPoolByID(id)
-
-		return ok
-	})
+	keep(propNICAGWPools, p.agwPoolExists)
 	keep(propNICNATs, func(id string) bool {
 		_, ok := p.lbKidByID(id, lbNATRules)
 
@@ -234,4 +235,14 @@ func (p *NetworkProvider) pruneGatewayRefs() {
 	for _, pol := range p.ofType(netFWPols) {
 		p.dropMissingRef(pol.Obj.Props, fpPropBase, netFWPols)
 	}
+}
+
+// checkNICSubnetFree refuses subnets reserved by an application gateway or firewall.
+func (p *NetworkProvider) checkNICSubnetFree(cp map[string]any) error {
+	sid := subID(cp, netFieldSubnet)
+	if users := p.subnetGatewayUsers(sid); sid != "" && len(users) > 0 {
+		return netBad("Subnet %s is reserved by %s and cannot contain network interfaces.", sid, users[0])
+	}
+
+	return nil
 }

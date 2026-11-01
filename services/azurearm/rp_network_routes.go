@@ -59,7 +59,7 @@ var networkRoutes = []armRoute{
 		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodPost && isNamespaceScope(segs, namespaceMicrosoftNetwork) &&
 				len(segs) == agwActionSegs && segAt(segs, agwTypeIdx, netAGWs) &&
-				containsFold([]string{"start", "stop", "backendhealth"}, segs[len(segs)-1])
+				containsFold([]string{agwActionStart, agwActionStop, "backendhealth"}, segs[len(segs)-1])
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAGWAction(c, segs) },
 	},

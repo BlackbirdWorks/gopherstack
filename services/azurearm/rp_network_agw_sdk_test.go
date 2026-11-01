@@ -72,8 +72,10 @@ func (f *agwFixture) gateway(name string) armnetwork.ApplicationGateway {
 				Tier: new(armnetwork.ApplicationGatewayTierStandardV2), Capacity: new(int32(2)),
 			},
 			GatewayIPConfigurations: []*armnetwork.ApplicationGatewayIPConfiguration{{
-				Name:       new("gwip"),
-				Properties: &armnetwork.ApplicationGatewayIPConfigurationPropertiesFormat{Subnet: &armnetwork.SubResource{ID: &f.gwSubnet}},
+				Name: new("gwip"),
+				Properties: &armnetwork.ApplicationGatewayIPConfigurationPropertiesFormat{
+					Subnet: &armnetwork.SubResource{ID: &f.gwSubnet},
+				},
 			}},
 			FrontendIPConfigurations: []*armnetwork.ApplicationGatewayFrontendIPConfiguration{{
 				Name: new("fe"),
@@ -82,7 +84,9 @@ func (f *agwFixture) gateway(name string) armnetwork.ApplicationGateway {
 				},
 			}},
 			FrontendPorts: []*armnetwork.ApplicationGatewayFrontendPort{{
-				Name: new("port80"), Properties: &armnetwork.ApplicationGatewayFrontendPortPropertiesFormat{Port: new(int32(80))},
+				Name: new(
+					"port80",
+				), Properties: &armnetwork.ApplicationGatewayFrontendPortPropertiesFormat{Port: new(int32(80))},
 			}},
 			BackendAddressPools: []*armnetwork.ApplicationGatewayBackendAddressPool{{
 				Name: new("pool"),
@@ -118,7 +122,11 @@ func (f *agwFixture) gateway(name string) armnetwork.ApplicationGateway {
 	}
 }
 
-func (s *netStack) putGateway(t *testing.T, name string, gw armnetwork.ApplicationGateway) (armnetwork.ApplicationGateway, error) {
+func (s *netStack) putGateway(
+	t *testing.T,
+	name string,
+	gw armnetwork.ApplicationGateway,
+) (armnetwork.ApplicationGateway, error) {
 	t.Helper()
 
 	p, err := s.net.NewApplicationGatewaysClient().BeginCreateOrUpdate(t.Context(), netRG, name, gw, nil)
@@ -206,7 +214,9 @@ func TestNetworkSDK_AppGatewayValidation(t *testing.T) {
 		{
 			name: "capacity and autoscale", wantCode: "InvalidRequestFormat",
 			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) {
-				gw.Properties.AutoscaleConfiguration = &armnetwork.ApplicationGatewayAutoscaleConfiguration{MinCapacity: new(int32(1))}
+				gw.Properties.AutoscaleConfiguration = &armnetwork.ApplicationGatewayAutoscaleConfiguration{
+					MinCapacity: new(int32(1)),
+				}
 			},
 		},
 		{
@@ -248,7 +258,11 @@ func TestNetworkSDK_AppGatewayValidation(t *testing.T) {
 		{
 			name: "pool of another gateway", wantCode: "InvalidResourceReference",
 			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) {
-				gw.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef("other", "backendAddressPools", "pool")
+				gw.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef(
+					"other",
+					"backendAddressPools",
+					"pool",
+				)
 			},
 		},
 		{
@@ -265,15 +279,18 @@ func TestNetworkSDK_AppGatewayValidation(t *testing.T) {
 		{
 			name: "duplicate priority", wantCode: "ApplicationGatewayRequestRoutingRulePriorityDuplicate",
 			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) {
-				gw.Properties.HTTPListeners = append(gw.Properties.HTTPListeners, &armnetwork.ApplicationGatewayHTTPListener{
-					Name: new("l2"),
-					Properties: &armnetwork.ApplicationGatewayHTTPListenerPropertiesFormat{
-						FrontendIPConfiguration: agwRef(agwName, "frontendIPConfigurations", "fe"),
-						FrontendPort:            agwRef(agwName, "frontendPorts", "port80"),
-						HostName:                new("a.example.com"),
-						Protocol:                new(armnetwork.ApplicationGatewayProtocolHTTP),
+				gw.Properties.HTTPListeners = append(
+					gw.Properties.HTTPListeners,
+					&armnetwork.ApplicationGatewayHTTPListener{
+						Name: new("l2"),
+						Properties: &armnetwork.ApplicationGatewayHTTPListenerPropertiesFormat{
+							FrontendIPConfiguration: agwRef(agwName, "frontendIPConfigurations", "fe"),
+							FrontendPort:            agwRef(agwName, "frontendPorts", "port80"),
+							HostName:                new("a.example.com"),
+							Protocol:                new(armnetwork.ApplicationGatewayProtocolHTTP),
+						},
 					},
-				})
+				)
 				second := *gw.Properties.RequestRoutingRules[0]
 				second.Name = new("rule2")
 				pr := *second.Properties
@@ -308,13 +325,15 @@ func TestNetworkSDK_AppGatewayValidation(t *testing.T) {
 		},
 		{
 			name: "no gateway ip configuration", wantCode: "InvalidRequestFormat",
-			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) { gw.Properties.GatewayIPConfigurations = nil },
+			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) {
+				gw.Properties.GatewayIPConfigurations = nil
+			},
 		},
 		{
 			name: "waf policy on non waf sku", wantCode: "InvalidResourceReference",
 			mutate: func(_ *agwFixture, gw *armnetwork.ApplicationGateway) {
-				gw.Properties.FirewallPolicy = &armnetwork.SubResource{ID: new("/subscriptions/" + aciSub +
-					"/resourceGroups/" + netRG + "/providers/Microsoft.Network/ApplicationGatewayWebApplicationFirewallPolicies/missing")}
+				gw.Properties.FirewallPolicy = &armnetwork.SubResource{ID: new(
+					fwSubID + "ApplicationGatewayWebApplicationFirewallPolicies/missing")}
 			},
 		},
 	}
@@ -362,9 +381,21 @@ func TestNetworkSDK_AppGatewayPublicIPRules(t *testing.T) {
 
 	other := f.gateway("agw2")
 	other.Properties.RequestRoutingRules[0].Properties.HTTPListener = agwRef("agw2", "httpListeners", "listener")
-	other.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef("agw2", "backendAddressPools", "pool")
-	other.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef("agw2", "backendHttpSettingsCollection", "settings")
-	other.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef("agw2", "frontendIPConfigurations", "fe")
+	other.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef(
+		"agw2",
+		"backendAddressPools",
+		"pool",
+	)
+	other.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef(
+		"agw2",
+		"backendHttpSettingsCollection",
+		"settings",
+	)
+	other.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef(
+		"agw2",
+		"frontendIPConfigurations",
+		"fe",
+	)
 	other.Properties.HTTPListeners[0].Properties.FrontendPort = agwRef("agw2", "frontendPorts", "port80")
 
 	_, err = f.putGateway(t, "agw2", other)
@@ -399,8 +430,16 @@ func TestNetworkSDK_AppGatewayDedicatedSubnet(t *testing.T) {
 	gw2.Properties.FrontendIPConfigurations[0].Properties.PublicIPAddress = &armnetwork.SubResource{ID: pip2.ID}
 	gw2.Properties.RequestRoutingRules[0].Properties.HTTPListener = agwRef("agw2", "httpListeners", "listener")
 	gw2.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef("agw2", "backendAddressPools", "pool")
-	gw2.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef("agw2", "backendHttpSettingsCollection", "settings")
-	gw2.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef("agw2", "frontendIPConfigurations", "fe")
+	gw2.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef(
+		"agw2",
+		"backendHttpSettingsCollection",
+		"settings",
+	)
+	gw2.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef(
+		"agw2",
+		"frontendIPConfigurations",
+		"fe",
+	)
 	gw2.Properties.HTTPListeners[0].Properties.FrontendPort = agwRef("agw2", "frontendPorts", "port80")
 
 	_, err = g2.putGateway(t, "agw2", gw2)
@@ -434,9 +473,21 @@ func TestNetworkSDK_AppGatewayPrivateFrontend(t *testing.T) {
 
 	other.Properties.FrontendIPConfigurations[0].Properties.PublicIPAddress = &armnetwork.SubResource{ID: pip2.ID}
 	other.Properties.RequestRoutingRules[0].Properties.HTTPListener = agwRef("agw2", "httpListeners", "listener")
-	other.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef("agw2", "backendAddressPools", "pool")
-	other.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef("agw2", "backendHttpSettingsCollection", "settings")
-	other.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef("agw2", "frontendIPConfigurations", "fe")
+	other.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef(
+		"agw2",
+		"backendAddressPools",
+		"pool",
+	)
+	other.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef(
+		"agw2",
+		"backendHttpSettingsCollection",
+		"settings",
+	)
+	other.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef(
+		"agw2",
+		"frontendIPConfigurations",
+		"fe",
+	)
 	other.Properties.HTTPListeners[0].Properties.FrontendPort = agwRef("agw2", "frontendPorts", "port80")
 
 	_, err = f.putGateway(t, "agw2", other)
@@ -450,13 +501,23 @@ func TestNetworkSDK_AppGatewayPrivateFrontend(t *testing.T) {
 	bad.Properties.FrontendIPConfigurations[0].Properties.PublicIPAddress = &armnetwork.SubResource{ID: pip3.ID}
 	bad.Properties.RequestRoutingRules[0].Properties.HTTPListener = agwRef("agw3", "httpListeners", "listener")
 	bad.Properties.RequestRoutingRules[0].Properties.BackendAddressPool = agwRef("agw3", "backendAddressPools", "pool")
-	bad.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef("agw3", "backendHttpSettingsCollection", "settings")
-	bad.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef("agw3", "frontendIPConfigurations", "fe")
+	bad.Properties.RequestRoutingRules[0].Properties.BackendHTTPSettings = agwRef(
+		"agw3",
+		"backendHttpSettingsCollection",
+		"settings",
+	)
+	bad.Properties.HTTPListeners[0].Properties.FrontendIPConfiguration = agwRef(
+		"agw3",
+		"frontendIPConfigurations",
+		"fe",
+	)
 	bad.Properties.HTTPListeners[0].Properties.FrontendPort = agwRef("agw3", "frontendPorts", "port80")
 	bad.Properties.FrontendIPConfigurations = append(bad.Properties.FrontendIPConfigurations,
 		&armnetwork.ApplicationGatewayFrontendIPConfiguration{
-			Name:       new("priv"),
-			Properties: &armnetwork.ApplicationGatewayFrontendIPConfigurationPropertiesFormat{Subnet: &armnetwork.SubResource{ID: &f.otherSubnet}},
+			Name: new("priv"),
+			Properties: &armnetwork.ApplicationGatewayFrontendIPConfigurationPropertiesFormat{
+				Subnet: &armnetwork.SubResource{ID: &f.otherSubnet},
+			},
 		})
 
 	_, err = f.putGateway(t, "agw3", bad)
@@ -480,8 +541,10 @@ func TestNetworkSDK_AppGatewayNICPoolMembership(t *testing.T) {
 				IPConfigurations: []*armnetwork.InterfaceIPConfiguration{{
 					Name: new("ipconfig1"),
 					Properties: &armnetwork.InterfaceIPConfigurationPropertiesFormat{
-						Subnet:                          &armnetwork.Subnet{ID: &f.otherSubnet},
-						ApplicationGatewayBackendAddressPools: []*armnetwork.ApplicationGatewayBackendAddressPool{{ID: &pool}},
+						Subnet: &armnetwork.Subnet{ID: &f.otherSubnet},
+						ApplicationGatewayBackendAddressPools: []*armnetwork.ApplicationGatewayBackendAddressPool{
+							{ID: &pool},
+						},
 					},
 				}},
 			},
@@ -568,7 +631,10 @@ func TestNetworkSDK_AppGatewaySSLCertificate(t *testing.T) {
 	}{
 		{
 			name: "pfx",
-			cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{Data: &data, Password: new("pfx-password")},
+			cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{
+				Data:     &data,
+				Password: new("pfx-password"),
+			},
 		},
 		{
 			name: "wrong password", wantCode: "InvalidRequestFormat",
@@ -580,10 +646,16 @@ func TestNetworkSDK_AppGatewaySSLCertificate(t *testing.T) {
 		},
 		{
 			name: "data and key vault", wantCode: "InvalidRequestFormat",
-			cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{Data: &data, KeyVaultSecretID: new("https://kv/secret")},
+			cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{
+				Data:             &data,
+				KeyVaultSecretID: new("https://kv/secret"),
+			},
 		},
 		{
-			name: "key vault", cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{KeyVaultSecretID: new("https://kv/secret")},
+			name: "key vault",
+			cert: armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{
+				KeyVaultSecretID: new("https://kv/secret"),
+			},
 		},
 	}
 
@@ -593,10 +665,17 @@ func TestNetworkSDK_AppGatewaySSLCertificate(t *testing.T) {
 
 			f := newAGWFixture(t)
 			gw := f.gateway(agwName)
-			gw.Properties.SSLCertificates = []*armnetwork.ApplicationGatewaySSLCertificate{{Name: new("cert"), Properties: &tc.cert}}
-			gw.Properties.FrontendPorts = append(gw.Properties.FrontendPorts, &armnetwork.ApplicationGatewayFrontendPort{
-				Name: new("port443"), Properties: &armnetwork.ApplicationGatewayFrontendPortPropertiesFormat{Port: new(int32(443))},
-			})
+			gw.Properties.SSLCertificates = []*armnetwork.ApplicationGatewaySSLCertificate{
+				{Name: new("cert"), Properties: &tc.cert},
+			}
+			gw.Properties.FrontendPorts = append(
+				gw.Properties.FrontendPorts,
+				&armnetwork.ApplicationGatewayFrontendPort{
+					Name: new(
+						"port443",
+					), Properties: &armnetwork.ApplicationGatewayFrontendPortPropertiesFormat{Port: new(int32(443))},
+				},
+			)
 			gw.Properties.HTTPListeners[0].Properties.Protocol = new(armnetwork.ApplicationGatewayProtocolHTTPS)
 			gw.Properties.HTTPListeners[0].Properties.FrontendPort = agwRef(agwName, "frontendPorts", "port443")
 			gw.Properties.HTTPListeners[0].Properties.SSLCertificate = agwRef(agwName, "sslCertificates", "cert")
@@ -659,9 +738,11 @@ func (f *agwFixture) wafPolicy(t *testing.T, name string, mode armnetwork.WebApp
 					RuleType: new(armnetwork.WebApplicationFirewallRuleTypeMatchRule),
 					Action:   new(armnetwork.WebApplicationFirewallActionBlock),
 					MatchConditions: []*armnetwork.MatchCondition{{
-						MatchVariables: []*armnetwork.MatchVariable{{VariableName: new(armnetwork.WebApplicationFirewallMatchVariableRemoteAddr)}},
-						Operator:       new(armnetwork.WebApplicationFirewallOperatorIPMatch),
-						MatchValues:    []*string{new("203.0.113.0/24")},
+						MatchVariables: []*armnetwork.MatchVariable{
+							{VariableName: new(armnetwork.WebApplicationFirewallMatchVariableRemoteAddr)},
+						},
+						Operator:    new(armnetwork.WebApplicationFirewallOperatorIPMatch),
+						MatchValues: []*string{new("203.0.113.0/24")},
 					}},
 				}},
 			},
@@ -826,7 +907,11 @@ func TestNetworkSDK_AppGatewayBackendHealth(t *testing.T) {
 		code       int
 	}{
 		{name: "up", code: http.StatusOK, wantHealth: armnetwork.ApplicationGatewayBackendHealthServerHealthUp},
-		{name: "down", code: http.StatusInternalServerError, wantHealth: armnetwork.ApplicationGatewayBackendHealthServerHealthDown},
+		{
+			name:       "down",
+			code:       http.StatusInternalServerError,
+			wantHealth: armnetwork.ApplicationGatewayBackendHealthServerHealthDown,
+		},
 	}
 
 	for _, tc := range tests {
@@ -842,7 +927,11 @@ func TestNetworkSDK_AppGatewayBackendHealth(t *testing.T) {
 		require.Len(t, servers, 2, tc.name)
 		assert.Equal(t, tc.wantHealth, *servers[0].Health, tc.name)
 		assert.Equal(t, armnetwork.ApplicationGatewayBackendHealthServerHealthUnknown, *servers[1].Health, tc.name)
-		assert.Equal(t, agwChild(agwName, "backendAddressPools", "pool"), *res.BackendAddressPools[0].BackendAddressPool.ID)
+		assert.Equal(
+			t,
+			agwChild(agwName, "backendAddressPools", "pool"),
+			*res.BackendAddressPools[0].BackendAddressPool.ID,
+		)
 	}
 }
 
@@ -854,7 +943,9 @@ func TestNetworkSDK_AppGatewayPersistence(t *testing.T) {
 
 	gw := f.gateway(agwName)
 	gw.Properties.SSLCertificates = []*armnetwork.ApplicationGatewaySSLCertificate{{
-		Name: new("cert"), Properties: &armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{Data: &data, Password: new("pw")},
+		Name: new(
+			"cert",
+		), Properties: &armnetwork.ApplicationGatewaySSLCertificatePropertiesFormat{Data: &data, Password: new("pw")},
 	}}
 
 	_, err := f.putGateway(t, agwName, gw)

@@ -31,18 +31,20 @@ const (
 	fwTierBasic     = "Basic"
 	fwPropPolicy    = "firewallPolicy"
 	fwPropTI        = "threatIntelMode"
+	fwTIOff         = "Off"
+	fwAny           = "Any"
+	fwPropIPs       = "ipAddresses"
 	fwMaxPort       = 64000
 )
 
 //nolint:gochecknoglobals // read-only tables
 var (
-	fwKidTypes   = []string{fwIPConfigs, fwMgmtConfig, fwAppRCs, fwNatRCs, fwNetRCs}
-	fwTiers      = []string{fwTierStd, fwTierPrem, fwTierBasic}
-	fwTIModes    = []string{"Alert", "Deny", "Off"}
-	fwNetProtos  = []string{"TCP", "UDP", "ICMP", "Any"}
-	fwNatProtos  = []string{"TCP", "UDP", "Any"}
-	fwAppProtos  = []string{"Http", "Https", "Mssql"}
-	fwIPGroupKey = []string{"sourceIpGroups", "destinationIpGroups"}
+	fwKidTypes  = []string{fwIPConfigs, fwMgmtConfig, fwAppRCs, fwNatRCs, fwNetRCs}
+	fwTiers     = []string{fwTierStd, fwTierPrem, fwTierBasic}
+	fwTIModes   = []string{"Alert", ruleDeny, fwTIOff}
+	fwNetProtos = []string{"TCP", "UDP", "ICMP", fwAny}
+	fwNatProtos = []string{"TCP", "UDP", fwAny}
+	fwAppProtos = []string{"Http", "Https", "Mssql"}
 )
 
 func fwSegment(kt string) string {
@@ -77,10 +79,10 @@ func validIPGroupAddress(s string) bool {
 
 func (p *NetworkProvider) putIPGroup(id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	props := propsOf(body)
-	addrs := make([]any, 0, len(anyList(props["ipAddresses"])))
+	addrs := make([]any, 0, len(anyList(props[fwPropIPs])))
 	seen := map[string]bool{}
 
-	for _, a := range strList(props["ipAddresses"]) {
+	for _, a := range strList(props[fwPropIPs]) {
 		if !validIPGroupAddress(a) {
 			return nil, false, netErr(http.StatusBadRequest, "InvalidIpAddressInIpGroup",
 				"IP group %s contains the invalid entry %s; use an IP address, a CIDR range or an address range.",
@@ -95,7 +97,7 @@ func (p *NetworkProvider) putIPGroup(id ResourceID, body map[string]any) (map[st
 	}
 
 	it, obj, created := p.upsertTop(netIPGroups, id, body)
-	obj.Props = map[string]any{"ipAddresses": addrs}
+	obj.Props = map[string]any{fwPropIPs: addrs}
 
 	return p.bodyIPGroup(id, it), created, nil
 }
@@ -137,7 +139,9 @@ func ipGroupRefs(v any) []string {
 	return out
 }
 
-func (p *NetworkProvider) ipGroupUsers(groupID string) (fws, pols []string) {
+func (p *NetworkProvider) ipGroupUsers(groupID string) ([]string, []string) {
+	var fws, pols []string
+
 	uses := func(kids map[string][]*netObj) bool {
 		for _, list := range kids {
 			for _, k := range list {
@@ -181,12 +185,12 @@ func (p *NetworkProvider) checkIPGroupRefs(v any) error {
 
 type fwCtx struct {
 	taken    map[string]map[string]string
+	prevAddr map[string]string
+	pips     map[string]string
 	id, loc  string
 	tier     string
 	hasMgmt  bool
 	hasPol   bool
-	prevAddr map[string]string
-	pips     map[string]string
 }
 
 func (p *NetworkProvider) putFW(id ResourceID, body map[string]any) (map[string]any, bool, error) {
@@ -197,20 +201,9 @@ func (p *NetworkProvider) putFW(id ResourceID, body map[string]any) (map[string]
 			"Azure Firewall name %s is too long; names are limited to %d characters.", id.Names[0], fwMaxName)
 	}
 
-	sku, _ := props["sku"].(map[string]any)
-
-	name, ok := canonEnum(firstNonEmpty(strOf(sku, fieldName), fwSKUVNet), []string{fwSKUVNet, fwSKUHub})
-	if !ok {
-		return nil, false, netBad("Azure Firewall SKU name must be AZFW_VNet or AZFW_Hub.")
-	}
-
-	if name == fwSKUHub || props["virtualHub"] != nil {
-		return nil, false, netBad("Azure Firewalls in virtual hubs (AZFW_Hub) are not supported by this emulator.")
-	}
-
-	tier, ok := canonEnum(firstNonEmpty(strOf(sku, netFieldTier), fwTierStd), fwTiers)
-	if !ok {
-		return nil, false, netBad("Azure Firewall SKU tier must be Standard, Premium or Basic.")
+	skuName, tier, err := parseFWSKU(props)
+	if err != nil {
+		return nil, false, err
 	}
 
 	ti, ok := canonEnum(firstNonEmpty(strOf(props, fwPropTI), "Alert"), fwTIModes)
@@ -225,7 +218,14 @@ func (p *NetworkProvider) putFW(id ResourceID, body map[string]any) (map[string]
 		loc = old.Obj.Location
 	}
 
-	c := &fwCtx{id: id.ARMID(), loc: loc, tier: tier, taken: p.usedAddrsSkip("", id.ARMID()), prevAddr: map[string]string{}, pips: map[string]string{}}
+	c := &fwCtx{
+		id:       id.ARMID(),
+		loc:      loc,
+		tier:     tier,
+		taken:    p.usedAddrsSkip("", id.ARMID()),
+		prevAddr: map[string]string{},
+		pips:     map[string]string{},
+	}
 	c.hasMgmt = props[fwMgmtConfig] != nil
 
 	if old != nil {
@@ -250,7 +250,7 @@ func (p *NetworkProvider) putFW(id ResourceID, body map[string]any) (map[string]
 
 	it, obj, created := p.upsertTop(netFWs, id, body)
 	drop := append([]string{
-		fieldProvisioningState, "hubIPAddresses", "ipGroups", "sku", fwPropPolicy, "virtualHub",
+		fieldProvisioningState, "hubIPAddresses", "ipGroups", agwPropSKU, fwPropPolicy, "virtualHub",
 	}, fwKidTypes...)
 	obj.Props = takeProps(body, drop...)
 	obj.Props[fwPropTI] = ti
@@ -259,7 +259,7 @@ func (p *NetworkProvider) putFW(id ResourceID, body map[string]any) (map[string]
 		obj.Props[fwPropPolicy] = idRef(pol)
 	}
 
-	obj.Props["sku"] = map[string]any{fieldName: name, netFieldTier: tier}
+	obj.Props[agwPropSKU] = map[string]any{fieldName: skuName, netFieldTier: tier}
 	obj.Extra = map[string]any{}
 
 	if z, has := body[netFieldZones]; has {
@@ -296,7 +296,7 @@ func (p *NetworkProvider) fwPolicyRef(c *fwCtx, props map[string]any) (string, e
 }
 
 func policyTier(pol *netParent) string {
-	sku, _ := pol.Obj.Props["sku"].(map[string]any)
+	sku, _ := pol.Obj.Props[agwPropSKU].(map[string]any)
 
 	return firstNonEmpty(strOf(sku, netFieldTier), fwTierStd)
 }
@@ -333,7 +333,10 @@ func (p *NetworkProvider) buildFWKids(c *fwCtx, props map[string]any) (map[strin
 	}
 
 	if subnets != 1 {
-		return nil, netBad("Exactly one IP configuration of an Azure Firewall must reference the %s subnet.", fwSubnetName)
+		return nil, netBad(
+			"Exactly one IP configuration of an Azure Firewall must reference the %s subnet.",
+			fwSubnetName,
+		)
 	}
 
 	if m, ok := props[fwMgmtConfig].(map[string]any); ok {
@@ -349,7 +352,7 @@ func (p *NetworkProvider) buildFWKids(c *fwCtx, props map[string]any) (map[strin
 		return nil, netBad("Azure Firewall Basic requires managementIpConfiguration.")
 	}
 
-	if err := p.buildFWClassic(c, props, kids); err != nil {
+	if err := p.buildFWClassic(props, kids); err != nil {
 		return nil, err
 	}
 
@@ -369,29 +372,9 @@ func (p *NetworkProvider) normFWIPConfig(c *fwCtx, kt string, raw any, mgmt bool
 	self := c.id + "/" + fwSegment(kt) + "/" + name
 
 	if pid := subID(cp, "publicIPAddress"); pid != "" {
-		pip, ok := p.netRef(pid, netPIPs)
-		if !ok || (c.loc != "" && pip.Obj.Location != c.loc) {
-			return nil, refMissing(pid)
+		if err := p.bindFWPublicIP(c, self, pid, out); err != nil {
+			return nil, err
 		}
-
-		if sk, _ := pip.Obj.Extra[netFieldSKU].(map[string]any); strOf(sk, fieldName) != skuStandard ||
-			strOf(pip.Obj.Props, "publicIPAllocationMethod") != methodStatic {
-			return nil, netErr(http.StatusBadRequest, "AzureFirewallPublicIpNotStandardStatic",
-				"Public IP %s must use the Standard SKU with Static allocation to be used by an Azure Firewall.", pid)
-		}
-
-		if user := p.pipHolder(pip.armID()); user != "" && !strings.EqualFold(user, self) {
-			return nil, netErr(http.StatusBadRequest, "PublicIPAddressInUse",
-				"Public IP address %s is already allocated to resource %s.", pid, user)
-		}
-
-		if other, dup := c.pips[strings.ToLower(pid)]; dup {
-			return nil, netErr(http.StatusBadRequest, "PublicIPAddressInUse",
-				"Public IP address %s is already allocated to %s.", pid, other)
-		}
-
-		c.pips[strings.ToLower(pid)] = self
-		out["publicIPAddress"] = idRef(pid)
 	} else if mgmt {
 		return nil, netBad("The management IP configuration %s requires a public IP address.", name)
 	}
@@ -530,4 +513,83 @@ func (p *NetworkProvider) fwConfigUsers(key, target string) []string {
 
 func (p *NetworkProvider) fwSubnetUsers(subnetID string) []string {
 	return p.fwConfigUsers(netFieldSubnet, subnetID)
+}
+
+func (p *NetworkProvider) putGatewayTop(top string, id ResourceID, body map[string]any) (map[string]any, bool, error) {
+	switch top {
+	case netAGWs:
+		return p.putAGW(id, body)
+	case netWAFs:
+		return p.putWAF(id, body)
+	case netFWs:
+		return p.putFW(id, body)
+	case netFWPols:
+		return p.putFWPol(id, body)
+	default:
+		return p.putIPGroup(id, body)
+	}
+}
+
+func (p *NetworkProvider) bodyGatewayTop(id ResourceID, it *netParent) map[string]any {
+	switch it.Type {
+	case netAGWs:
+		return p.bodyAGW(id, it)
+	case netWAFs:
+		return p.bodyWAF(id, it)
+	case netFWs:
+		return p.bodyFW(id, it)
+	case netFWPols:
+		return p.bodyFWPol(id, it)
+	default:
+		return p.bodyIPGroup(id, it)
+	}
+}
+
+func parseFWSKU(props map[string]any) (string, string, error) {
+	sku, _ := props[agwPropSKU].(map[string]any)
+
+	name, ok := canonEnum(firstNonEmpty(strOf(sku, fieldName), fwSKUVNet), []string{fwSKUVNet, fwSKUHub})
+	if !ok {
+		return "", "", netBad("Azure Firewall SKU name must be AZFW_VNet or AZFW_Hub.")
+	}
+
+	if name == fwSKUHub || props["virtualHub"] != nil {
+		return "", "", netBad("Azure Firewalls in virtual hubs (AZFW_Hub) are not supported by this emulator.")
+	}
+
+	tier, ok := canonEnum(firstNonEmpty(strOf(sku, netFieldTier), fwTierStd), fwTiers)
+	if !ok {
+		return "", "", netBad("Azure Firewall SKU tier must be Standard, Premium or Basic.")
+	}
+
+	return name, tier, nil
+}
+
+// bindFWPublicIP checks a firewall public IP (Standard, Static, one holder) and records it in out.
+func (p *NetworkProvider) bindFWPublicIP(c *fwCtx, self, pid string, out map[string]any) error {
+	pip, ok := p.netRef(pid, netPIPs)
+	if !ok || (c.loc != "" && pip.Obj.Location != c.loc) {
+		return refMissing(pid)
+	}
+
+	if sk, _ := pip.Obj.Extra[netFieldSKU].(map[string]any); strOf(sk, fieldName) != skuStandard ||
+		strOf(pip.Obj.Props, "publicIPAllocationMethod") != methodStatic {
+		return netErr(http.StatusBadRequest, "AzureFirewallPublicIpNotStandardStatic",
+			"Public IP %s must use the Standard SKU with Static allocation to be used by an Azure Firewall.", pid)
+	}
+
+	if user := p.pipHolder(pip.armID()); user != "" && !strings.EqualFold(user, self) {
+		return netErr(http.StatusBadRequest, "PublicIPAddressInUse",
+			"Public IP address %s is already allocated to resource %s.", pid, user)
+	}
+
+	if other, dup := c.pips[strings.ToLower(pid)]; dup {
+		return netErr(http.StatusBadRequest, "PublicIPAddressInUse",
+			"Public IP address %s is already allocated to %s.", pid, other)
+	}
+
+	c.pips[strings.ToLower(pid)] = self
+	out["publicIPAddress"] = idRef(pid)
+
+	return nil
 }

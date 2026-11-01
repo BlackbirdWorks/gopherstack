@@ -2,7 +2,6 @@ package azurearm
 
 import (
 	"encoding/base64"
-	"fmt"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -53,6 +52,7 @@ const (
 	agwProtoHTTPS = "Https"
 	agwPropPolicy = "firewallPolicy"
 	agwPropSKU    = "sku"
+	agwPropPort   = "port"
 	agwPropData   = "data"
 	agwPropKV     = "keyVaultSecretId"
 	agwPropPub    = "publicCertData"
@@ -114,15 +114,17 @@ var agwListRefSpecs = []agwRefSpec{
 	{agwSSLProfiles, agwClientCerts, agwClientCerts},
 }
 
-var agwFQDNRe = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+var agwFQDNRe = regexp.MustCompile(
+	`^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`,
+)
 
 type agwCtx struct {
-	taken               map[string]map[string]string
-	id, loc, sku, tier  string
-	gwSubnet            string
-	hasAutoscale        bool
-	pips                map[string]string
-	v2                  bool
+	taken              map[string]map[string]string
+	pips               map[string]string
+	id, loc, sku, tier string
+	gwSubnet           string
+	hasAutoscale       bool
+	v2                 bool
 }
 
 func (c *agwCtx) kidID(kt, name string) string { return c.id + "/" + kt + "/" + name }
@@ -213,7 +215,8 @@ func (p *NetworkProvider) putAGW(id ResourceID, body map[string]any) (map[string
 	}
 
 	c := &agwCtx{
-		id: id.ARMID(), loc: loc, sku: name, tier: tier, v2: true, taken: p.usedAddrsSkip("", id.ARMID()), pips: map[string]string{},
+		id: id.ARMID(), loc: loc, sku: name, tier: tier, v2: true,
+		taken: p.usedAddrsSkip("", id.ARMID()), pips: map[string]string{},
 		hasAutoscale: props[agwPropAuto] != nil,
 	}
 
@@ -239,7 +242,7 @@ func (p *NetworkProvider) putAGW(id ResourceID, body map[string]any) (map[string
 
 	it, obj, created := p.upsertTop(netAGWs, id, body)
 	drop := append([]string{
-		agwPropSKU, fieldProvisioningState, netFieldResourceGUID, "operationalState", "privateEndpointConnections",
+		agwPropSKU, fieldProvisioningState, netFieldResourceGUID, "operationalState", acaFieldPEC,
 		"defaultPredefinedSslPolicy", agwPropPolicy,
 	}, agwKidTypes...)
 	drop = append(drop, agwUnsupported...)
@@ -321,7 +324,12 @@ func (p *NetworkProvider) buildAGWKids(c *agwCtx, kt string, raw any, prevList [
 	return out, nil
 }
 
-func (p *NetworkProvider) normAGWKid(c *agwCtx, kt, name string, props map[string]any, prev *netObj) (map[string]any, error) {
+func (p *NetworkProvider) normAGWKid(
+	c *agwCtx,
+	kt, name string,
+	props map[string]any,
+	prev *netObj,
+) (map[string]any, error) {
 	out := takeProps(map[string]any{fieldProperties: props}, fieldProvisioningState, agwPropPub)
 
 	var prevProps map[string]any
@@ -335,7 +343,7 @@ func (p *NetworkProvider) normAGWKid(c *agwCtx, kt, name string, props map[strin
 	case agwFrontends:
 		return p.normAGWFrontend(c, name, out, prevProps)
 	case agwPorts:
-		_, err := intIn(out, "port", 1, agwMaxPort, -1)
+		_, err := intIn(out, agwPropPort, 1, agwMaxPort, -1)
 
 		return out, err
 	case agwPools:
@@ -385,7 +393,10 @@ func (p *NetworkProvider) normAGWFrontend(
 	self := c.kidID(agwFrontends, name)
 
 	if (pipID == "") == (sid == "") {
-		return nil, netBad("Frontend IP configuration %s must reference exactly one of publicIPAddress or subnet.", name)
+		return nil, netBad(
+			"Frontend IP configuration %s must reference exactly one of publicIPAddress or subnet.",
+			name,
+		)
 	}
 
 	delete(out, "privateLinkConfiguration")
@@ -398,8 +409,12 @@ func (p *NetworkProvider) normAGWFrontend(
 
 		if sk, _ := pip.Obj.Extra[netFieldSKU].(map[string]any); strOf(sk, fieldName) != skuStandard ||
 			strOf(pip.Obj.Props, "publicIPAllocationMethod") != methodStatic {
-			return nil, netErr(http.StatusBadRequest, "ApplicationGatewayV2PublicIpNotStandardStatic",
-				"Public IP %s must use the Standard SKU with Static allocation to be used by an Application Gateway v2.", pipID)
+			return nil, netErr(
+				http.StatusBadRequest,
+				"ApplicationGatewayV2PublicIpNotStandardStatic",
+				"Public IP %s must use the Standard SKU with Static allocation to be used by an Application Gateway v2.",
+				pipID,
+			)
 		}
 
 		if user := p.pipHolder(pip.armID()); user != "" && !strings.EqualFold(user, self) {
@@ -500,7 +515,7 @@ func normAGWPool(name string, out map[string]any) (map[string]any, error) {
 const fqdnMax = 253
 
 func normAGWSettings(name string, out map[string]any) (map[string]any, error) {
-	if _, err := intIn(out, "port", 1, agwMaxPort, -1); err != nil {
+	if _, err := intIn(out, agwPropPort, 1, agwMaxPort, -1); err != nil {
 		return nil, err
 	}
 
@@ -511,7 +526,10 @@ func normAGWSettings(name string, out map[string]any) (map[string]any, error) {
 
 	out[propProtocol] = proto
 
-	aff, ok := canonEnum(firstNonEmpty(strOf(out, "cookieBasedAffinity"), netDisabled), []string{netEnabled, netDisabled})
+	aff, ok := canonEnum(
+		firstNonEmpty(strOf(out, "cookieBasedAffinity"), netDisabled),
+		[]string{netEnabled, netDisabled},
+	)
 	if !ok {
 		return nil, netBad("Backend HTTP settings %s: cookieBasedAffinity must be Enabled or Disabled.", name)
 	}
@@ -533,7 +551,7 @@ func normAGWSettings(name string, out map[string]any) (map[string]any, error) {
 		return nil, netBad("Backend HTTP settings %s: path must start with '/'.", name)
 	}
 
-	if cd, ok := out["connectionDraining"].(map[string]any); ok {
+	if cd, isMap := out["connectionDraining"].(map[string]any); isMap {
 		if _, err = intIn(cd, "drainTimeoutInSec", 1, connDrainMax, -1); err != nil {
 			return nil, err
 		}
@@ -619,8 +637,10 @@ func normAGWProbe(name string, out map[string]any) (map[string]any, error) {
 		key    string
 		lo, hi int
 	}{
-		{"interval", 1, agwMaxTimeout}, {"timeout", 1, agwMaxTimeout}, {"unhealthyThreshold", 1, probeMaxThreshold},
-		{"port", 1, agwMaxPort},
+		{"interval", 1, agwMaxTimeout},
+		{"timeout", 1, agwMaxTimeout},
+		{"unhealthyThreshold", 1, probeMaxThreshold},
+		{agwPropPort, 1, agwMaxPort},
 	} {
 		if _, has := out[spec.key]; !has {
 			continue
@@ -637,7 +657,10 @@ func normAGWProbe(name string, out map[string]any) (map[string]any, error) {
 func normAGWRedirect(name string, out map[string]any) (map[string]any, error) {
 	rt, ok := canonEnum(strOf(out, "redirectType"), []string{"Permanent", "Found", "SeeOther", "Temporary"})
 	if !ok {
-		return nil, netBad("Redirect configuration %s: redirectType must be Permanent, Found, SeeOther or Temporary.", name)
+		return nil, netBad(
+			"Redirect configuration %s: redirectType must be Permanent, Found, SeeOther or Temporary.",
+			name,
+		)
 	}
 
 	out["redirectType"] = rt
@@ -700,9 +723,9 @@ func normAGWCert(name string, in, prev map[string]any) (map[string]any, error) {
 	case data != "" && kv != "":
 		return nil, netBad("SSL certificate %s must set exactly one of data or keyVaultSecretId.", name)
 	case data != "":
-		pub, err := publicCertOf(data, strOf(in, "password"))
+		pub, err := publicCertOf(name, data, strOf(in, "password"))
 		if err != nil {
-			return nil, netBad("SSL certificate %s: %s", name, err.Error())
+			return nil, err
 		}
 
 		out[agwPropPub] = pub
@@ -717,15 +740,15 @@ func normAGWCert(name string, in, prev map[string]any) (map[string]any, error) {
 	return out, nil
 }
 
-func publicCertOf(data, password string) (string, error) {
+func publicCertOf(name, data, password string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
-		return "", fmt.Errorf("data is not valid base64")
+		return "", netBad("SSL certificate %s: data is not valid base64.", name)
 	}
 
 	_, leaf, _, err := pkcs12.DecodeChain(raw, password)
 	if err != nil {
-		return "", fmt.Errorf("data is not a valid PFX or the password is wrong")
+		return "", netBad("SSL certificate %s: data is not a valid PFX or the password is wrong.", name)
 	}
 
 	return base64.StdEncoding.EncodeToString(leaf.Raw), nil
@@ -750,7 +773,7 @@ func (p *NetworkProvider) validateAGW(c *agwCtx, props map[string]any, kids map[
 		return err
 	}
 
-	if err := checkAGWRules(c, kids); err != nil {
+	if err := checkAGWRules(kids); err != nil {
 		return err
 	}
 
@@ -774,7 +797,10 @@ func (p *NetworkProvider) checkAGWSubnet(c *agwCtx, kids map[string][]*netObj) e
 
 	for _, f := range kids[agwFrontends] {
 		if sid := subID(f.Props, netFieldSubnet); sid != "" && !strings.EqualFold(sid, c.gwSubnet) {
-			return netBad("Private frontend IP configuration %s must use the subnet of the gateway IP configuration.", f.Name)
+			return netBad(
+				"Private frontend IP configuration %s must use the subnet of the gateway IP configuration.",
+				f.Name,
+			)
 		}
 	}
 
@@ -842,7 +868,7 @@ func agwCheckRef(c *agwCtx, kids map[string][]*netObj, owner *netObj, v any, tar
 	return nil
 }
 
-func checkAGWRules(c *agwCtx, kids map[string][]*netObj) error {
+func checkAGWRules(kids map[string][]*netObj) error {
 	prios := map[int]string{}
 	used := map[string]string{}
 
@@ -898,7 +924,7 @@ func checkAGWListeners(kids map[string][]*netObj) error {
 	ports := map[int]string{}
 
 	for _, po := range kids[agwPorts] {
-		pn := intOf(po.Props["port"])
+		pn := intOf(po.Props[agwPropPort])
 		if other, dup := ports[pn]; dup {
 			return netBad("Frontend ports %s and %s use the same port %d.", other, po.Name, pn)
 		}
@@ -916,8 +942,10 @@ func checkAGWListeners(kids map[string][]*netObj) error {
 
 		slices.Sort(hosts)
 
-		key := strings.ToLower(refIDOf(l.Props["frontendIPConfiguration"]) + "|" + refIDOf(l.Props["frontendPort"]) + "|" +
-			strings.Join(hosts, ","))
+		key := strings.ToLower(
+			refIDOf(l.Props["frontendIPConfiguration"]) + "|" + refIDOf(l.Props["frontendPort"]) + "|" +
+				strings.Join(hosts, ","),
+		)
 		if other, dup := seen[key]; dup {
 			return netBad("HTTP listeners %s and %s use the same frontend IP, port and host names.", other, l.Name)
 		}
@@ -938,41 +966,51 @@ func checkAGWPathMaps(c *agwCtx, kids map[string][]*netObj) error {
 
 		for _, e := range anyList(pm.Props[agwPropPathRs]) {
 			m, _ := e.(map[string]any)
-			rn := strOf(m, fieldName)
-
-			if err := validNetName(rn, netMaxName); err != nil {
+			if err := checkAGWPathRule(c, kids, pm, seen, m); err != nil {
 				return err
 			}
+		}
+	}
 
-			if seen[strings.ToLower(rn)] {
-				return netBad("URL path map %s uses path rule name %s more than once.", pm.Name, rn)
-			}
+	return nil
+}
 
-			seen[strings.ToLower(rn)] = true
+func checkAGWPathRule(c *agwCtx, kids map[string][]*netObj, pm *netObj, seen map[string]bool, m map[string]any) error {
+	rn := strOf(m, fieldName)
 
-			rp := propsOf(m)
-			if len(strList(rp["paths"])) == 0 {
-				return netBad("Path rule %s of URL path map %s requires at least one path.", rn, pm.Name)
-			}
+	if err := validNetName(rn, netMaxName); err != nil {
+		return err
+	}
 
-			for _, pth := range strList(rp["paths"]) {
-				if !strings.HasPrefix(pth, "/") {
-					return netBad("Path %s of path rule %s must start with '/'.", pth, rn)
-				}
-			}
+	if seen[strings.ToLower(rn)] {
+		return netBad("URL path map %s uses path rule name %s more than once.", pm.Name, rn)
+	}
 
-			if err := checkAGWDefaultTarget(rn, rp, ""); err != nil {
-				return err
-			}
+	seen[strings.ToLower(rn)] = true
 
-			for _, s := range []agwRefSpec{
-				{key: agwPropPool, target: agwPools}, {key: agwPropHTTPS, target: agwSettings},
-				{key: agwPropRedir, target: agwRedirects}, {key: agwPropRewr, target: agwRewrites},
-			} {
-				if err := agwCheckRef(c, kids, pm, rp[s.key], s.target); err != nil {
-					return err
-				}
-			}
+	rp := propsOf(m)
+	if len(strList(rp["paths"])) == 0 {
+		return netBad("Path rule %s of URL path map %s requires at least one path.", rn, pm.Name)
+	}
+
+	for _, pth := range strList(rp["paths"]) {
+		if !strings.HasPrefix(pth, "/") {
+			return netBad("Path %s of path rule %s must start with '/'.", pth, rn)
+		}
+	}
+
+	if err := checkAGWDefaultTarget(rn, rp, ""); err != nil {
+		return err
+	}
+
+	for _, s := range []agwRefSpec{
+		{key: agwPropPool, target: agwPools},
+		{key: agwPropHTTPS, target: agwSettings},
+		{key: agwPropRedir, target: agwRedirects},
+		{key: agwPropRewr, target: agwRewrites},
+	} {
+		if err := agwCheckRef(c, kids, pm, rp[s.key], s.target); err != nil {
+			return err
 		}
 	}
 
@@ -1000,6 +1038,40 @@ func checkAGWDefaultTarget(name string, props map[string]any, prefix string) err
 }
 
 func (p *NetworkProvider) checkAGWWAF(c *agwCtx, props map[string]any, kids map[string][]*netObj) error {
+	refs := agwPolicyRefs(props, kids)
+
+	for _, ref := range refs {
+		pol, ok := p.netRef(ref, netWAFs)
+		if !ok || (c.loc != "" && pol.Obj.Location != c.loc) {
+			return refMissing(ref)
+		}
+	}
+
+	waf, _ := props[agwPropWAFCfg].(map[string]any)
+	enabled, _ := waf["enabled"].(bool)
+
+	if c.tier != agwSKUWAFV2 && (len(refs) > 0 || enabled) {
+		return netErr(http.StatusBadRequest, "ApplicationGatewayFirewallPolicyRequiresWafSku",
+			"Web application firewall settings can only be used with the WAF_v2 SKU; gateway %s uses %s.", c.id, c.tier)
+	}
+
+	if !enabled {
+		return nil
+	}
+
+	if _, ok := canonEnum(strOf(waf, "firewallMode"), []string{"Detection", "Prevention"}); !ok {
+		return netBad("webApplicationFirewallConfiguration.firewallMode must be Detection or Prevention.")
+	}
+
+	if strOf(waf, "ruleSetType") == "" || strOf(waf, "ruleSetVersion") == "" {
+		return netBad("webApplicationFirewallConfiguration requires ruleSetType and ruleSetVersion.")
+	}
+
+	return nil
+}
+
+// agwPolicyRefs lists the firewall policy ids set on the gateway, its listeners and its path rules.
+func agwPolicyRefs(props map[string]any, kids map[string][]*netObj) []string {
 	var refs []string
 
 	if pol := subID(props, agwPropPolicy); pol != "" {
@@ -1021,32 +1093,7 @@ func (p *NetworkProvider) checkAGWWAF(c *agwCtx, props map[string]any, kids map[
 		}
 	}
 
-	for _, ref := range refs {
-		pol, ok := p.netRef(ref, netWAFs)
-		if !ok || (c.loc != "" && pol.Obj.Location != c.loc) {
-			return refMissing(ref)
-		}
-	}
-
-	waf, _ := props[agwPropWAFCfg].(map[string]any)
-	enabled, _ := waf["enabled"].(bool)
-
-	if c.tier != agwSKUWAFV2 && (len(refs) > 0 || enabled) {
-		return netErr(http.StatusBadRequest, "ApplicationGatewayFirewallPolicyRequiresWafSku",
-			"Web application firewall settings can only be used with the WAF_v2 SKU; gateway %s uses %s.", c.id, c.tier)
-	}
-
-	if enabled {
-		if _, ok := canonEnum(strOf(waf, "firewallMode"), []string{"Detection", "Prevention"}); !ok {
-			return netBad("webApplicationFirewallConfiguration.firewallMode must be Detection or Prevention.")
-		}
-
-		if strOf(waf, "ruleSetType") == "" || strOf(waf, "ruleSetVersion") == "" {
-			return netBad("webApplicationFirewallConfiguration requires ruleSetType and ruleSetVersion.")
-		}
-	}
-
-	return nil
+	return refs
 }
 
 // --- body ---
@@ -1084,7 +1131,9 @@ func (p *NetworkProvider) bodyAGWKid(gw *netParent, kt string, k *netObj) map[st
 		props["backendIPConfigurations"] = idRefs(p.agwPoolMembers(self))
 	case agwRedirects:
 		props["requestRoutingRules"] = idRefs(refsTo(gw.Kids[agwRules], agwRules, gw.armID(), agwPropRedir, self))
-		props[agwPathMaps] = idRefs(refsTo(gw.Kids[agwPathMaps], agwPathMaps, gw.armID(), "defaultRedirectConfiguration", self))
+		props[agwPathMaps] = idRefs(
+			refsTo(gw.Kids[agwPathMaps], agwPathMaps, gw.armID(), "defaultRedirectConfiguration", self),
+		)
 	}
 
 	props[fieldProvisioningState] = netStatusSucceeded
@@ -1138,20 +1187,19 @@ func (p *NetworkProvider) agwSubnetUsers(subnetID string) []string {
 	return out
 }
 
-// agwPoolByID resolves a reference to a gateway backend pool.
-func (p *NetworkProvider) agwPoolByID(idStr string) (*netObj, bool) {
+func (p *NetworkProvider) agwPoolExists(idStr string) bool {
 	rid, err := ParseGenericResourcePath(idStr)
 	if err != nil || len(rid.Types) != 2 || !strings.EqualFold(rid.Types[0], netAGWs) ||
 		!strings.EqualFold(rid.Types[1], agwPools) || !strings.EqualFold(rid.Namespace, namespaceMicrosoftNetwork) {
-		return nil, false
+		return false
 	}
 
 	gw, ok := p.top(netAGWs, rid.ResourceGroup, rid.Names[0])
 	if !ok {
-		return nil, false
+		return false
 	}
 
-	k, idx := gw.kid(agwPools, rid.Names[1])
+	_, idx := gw.kid(agwPools, rid.Names[1])
 
-	return k, idx >= 0
+	return idx >= 0
 }

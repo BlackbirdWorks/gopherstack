@@ -3,6 +3,7 @@ package azurearm
 import (
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ const (
 
 // --- classic collections on a firewall ---
 
-func (p *NetworkProvider) buildFWClassic(c *fwCtx, props map[string]any, kids map[string][]*netObj) error {
+func (p *NetworkProvider) buildFWClassic(props map[string]any, kids map[string][]*netObj) error {
 	for _, kt := range []string{fwAppRCs, fwNatRCs, fwNetRCs} {
 		prios := map[int]bool{}
 
@@ -75,7 +76,7 @@ func classicCollection(kt, name string, cp map[string]any) (map[string]any, erro
 	out := takeProps(map[string]any{fieldProperties: cp}, fieldProvisioningState)
 
 	act, _ := out["action"].(map[string]any)
-	allowed, kind := []string{"Allow", "Deny"}, fpRuleNet
+	allowed, kind := []string{ruleAllow, ruleDeny}, fpRuleNet
 
 	switch kt {
 	case fwNatRCs:
@@ -84,12 +85,12 @@ func classicCollection(kt, name string, cp map[string]any) (map[string]any, erro
 		kind = fpRuleApp
 	}
 
-	typ, ok := canonEnum(strOf(act, "type"), allowed)
+	typ, ok := canonEnum(strOf(act, fieldType), allowed)
 	if !ok {
 		return nil, netBad("Rule collection %s: action.type must be one of %s.", name, strings.Join(allowed, ", "))
 	}
 
-	out["action"] = map[string]any{"type": typ}
+	out["action"] = map[string]any{fieldType: typ}
 
 	rules := anyList(out[fpPropRules])
 	seen := map[string]bool{}
@@ -179,7 +180,8 @@ func checkFWNetworkRule(name, protoKey string, r map[string]any) error {
 		return err
 	}
 
-	if !nonEmptyStrings(r, fpPropDst) && !nonEmptyStrings(r, "destinationFqdns") && !nonEmptyStrings(r, fpPropDstGroups) {
+	if !nonEmptyStrings(r, fpPropDst) && !nonEmptyStrings(r, "destinationFqdns") &&
+		!nonEmptyStrings(r, fpPropDstGroups) {
 		return netBad("Rule %s requires destinationAddresses, destinationFqdns or destinationIpGroups.", name)
 	}
 
@@ -205,7 +207,10 @@ func checkFWAppRule(name string, r map[string]any, tier string) error {
 
 	if !nonEmptyStrings(r, "targetFqdns") && !nonEmptyStrings(r, "fqdnTags") && !nonEmptyStrings(r, "targetUrls") &&
 		!nonEmptyStrings(r, "webCategories") && !nonEmptyStrings(r, fpPropDst) {
-		return netBad("Rule %s requires targetFqdns, fqdnTags, targetUrls, webCategories or destinationAddresses.", name)
+		return netBad(
+			"Rule %s requires targetFqdns, fqdnTags, targetUrls, webCategories or destinationAddresses.",
+			name,
+		)
 	}
 
 	if tier != fwTierPrem && (nonEmptyStrings(r, "targetUrls") || r["terminateTLS"] == true) {
@@ -236,7 +241,8 @@ func checkFWNatRule(name, protoKey string, r map[string]any) error {
 		return netBad("NAT rule %s requires exactly one of translatedAddress or translatedFqdn.", name)
 	}
 
-	if tp := strOf(r, "translatedPort"); tp == "" || tp == ruleWildcard || !validPortRange(tp) || strings.Contains(tp, "-") {
+	if tp := strOf(r, "translatedPort"); tp == "" || tp == ruleWildcard || !validPortRange(tp) ||
+		strings.Contains(tp, "-") {
 		return netBad("NAT rule %s requires a single translatedPort.", name)
 	}
 
@@ -245,13 +251,13 @@ func checkFWNatRule(name, protoKey string, r map[string]any) error {
 
 // --- firewall policies ---
 
-var fwTIRank = map[string]int{"Off": 0, "Alert": 1, "Deny": 2} //nolint:gochecknoglobals // read-only table
+var fwTIOrder = []string{fwTIOff, "Alert", ruleDeny} //nolint:gochecknoglobals // read-only table, least to most strict
 
 func (p *NetworkProvider) putFWPol(id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	props := propsOf(body)
 	self := id.ARMID()
 
-	sku, _ := props["sku"].(map[string]any)
+	sku, _ := props[agwPropSKU].(map[string]any)
 
 	tier, ok := canonEnum(firstNonEmpty(strOf(sku, netFieldTier), fwTierStd), fwTiers)
 	if !ok {
@@ -283,9 +289,18 @@ func (p *NetworkProvider) putFWPol(id ResourceID, body map[string]any) (map[stri
 	}
 
 	it, obj, created := p.upsertTop(netFWPols, id, body)
-	obj.Props = takeProps(body, fieldProvisioningState, "childPolicies", "firewalls", fpRCGs, "size", fpPropBase, "sku",
-		fwPropTI)
-	obj.Props["sku"] = map[string]any{netFieldTier: tier}
+	obj.Props = takeProps(
+		body,
+		fieldProvisioningState,
+		"childPolicies",
+		"firewalls",
+		fpRCGs,
+		"size",
+		fpPropBase,
+		agwPropSKU,
+		fwPropTI,
+	)
+	obj.Props[agwPropSKU] = map[string]any{netFieldTier: tier}
 
 	if ti != "" {
 		obj.Props[fwPropTI] = ti
@@ -361,7 +376,7 @@ func (p *NetworkProvider) checkPolicyHierarchy(self, loc string, props map[strin
 	}
 
 	parent := strOf(bp.Obj.Props, fwPropTI)
-	if ti != "" && parent != "" && fwTIRank[ti] < fwTIRank[parent] {
+	if ti != "" && parent != "" && slices.Index(fwTIOrder, ti) < slices.Index(fwTIOrder, parent) {
 		return "", netBad("threatIntelMode %s is less strict than the base policy mode %s.", ti, parent)
 	}
 
@@ -516,16 +531,16 @@ func normRuleCollection(tier, name string, m map[string]any) (map[string]any, er
 
 	switch strOf(m, "ruleCollectionType") {
 	case fpFilterRC:
-		if typ, ok := canonEnum(strOf(act, "type"), []string{"Allow", "Deny"}); ok {
-			out["action"] = map[string]any{"type": typ}
+		if typ, ok := canonEnum(strOf(act, fieldType), []string{ruleAllow, ruleDeny}); ok {
+			out["action"] = map[string]any{fieldType: typ}
 		} else {
 			return nil, netBad("Rule collection %s: action.type must be Allow or Deny.", name)
 		}
 
 		kinds = []string{fpRuleNet, fpRuleApp}
 	case fpNatRC:
-		if typ, ok := canonEnum(strOf(act, "type"), []string{"DNAT"}); ok {
-			out["action"] = map[string]any{"type": typ}
+		if typ, ok := canonEnum(strOf(act, fieldType), []string{"DNAT"}); ok {
+			out["action"] = map[string]any{fieldType: typ}
 		} else {
 			return nil, netBad("Rule collection %s: action.type must be DNAT.", name)
 		}
@@ -547,7 +562,12 @@ func normRuleCollection(tier, name string, m map[string]any) (map[string]any, er
 		kind := strOf(rm, "ruleType")
 
 		if !containsFold(kinds, kind) {
-			return nil, netBad("Rule collection %s: ruleType %s is not valid in a %s.", name, kind, strOf(m, "ruleCollectionType"))
+			return nil, netBad(
+				"Rule collection %s: ruleType %s is not valid in a %s.",
+				name,
+				kind,
+				strOf(m, "ruleCollectionType"),
+			)
 		}
 
 		if first == "" {
@@ -571,7 +591,7 @@ func normRuleCollection(tier, name string, m map[string]any) (map[string]any, er
 	return out, nil
 }
 
-func (p *NetworkProvider) bodyRCG(pol *netParent, id ResourceID, g *netObj) map[string]any {
+func (p *NetworkProvider) bodyRCG(pol *netParent, g *netObj) map[string]any {
 	props := map[string]any{}
 
 	maps.Copy(props, g.Props)

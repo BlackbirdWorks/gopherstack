@@ -660,10 +660,6 @@ func (p *NetworkProvider) normalizeIPConfig(
 		return nil, err
 	}
 
-	if users := p.subnetGatewayUsers(sid); len(users) > 0 {
-		return nil, netBad("Subnet %s is reserved by %s and cannot contain network interfaces.", sid, users[0])
-	}
-
 	for _, key := range []string{propNICPools, propNICAGWPools, propNICNATs, propNICASGs} {
 		if list := anyList(cp[key]); len(list) > 0 {
 			ids := make([]string, 0, len(list))
@@ -1017,7 +1013,11 @@ func (p *NetworkProvider) gatewayAddrs(used map[string]map[string]string, skipID
 
 		for _, kt := range []string{fwIPConfigs, fwMgmtConfig} {
 			for _, k := range fw.Kids[kt] {
-				put(subID(k.Props, netFieldSubnet), strOf(k.Props, propPrivateIP), fw.armID()+"/"+fwSegment(kt)+"/"+k.Name)
+				put(
+					subID(k.Props, netFieldSubnet),
+					strOf(k.Props, propPrivateIP),
+					fw.armID()+"/"+fwSegment(kt)+"/"+k.Name,
+				)
 			}
 		}
 	}

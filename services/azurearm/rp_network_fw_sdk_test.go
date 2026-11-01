@@ -69,10 +69,13 @@ func (f *fwFixture) firewall() armnetwork.AzureFirewall {
 	}
 }
 
-func (f *fwFixture) putFirewall(t *testing.T, name string, fw armnetwork.AzureFirewall) (armnetwork.AzureFirewall, error) {
+func (f *fwFixture) putFirewall(
+	t *testing.T,
+	fw armnetwork.AzureFirewall,
+) (armnetwork.AzureFirewall, error) {
 	t.Helper()
 
-	p, err := f.net.NewAzureFirewallsClient().BeginCreateOrUpdate(t.Context(), netRG, name, fw, nil)
+	p, err := f.net.NewAzureFirewallsClient().BeginCreateOrUpdate(t.Context(), netRG, fwName, fw, nil)
 	if err != nil {
 		return armnetwork.AzureFirewall{}, err
 	}
@@ -82,7 +85,11 @@ func (f *fwFixture) putFirewall(t *testing.T, name string, fw armnetwork.AzureFi
 	return res.AzureFirewall, err
 }
 
-func (f *fwFixture) putPolicy(t *testing.T, name, loc string, props armnetwork.FirewallPolicyPropertiesFormat) (armnetwork.FirewallPolicy, error) {
+func (f *fwFixture) putPolicy(
+	t *testing.T,
+	name, loc string,
+	props armnetwork.FirewallPolicyPropertiesFormat,
+) (armnetwork.FirewallPolicy, error) {
 	t.Helper()
 
 	p, err := f.net.NewFirewallPoliciesClient().BeginCreateOrUpdate(t.Context(), netRG, name,
@@ -114,7 +121,12 @@ func (f *fwFixture) putIPGroup(t *testing.T, name string, addrs ...string) (armn
 	return res.IPGroup, err
 }
 
-func (f *fwFixture) putRCG(t *testing.T, policy, name string, prio int32, cols ...armnetwork.FirewallPolicyRuleCollectionClassification) error {
+func (f *fwFixture) putRCG(
+	t *testing.T,
+	policy, name string,
+	prio int32,
+	cols ...armnetwork.FirewallPolicyRuleCollectionClassification,
+) error {
 	t.Helper()
 
 	p, err := f.net.NewFirewallPolicyRuleCollectionGroupsClient().BeginCreateOrUpdate(t.Context(), netRG, policy, name,
@@ -130,19 +142,27 @@ func (f *fwFixture) putRCG(t *testing.T, policy, name string, prio int32, cols .
 	return err
 }
 
-func netRuleCollection(name string, prio int32, rule *armnetwork.Rule) armnetwork.FirewallPolicyRuleCollectionClassification {
+func netRuleCollection(
+	name string,
+	prio int32,
+	rule *armnetwork.Rule,
+) armnetwork.FirewallPolicyRuleCollectionClassification {
 	return &armnetwork.FirewallPolicyFilterRuleCollection{
 		RuleCollectionType: new(armnetwork.FirewallPolicyRuleCollectionTypeFirewallPolicyFilterRuleCollection),
 		Name:               &name, Priority: &prio,
-		Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow)},
-		Rules:  []armnetwork.FirewallPolicyRuleClassification{rule},
+		Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{
+			Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow),
+		},
+		Rules: []armnetwork.FirewallPolicyRuleClassification{rule},
 	}
 }
 
 func okNetRule() *armnetwork.Rule {
 	return &armnetwork.Rule{
 		RuleType: new(armnetwork.FirewallPolicyRuleTypeNetworkRule), Name: new("allow-dns"),
-		IPProtocols:          []*armnetwork.FirewallPolicyRuleNetworkProtocol{new(armnetwork.FirewallPolicyRuleNetworkProtocolUDP)},
+		IPProtocols: []*armnetwork.FirewallPolicyRuleNetworkProtocol{
+			new(armnetwork.FirewallPolicyRuleNetworkProtocolUDP),
+		},
 		SourceAddresses:      []*string{new("10.0.2.0/24")},
 		DestinationAddresses: []*string{new("168.63.129.16")},
 		DestinationPorts:     []*string{new("53")},
@@ -155,7 +175,7 @@ func TestNetworkSDK_AzureFirewallLifecycle(t *testing.T) {
 	f := newFWFixture(t)
 	ctx := t.Context()
 
-	got, err := f.putFirewall(t, fwName, f.firewall())
+	got, err := f.putFirewall(t, f.firewall())
 	require.NoError(t, err)
 	assert.Equal(t, armnetwork.AzureFirewallThreatIntelModeAlert, *got.Properties.ThreatIntelMode)
 	assert.Equal(t, armnetwork.ProvisioningStateSucceeded, *got.Properties.ProvisioningState)
@@ -223,7 +243,9 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 		{
 			name: "missing public ip", wantCode: "InvalidResourceReference",
 			mutate: func(_ *fwFixture, fw *armnetwork.AzureFirewall) {
-				fw.Properties.IPConfigurations[0].Properties.PublicIPAddress = &armnetwork.SubResource{ID: new(fwSubID + "publicIPAddresses/none")}
+				fw.Properties.IPConfigurations[0].Properties.PublicIPAddress = &armnetwork.SubResource{
+					ID: new(fwSubID + "publicIPAddresses/none"),
+				}
 			},
 		},
 		{
@@ -239,7 +261,9 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 				fw.Properties.ManagementIPConfiguration = &armnetwork.AzureFirewallIPConfiguration{
 					Name: new("mgmt"),
 					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
-						Subnet: &armnetwork.SubResource{ID: &f.mgmtSubnet}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
+						Subnet: &armnetwork.SubResource{
+							ID: &f.mgmtSubnet,
+						}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
 					},
 				}
 			},
@@ -251,7 +275,9 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 				fw.Properties.ManagementIPConfiguration = &armnetwork.AzureFirewallIPConfiguration{
 					Name: new("mgmt"),
 					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
-						Subnet: &armnetwork.SubResource{ID: &f.mgmtSubnet}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
+						Subnet: &armnetwork.SubResource{
+							ID: &f.mgmtSubnet,
+						}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
 					},
 				}
 			},
@@ -262,7 +288,9 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 				fw.Properties.ManagementIPConfiguration = &armnetwork.AzureFirewallIPConfiguration{
 					Name: new("mgmt"),
 					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
-						Subnet: &armnetwork.SubResource{ID: &f.workSubnet}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
+						Subnet: &armnetwork.SubResource{
+							ID: &f.workSubnet,
+						}, PublicIPAddress: &armnetwork.SubResource{ID: &f.mgmtPIP},
 					},
 				}
 			},
@@ -271,17 +299,24 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 			name: "management without public ip", wantCode: "InvalidRequestFormat",
 			mutate: func(f *fwFixture, fw *armnetwork.AzureFirewall) {
 				fw.Properties.ManagementIPConfiguration = &armnetwork.AzureFirewallIPConfiguration{
-					Name:       new("mgmt"),
-					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{Subnet: &armnetwork.SubResource{ID: &f.mgmtSubnet}},
+					Name: new("mgmt"),
+					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
+						Subnet: &armnetwork.SubResource{ID: &f.mgmtSubnet},
+					},
 				}
 			},
 		},
 		{
 			name: "second public ip", mutate: func(f *fwFixture, fw *armnetwork.AzureFirewall) {
-				fw.Properties.IPConfigurations = append(fw.Properties.IPConfigurations, &armnetwork.AzureFirewallIPConfiguration{
-					Name:       new("ipc2"),
-					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{PublicIPAddress: &armnetwork.SubResource{ID: &f.pip2}},
-				})
+				fw.Properties.IPConfigurations = append(
+					fw.Properties.IPConfigurations,
+					&armnetwork.AzureFirewallIPConfiguration{
+						Name: new("ipc2"),
+						Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
+							PublicIPAddress: &armnetwork.SubResource{ID: &f.pip2},
+						},
+					},
+				)
 			},
 		},
 		{
@@ -290,7 +325,9 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 				fw.Properties.ManagementIPConfiguration = &armnetwork.AzureFirewallIPConfiguration{
 					Name: new("mgmt"),
 					Properties: &armnetwork.AzureFirewallIPConfigurationPropertiesFormat{
-						Subnet: &armnetwork.SubResource{ID: &f.mgmtSubnet}, PublicIPAddress: &armnetwork.SubResource{ID: &f.pip1},
+						Subnet: &armnetwork.SubResource{
+							ID: &f.mgmtSubnet,
+						}, PublicIPAddress: &armnetwork.SubResource{ID: &f.pip1},
 					},
 				}
 			},
@@ -326,7 +363,7 @@ func TestNetworkSDK_AzureFirewallValidation(t *testing.T) {
 				tc.mutate(f, &fw)
 			}
 
-			_, err := f.putFirewall(t, fwName, fw)
+			_, err := f.putFirewall(t, fw)
 			if tc.wantCode == "" {
 				require.NoError(t, err)
 
@@ -350,7 +387,7 @@ func TestNetworkSDK_AzureFirewallSubnetSize(t *testing.T) {
 	fw := f.firewall()
 	fw.Properties.IPConfigurations[0].Properties.Subnet = &armnetwork.SubResource{ID: v.ID}
 
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	assert.Equal(t, "AzureFirewallSubnetNameInvalid", sdkErrCode(err), "name is checked before size")
 }
 
@@ -393,24 +430,32 @@ func TestNetworkSDK_FirewallPolicyHierarchy(t *testing.T) {
 		},
 		{
 			name: "missing base", loc: "westus", wantCode: "InvalidResourceReference",
-			props: armnetwork.FirewallPolicyPropertiesFormat{BasePolicy: &armnetwork.SubResource{ID: new(fwSubID + "firewallPolicies/none")}},
+			props: armnetwork.FirewallPolicyPropertiesFormat{
+				BasePolicy: &armnetwork.SubResource{ID: new(fwSubID + "firewallPolicies/none")},
+			},
 		},
 		{
 			name: "idps needs premium", loc: "westus", wantCode: "InvalidRequestFormat",
 			props: armnetwork.FirewallPolicyPropertiesFormat{
-				IntrusionDetection: &armnetwork.FirewallPolicyIntrusionDetection{Mode: new(armnetwork.FirewallPolicyIntrusionDetectionStateTypeAlert)},
+				IntrusionDetection: &armnetwork.FirewallPolicyIntrusionDetection{
+					Mode: new(armnetwork.FirewallPolicyIntrusionDetectionStateTypeAlert),
+				},
 			},
 		},
 		{
 			name: "premium idps", loc: "westus",
 			props: armnetwork.FirewallPolicyPropertiesFormat{
 				SKU: &armnetwork.FirewallPolicySKU{Tier: new(armnetwork.FirewallPolicySKUTierPremium)},
-				IntrusionDetection: &armnetwork.FirewallPolicyIntrusionDetection{Mode: new(armnetwork.FirewallPolicyIntrusionDetectionStateTypeAlert)},
+				IntrusionDetection: &armnetwork.FirewallPolicyIntrusionDetection{
+					Mode: new(armnetwork.FirewallPolicyIntrusionDetectionStateTypeAlert),
+				},
 			},
 		},
 		{
 			name: "bad tier", loc: "westus", wantCode: "InvalidRequestFormat",
-			props: armnetwork.FirewallPolicyPropertiesFormat{SKU: &armnetwork.FirewallPolicySKU{Tier: new(armnetwork.FirewallPolicySKUTier("Gold"))}},
+			props: armnetwork.FirewallPolicyPropertiesFormat{
+				SKU: &armnetwork.FirewallPolicySKU{Tier: new(armnetwork.FirewallPolicySKUTier("Gold"))},
+			},
 		},
 	}
 
@@ -460,26 +505,32 @@ func TestNetworkSDK_FirewallPolicyAssociation(t *testing.T) {
 	fw := f.firewall()
 	fw.Properties.FirewallPolicy = &armnetwork.SubResource{ID: prem.ID}
 
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	assert.Equal(t, "AzureFirewallPolicyTierMismatch", sdkErrCode(err))
 
 	fw.Properties.FirewallPolicy = &armnetwork.SubResource{ID: std.ID}
 	fw.Properties.NetworkRuleCollections = []*armnetwork.AzureFirewallNetworkRuleCollection{{
 		Name: new("classic"),
 		Properties: &armnetwork.AzureFirewallNetworkRuleCollectionPropertiesFormat{
-			Priority: new(int32(100)), Action: &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeAllow)},
+			Priority: new(
+				int32(100),
+			), Action: &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeAllow)},
 			Rules: []*armnetwork.AzureFirewallNetworkRule{{
-				Name: new("r"), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
-				SourceAddresses: []*string{new("*")}, DestinationAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
+				Name: new(
+					"r",
+				), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
+				SourceAddresses: []*string{
+					new("*"),
+				}, DestinationAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
 			}},
 		},
 	}}
 
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	assert.Equal(t, "InvalidRequestFormat", sdkErrCode(err))
 
 	fw.Properties.NetworkRuleCollections = nil
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	require.NoError(t, err)
 
 	got, err := f.net.NewFirewallPoliciesClient().Get(ctx, netRG, "std", nil)
@@ -504,19 +555,26 @@ func TestNetworkSDK_FirewallPolicyAssociation(t *testing.T) {
 func TestNetworkSDK_AzureFirewallClassicRules(t *testing.T) {
 	t.Parallel()
 
-	netCol := func(name string, prio int32, rule *armnetwork.AzureFirewallNetworkRule) *armnetwork.AzureFirewallNetworkRuleCollection {
+	netCol := func(
+		name string, prio int32, rule *armnetwork.AzureFirewallNetworkRule,
+	) *armnetwork.AzureFirewallNetworkRuleCollection {
 		return &armnetwork.AzureFirewallNetworkRuleCollection{
 			Name: &name,
 			Properties: &armnetwork.AzureFirewallNetworkRuleCollectionPropertiesFormat{
-				Priority: &prio, Action: &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeDeny)},
-				Rules: []*armnetwork.AzureFirewallNetworkRule{rule},
+				Priority: &prio,
+				Action:   &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeDeny)},
+				Rules:    []*armnetwork.AzureFirewallNetworkRule{rule},
 			},
 		}
 	}
 	rule := func(mod func(*armnetwork.AzureFirewallNetworkRule)) *armnetwork.AzureFirewallNetworkRule {
 		r := &armnetwork.AzureFirewallNetworkRule{
-			Name: new("r"), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
-			SourceAddresses: []*string{new("10.0.0.0/8")}, DestinationAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
+			Name: new(
+				"r",
+			), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
+			SourceAddresses: []*string{
+				new("10.0.0.0/8"),
+			}, DestinationAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
 		}
 		if mod != nil {
 			mod(r)
@@ -526,35 +584,52 @@ func TestNetworkSDK_AzureFirewallClassicRules(t *testing.T) {
 	}
 
 	tests := []struct {
-		cols     []*armnetwork.AzureFirewallNetworkRuleCollection
 		name     string
 		wantCode string
+		cols     []*armnetwork.AzureFirewallNetworkRuleCollection
 	}{
 		{name: "valid", cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 100, rule(nil))}},
-		{name: "priority low", wantCode: "InvalidRequestFormat", cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 99, rule(nil))}},
-		{name: "priority high", wantCode: "InvalidRequestFormat", cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 65001, rule(nil))}},
+		{
+			name:     "priority low",
+			wantCode: "InvalidRequestFormat",
+			cols:     []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 99, rule(nil))},
+		},
+		{
+			name:     "priority high",
+			wantCode: "InvalidRequestFormat",
+			cols:     []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 65001, rule(nil))},
+		},
 		{
 			name: "duplicate priority", wantCode: "InvalidRequestFormat",
-			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("a", 100, rule(nil)), netCol("b", 100, rule(nil))},
+			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{
+				netCol("a", 100, rule(nil)),
+				netCol("b", 100, rule(nil)),
+			},
 		},
 		{
 			name: "bad port", wantCode: "InvalidRequestFormat",
-			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
-				r.DestinationPorts = []*string{new("99999")}
-			}))},
+			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{
+				netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
+					r.DestinationPorts = []*string{new("99999")}
+				})),
+			},
 		},
 		{
 			name: "bad source", wantCode: "InvalidRequestFormat",
-			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
-				r.SourceAddresses = []*string{new("not an address!")}
-			}))},
+			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{
+				netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
+					r.SourceAddresses = []*string{new("not an address!")}
+				})),
+			},
 		},
 		{
 			name: "missing ip group", wantCode: "InvalidResourceReference",
-			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
-				r.SourceAddresses = nil
-				r.SourceIPGroups = []*string{new(fwSubID + "ipGroups/none")}
-			}))},
+			cols: []*armnetwork.AzureFirewallNetworkRuleCollection{
+				netCol("c", 100, rule(func(r *armnetwork.AzureFirewallNetworkRule) {
+					r.SourceAddresses = nil
+					r.SourceIPGroups = []*string{new(fwSubID + "ipGroups/none")}
+				})),
+			},
 		},
 	}
 
@@ -566,7 +641,7 @@ func TestNetworkSDK_AzureFirewallClassicRules(t *testing.T) {
 			fw := f.firewall()
 			fw.Properties.NetworkRuleCollections = tc.cols
 
-			got, err := f.putFirewall(t, fwName, fw)
+			got, err := f.putFirewall(t, fw)
 			if tc.wantCode == "" {
 				require.NoError(t, err)
 				assert.Contains(t, *got.Properties.NetworkRuleCollections[0].ID, "networkRuleCollections/c")
@@ -602,18 +677,24 @@ func TestNetworkSDK_RuleCollectionGroups(t *testing.T) {
 
 		return r
 	}
-	appCol := func(rules ...armnetwork.FirewallPolicyRuleClassification) armnetwork.FirewallPolicyRuleCollectionClassification {
+	appCol := func(
+		rules ...armnetwork.FirewallPolicyRuleClassification,
+	) armnetwork.FirewallPolicyRuleCollectionClassification {
 		return &armnetwork.FirewallPolicyFilterRuleCollection{
 			RuleCollectionType: new(armnetwork.FirewallPolicyRuleCollectionTypeFirewallPolicyFilterRuleCollection),
 			Name:               new("apps"), Priority: new(int32(200)),
-			Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow)},
-			Rules:  rules,
+			Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{
+				Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow),
+			},
+			Rules: rules,
 		}
 	}
 	natRule := func(mod func(*armnetwork.NatRule)) *armnetwork.NatRule {
 		r := &armnetwork.NatRule{
 			RuleType: new(armnetwork.FirewallPolicyRuleTypeNatRule), Name: new("ssh"),
-			IPProtocols:          []*armnetwork.FirewallPolicyRuleNetworkProtocol{new(armnetwork.FirewallPolicyRuleNetworkProtocolTCP)},
+			IPProtocols: []*armnetwork.FirewallPolicyRuleNetworkProtocol{
+				new(armnetwork.FirewallPolicyRuleNetworkProtocolTCP),
+			},
 			SourceAddresses:      []*string{new("*")},
 			DestinationAddresses: []*string{new("203.0.113.10")}, DestinationPorts: []*string{new("22")},
 			TranslatedAddress: new("10.0.2.4"), TranslatedPort: new("22"),
@@ -628,58 +709,78 @@ func TestNetworkSDK_RuleCollectionGroups(t *testing.T) {
 		return &armnetwork.FirewallPolicyNatRuleCollection{
 			RuleCollectionType: new(armnetwork.FirewallPolicyRuleCollectionTypeFirewallPolicyNatRuleCollection),
 			Name:               new("dnat"), Priority: new(int32(100)),
-			Action: &armnetwork.FirewallPolicyNatRuleCollectionAction{Type: new(armnetwork.FirewallPolicyNatRuleCollectionActionTypeDNAT)},
-			Rules:  []armnetwork.FirewallPolicyRuleClassification{r},
+			Action: &armnetwork.FirewallPolicyNatRuleCollectionAction{
+				Type: new(armnetwork.FirewallPolicyNatRuleCollectionActionTypeDNAT),
+			},
+			Rules: []armnetwork.FirewallPolicyRuleClassification{r},
 		}
 	}
 
 	tests := []struct {
 		name     string
 		wantCode string
-		prio     int32
 		cols     []armnetwork.FirewallPolicyRuleCollectionClassification
+		prio     int32
 	}{
-		{name: "network", prio: 100, cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, okNetRule())}},
-		{name: "application", prio: 110, cols: []armnetwork.FirewallPolicyRuleCollectionClassification{appCol(appRule(nil))}},
+		{
+			name: "network",
+			prio: 100,
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, okNetRule())},
+		},
+		{
+			name: "application",
+			prio: 110,
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{appCol(appRule(nil))},
+		},
 		{name: "nat", prio: 120, cols: []armnetwork.FirewallPolicyRuleCollectionClassification{natCol(natRule(nil))}},
 		{name: "empty group", prio: 130},
 		{name: "priority low", prio: 99, wantCode: "InvalidRequestFormat"},
 		{name: "priority high", prio: 65001, wantCode: "InvalidRequestFormat"},
 		{
 			name: "network rule bad port", prio: 140, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, func() *armnetwork.Rule {
-				r := okNetRule()
-				r.DestinationPorts = []*string{new("70000")}
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				netRuleCollection("net", 100, func() *armnetwork.Rule {
+					r := okNetRule()
+					r.DestinationPorts = []*string{new("70000")}
 
-				return r
-			}())},
+					return r
+				}()),
+			},
 		},
 		{
 			name: "network rule bad protocol", prio: 141, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, func() *armnetwork.Rule {
-				r := okNetRule()
-				r.IPProtocols = []*armnetwork.FirewallPolicyRuleNetworkProtocol{new(armnetwork.FirewallPolicyRuleNetworkProtocol("SCTP"))}
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				netRuleCollection("net", 100, func() *armnetwork.Rule {
+					r := okNetRule()
+					r.IPProtocols = []*armnetwork.FirewallPolicyRuleNetworkProtocol{
+						new(armnetwork.FirewallPolicyRuleNetworkProtocol("SCTP")),
+					}
 
-				return r
-			}())},
+					return r
+				}()),
+			},
 		},
 		{
 			name: "network rule no destination", prio: 142, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, func() *armnetwork.Rule {
-				r := okNetRule()
-				r.DestinationAddresses = nil
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				netRuleCollection("net", 100, func() *armnetwork.Rule {
+					r := okNetRule()
+					r.DestinationAddresses = nil
 
-				return r
-			}())},
+					return r
+				}()),
+			},
 		},
 		{
 			name: "network rule no source", prio: 143, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{netRuleCollection("net", 100, func() *armnetwork.Rule {
-				r := okNetRule()
-				r.SourceAddresses = nil
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				netRuleCollection("net", 100, func() *armnetwork.Rule {
+					r := okNetRule()
+					r.SourceAddresses = nil
 
-				return r
-			}())},
+					return r
+				}()),
+			},
 		},
 		{
 			name: "collection priority", prio: 144, wantCode: "InvalidRequestFormat",
@@ -697,22 +798,28 @@ func TestNetworkSDK_RuleCollectionGroups(t *testing.T) {
 		},
 		{
 			name: "app rule bad protocol", prio: 147, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{appCol(appRule(func(r *armnetwork.ApplicationRule) {
-				r.Protocols[0].ProtocolType = new(armnetwork.FirewallPolicyRuleApplicationProtocolType("Ftp"))
-			}))},
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				appCol(appRule(func(r *armnetwork.ApplicationRule) {
+					r.Protocols[0].ProtocolType = new(armnetwork.FirewallPolicyRuleApplicationProtocolType("Ftp"))
+				})),
+			},
 		},
 		{
 			name: "app rule no target", prio: 148, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{appCol(appRule(func(r *armnetwork.ApplicationRule) {
-				r.TargetFqdns = nil
-			}))},
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				appCol(appRule(func(r *armnetwork.ApplicationRule) {
+					r.TargetFqdns = nil
+				})),
+			},
 		},
 		{
 			name: "app rule url filtering needs premium", prio: 149, wantCode: "InvalidRequestFormat",
-			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{appCol(appRule(func(r *armnetwork.ApplicationRule) {
-				r.TargetFqdns = nil
-				r.TargetUrls = []*string{new("www.example.com/path")}
-			}))},
+			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{
+				appCol(appRule(func(r *armnetwork.ApplicationRule) {
+					r.TargetFqdns = nil
+					r.TargetUrls = []*string{new("www.example.com/path")}
+				})),
+			},
 		},
 		{
 			name: "nat rule two destinations", prio: 150, wantCode: "InvalidRequestFormat",
@@ -735,7 +842,9 @@ func TestNetworkSDK_RuleCollectionGroups(t *testing.T) {
 		{
 			name: "nat rule icmp", prio: 153, wantCode: "InvalidRequestFormat",
 			cols: []armnetwork.FirewallPolicyRuleCollectionClassification{natCol(natRule(func(r *armnetwork.NatRule) {
-				r.IPProtocols = []*armnetwork.FirewallPolicyRuleNetworkProtocol{new(armnetwork.FirewallPolicyRuleNetworkProtocolICMP)}
+				r.IPProtocols = []*armnetwork.FirewallPolicyRuleNetworkProtocol{
+					new(armnetwork.FirewallPolicyRuleNetworkProtocolICMP),
+				}
 			}))},
 		},
 	}
@@ -806,13 +915,17 @@ func TestNetworkSDK_PremiumRuleFeatures(t *testing.T) {
 	col := &armnetwork.FirewallPolicyFilterRuleCollection{
 		RuleCollectionType: new(armnetwork.FirewallPolicyRuleCollectionTypeFirewallPolicyFilterRuleCollection),
 		Name:               new("urls"), Priority: new(int32(300)),
-		Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow)},
+		Action: &armnetwork.FirewallPolicyFilterRuleCollectionAction{
+			Type: new(armnetwork.FirewallPolicyFilterRuleCollectionActionTypeAllow),
+		},
 		Rules: []armnetwork.FirewallPolicyRuleClassification{&armnetwork.ApplicationRule{
 			RuleType: new(armnetwork.FirewallPolicyRuleTypeApplicationRule), Name: new("u"),
 			Protocols: []*armnetwork.FirewallPolicyRuleApplicationProtocol{
 				{ProtocolType: new(armnetwork.FirewallPolicyRuleApplicationProtocolTypeHTTPS), Port: new(int32(443))},
 			},
-			SourceAddresses: []*string{new("*")}, TargetUrls: []*string{new("www.example.com/x")}, TerminateTLS: new(true),
+			SourceAddresses: []*string{
+				new("*"),
+			}, TargetUrls: []*string{new("www.example.com/x")}, TerminateTLS: new(true),
 		}},
 	}
 
@@ -869,15 +982,21 @@ func TestNetworkSDK_IPGroups(t *testing.T) {
 	fw.Properties.NetworkRuleCollections = []*armnetwork.AzureFirewallNetworkRuleCollection{{
 		Name: new("classic"),
 		Properties: &armnetwork.AzureFirewallNetworkRuleCollectionPropertiesFormat{
-			Priority: new(int32(100)), Action: &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeAllow)},
+			Priority: new(
+				int32(100),
+			), Action: &armnetwork.AzureFirewallRCAction{Type: new(armnetwork.AzureFirewallRCActionTypeAllow)},
 			Rules: []*armnetwork.AzureFirewallNetworkRule{{
-				Name: new("r"), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
-				DestinationIPGroups: []*string{got.ID}, SourceAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
+				Name: new(
+					"r",
+				), Protocols: []*armnetwork.AzureFirewallNetworkRuleProtocol{new(armnetwork.AzureFirewallNetworkRuleProtocolTCP)},
+				DestinationIPGroups: []*string{
+					got.ID,
+				}, SourceAddresses: []*string{new("*")}, DestinationPorts: []*string{new("443")},
 			}},
 		},
 	}}
 
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	require.NoError(t, err)
 
 	got, err = f.net.NewIPGroupsClient().Get(ctx, netRG, "ga", nil)
@@ -889,7 +1008,7 @@ func TestNetworkSDK_IPGroups(t *testing.T) {
 	assert.Equal(t, "InUseIpGroupCannotBeDeleted", sdkErrCode(err))
 
 	fw.Properties.NetworkRuleCollections = nil
-	_, err = f.putFirewall(t, fwName, fw)
+	_, err = f.putFirewall(t, fw)
 	require.NoError(t, err)
 
 	rm, err := f.net.NewFirewallPolicyRuleCollectionGroupsClient().BeginDelete(ctx, netRG, "pol", "g", nil)
@@ -924,7 +1043,7 @@ func TestNetworkSDK_FirewallPersistence(t *testing.T) {
 
 	fw := f.firewall()
 	fw.Properties.FirewallPolicy = &armnetwork.SubResource{ID: pol.ID}
-	before, err := f.putFirewall(t, fwName, fw)
+	before, err := f.putFirewall(t, fw)
 	require.NoError(t, err)
 
 	snap := f.handler.Snapshot(ctx)
