@@ -783,3 +783,26 @@ SDK retry: `TransactionConflictException` and `TransactionCanceledException` are
 Chaos: rule `{"effect":"dynamodb:transaction-conflict","operation":"PutItem","target":{"table":"orders","key":{"pk":"a"}},"probability":1,"holdOps":2,"holdMs":500}` on `POST /_gopherstack/chaos/faults` makes matching items behave as held by a phantom in-flight TransactWriteItems. `holdOps`/`holdMs` keep the item held for N further operations / N ms after the first forced conflict. Effect rules are never HTTP faults (`FaultStore.Match` skips them).
 
 Tests: `txn_conflict_test.go` drives the real SDK client; `db.txnHook` (unexported field, in-package) parks a transaction mid-flight on channels, so overlap is deterministic with no sleeps. Persistence: in-flight state is transient and deliberately not in `backendSnapshot`.
+
+## 2026-10-31 Exact Number semantics (gopherstack-akt8j)
+
+N values were compared and computed as float64, so 38-digit values differing in the
+last digits compared equal. They now use `pkgs/dynamonum` (normalised decimal: up to
+38 significant digits, exact compare, big.Int add/sub with an int64 fast path).
+
+- Documented (HowItWorks.NamingRulesDataTypes): 38 digits, range 1E-130..9.9999999999999999999999999999999999999E+125,
+  "leading and trailing zeroes are trimmed", exceeding precision is an exception.
+- Fixed sites: expression comparisons/BETWEEN/IN (evaluator and compiled), KeyConditionExpression,
+  Query/Scan sort-key order and LastEvaluatedKey continuation, SET `+`/`-` and ADD arithmetic,
+  NS de-dup/ADD/DELETE/contains, M/L nested N equality. N and NS values are canonicalised at
+  request decode ("1.0" -> "1", "1E+3" -> "1000", "-0" -> "0"), so key strings match too.
+- Errors (ValidationException) for >38 digits, overflow, underflow use the wording
+  "Attempting to store more than 38 significant digits in a Number",
+  "Number overflow. Attempting to store a number with magnitude larger than supported range",
+  "Number underflow. Attempting to store a number with magnitude smaller than supported range".
+  These strings are from memory of real DynamoDB/DynamoDB Local; not in the public docs (unverified verbatim).
+- Unverified: whether real DynamoDB rounds rather than rejects an arithmetic result needing >38 digits;
+  output is always plain decimal (never exponent form). "007"-style leading zeros are still rejected
+  (existing behaviour).
+- Not changed: PartiQL literal paths still pre-validate via ParseFloat.
+- Tests: number_precision_sdk_test.go, expr/number_precision_test.go, pkgs/dynamonum.

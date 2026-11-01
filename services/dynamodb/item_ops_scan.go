@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -287,7 +288,7 @@ func (t *Table) storeScanOrder(
 
 type scanKey struct {
 	pk, sk   string
-	pkN, skN float64
+	pkN, skN dynamonum.Num
 }
 
 type scanTouch struct {
@@ -738,8 +739,8 @@ type scanSortEntry struct {
 	item  map[string]any
 	pkStr string
 	skStr string
-	pkNum float64
-	skNum float64
+	pkNum dynamonum.Num
+	skNum dynamonum.Num
 	size  int
 }
 
@@ -774,7 +775,7 @@ func populateScanSortEntry(
 func compareScanSortEntries(a, b scanSortEntry, pkType, skType string, hasSK bool) int {
 	var pkRes int
 	if pkType == "N" {
-		pkRes = cmp.Compare(a.pkNum, b.pkNum)
+		pkRes = a.pkNum.Cmp(b.pkNum)
 	} else {
 		pkRes = cmp.Compare(a.pkStr, b.pkStr)
 	}
@@ -784,7 +785,7 @@ func compareScanSortEntries(a, b scanSortEntry, pkType, skType string, hasSK boo
 
 	if hasSK {
 		if skType == "N" {
-			return cmp.Compare(a.skNum, b.skNum)
+			return a.skNum.Cmp(b.skNum)
 		}
 
 		return cmp.Compare(a.skStr, b.skStr)
