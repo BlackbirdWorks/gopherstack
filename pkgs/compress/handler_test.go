@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/compress"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func bigJSON(n int) []byte {
@@ -441,7 +442,7 @@ func TestStreamingFlush(t *testing.T) {
 			require.NoError(t, err)
 			req.Header.Set("Accept-Encoding", "gzip")
 
-			resp, err := http.DefaultTransport.RoundTrip(req)
+			resp, err := testclient.New(t).Transport.RoundTrip(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

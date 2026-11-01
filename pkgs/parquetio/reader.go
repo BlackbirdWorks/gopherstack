@@ -52,6 +52,17 @@ func Open(data []byte) (*File, error) {
 // NumRows is the total row count from the footer.
 func (f *File) NumRows() int64 { return f.pf.NumRows() }
 
+// MaxRowGroupBytes is the largest uncompressed row-group size in the footer.
+func (f *File) MaxRowGroupBytes() int64 {
+	var most int64
+
+	for _, rg := range f.pf.Metadata().RowGroups {
+		most = max(most, rg.TotalByteSize)
+	}
+
+	return most
+}
+
 // Columns lists the top-level column names in file order.
 func (f *File) Columns() []string {
 	fields := f.pf.Schema().Fields()
@@ -59,6 +70,19 @@ func (f *File) Columns() []string {
 
 	for i, fld := range fields {
 		out[i] = fld.Name()
+	}
+
+	return out
+}
+
+// ColumnIDs maps each top-level Parquet field id to its column name.
+func (f *File) ColumnIDs() map[int]string {
+	out := map[int]string{}
+
+	for _, fld := range f.pf.Schema().Fields() {
+		if id := fld.ID(); id > 0 {
+			out[id] = fld.Name()
+		}
 	}
 
 	return out

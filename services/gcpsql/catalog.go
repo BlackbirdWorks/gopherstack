@@ -103,11 +103,11 @@ func ListTiers() []TierInfo {
 		TierInfo{Tier: "db-g1-small", RAM: fmtInt(smallMiB * mib)})
 
 	for _, n := range []int64{1, 2, 4, 8, 16, 32, 64, 96} {
-		tiers = append(tiers, TierInfo{Tier: "db-n1-standard-" + fmtInt(n), RAM: fmtInt(n * 3840 * mib)})
+		tiers = append(tiers, TierInfo{Tier: "db-n1-standard-" + fmtInt(n), RAM: fmtInt(n * standardMiB * mib)})
 	}
 
 	for _, n := range []int64{2, 4, 8, 16, 32, 64, 96} {
-		tiers = append(tiers, TierInfo{Tier: "db-n1-highmem-" + fmtInt(n), RAM: fmtInt(n * 6656 * mib)})
+		tiers = append(tiers, TierInfo{Tier: "db-n1-highmem-" + fmtInt(n), RAM: fmtInt(n * highmemMiB * mib)})
 	}
 
 	for i := range tiers {

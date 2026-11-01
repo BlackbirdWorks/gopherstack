@@ -97,6 +97,8 @@ type InMemoryBackend struct {
 	subs       map[chan struct{}]struct{}
 	lastCommit time.Time
 	lastSweep  time.Time
+	observers  []DocumentObserver
+	pending    []DocumentEvent
 }
 
 // NewInMemoryBackend creates an empty backend.

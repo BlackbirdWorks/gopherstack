@@ -2,6 +2,7 @@ package resiliencehub_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -28,35 +29,39 @@ func TestTransitionDelay_Assessment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h, client := newTestHandlerAndClient(t)
-			h.Backend.SetTransitionDelay(tt.delay)
-			ctx := t.Context()
+			synctest.Test(t, func(t *testing.T) {
+				h, client := newInMemoryHandlerAndClient(t)
+				h.Backend.SetTransitionDelay(tt.delay)
+				ctx := t.Context()
 
-			app, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("app")})
-			require.NoError(t, err)
+				app, err := client.CreateApp(ctx, &resiliencehubsdk.CreateAppInput{Name: aws.String("app")})
+				require.NoError(t, err)
 
-			started, err := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
-				AppArn: app.App.AppArn, AppVersion: aws.String("draft"), AssessmentName: aws.String("a"),
-			})
-			require.NoError(t, err)
-
-			status := func() types.AssessmentStatus {
-				out, dErr := client.DescribeAppAssessment(ctx, &resiliencehubsdk.DescribeAppAssessmentInput{
-					AssessmentArn: started.Assessment.AssessmentArn,
+				started, err := client.StartAppAssessment(ctx, &resiliencehubsdk.StartAppAssessmentInput{
+					AppArn: app.App.AppArn, AppVersion: aws.String("draft"), AssessmentName: aws.String("a"),
 				})
-				require.NoError(t, dErr)
+				require.NoError(t, err)
 
-				return out.Assessment.AssessmentStatus
-			}
+				status := func() types.AssessmentStatus {
+					out, dErr := client.DescribeAppAssessment(ctx, &resiliencehubsdk.DescribeAppAssessmentInput{
+						AssessmentArn: started.Assessment.AssessmentArn,
+					})
+					require.NoError(t, dErr)
 
-			if tt.wantStays {
-				assert.Equal(t, types.AssessmentStatusPending, status())
+					return out.Assessment.AssessmentStatus
+				}
 
-				return
-			}
+				if tt.wantStays {
+					assert.Equal(t, types.AssessmentStatusPending, status())
 
-			require.Eventually(t, func() bool { return status() == types.AssessmentStatusSuccess },
-				defaultAsyncWait, defaultAsyncPoll)
+					return
+				}
+
+				time.Sleep(10 * tt.delay)
+				synctest.Wait()
+
+				assert.Equal(t, types.AssessmentStatusSuccess, status())
+			})
 		})
 	}
 }

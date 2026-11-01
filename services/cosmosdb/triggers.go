@@ -1,6 +1,7 @@
 package cosmosdb
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -97,7 +98,7 @@ func (tx *containerTx) triggerOperation(op docOp, scope string) string {
 	switch op.kind {
 	case batchCreate:
 		return trigOpCreate
-	case batchReplace:
+	case batchReplace, batchPatch:
 		return trigOpReplace
 	case batchDelete:
 		return trigOpDelete
@@ -149,6 +150,8 @@ func (tx *containerTx) applyDocOp(op docOp, scope string, body map[string]any) (
 		res.created = !existed
 	case batchReplace:
 		res.info, err = tx.replaceDoc(op.pk, op.id, body, op.ifMatch)
+	case batchPatch:
+		res.info, err = tx.patchWithBody(op, body)
 	case batchDelete:
 		res.deleted = true
 		err = tx.deleteDoc(op.pk, op.id, op.ifMatch)
@@ -219,4 +222,19 @@ func triggerNames(header string) []string {
 	}
 
 	return out
+}
+
+// patchWithBody applies a patch whose request body (the operations, after any pre-trigger edit) is body.
+func (tx *containerTx) patchWithBody(op docOp, body map[string]any) (DocumentInfo, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return DocumentInfo{}, invalidPatchf("the patch body is not valid JSON")
+	}
+
+	req, err := parsePatchRequest(raw)
+	if err != nil {
+		return DocumentInfo{}, err
+	}
+
+	return tx.patchDoc(op.pk, op.id, req, op.ifMatch)
 }

@@ -57,6 +57,10 @@ type LaunchRequest struct {
 	VPCCIDR string `json:"vpcCIDR,omitempty"`
 	// PrivateIP is the address allocated from the instance's subnet.
 	PrivateIP string `json:"privateIP,omitempty"`
+	// DockerImage is the Docker image bound to ImageID; empty means the provider's configured default.
+	DockerImage string `json:"dockerImage,omitempty"`
+	// Volumes are the EBS volumes attached at launch (root volume excluded).
+	Volumes []VolumeAttachSpec `json:"volumes,omitempty"`
 	// PublishPorts are the ports to publish: those opened to the world, or every TCP rule port when enforcing.
 	PublishPorts []PortSpec `json:"publishPorts,omitempty"`
 }

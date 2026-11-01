@@ -17,14 +17,18 @@ import (
 type streamEvent struct {
 	arrival time.Time
 	seq     string
+	key     string
 	raw     json.RawMessage
 }
 
 // streamBatch is a batch awaiting a successful invocation.
 type streamBatch struct {
-	last     invokeOutcome
+	win      *tumblingWindow
 	events   []streamEvent
+	last     invokeOutcome
 	attempts int
+	final    bool
+	early    bool
 }
 
 // streamShardRef identifies the shard a batch belongs to; key is the poller's per-shard map key.
@@ -82,14 +86,6 @@ func (p *EventSourcePoller) replaceFrontStreamBatch(key string, with ...*streamB
 	p.streamPending[key] = rest
 }
 
-// deliverStreamEvents queues the events as a batch and drains the shard's pending batches.
-func (p *EventSourcePoller) deliverStreamEvents(
-	ctx context.Context, m *EventSourceMapping, ref streamShardRef, events []streamEvent,
-) {
-	p.enqueueStreamBatch(ref.key, &streamBatch{events: events})
-	p.drainStream(ctx, m, ref)
-}
-
 // drainStream works through the shard's pending batches in order, stopping at the first one that must be retried.
 func (p *EventSourcePoller) drainStream(ctx context.Context, m *EventSourceMapping, ref streamShardRef) {
 	pol := policyFor(m)
@@ -106,19 +102,21 @@ func (p *EventSourcePoller) drainStream(ctx context.Context, m *EventSourceMappi
 func (p *EventSourcePoller) stepStreamBatch(
 	ctx context.Context, m *EventSourceMapping, ref streamShardRef, pol retryPolicy, b *streamBatch,
 ) bool {
-	fresh, expired := splitExpiredEvents(b.events, pol.maxAge, time.Now())
-	if len(expired) > 0 {
-		p.dropStreamEvents(ctx, m, ref, b, expired)
-		b.events = fresh
+	if !b.final {
+		fresh, expired := splitExpiredEvents(b.events, pol.maxAge, p.nowTime())
+		if len(expired) > 0 {
+			p.dropStreamEvents(ctx, m, ref, b, expired)
+			b.events = fresh
+		}
+
+		if len(b.events) == 0 {
+			p.replaceFrontStreamBatch(ref.key)
+
+			return true
+		}
 	}
 
-	if len(b.events) == 0 {
-		p.replaceFrontStreamBatch(ref.key)
-
-		return true
-	}
-
-	payload, err := streamEventPayload(b.events)
+	payload, err := p.streamBatchPayload(m, ref, b)
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal stream event", "error", err)
 		p.replaceFrontStreamBatch(ref.key)
@@ -126,13 +124,23 @@ func (p *EventSourcePoller) stepStreamBatch(
 		return true
 	}
 
-	out := p.invokeStream(ctx, m, ref, payload)
+	out, done := p.interpretStreamResponse(m, b, p.invokeStream(ctx, m, ref, payload))
 	b.attempts++
 	b.last = out
-	p.esmInvokeMetrics(m, len(b.events), failedCount(boolErr(out.failed()), len(b.events)))
 
+	failed := len(b.events)
 	if !out.failed() {
+		failed = 0
+		if done > 0 {
+			failed = len(b.events) - done
+		}
+	}
+
+	p.esmInvokeMetrics(m, len(b.events), failed)
+
+	if !out.failed() && done == 0 {
 		p.lambdaBackend.setESMLastProcessingResult(m.UUID, "OK")
+		p.settleWindowBatch(ref.key, b, true)
 		p.replaceFrontStreamBatch(ref.key)
 
 		return true
@@ -142,10 +150,12 @@ func (p *EventSourcePoller) stepStreamBatch(
 	logger.Load(ctx).WarnContext(ctx, "event source poller: stream invocation failed",
 		"uuid", m.UUID, "attempt", b.attempts, "error", out.message())
 
-	if pol.bisect && len(b.events) > 1 {
+	if done > 0 {
+		b.events = b.events[done:]
+	} else if pol.bisect && len(b.events) > 1 {
 		mid := len(b.events) / bisectParts
-		left := &streamBatch{events: b.events[:mid], attempts: b.attempts - 1, last: out}
-		right := &streamBatch{events: b.events[mid:], attempts: b.attempts - 1, last: out}
+		left := &streamBatch{events: b.events[:mid], attempts: b.attempts - 1, last: out, win: b.win}
+		right := &streamBatch{events: b.events[mid:], attempts: b.attempts - 1, last: out, win: b.win}
 		p.replaceFrontStreamBatch(ref.key, left, right)
 
 		return true
@@ -153,20 +163,13 @@ func (p *EventSourcePoller) stepStreamBatch(
 
 	if pol.limited && b.attempts > pol.maxRetries {
 		p.dropStreamEvents(ctx, m, ref, b, b.events)
+		p.settleWindowBatch(ref.key, &streamBatch{win: b.win, final: b.final, early: b.early}, false)
 		p.replaceFrontStreamBatch(ref.key)
 
 		return true
 	}
 
 	return false
-}
-
-func boolErr(failed bool) error {
-	if failed {
-		return errKafkaFunction
-	}
-
-	return nil
 }
 
 func splitExpiredEvents(events []streamEvent, maxAge time.Duration, now time.Time) ([]streamEvent, []streamEvent) {
@@ -224,11 +227,12 @@ func (p *EventSourcePoller) invokeStreamUntraced(
 		out.executedVersion = fn.Version
 	}
 
-	_, _, fnErr, status, err := p.lambdaBackend.InvokeFunctionWithQualifier(
+	body, _, fnErr, status, err := p.lambdaBackend.InvokeFunctionWithQualifier(
 		ctx, fnName, qualifier, "", "", InvocationTypeRequestResponse, payload,
 	)
 	out.statusCode = cmp.Or(status, out.statusCode)
 	out.functionError = fnErr
+	out.body = body
 
 	if err != nil {
 		out.err = err
@@ -254,6 +258,10 @@ func fillOutcome(got, def invokeOutcome) invokeOutcome {
 func (p *EventSourcePoller) dropStreamEvents(
 	ctx context.Context, m *EventSourceMapping, ref streamShardRef, b *streamBatch, events []streamEvent,
 ) {
+	if len(events) == 0 {
+		return
+	}
+
 	p.esmCount(m, esmMetricDropped, len(events))
 
 	dest := failureDestination(m)

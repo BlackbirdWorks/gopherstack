@@ -41,22 +41,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/efs"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
+	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
+	"github.com/blackbirdworks/gopherstack/services/gcpbatch"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
 	"github.com/blackbirdworks/gopherstack/services/gcpcloudtasks"
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
+	"github.com/blackbirdworks/gopherstack/services/gcpcontainer"
+	"github.com/blackbirdworks/gopherstack/services/gcpdatastore"
 	"github.com/blackbirdworks/gopherstack/services/gcpdns"
 	"github.com/blackbirdworks/gopherstack/services/gcpeventarc"
 	"github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	"github.com/blackbirdworks/gopherstack/services/gcpfunctions"
 	"github.com/blackbirdworks/gopherstack/services/gcpiam"
+	"github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 	"github.com/blackbirdworks/gopherstack/services/gcpkms"
 	"github.com/blackbirdworks/gopherstack/services/gcplogging"
 	"github.com/blackbirdworks/gopherstack/services/gcpmonitoring"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	"github.com/blackbirdworks/gopherstack/services/gcpredis"
+	"github.com/blackbirdworks/gopherstack/services/gcpresourcemanager"
 	"github.com/blackbirdworks/gopherstack/services/gcprun"
 	"github.com/blackbirdworks/gopherstack/services/gcpscheduler"
 	"github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -69,9 +75,22 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
+	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
+	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
+	"github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
+	"github.com/blackbirdworks/gopherstack/services/ocicore"
+	"github.com/blackbirdworks/gopherstack/services/ocievents"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
+	"github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
+	"github.com/blackbirdworks/gopherstack/services/ocilogging"
+	"github.com/blackbirdworks/gopherstack/services/ocimonitoring"
+	"github.com/blackbirdworks/gopherstack/services/ocimysql"
+	"github.com/blackbirdworks/gopherstack/services/ocinosql"
+	"github.com/blackbirdworks/gopherstack/services/ocinotifications"
 	"github.com/blackbirdworks/gopherstack/services/ociobjectstorage"
+	"github.com/blackbirdworks/gopherstack/services/ociqueue"
 	"github.com/blackbirdworks/gopherstack/services/ocistreaming"
 	"github.com/blackbirdworks/gopherstack/services/ocivault"
 	"github.com/blackbirdworks/gopherstack/services/route53"
@@ -350,6 +369,10 @@ func linkConsoleExtras(conf *Config, cfg any) {
 		conf.GCPDNSOps, _ = getHandler[*gcpdns.Handler](p.GetGCPDNSHandler())
 	}
 
+	if p, ok := cfg.(interface{ GetGCPDatastoreHandler() service.Registerable }); ok {
+		conf.GCPDatastoreOps, _ = getHandler[*gcpdatastore.Handler](p.GetGCPDatastoreHandler())
+	}
+
 	if p, ok := cfg.(interface{ GetGCPComputeHandler() service.Registerable }); ok {
 		conf.GCPComputeOps, _ = getHandler[*gcpcompute.Handler](p.GetGCPComputeHandler())
 	}
@@ -374,11 +397,94 @@ func linkConsoleExtras(conf *Config, cfg any) {
 		conf.OCIIdentityOps, _ = getHandler[*ociidentity.Handler](p.GetOCIIdentityHandler())
 	}
 
+	if p, ok := cfg.(interface{ GetOCICoreHandler() service.Registerable }); ok {
+		conf.OCICoreOps, _ = getHandler[*ocicore.Handler](p.GetOCICoreHandler())
+	}
+
+	linkContainerQueueExtras(conf, cfg)
+
 	if p, ok := cfg.(interface{ GetOCIFunctionsHandler() service.Registerable }); ok {
 		conf.OCIFunctionsOps, _ = getHandler[*ocifunctions.Handler](p.GetOCIFunctionsHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetAzureMonitorHandler() service.Registerable }); ok {
 		conf.AzureMonitorOps, _ = getHandler[*azuremonitor.Handler](p.GetAzureMonitorHandler())
+	}
+}
+
+// linkContainerQueueExtras links the Kubernetes Engine, Queue and Notifications handlers used by their proxies.
+func linkContainerQueueExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetGCPContainerHandler() service.Registerable }); ok {
+		conf.GCPContainerOps, _ = getHandler[*gcpcontainer.Handler](p.GetGCPContainerHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIQueueHandler() service.Registerable }); ok {
+		conf.OCIQueueOps, _ = getHandler[*ociqueue.Handler](p.GetOCIQueueHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPIdentityToolkitHandler() service.Registerable }); ok {
+		conf.GCPIdentityToolkitOps, _ = getHandler[*gcpidentitytoolkit.Handler](p.GetGCPIdentityToolkitHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPAPIGatewayHandler() service.Registerable }); ok {
+		conf.GCPAPIGatewayOps, _ = getHandler[*gcpapigateway.Handler](p.GetGCPAPIGatewayHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPResourceManagerHandler() service.Registerable }); ok {
+		conf.GCPResourceManagerOps, _ = getHandler[*gcpresourcemanager.Handler](p.GetGCPResourceManagerHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetGCPBatchHandler() service.Registerable }); ok {
+		conf.GCPBatchOps, _ = getHandler[*gcpbatch.Handler](p.GetGCPBatchHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIContainerEngineHandler() service.Registerable }); ok {
+		conf.OCIContainerEngineOps, _ = getHandler[*ocicontainerengine.Handler](p.GetOCIContainerEngineHandler())
+	}
+
+	linkOCIObservabilityExtras(conf, cfg)
+
+	if p, ok := cfg.(interface{ GetOCINotificationsHandler() service.Registerable }); ok {
+		conf.OCINotificationsOps, _ = getHandler[*ocinotifications.Handler](p.GetOCINotificationsHandler())
+	}
+}
+
+// linkOCIObservabilityExtras links the MySQL HeatWave, Logging and Monitoring handlers used by their proxies.
+func linkOCIObservabilityExtras(conf *Config, cfg any) {
+	if p, ok := cfg.(interface{ GetOCIMySQLHandler() service.Registerable }); ok {
+		conf.OCIMySQLOps, _ = getHandler[*ocimysql.Handler](p.GetOCIMySQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCILoggingHandler() service.Registerable }); ok {
+		conf.OCILoggingOps, _ = getHandler[*ocilogging.Handler](p.GetOCILoggingHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIMonitoringHandler() service.Registerable }); ok {
+		conf.OCIMonitoringOps, _ = getHandler[*ocimonitoring.Handler](p.GetOCIMonitoringHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCINoSQLHandler() service.Registerable }); ok {
+		conf.OCINoSQLOps, _ = getHandler[*ocinosql.Handler](p.GetOCINoSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIAPIGatewayHandler() service.Registerable }); ok {
+		conf.OCIAPIGatewayOps, _ = getHandler[*ociapigateway.Handler](p.GetOCIAPIGatewayHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCILoadBalancerHandler() service.Registerable }); ok {
+		conf.OCILoadBalancerOps, _ = getHandler[*ociloadbalancer.Handler](p.GetOCILoadBalancerHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIArtifactsHandler() service.Registerable }); ok {
+		conf.OCIArtifactsOps, _ = getHandler[*ociartifacts.Handler](p.GetOCIArtifactsHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIContainerInstancesHandler() service.Registerable }); ok {
+		conf.OCIContainerInstancesOps, _ = getHandler[*ocicontainerinstances.Handler](
+			p.GetOCIContainerInstancesHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIEventsHandler() service.Registerable }); ok {
+		conf.OCIEventsOps, _ = getHandler[*ocievents.Handler](p.GetOCIEventsHandler())
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 )
 
@@ -79,7 +80,7 @@ func rawDo(t *testing.T, method, url, host string, hdr map[string]string) *http.
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 

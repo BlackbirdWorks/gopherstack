@@ -34,8 +34,17 @@ type armSnapshot struct {
 	ContainerRegistry   *containerRegistrySnapshot `json:"containerRegistry,omitempty"`
 	Redis               *redisSnapshot             `json:"redis,omitempty"`
 	SQL                 *sqlSnapshot               `json:"sql,omitempty"`
+	PostgresFlex        *flexSnapshot              `json:"postgresFlex,omitempty"`
+	MySQLFlex           *flexSnapshot              `json:"mysqlFlex,omitempty"`
 	Web                 *webSnapshot               `json:"web,omitempty"`
 	ContainerInstance   *containerInstanceSnapshot `json:"containerInstance,omitempty"`
+	Network             *networkSnapshot           `json:"network,omitempty"`
+	ManagedIdentity     *managedIdentitySnapshot   `json:"managedIdentity,omitempty"`
+	Compute             *computeSnapshot           `json:"compute,omitempty"`
+	ContainerApps       *containerAppsSnapshot     `json:"containerApps,omitempty"`
+	ContainerService    *containerServiceSnapshot  `json:"containerService,omitempty"`
+	APIManagement       *apimSnapshot              `json:"apiManagement,omitempty"`
+	Authorization       *authorizationSnapshot     `json:"authorization,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -198,6 +207,14 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.SQL = p.snapshot()
 	}
 
+	if p, ok := h.postgresFlexProvider(); ok {
+		st.PostgresFlex = p.snapshot()
+	}
+
+	if p, ok := h.mysqlFlexProvider(); ok {
+		st.MySQLFlex = p.snapshot()
+	}
+
 	if p, ok := h.webProvider(); ok {
 		st.Web = p.snapshot()
 	}
@@ -205,6 +222,8 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	if p, ok := h.containerInstanceProvider(); ok {
 		st.ContainerInstance = p.snapshot()
 	}
+
+	h.snapshotInfra(&st)
 
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
 }
@@ -248,6 +267,14 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		p.restore(snap.SQL)
 	}
 
+	if p, ok := h.postgresFlexProvider(); ok {
+		p.restore(snap.PostgresFlex)
+	}
+
+	if p, ok := h.mysqlFlexProvider(); ok {
+		p.restore(snap.MySQLFlex)
+	}
+
 	if p, ok := h.webProvider(); ok {
 		p.restore(snap.Web)
 	}
@@ -256,5 +283,69 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		p.restore(snap.ContainerInstance)
 	}
 
+	h.restoreInfra(snap)
+
 	return nil
+}
+
+// restoreInfra restores the network, identity, compute and container apps providers.
+func (h *Handler) restoreInfra(snap armSnapshot) {
+	if p, ok := h.networkProvider(); ok {
+		p.restore(snap.Network)
+	}
+
+	if p, ok := h.managedIdentityProvider(); ok {
+		p.restore(snap.ManagedIdentity)
+	}
+
+	if p, ok := h.computeProvider(); ok {
+		p.restore(snap.Compute)
+	}
+
+	if p, ok := h.containerAppsProvider(); ok {
+		p.restore(snap.ContainerApps)
+	}
+
+	if p, ok := h.containerServiceProvider(); ok {
+		p.restore(snap.ContainerService)
+	}
+
+	if p, ok := h.apimProvider(); ok {
+		p.restore(snap.APIManagement)
+	}
+
+	if p, ok := h.authorizationProvider(); ok {
+		p.restore(snap.Authorization)
+	}
+}
+
+// snapshotInfra adds the network, identity, compute, container apps and container service providers.
+func (h *Handler) snapshotInfra(st *armSnapshot) {
+	if p, ok := h.networkProvider(); ok {
+		st.Network = p.snapshot()
+	}
+
+	if p, ok := h.managedIdentityProvider(); ok {
+		st.ManagedIdentity = p.snapshot()
+	}
+
+	if p, ok := h.computeProvider(); ok {
+		st.Compute = p.snapshot()
+	}
+
+	if p, ok := h.containerAppsProvider(); ok {
+		st.ContainerApps = p.snapshot()
+	}
+
+	if p, ok := h.containerServiceProvider(); ok {
+		st.ContainerService = p.snapshot()
+	}
+
+	if p, ok := h.apimProvider(); ok {
+		st.APIManagement = p.snapshot()
+	}
+
+	if p, ok := h.authorizationProvider(); ok {
+		st.Authorization = p.snapshot()
+	}
 }

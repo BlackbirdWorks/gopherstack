@@ -235,6 +235,7 @@ func (b *InMemoryBackend) restoreFromSnapshot(snap backendSnapshot) {
 	b.workflowRuns = snap.WorkflowRuns
 	b.schemaVersions = snap.SchemaVersions
 	b.sessionStatements = snap.SessionStatements
+	interruptRestoredStatements(b.sessionStatements)
 	b.crawlHistory = snap.CrawlHistory
 	b.schemaVersionMetadata = snap.SchemaVersionMetadata
 	b.glueIdentityCenterConfig = snap.GlueIdentityCenterConfig
@@ -327,3 +328,22 @@ func foldKeyHeads[V any](m map[string]V) map[string]V {
 }
 
 const keyHeadParts = 2
+
+// interruptRestoredStatements fails statements that were queued or running at
+// snapshot time: their interpreter did not survive the restart.
+func interruptRestoredStatements(all map[string][]*Statement) {
+	for _, stmts := range all {
+		for _, st := range stmts {
+			switch st.State {
+			case stmtWaiting, stmtRunning:
+				st.State = stmtError
+				st.Output = &StatementOutput{
+					Status: stmtError, ErrorName: "SessionInterrupted",
+					ErrorValue: "the session interpreter did not survive a restart",
+				}
+			case stmtCancelling:
+				st.State = stmtCancelled
+			}
+		}
+	}
+}

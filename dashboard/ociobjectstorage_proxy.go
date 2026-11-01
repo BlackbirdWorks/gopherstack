@@ -66,7 +66,7 @@ func (h *DashboardHandler) registerOCIObjectStorageRoutes() {
 func (a *ociObjectStorageAPI) ns() string { return a.b.Namespace() }
 
 func (a *ociObjectStorageAPI) namespace(c *echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{"namespace": a.ns()})
+	return c.JSON(http.StatusOK, map[string]string{ociNamespaceKey: a.ns()})
 }
 
 func (a *ociObjectStorageAPI) buckets(c *echo.Context) error {

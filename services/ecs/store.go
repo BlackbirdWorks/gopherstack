@@ -20,6 +20,7 @@ const (
 	statusDeleteInProgress  = "DELETE_IN_PROGRESS"
 	statusProvisioning      = "PROVISIONING"
 	statusPending           = "PENDING"
+	statusActivating        = "ACTIVATING"
 	statusDeactivating      = "DEACTIVATING"
 	statusStopping          = "STOPPING"
 	statusDeprovisioning    = "DEPROVISIONING"
@@ -71,6 +72,8 @@ type svcRef struct {
 // keep new fields grouped with their kind rather than by logical concern.
 type InMemoryBackend struct {
 	runner TaskRunner
+	// execSessions opens ECS Exec sessions, guarded by mu.
+	execSessions ExecSessionStarter
 	// sgEnforcer, when set, fronts awsvpc tasks' published ports with a security-group check.
 	sgEnforcer atomic.Pointer[sgfilter.Enforcer]
 	// cwLogs, when set (see SetCWLogsBackend), makes an awslogs-driver
@@ -90,6 +93,9 @@ type InMemoryBackend struct {
 	credIssuer       RoleCredentialIssuer
 	endpointURL      string
 	linkLocal        LinkLocal
+	secrets          SecretsResolver
+	efs              EFSResolver
+	envFiles         EnvFileStore
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver
 	asgController    AutoScalingGroupController
@@ -149,8 +155,12 @@ type InMemoryBackend struct {
 	// are intentionally never populated.
 	serviceRevisions      map[string][]*ServiceRevision
 	serviceRevisionsByArn map[string]*ServiceRevision
-	region                string
-	accountID             string
+	// nowFn overrides time.Now for task launch timestamps (tests).
+	nowFn func() time.Time
+	// launches tracks in-flight launch goroutines, guarded by mu.
+	launches  launchTracker
+	region    string
+	accountID string
 	// clusterDeleteHooks are invoked (outside the backend lock) with each cluster
 	// key removed by DeleteCluster or Purge, so external components such as the
 	// Reconciler can release per-cluster resources and avoid unbounded growth.
@@ -199,14 +209,18 @@ func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBa
 
 // Reset zeroes all backend state for test isolation.
 func (b *InMemoryBackend) Reset() {
+	_, idle := b.cancelLaunches(false)
+
 	tasks := b.resetLocked()
 
-	if b.runner == nil {
-		return
+	if b.runner != nil {
+		for _, t := range tasks {
+			_ = b.runner.StopTask(t)
+		}
 	}
 
-	for _, t := range tasks {
-		_ = b.runner.StopTask(t)
+	if idle != nil {
+		<-idle
 	}
 }
 

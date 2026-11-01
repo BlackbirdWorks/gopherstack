@@ -168,6 +168,12 @@ func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
 		return
 	}
 
+	rt.mu.RLock("cleanupTimedOutRuntime")
+	if rt.srv != nil {
+		rt.srv.setShutdownReason(shutdownReasonTimeout)
+	}
+	rt.mu.RUnlock()
+
 	var sem chan struct{}
 
 	func() {
@@ -234,6 +240,10 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	}
 
 	srv := newRuntimeServer(port)
+	srv.exts.setMeta(extensionMeta{
+		functionName: fn.FunctionName, version: functionVersionOrLatest(fn.Version), handler: fn.Handler,
+		functionARN: buildARN(b.region, b.accountID, fn.FunctionName), accountID: b.accountID,
+	})
 
 	if startErr := srv.start(ctx); startErr != nil {
 		_ = b.portAlloc.Release(port)
@@ -253,7 +263,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 
 	env, credsExpire := b.buildContainerEnv(ctx, fn, port)
 
-	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, env)
+	zipDir, layerDirs, containerID, hotFP, containerErr := b.startRuntimeContainer(ctx, fn, env, srv)
 	if containerErr != nil {
 		// handleContainerStartFailure receives rt.mu already locked and releases
 		// it itself once its cleanup completes, before doing further b.mu work.
@@ -280,13 +290,14 @@ func (b *InMemoryBackend) startRuntimeContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	env []string,
+	srv *runtimeServer,
 ) (string, []string, string, string, error) {
 	hotFP, err := b.hotReloadFingerprintFor(fn)
 	if err != nil {
 		return "", nil, "", "", fmt.Errorf("%w: %w", ErrLambdaUnavailable, err)
 	}
 
-	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, env)
+	zipDir, layerDirs, containerID, err := b.startContainer(ctx, fn, env, srv)
 
 	return zipDir, layerDirs, containerID, hotFP, err
 }
@@ -647,6 +658,7 @@ func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	env []string,
+	srv *runtimeServer,
 ) (string, []string, string, error) {
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
@@ -656,6 +668,10 @@ func (b *InMemoryBackend) startContainer(
 	}
 
 	ctx, layerDirs = b.withDebugPlan(ctx, fn, layerDirs)
+
+	if srv != nil && layerMount != "" {
+		srv.exts.setExpected(len(listLayerExtensions(layerHostDir(layerMount))))
+	}
 
 	if fn.PackageType == PackageTypeZip {
 		zipDir, containerID, err := b.startZipContainer(ctx, fn, env, layerMount)
@@ -686,6 +702,7 @@ func (b *InMemoryBackend) startContainer(
 
 	efs.apply(&spec)
 	applyDebugPlan(ctx, &spec)
+	b.applyDockerFlags(ctx, &spec)
 	spec.OCIRuntime = b.ociRuntime
 
 	containerID, err := b.docker.CreateAndStart(ctx, spec)
@@ -824,7 +841,10 @@ func (b *InMemoryBackend) createZipContainer(
 		spec.Cmd = []string{fn.Handler}
 	}
 
+	wrapWithExtensionLauncher(&spec, layerMount)
+
 	applyDebugPlan(ctx, &spec)
+	b.applyDockerFlags(ctx, &spec)
 	spec.OCIRuntime = b.ociRuntime
 
 	return b.docker.CreateAndStart(ctx, spec)
@@ -940,4 +960,14 @@ func (b *InMemoryBackend) fetchS3Code(ctx context.Context, fn *FunctionConfigura
 	}
 
 	return versioned.GetObjectVersionBytes(ctx, fn.S3BucketCode, fn.S3KeyCode, fn.S3ObjectVersionCode)
+}
+
+// applyDockerFlags overlays the allow-listed LAMBDA_DOCKER_FLAGS on spec, logging each dropped flag.
+func (b *InMemoryBackend) applyDockerFlags(ctx context.Context, spec *container.Spec) {
+	flags, warnings := parseDockerFlags(b.settings.DockerFlags)
+	for _, w := range warnings {
+		logger.Load(ctx).WarnContext(ctx, "lambda: LAMBDA_DOCKER_FLAGS", "detail", w)
+	}
+
+	flags.apply(spec)
 }

@@ -12,6 +12,8 @@ type Settings struct {
 	// TaskTokenTTL is the maximum time a task token may remain in tasksByToken without
 	// a worker response before the janitor evicts it. Defaults to 1 hour.
 	TaskTokenTTL time.Duration `json:"task_token_ttl"      name:"task-token-ttl"      env:"SFN_TASK_TOKEN_TTL"      default:"1h"  help:"Max lifetime of an unreceived task token before eviction."` //nolint:lll,golines // Kong struct tag makes this line long
+	// JSONataMapObjectItems lets a JSONata Map's Items evaluate to an object (one iteration per key/value pair).
+	JSONataMapObjectItems bool `json:"jsonata_map_object_items" name:"jsonata-map-object-items" env:"SFN_JSONATA_MAP_OBJECT_ITEMS" default:"true" help:"Accept an object as a JSONata Map Items value (the Inline Map docs say array only)."` //nolint:lll // Kong struct tag makes this line long
 }
 
 const (
@@ -28,5 +30,7 @@ func DefaultSettings() Settings {
 		ExecutionRetention: defaultExecutionRetention,
 		JanitorInterval:    defaultJanitorInterval,
 		TaskTokenTTL:       defaultTaskTokenTTL,
+
+		JSONataMapObjectItems: true,
 	}
 }

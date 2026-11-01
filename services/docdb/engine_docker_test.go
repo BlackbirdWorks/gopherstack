@@ -213,3 +213,48 @@ func TestEngineDockerTLSAndSCRAM(t *testing.T) {
 	assert.NotZero(t, shell(append(append([]string{}, secure...), login("s3cretpassword")...)...),
 		"tls refused when disabled")
 }
+
+func TestEngineDockerPasswordChange(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker CLI not available")
+	}
+
+	rt, err := container.NewRuntime(container.Config{})
+	if err != nil {
+		t.Skipf("container runtime unavailable: %v", err)
+	}
+
+	er, ok := rt.(docdb.EngineRuntime)
+	if !ok {
+		t.Skip("container runtime cannot exec with env")
+	}
+
+	if err = rt.Ping(t.Context()); err != nil {
+		t.Skipf("container daemon unreachable: %v", err)
+	}
+
+	b := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+	b.EnableEngine(docdb.EngineConfig{Runtime: &recordingEngineRuntime{EngineRuntime: er}})
+	t.Cleanup(b.Close)
+
+	ctx := t.Context()
+	_, err = b.CreateDBCluster(ctx, "c1", "docdb", "5.0.0", "admin1", "s3cretpassword",
+		"", "", "", 0, false, false, 0, "", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	c := waitClusterStatusFor(t, b, "available", dockerEngineWait)
+
+	_, err = b.ModifyDBCluster(ctx, "c1", "", nil, 0, "", "",
+		&docdb.ModifyDBClusterOptions{MasterUserPassword: "n3wpassword!"})
+	require.NoError(t, err)
+
+	login := func(pass string) int {
+		return mongoShellExit(t, "mongo:5.0", "mongo", "--quiet", "--host", c.Endpoint, "--port", strconv.Itoa(c.Port),
+			"-u", "admin1", "-p", pass, "--authenticationDatabase", "admin", "--eval", listDBs)
+	}
+
+	assert.Zero(t, login("n3wpassword!"), "new password accepted")
+	assert.NotZero(t, login("s3cretpassword"), "old password rejected")
+}

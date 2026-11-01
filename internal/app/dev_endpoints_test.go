@@ -25,6 +25,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func devEndpointsServer(t *testing.T) (*httptest.Server, aws.Config) {
@@ -35,7 +36,7 @@ func devEndpointsServer(t *testing.T) (*httptest.Server, aws.Config) {
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)
@@ -67,7 +68,7 @@ func devDo(t *testing.T, method, url, accept string) (int, []byte) {
 		req.Header.Set("Accept", accept)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()
@@ -356,6 +357,74 @@ func TestLocalstackStateResetAlias(t *testing.T) {
 
 			_, body := devDo(t, http.MethodGet, srv.URL+"/_aws/ses", "")
 			assert.JSONEq(t, `{"messages":[]}`, string(body))
+		})
+	}
+}
+
+func TestLambdaRuntimesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	srv, _ := devEndpointsServer(t)
+
+	tests := []struct {
+		name       string
+		query      string
+		has        string
+		hasNot     string
+		wantStatus int
+	}{
+		{name: "default", query: "", has: "python3.12", hasNot: "python3.7", wantStatus: http.StatusOK},
+		{
+			name:       "supported",
+			query:      "?filter=supported",
+			has:        "nodejs22.x",
+			hasNot:     "nodejs12.x",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "deprecated",
+			query:      "?filter=deprecated",
+			has:        "nodejs12.x",
+			hasNot:     "python3.12",
+			wantStatus: http.StatusOK,
+		},
+		{name: "all", query: "?filter=all", has: "python3.7", wantStatus: http.StatusOK},
+		{name: "invalid", query: "?filter=nope", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				srv.URL+"/_aws/lambda/runtimes"+tt.query,
+				nil,
+			)
+			require.NoError(t, err)
+
+			resp, err := testclient.New(t).Do(req)
+			require.NoError(t, err)
+
+			defer resp.Body.Close()
+
+			require.Equal(t, tt.wantStatus, resp.StatusCode)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var out struct {
+				Runtimes []string `json:"Runtimes"`
+			}
+
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			assert.Contains(t, out.Runtimes, tt.has)
+
+			if tt.hasNot != "" {
+				assert.NotContains(t, out.Runtimes, tt.hasNot)
+			}
 		})
 	}
 }

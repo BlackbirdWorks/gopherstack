@@ -32,14 +32,18 @@ type storedACIGroup struct {
 	ResourceGroup string            `json:"resourceGroup"`
 	Location      string            `json:"location"`
 	Props         aciPropsWire      `json:"props"`
+	Zones         []string          `json:"zones,omitempty"`
+	Identity      resourceIdentity  `json:"identity"`
 }
 
 // ContainerInstanceProvider implements ResourceProvider for Microsoft.ContainerInstance container groups. ARM
 // keeps the configuration; the ACIEngine runs the containers.
 type ContainerInstanceProvider struct {
 	engine *ACIEngine
+	net    *NetworkProvider
 	mu     *lockmetrics.RWMutex
 	groups map[string]*storedACIGroup
+	ids    *identityService
 }
 
 // NewContainerInstanceProvider creates a provider over engine.
@@ -90,10 +94,9 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		return nil, aciBad("container group name %q must be 1-63 letters, digits or hyphens", name)
 	}
 
-	for _, k := range []string{"identity", "zones"} {
-		if _, set := body[k]; set {
-			return nil, aciUnsupported(k)
-		}
+	zones := strList(body["zones"])
+	if err := normalizeACIZones(zones); err != nil {
+		return nil, err
 	}
 
 	props, err := parseACIProps(body[fieldProperties])
@@ -101,20 +104,37 @@ func (p *ContainerInstanceProvider) Put(_ context.Context, id ResourceID, body m
 		return nil, err
 	}
 
+	if err = p.checkSubnets(props.SubnetIDs); err != nil {
+		return nil, err
+	}
+
 	rec := &storedACIGroup{
 		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Props: props,
+		Tags: stringTags(body[fieldTags]), Props: props, Zones: zones,
 	}
 
 	if loc, _ := body[fieldLocation].(string); loc != "" {
 		rec.Location = loc
 	}
 
+	_, hasIdentity := body[fieldIdentity]
+
 	p.mu.Lock("Put")
+
+	var prevIdentity resourceIdentity
+
 	if old, ok := p.group(id.ResourceGroup, name); ok {
-		rec.Created = old.Created
+		rec.Created, prevIdentity = old.Created, old.Identity
 	}
 
+	ident, identErr := p.ids.apply(body[fieldIdentity], hasIdentity, prevIdentity)
+	if identErr != nil {
+		p.mu.Unlock()
+
+		return nil, identErr
+	}
+
+	rec.Identity = ident
 	p.groups[aciKey(id.ResourceGroup, name)] = rec
 	p.mu.Unlock()
 
@@ -204,7 +224,7 @@ func (p *ContainerInstanceProvider) Reset() {
 	p.groups = map[string]*storedACIGroup{}
 	p.mu.Unlock()
 
-	p.engine.RemoveAll()
+	p.engine.RemoveUnprefixed(acaKeyPrefix)
 }
 
 // DeleteResourcesInGroup implements ResourceProvider.
@@ -373,22 +393,75 @@ func aciContainerBody(c aciContainerWire, view *ACIContainerView) map[string]any
 		props["volumeMounts"] = pp.VolumeMounts
 	}
 
-	iv := map[string]any{"restartCount": 0}
-	if view != nil {
-		iv["restartCount"] = view.Restarts
-		iv["currentState"] = aciStateBody(&view.Cur)
-		iv["events"] = aciEventsBody(view.Events)
-
-		if view.Prev != nil {
-			iv["previousState"] = aciStateBody(view.Prev)
-		}
-	} else {
-		iv["currentState"] = map[string]any{sqlPropState: aciStateTerminated, "detailStatus": aciStateStopped}
+	if pp.LivenessProbe != nil {
+		props["livenessProbe"] = pp.LivenessProbe
 	}
 
-	props["instanceView"] = iv
+	if pp.ReadinessProbe != nil {
+		props["readinessProbe"] = pp.ReadinessProbe
+	}
+
+	props["instanceView"] = aciInstanceViewBody(view)
 
 	return map[string]any{fieldName: c.Name, fieldProperties: props}
+}
+
+func aciInstanceViewBody(view *ACIContainerView) map[string]any {
+	iv := map[string]any{"restartCount": 0}
+	if view == nil {
+		iv["currentState"] = map[string]any{sqlPropState: aciStateTerminated, "detailStatus": aciStateStopped}
+
+		return iv
+	}
+
+	iv["restartCount"] = view.Restarts
+	iv["currentState"] = aciStateBody(&view.Cur)
+	iv["events"] = aciEventsBody(view.Events)
+
+	if view.Prev != nil {
+		iv["previousState"] = aciStateBody(view.Prev)
+	}
+
+	return iv
+}
+
+func aciInitBody(ic aciInitWire, view *ACIContainerView) map[string]any {
+	pp := ic.Properties
+	props := map[string]any{"image": pp.Image}
+
+	if len(pp.Command) > 0 {
+		props["command"] = pp.Command
+	}
+
+	envs := make([]map[string]any, 0, len(pp.EnvironmentVariables))
+
+	for _, e := range pp.EnvironmentVariables {
+		m := map[string]any{fieldName: e.Name}
+		if e.Value != nil {
+			m[fieldValue] = *e.Value
+		}
+
+		envs = append(envs, m)
+	}
+
+	if len(envs) > 0 {
+		props["environmentVariables"] = envs
+	}
+
+	if len(pp.VolumeMounts) > 0 {
+		props["volumeMounts"] = pp.VolumeMounts
+	}
+
+	props["instanceView"] = aciInstanceViewBody(view)
+
+	return map[string]any{fieldName: ic.Name, fieldProperties: props}
+}
+
+func aciDiagnosticsBody(d *aciDiagnosticsWire) map[string]any {
+	la := *d.LogAnalytics
+	la.WorkspaceKey = ""
+
+	return map[string]any{"logAnalytics": la}
 }
 
 func aciVolumesBody(vols []aciVolumeWire) []map[string]any {
@@ -405,6 +478,8 @@ func aciVolumesBody(vols []aciVolumeWire) []map[string]any {
 				"shareName": v.AzureFile.ShareName, "storageAccountName": v.AzureFile.StorageAccountName,
 				"readOnly": v.AzureFile.ReadOnly,
 			}
+		case v.GitRepo != nil:
+			m["gitRepo"] = v.GitRepo
 		default:
 			m["emptyDir"] = map[string]any{}
 		}
@@ -451,6 +526,8 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 		delete(props, "volumes")
 	}
 
+	p.addExtBody(props, rec, view, live)
+
 	if pp.IPAddress != nil {
 		props["ipAddress"] = p.ipBody(rec, live && view.State != aciStateStopped && view.State != aciStateFailed)
 	}
@@ -464,10 +541,82 @@ func (p *ContainerInstanceProvider) bodyOf(id ResourceID, rec *storedACIGroup) m
 		props["imageRegistryCredentials"] = creds
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		"id": id.ARMID(), fieldName: rec.Name, fieldType: namespaceMicrosoftContainerInstance + "/" + aciGroupsType,
 		fieldLocation: rec.Location, fieldTags: tagsOrEmpty(rec.Tags), fieldProperties: props,
 	}
+
+	if ident := p.ids.body(rec.Identity); ident != nil {
+		out[fieldIdentity] = ident
+	}
+
+	if len(rec.Zones) > 0 {
+		out["zones"] = rec.Zones
+	}
+
+	return out
+}
+
+func (p *ContainerInstanceProvider) addExtBody(props map[string]any, rec *storedACIGroup, view ACIView, live bool) {
+	pp := rec.Props
+
+	if len(pp.InitContainers) > 0 {
+		inits := make([]map[string]any, 0, len(pp.InitContainers))
+
+		for i, ic := range pp.InitContainers {
+			var iv *ACIContainerView
+			if live && i < len(view.Inits) {
+				iv = &view.Inits[i]
+			}
+
+			inits = append(inits, aciInitBody(ic, iv))
+		}
+
+		props["initContainers"] = inits
+	}
+
+	if len(pp.SubnetIDs) > 0 {
+		props["subnetIds"] = pp.SubnetIDs
+	}
+
+	if pp.DNSConfig != nil {
+		props["dnsConfig"] = pp.DNSConfig
+	}
+
+	if pp.Diagnostics != nil {
+		props["diagnostics"] = aciDiagnosticsBody(pp.Diagnostics)
+	}
+}
+
+// checkSubnets verifies each subnet exists and is delegated to Microsoft.ContainerInstance/containerGroups; with no
+// network provider, or a subnet outside Microsoft.Network, the id is only syntax-checked.
+func (p *ContainerInstanceProvider) checkSubnets(subnets []aciSubnetWire) error {
+	if p.net == nil {
+		return nil
+	}
+
+	p.net.mu.RLock("aci.checkSubnets")
+	defer p.net.mu.RUnlock()
+
+	for _, sn := range subnets {
+		_, subnet, found := p.net.subnetByID(sn.ID)
+		if !found {
+			return aciBad("The subnet '%s' was not found.", sn.ID)
+		}
+
+		delegated := false
+
+		for _, d := range anyList(subnet.Props["delegations"]) {
+			m, _ := d.(map[string]any)
+			delegated = delegated || strings.EqualFold(strOf(propsOf(m), "serviceName"), aciDelegationName)
+		}
+
+		if !delegated {
+			return aciBad("The subnet '%s' must be delegated to %s.", sn.ID, aciDelegationName)
+		}
+	}
+
+	return nil
 }
 
 func (p *ContainerInstanceProvider) ipBody(rec *storedACIGroup, allocated bool) map[string]any {

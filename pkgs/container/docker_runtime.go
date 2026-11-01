@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
+	"slices"
+	"strings"
 	"time"
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
@@ -11,6 +14,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/docker"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -63,6 +68,15 @@ type ExecAPIClient interface {
 	) (stdout, stderr []byte, exitCode int, err error)
 }
 
+// ExecEnvAPIClient is implemented by clients that can run a command with extra environment variables.
+type ExecEnvAPIClient interface {
+	ContainerExecEnv(
+		ctx context.Context,
+		containerID string,
+		cmd, env []string,
+	) (stdout, stderr []byte, exitCode int, err error)
+}
+
 // ExecStreamAPIClient is implemented by clients that can stream a command's output while it runs.
 type ExecStreamAPIClient interface {
 	ContainerExecStream(
@@ -78,6 +92,11 @@ type NetworkAPIClient interface {
 	NetworkCreate(ctx context.Context, name string) (string, error)
 	NetworkConnect(ctx context.Context, networkID, containerID string) error
 	NetworkRemove(ctx context.Context, networkID string) error
+}
+
+// ListAPIClient is implemented by clients that can list containers by label.
+type ListAPIClient interface {
+	ContainerListByLabel(ctx context.Context, label string) ([]ManagedContainer, error)
 }
 
 // realDockerClient wraps the standard Docker SDK client to satisfy APIClient.
@@ -110,10 +129,30 @@ func (r *realDockerClient) ContainerCreate(
 	cfg *dockercontainer.Config,
 	hostConfig *dockercontainer.HostConfig,
 	_ any,
-	_ any,
+	platform any,
 	containerName string,
 ) (dockercontainer.CreateResponse, error) {
-	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, nil, containerName)
+	p, _ := platform.(*ocispec.Platform)
+
+	return r.c.ContainerCreate(ctx, cfg, hostConfig, nil, p, containerName)
+}
+
+// platformOSArch is the number of mandatory "os/arch" platform segments.
+const platformOSArch = 2
+
+// parsePlatform turns "os/arch[/variant]" into an OCI platform; nil when empty or malformed.
+func parsePlatform(s string) *ocispec.Platform {
+	parts := strings.Split(s, "/")
+	if len(parts) < platformOSArch || parts[0] == "" || parts[1] == "" {
+		return nil
+	}
+
+	p := &ocispec.Platform{OS: parts[0], Architecture: parts[1]}
+	if len(parts) > platformOSArch {
+		p.Variant = parts[2]
+	}
+
+	return p
 }
 
 func (r *realDockerClient) ContainerStart(
@@ -148,6 +187,14 @@ func (r *realDockerClient) ContainerExec(
 	return r.c.ContainerExec(ctx, containerID, cmd)
 }
 
+func (r *realDockerClient) ContainerExecEnv(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+) ([]byte, []byte, int, error) {
+	return r.c.ContainerExecEnv(ctx, containerID, cmd, env)
+}
+
 func (r *realDockerClient) ContainerExecStream(
 	ctx context.Context,
 	containerID string,
@@ -155,6 +202,37 @@ func (r *realDockerClient) ContainerExecStream(
 	stdout, stderr io.Writer,
 ) (int, error) {
 	return r.c.ContainerExecStream(ctx, containerID, cmd, stdout, stderr)
+}
+
+func (r *realDockerClient) ContainerListByLabel(ctx context.Context, label string) ([]ManagedContainer, error) {
+	items, err := r.c.ContainerList(ctx, dockercontainer.ListOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.KeyValuePair{Key: "label", Value: label}),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ManagedContainer, 0, len(items))
+
+	for _, it := range items {
+		mc := ManagedContainer{
+			ID: it.ID, Labels: it.Labels, Running: string(it.State) == "running", Ports: map[int]int{},
+		}
+		if len(it.Names) > 0 {
+			mc.Name = strings.TrimPrefix(it.Names[0], "/")
+		}
+
+		for _, p := range it.Ports {
+			if p.PublicPort != 0 {
+				mc.Ports[int(p.PrivatePort)] = int(p.PublicPort)
+			}
+		}
+
+		out = append(out, mc)
+	}
+
+	return out, nil
 }
 
 func (r *realDockerClient) NetworkCreate(ctx context.Context, name string) (string, error) {
@@ -167,6 +245,18 @@ func (r *realDockerClient) NetworkConnect(ctx context.Context, networkID, contai
 
 func (r *realDockerClient) NetworkRemove(ctx context.Context, networkID string) error {
 	return r.c.NetworkRemove(ctx, networkID)
+}
+
+func (r *realDockerClient) VolumeCreate(ctx context.Context, name string, labels map[string]string) error {
+	return r.c.VolumeCreate(ctx, name, labels)
+}
+
+func (r *realDockerClient) VolumeRemove(ctx context.Context, name string) error {
+	return r.c.VolumeRemove(ctx, name)
+}
+
+func (r *realDockerClient) VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error) {
+	return r.c.VolumeListUnused(ctx, label)
 }
 
 func (r *realDockerClient) Ping(ctx context.Context) (any, error) {
@@ -323,6 +413,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		cfg.Entrypoint = spec.Entrypoint
 	}
 
+	cfg.Labels = spec.launchLabels()
 	cfg.WorkingDir = spec.WorkingDir
 	cfg.User = spec.User
 
@@ -334,6 +425,13 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 	}
 	hostCfg.Memory = spec.MemoryBytes
 	hostCfg.NanoCPUs = spec.NanoCPUs
+	hostCfg.ExtraHosts = spec.ExtraHosts
+
+	for _, d := range spec.DNS {
+		if addr, perr := netip.ParseAddr(d); perr == nil {
+			hostCfg.DNS = append(hostCfg.DNS, addr)
+		}
+	}
 
 	if spec.Network != "" {
 		hostCfg.NetworkMode = dockercontainer.NetworkMode(spec.Network)
@@ -361,7 +459,7 @@ func (r *DockerRuntime) CreateAndStart(ctx context.Context, spec Spec) (string, 
 		}
 	}
 
-	resp, err := r.docker.ContainerCreate(ctx, cfg, hostCfg, nil, nil, spec.Name)
+	resp, err := r.docker.ContainerCreate(ctx, cfg, hostCfg, nil, parsePlatform(spec.Platform), spec.Name)
 	if err != nil {
 		return "", fmt.Errorf("container create %q: %w", spec.Image, err)
 	}
@@ -475,6 +573,64 @@ func (r *DockerRuntime) RemoveNetwork(ctx context.Context, networkID string) err
 	return api.NetworkRemove(ctx, networkID)
 }
 
+// VolumeAPIClient is implemented by clients that can manage named volumes.
+type VolumeAPIClient interface {
+	VolumeCreate(ctx context.Context, name string, labels map[string]string) error
+	VolumeRemove(ctx context.Context, name string) error
+	VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error)
+}
+
+// CreateVolume creates a labelled named volume; an existing one is reused.
+func (r *DockerRuntime) CreateVolume(ctx context.Context, name string, labels map[string]string) error {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return ErrVolumeUnsupported
+	}
+
+	return api.VolumeCreate(ctx, name, labels)
+}
+
+// RemoveVolume force-removes a named volume; a missing volume is not an error.
+func (r *DockerRuntime) RemoveVolume(ctx context.Context, name string) error {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return ErrVolumeUnsupported
+	}
+
+	return api.VolumeRemove(ctx, name)
+}
+
+// ListUnusedVolumes lists the volumes carrying label that no container references and that are older than
+// olderThan, so a volume a concurrent launch has just created is left alone.
+func (r *DockerRuntime) ListUnusedVolumes(
+	ctx context.Context,
+	label string,
+	olderThan time.Duration,
+) ([]string, error) {
+	api, ok := r.docker.(VolumeAPIClient)
+	if !ok {
+		return nil, ErrVolumeUnsupported
+	}
+
+	all, err := api.VolumeListUnused(ctx, label)
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().Add(-olderThan)
+	out := make([]string, 0, len(all))
+
+	for name, created := range all {
+		if created.Before(cutoff) {
+			out = append(out, name)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out, nil
+}
+
 // Exec runs cmd inside a running container and waits for it to finish.
 func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []string) (ExecResult, error) {
 	api, ok := r.docker.(ExecAPIClient)
@@ -483,6 +639,21 @@ func (r *DockerRuntime) Exec(ctx context.Context, containerID string, cmd []stri
 	}
 
 	stdout, stderr, code, err := api.ContainerExec(ctx, containerID, cmd)
+	if err != nil {
+		return ExecResult{}, fmt.Errorf("container exec %q: %w", containerID, err)
+	}
+
+	return ExecResult{Stdout: string(stdout), Stderr: string(stderr), ExitCode: code}, nil
+}
+
+// ExecEnv runs cmd like Exec with env (KEY=VALUE entries) set on the process instead of in its argv.
+func (r *DockerRuntime) ExecEnv(ctx context.Context, containerID string, cmd, env []string) (ExecResult, error) {
+	api, ok := r.docker.(ExecEnvAPIClient)
+	if !ok {
+		return ExecResult{}, ErrExecUnsupported
+	}
+
+	stdout, stderr, code, err := api.ContainerExecEnv(ctx, containerID, cmd, env)
 	if err != nil {
 		return ExecResult{}, fmt.Errorf("container exec %q: %w", containerID, err)
 	}

@@ -370,7 +370,7 @@ func (b *InMemoryBackend) runEmbeddedUnit(lb *liveCluster) {
 		return
 	}
 
-	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, b.clusterAdmit(lb))
+	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, b.clusterAdmit(lb), b.clusterAuthFn(lb))
 	if err != nil {
 		e.releasePort(port)
 		b.failUnit(lb)

@@ -45,21 +45,7 @@ func (h *Handler) buildPeer(ctx context.Context, home *InMemoryBackend, region s
 	nb := NewInMemoryBackend(home.accountID, region, runner)
 	nb.inheritWiring(home)
 
-	if r, ok := runner.(taskCompletionRunner); ok {
-		r.SetTaskCompletionHandler(nb.markTaskStoppedByContainerExit)
-	}
-
-	if r, ok := runner.(taskEnvRunner); ok {
-		r.SetTaskEnvProvider(nb.containerRuntimeEnv)
-	}
-
-	if r, ok := runner.(containerAttachRunner); ok {
-		r.SetContainerAttacher(nb.attachLinkLocal)
-	}
-
-	if r, ok := runner.(admitHookRunner); ok {
-		r.SetAdmitHook(nb.taskAdmit)
-	}
+	nb.wireRunnerHooks(runner)
 
 	cwl := home.currentCWLogs()
 	if h.cwLogsFor != nil {
@@ -134,7 +120,9 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 	b.events = home.events
 	b.credIssuer = home.credIssuer
 	b.endpointURL = home.endpointURL
+	b.execSessions = home.execSessions
 	b.linkLocal = home.linkLocal
+	b.secrets = home.secrets
 	b.metrics.Set(home.metrics.Emitter())
 	inheritEnforcer(b, home)
 	b.stopDelay = home.stopDelay

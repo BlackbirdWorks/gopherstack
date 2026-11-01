@@ -139,7 +139,7 @@ func TestInstanceValidation(t *testing.T) {
 			DatabaseVersion:    "MYSQL_8_0",
 			MasterInstanceName: "m",
 			Settings:           &sqladmin.Settings{Tier: "db-f1-micro"},
-		}, wantCode: http.StatusBadRequest, wantMsg: "replicas"},
+		}, wantCode: http.StatusNotFound, wantMsg: "does not exist"},
 	}
 
 	for _, tt := range tests {

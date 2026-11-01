@@ -12,7 +12,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -162,7 +161,8 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	all := make([]routingCase, 0, len(cases)*(1+indexVariantsPerCase)+indexCrossCases)
 
@@ -204,44 +204,6 @@ func TestRoutingIndexMatchesLinearScan(t *testing.T) {
 	}
 }
 
-func TestRoutePathGatesHold(t *testing.T) {
-	t.Parallel()
-
-	_, entries := routingFixture(t)
-	cases := loadRoutingCorpus(t)
-	byName := map[string]*service.Entry{}
-
-	for _, e := range entries {
-		byName[e.Registerable.Name()] = e
-	}
-
-	for name, prefixes := range routegates.PathGates() {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			entry := byName[name]
-			require.NotNil(t, entry, "gate names an unregistered service")
-
-			covered := func(rc routingCase) bool {
-				path, _ := splitURI(rc.uri)
-
-				return slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(path, p) })
-			}
-
-			for _, rc := range cases {
-				for _, v := range append(append([]routingCase{rc}, pathVariants(rc)...), arnVariants(rc)...) {
-					if covered(v) {
-						continue
-					}
-
-					c := echo.NewContext(v.request(t), httptest.NewRecorder())
-					require.False(t, entry.Matcher(c), "%s matched %s %s outside its path gate", name, v.method, v.uri)
-				}
-			}
-		})
-	}
-}
-
 func TestRoutingPathGatedAlternatives(t *testing.T) {
 	t.Parallel()
 
@@ -249,7 +211,8 @@ func TestRoutingPathGatedAlternatives(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, method, uri, target, want string
@@ -300,7 +263,8 @@ func TestRoutingLambdaFunctionURLHost(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, method, host, uri string
@@ -331,7 +295,8 @@ func TestRoutingRPCv2CBORGates(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, uri, want, notWant string
@@ -366,4 +331,69 @@ func TestRoutingRPCv2CBORGates(t *testing.T) {
 			}
 		})
 	}
+}
+
+func gatePrefixCases(rc routingCase, prefixes []string) []routingCase {
+	out := make([]routingCase, 0, 9*len(prefixes))
+
+	for _, p := range prefixes {
+		rest := strings.TrimLeft(p, "/")
+
+		for _, lead := range []string{"/", "//", "///"} {
+			for _, tail := range []string{"", "/x", "x"} {
+				v := rc
+				v.uri = lead + rest + tail
+				out = append(out, v)
+			}
+		}
+	}
+
+	return out
+}
+
+func TestRoutingIndexLeadingSlashes(t *testing.T) {
+	t.Parallel()
+
+	reg, entries := routingFixture(t)
+	router := service.NewServiceRouter(reg).
+		WithTargetGates(routegates.TargetGates()).
+		WithCBORGates(routegates.CBORGates()).
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
+
+	var cases []routingCase
+
+	for _, rc := range loadRoutingCorpus(t) {
+		path, query := splitURI(rc.uri)
+
+		for _, extra := range []string{"/", "//"} {
+			v := rc
+			v.uri = extra + path + query
+			cases = append(cases, v)
+		}
+	}
+
+	for _, prefixes := range routegates.PathGates() {
+		for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
+			base := routingCase{method: method, host: "localhost:4566"}
+			cases = append(cases, gatePrefixCases(base, prefixes)...)
+		}
+	}
+
+	if testing.Short() {
+		cases = strideSample(cases, indexShortStride)
+	}
+
+	var diffs []string
+
+	for _, rc := range cases {
+		scan := scanSelect(entries, echo.NewContext(rc.request(t), httptest.NewRecorder()))
+		got := entryName(router.Lookup(echo.NewContext(rc.request(t), httptest.NewRecorder())))
+
+		if got != scan && len(diffs) < routingMaxDiffs {
+			diffs = append(diffs, rc.method+" "+rc.host+rc.uri+": got "+got+" want "+scan)
+		}
+	}
+
+	assert.Empty(t, diffs, "indexed Lookup diverged from the ungated scan on leading-slash paths")
 }

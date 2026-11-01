@@ -12,11 +12,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 )
 
 type propertySpec struct {
 	PrimitiveType string `json:"PrimitiveType"`
 	Type          string `json:"Type"`
+	Required      bool   `json:"Required"`
 }
 
 type resourceTypeSpec struct {
@@ -31,6 +33,7 @@ func main() {
 	specPath := flag.String("spec", "", "full CloudFormation resource specification JSON")
 	typesPath := flag.String("types", "", "JSON array of resource types to include")
 	outPath := flag.String("out", "", "output schema JSON")
+	reqPath := flag.String("required-out", "", "output required-properties JSON (optional)")
 	flag.Parse()
 
 	if *specPath == "" || *typesPath == "" || *outPath == "" {
@@ -38,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(*specPath, *typesPath, *outPath); err != nil {
+	if err := run(*specPath, *typesPath, *outPath, *reqPath); err != nil {
 		fmt.Fprintln(os.Stderr, "cfnpropgen:", err)
 		os.Exit(1)
 	}
@@ -53,7 +56,7 @@ func readJSON(path string, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-func run(specPath, typesPath, outPath string) error {
+func run(specPath, typesPath, outPath, reqPath string) error {
 	var spec resourceSpec
 	if err := readJSON(specPath, &spec); err != nil {
 		return fmt.Errorf("load spec: %w", err)
@@ -69,7 +72,56 @@ func run(specPath, typesPath, outPath string) error {
 		return fmt.Errorf("render: %w", err)
 	}
 
-	return os.WriteFile(outPath, append(out, '\n'), 0o600)
+	if err = os.WriteFile(outPath, append(out, '\n'), 0o600); err != nil {
+		return err
+	}
+
+	if reqPath == "" {
+		return nil
+	}
+
+	req, err := json.MarshalIndent(buildRequired(&spec, types), "", "  ")
+	if err != nil {
+		return fmt.Errorf("render required: %w", err)
+	}
+
+	return os.WriteFile(reqPath, append(req, '\n'), 0o600)
+}
+
+// registryRequired are required keys the registry schema enforces but the
+// legacy spec leaves optional (metric-math alarms in the spec).
+var registryRequired = map[string][]string{ //nolint:gochecknoglobals // static table
+	"AWS::CloudWatch::Alarm": {"ComparisonOperator", "EvaluationPeriods"},
+}
+
+// registryOptional are spec-required keys the registry schema does not require.
+var registryOptional = map[string][]string{ //nolint:gochecknoglobals // static table
+	"AWS::SageMaker::Workteam": {"Description"},
+}
+
+// buildRequired lists each type's spec-required properties, sorted.
+func buildRequired(spec *resourceSpec, types []string) map[string][]string {
+	out := map[string][]string{}
+
+	for _, name := range types {
+		req := slices.Clone(registryRequired[name])
+
+		for prop, ps := range spec.ResourceTypes[name].Properties {
+			if ps.Required && !slices.Contains(registryOptional[name], prop) {
+				req = append(req, prop)
+			}
+		}
+
+		if len(req) > 0 {
+			slices.Sort(req)
+
+			req = slices.Compact(req)
+
+			out[name] = req
+		}
+	}
+
+	return out
 }
 
 // buildSchemas keeps a type only when the spec documents its Properties.

@@ -28,7 +28,7 @@ func taskBelongsToDeployment(t *Task, dep *Deployment) bool {
 
 func taskIsLive(t *Task) bool {
 	switch t.LastStatus {
-	case statusRunning, statusPending, statusProvisioning:
+	case statusRunning, statusPending, statusProvisioning, statusActivating:
 		return true
 	}
 
@@ -234,6 +234,7 @@ func (b *InMemoryBackend) stopServiceTask(clusterName, taskArn, reason string) e
 		task.DesiredStatus = statusStopped
 		task.StoppedAt = &now
 		task.StoppedReason = reason
+		task.StopCode = stopCodeServiceSchedulerInitiated
 		syncContainerStatuses(task, nil)
 		b.emitTaskStateLocked(task)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)

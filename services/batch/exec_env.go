@@ -106,16 +106,20 @@ func expandCommand(cmd []string, defParams, jobParams map[string]string, env []K
 
 // runtimeEnv is the emulator-provided environment: region, endpoint and job-role credentials.
 func runtimeEnv(rs *runState, issuer JobRoleCredentialIssuer, endpoint string) ([]string, error) {
+	return runtimeEnvFor(rs, rs.jobRoleArn, issuer, endpoint)
+}
+
+func runtimeEnvFor(rs *runState, roleArn string, issuer JobRoleCredentialIssuer, endpoint string) ([]string, error) {
 	env := []string{"AWS_REGION=" + rs.region, "AWS_DEFAULT_REGION=" + rs.region}
 
 	if endpoint != "" {
 		env = append(env, "AWS_ENDPOINT_URL="+endpoint)
 	}
 
-	if rs.jobRoleArn != "" && issuer != nil {
+	if roleArn != "" && issuer != nil {
 		session := truncate("AWSBatch-"+strings.ReplaceAll(rs.jobID, ":", "-"), maxSessionNameLen)
 
-		creds, err := issuer.IssueJobCredentials(rs.jobRoleArn, session)
+		creds, err := issuer.IssueJobCredentials(roleArn, session)
 		if err != nil {
 			return nil, err
 		}
@@ -131,9 +135,11 @@ func runtimeEnv(rs *runState, issuer JobRoleCredentialIssuer, endpoint string) (
 }
 
 // batchEnv is the AWS_BATCH_* environment, appended last so job definitions cannot shadow it.
-func batchEnv(rs *runState) []string {
+func batchEnv(rs *runState) []string { return batchEnvFor(rs, rs.jobID) }
+
+func batchEnvFor(rs *runState, jobID string) []string {
 	env := []string{
-		"AWS_BATCH_JOB_ID=" + rs.jobID,
+		"AWS_BATCH_JOB_ID=" + jobID,
 		"AWS_BATCH_JQ_NAME=" + rs.queueName,
 		fmt.Sprintf("AWS_BATCH_JOB_ATTEMPT=%d", rs.attempt),
 	}

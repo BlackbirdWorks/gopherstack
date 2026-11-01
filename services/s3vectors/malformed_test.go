@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestMalformedBodiesAreClientErrors(t *testing.T) {
@@ -55,7 +57,7 @@ func TestMalformedBodiesAreClientErrors(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("User-Agent", "aws-sdk-go-v2/1.41.0 api/s3vectors#1.0.0")
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

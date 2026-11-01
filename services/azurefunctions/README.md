@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 6 (6 ok) |
-| Feature families | 6 (6 ok) |
+| Feature families | 7 (7 ok) |
 | Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | ok |
@@ -20,8 +20,8 @@
 - WEBSITE_RUN_FROM_PACKAGE with a URL is ignored; the deployed zip is always used.
 - The listener is plain HTTP; Kudu only supports zipdeploy, publish?type=zip, deployments and the site zip download (no vfs, command, logstream or webjobs APIs).
 - Windows function apps and Functions runtime versions other than ~4 run in the same Linux v4 images.
-- Not implemented: DELETE sites/{name}/functions/{fn}, deployment slots, functions/admin/token, syncfunctiontriggers, Flex Consumption (functionAppConfig), app-level managed identity, VNet integration, custom domains and certificates, easy auth (authsettings are stored only).
-- Deployment slots (sites/slots CRUD, slotConfigNames behaviour, swap with preview, complete and reset) are not implemented; slot-specific hostnames <app>-<slot>.<domain> are not routed.
+- Not implemented: DELETE sites/{name}/functions/{fn}, functions/admin/token, syncfunctiontriggers, Flex Consumption (functionAppConfig), app-level managed identity, VNet integration, custom domains and certificates, easy auth (authsettings are stored only).
+- Deployment slots: no auto swap, no testing-in-production traffic routing (x-ms-routing-name), no slot-level custom domains; slotsdiffs lists only the swapped settings that differ (diffRule and description strings are not verified against Azure) and not the sticky-setting changes of the preview phases; function and host keys, Kudu deployment history and the publishing password stay with their slot on a swap (unverified against Azure); connection strings are stored and swapped but are not injected into the container environment (no SQLCONNSTR_ style variables); the slot-limit and swap-conflict error codes (409 Conflict) are not verified against Azure; a swap holds the Microsoft.Web provider lock while it warms the source slot.
 - Web apps: private registries (DOCKER_REGISTRY_SERVER_* credentials, ACR managed identity) are not supported, so only images the local runtime can pull anonymously start; EXPOSE auto-detection is not done (DOCKER apps use WEBSITES_PORT, PORT or 80).
 - Web apps: no remote build (Oryx), so Node and Python dependencies must be inside the zip; Python apps need appCommandLine or an app.py/main.py entry (no gunicorn auto-detection); Tomcat, JBoss, Ruby and Go stacks, Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400.
 - Web apps: alwaysOn does not keep a container warm (hosts are never reaped anyway) and is not validated against the plan tier; an unhealthy running instance is not evicted or restarted after startup.

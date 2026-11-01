@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -233,7 +234,7 @@ func TestSubscribe_HTTPConfirmationFlow_SDK(t *testing.T) {
 				req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, msg["SubscribeURL"], nil)
 				require.NoError(t, reqErr)
 
-				resp, getErr := http.DefaultClient.Do(req)
+				resp, getErr := testclient.New(t).Do(req)
 				require.NoError(t, getErr)
 				body, _ := io.ReadAll(resp.Body)
 				_ = resp.Body.Close()

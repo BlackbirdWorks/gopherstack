@@ -153,6 +153,8 @@ structural_gaps:
 items_still_open:
   - "AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07)."
   - "SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType (\"Resource Policy\" vs the SDK enum \"resource\") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'."
+  - "Resource control policies (RCPs) are not evaluated in the enforcement path: they constrain resources in member accounts for any principal, and resolving the owning account from S3-style account-less resource ARNs is not derivable. SCPs are enforced (scp.go)."
+  - "The AWS root user of a member account is not SCP-restricted: enforcement skips root principals entirely (resolveSTSUserIdentityPolicies), whereas SCPs apply to member-account root."
 ---
 
 ## Notes
@@ -952,3 +954,13 @@ Create{User,Role,Group,Policy,InstanceProfile} validate name pattern and max len
 - Service-linked roles: canonical AWS names for well-known principals (`AWSServiceRoleForElasticLoadBalancing`, `...ForECS`, `...ForAutoScaling`), `Description` and `MaxSessionDuration` persisted, DeleteServiceLinkedRole of a missing role is NoSuchEntity (was a fake task), GetServiceLinkedRoleDeletionStatus rejects ids not issued by DeleteServiceLinkedRole.
 - `GetUserIDByAccessKeyID` added so STS GetCallerIdentity can report the IAM user's AIDA id.
 - Kept lenient: CreateServiceLinkedRole accepts any `*.amazonaws.com` principal (AWS rejects unsupported services; the supported list is not in the SDK).
+
+## 2026-10-31 SCP evaluation in IAM enforcement
+
+With `--enforce-iam` (or audit mode) on, an otherwise-allowed request from a member-account principal is additionally gated on the Organizations SCPs for that account (`scp.go`, wired in `internal/app/iam_policy_stream.go`; `--iam-enforce-scps=false` disables). Rules, verified against the AWS Organizations User Guide pages "Service control policies (SCPs)" (SCP effects on permissions; Tasks and entities not restricted by SCPs) and "SCP evaluation":
+
+- An Allow is needed at every level root -> each OU on the path -> account (intersection); any Deny at any level denies. Evaluated with the existing evaluator (`ExplainPolicies`), so Condition/NotAction/Resource work.
+- Only applies when SERVICE_CONTROL_POLICY is enabled on the root. Management-account principals and service-linked roles (`role/aws-service-role/...` path or `AWSServiceRoleFor*` name) are exempt. Accounts outside the organization are not affected.
+- Denial text follows the IAM User Guide "Troubleshoot access denied error messages": `User: <arn> is not authorized to perform: <action> with an explicit deny in a service control policy[: <policy arn>]` / `... because no service control policy allows the <action> action`. Policy stream events carry `reason=service-control-policy`, `policy.type=service-control-policy`.
+- Tests: `internal/app/iam_scp_test.go` (SDK-driven full app), `services/iam/scp_whitebox_test.go`.
+- Not verified: whether S3 and other non-IAM-format services embed this exact message verbatim; the docs state some services do not support the format.

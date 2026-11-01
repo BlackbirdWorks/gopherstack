@@ -437,6 +437,10 @@ type FunctionVersion struct {
 	KMSKeyArn              string                  `json:"KMSKeyArn,omitempty"`
 	Layers                 []*FunctionLayer        `json:"Layers,omitempty"`
 	Architectures          []string                `json:"Architectures,omitempty"`
+	S3BucketCode           string                  `json:"-"`
+	S3KeyCode              string                  `json:"-"`
+	S3ObjectVersionCode    string                  `json:"-"`
+	ZipData                []byte                  `json:"-"`
 	MemorySize             int                     `json:"MemorySize"`
 	Timeout                int                     `json:"Timeout"`
 	CodeSize               int64                   `json:"CodeSize"`

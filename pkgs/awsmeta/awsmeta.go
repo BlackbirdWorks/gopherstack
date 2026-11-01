@@ -194,6 +194,22 @@ func GetPrincipal(ctx context.Context) *Principal {
 	return nil
 }
 
+// CallerAccount returns the account the request is known to come from and
+// whether that identity is explicit: a resolved principal, or any account
+// other than DefaultAccount (header or 12-digit access key). Anonymous
+// default-account requests report ok=false so callers can stay permissive.
+func CallerAccount(ctx context.Context) (string, bool) {
+	if p := GetPrincipal(ctx); p != nil && p.AccountID != "" {
+		return p.AccountID, true
+	}
+
+	if acct := Account(ctx); acct != DefaultAccount {
+		return acct, true
+	}
+
+	return "", false
+}
+
 // CallerArn returns the ARN of the calling principal, or empty string.
 func CallerArn(ctx context.Context) string {
 	if p := GetPrincipal(ctx); p != nil {

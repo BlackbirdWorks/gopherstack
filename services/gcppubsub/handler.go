@@ -17,6 +17,7 @@ import (
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -157,7 +158,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcppubsub", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(
+	srv := gcpenforce.NewServer(
+		ctx, "pubsub.googleapis.com",
 		grpc.MaxRecvMsgSize(maxMessageBytes),
 		grpc.UnaryInterceptor(logInterceptor(log)),
 	)

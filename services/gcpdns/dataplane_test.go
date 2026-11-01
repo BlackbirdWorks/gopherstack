@@ -25,7 +25,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 
 	backend := gcpdns.NewInMemoryBackend()
 	h := gcpdns.NewHandler(backend)
-	h.Port, h.DNSPort = freePort(t), freePort(t)
+	h.Port, h.DNSEphemeral = 0, true
 
 	require.NoError(t, h.StartWorker(t.Context()))
 	t.Cleanup(func() { h.Shutdown(t.Context()) })

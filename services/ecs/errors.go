@@ -22,6 +22,8 @@ var (
 	// AWS ECS reports as a ClientException (for example, malformed container
 	// definitions or an unsupported network mode / launch-type combination).
 	ErrClient = awserr.New("ClientException", awserr.ErrInvalidParameter)
+	// ErrTargetNotConnected is ExecuteCommand's TargetNotConnectedException: the exec agent cannot be reached.
+	ErrTargetNotConnected = awserr.New("TargetNotConnectedException", awserr.ErrInvalidParameter)
 	// ErrCapacityProviderInUse is returned when deleting a capacity provider
 	// still associated with a cluster. Uses the ErrAlreadyExists kind (like
 	// ErrDaemonAlreadyExists in daemon.go) since handleError only maps

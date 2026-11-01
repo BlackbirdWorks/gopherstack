@@ -2,7 +2,6 @@ package fis_test
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -224,7 +224,7 @@ func TestFISListOps_NarrowSummaryParity(t *testing.T) {
 func assertNoRawKey(t *testing.T, url, listKey, itemKey string) {
 	t.Helper()
 
-	resp, err := http.Get(url)
+	resp, err := testclient.New(t).Get(url)
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = resp.Body.Close() })

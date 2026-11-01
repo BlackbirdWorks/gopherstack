@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -34,8 +35,9 @@ func (b *InMemoryBackend) run(j job) {
 	b.finishDeploy(j, err)
 }
 
-// warm replaces the running container with one for the new revision and waits until it answers HTTP.
-// Without a container runtime the function is still deployed; invocations then return 503.
+// warm replaces the instance pool with one for the new revision and brings it to its minimum instances (at least
+// one) so a bad container fails the deploy. Without a container runtime the function is still deployed;
+// invocations then return 503.
 func (b *InMemoryBackend) warm(name string) error {
 	b.mu.Lock("warm")
 
@@ -46,13 +48,28 @@ func (b *InMemoryBackend) warm(name string) error {
 		return errFunctionGone
 	}
 
-	old := b.takeBoxLocked(rec)
+	old := b.takePoolLocked(rec)
 	b.mu.Unlock()
 
-	b.teardown(old)
+	if old != nil {
+		old.Close()
+	}
 
-	err := b.startFunction(b.baseCtx(), name)
-	if errors.Is(err, errNoRuntime) {
+	pool, err := b.poolFor(name)
+	if err != nil {
+		return errFunctionGone
+	}
+
+	want := 1
+
+	b.mu.RLock("warm.min")
+	if r := b.functions[name]; r != nil {
+		want = max(int(r.pb.GetServiceConfig().GetMinInstanceCount()), 1)
+	}
+	b.mu.RUnlock()
+
+	err = pool.Ensure(b.baseCtx(), want)
+	if errors.Is(err, errNoRuntime) || errors.Is(err, gcpscale.ErrClosed) {
 		return nil
 	}
 
@@ -71,6 +88,7 @@ func (b *InMemoryBackend) prepare(j job) error {
 	}
 
 	data, bc, et, oldSub := rec.zip, rec.pb.GetBuildConfig(), clone(rec.pb.GetEventTrigger()), rec.subName
+	fn := clone(rec.pb)
 	b.mu.RUnlock()
 
 	rt, err := lookupRuntime(bc.GetRuntime())
@@ -82,8 +100,12 @@ func (b *InMemoryBackend) prepare(j job) error {
 		return err
 	}
 
-	if et == nil {
-		return nil
+	if err = b.checkSecrets(fn); err != nil {
+		return err
+	}
+
+	if et.GetEventType() != EventTypePubSub {
+		return b.dropSubscription(j.name, oldSub)
 	}
 
 	sub, err := b.ensureTrigger(j.name, et, oldSub)
@@ -166,7 +188,7 @@ func (b *InMemoryBackend) finishDeploy(j job, deployErr error) {
 			Severity: functionspb.StateMessage_ERROR, Type: "DeploymentFailed", Message: rec.failure,
 		}}
 	} else {
-		rec.failure, rec.startErr = "", ""
+		rec.failure = ""
 		rec.pb.State, rec.pb.StateMessages = functionspb.Function_ACTIVE, nil
 	}
 
@@ -198,7 +220,7 @@ func (b *InMemoryBackend) runDelete(j job) {
 		return
 	}
 
-	x, sub, bus := b.takeBoxLocked(rec), rec.subName, b.events
+	pool, sub, bus := b.takePoolLocked(rec), rec.subName, b.events
 	if rec.deployed != nil {
 		close(rec.deployed)
 	}
@@ -206,7 +228,9 @@ func (b *InMemoryBackend) runDelete(j job) {
 	delete(b.functions, j.name)
 	b.mu.Unlock()
 
-	b.teardown(x)
+	if pool != nil {
+		pool.Close()
+	}
 
 	if bus != nil && sub != "" {
 		if err := bus.DeleteSubscription(sub); err != nil {
@@ -216,4 +240,27 @@ func (b *InMemoryBackend) runDelete(j job) {
 	}
 
 	b.finishOp(j, &emptypb.Empty{})
+}
+
+// dropSubscription removes a push subscription left over from a previous Pub/Sub trigger.
+func (b *InMemoryBackend) dropSubscription(name, sub string) error {
+	if sub == "" {
+		return nil
+	}
+
+	b.mu.RLock("dropSubscription")
+	bus := b.events
+	b.mu.RUnlock()
+
+	if bus != nil {
+		_ = bus.DeleteSubscription(sub)
+	}
+
+	b.mu.Lock("dropSubscription.clear")
+	if cur := b.functions[name]; cur != nil {
+		cur.subName = ""
+	}
+	b.mu.Unlock()
+
+	return nil
 }

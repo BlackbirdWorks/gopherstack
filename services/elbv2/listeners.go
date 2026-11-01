@@ -97,8 +97,8 @@ func checkDuplicateListenerPort(candidates []*Listener, port int32) error {
 	return nil
 }
 
-// CreateListener creates a new listener on a load balancer.
-func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, error) {
+// createListener creates a new listener on a load balancer.
+func (b *InMemoryBackend) createListener(input CreateListenerInput) (*Listener, error) {
 	b.mu.Lock("CreateListener")
 	defer b.mu.Unlock()
 
@@ -300,8 +300,8 @@ func checkAllListenerArnsFound(arns []string, result []Listener) error {
 	return nil
 }
 
-// DeleteListener deletes a listener by ARN.
-func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
+// deleteListener deletes a listener by ARN.
+func (b *InMemoryBackend) deleteListener(listenerArn string) error {
 	b.mu.Lock("DeleteListener")
 	defer b.mu.Unlock()
 
@@ -327,7 +327,7 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 }
 
 // ModifyListener updates the properties of an existing listener.
-func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, error) {
+func (b *InMemoryBackend) modifyListener(input ModifyListenerInput) (*Listener, error) {
 	b.mu.Lock("ModifyListener")
 	defer b.mu.Unlock()
 

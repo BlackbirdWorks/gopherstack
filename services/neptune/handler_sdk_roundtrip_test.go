@@ -1,11 +1,9 @@
 package neptune_test
 
 import (
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	neptunesdk "github.com/aws/aws-sdk-go-v2/service/neptune"
 	"github.com/aws/aws-sdk-go-v2/service/neptune/types"
@@ -13,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
@@ -34,20 +33,11 @@ func newTestNeptuneClient(t *testing.T, h *neptune.Handler) *neptunesdk.Client {
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion(testRegion),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	return neptunesdk.NewFromConfig(cfg, func(o *neptunesdk.Options) {
-		o.BaseEndpoint = aws.String(srv.URL)
+	return neptunesdk.NewFromConfig(aws.Config{
+		Region:       testRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 }
 

@@ -92,3 +92,6 @@ func writeRaw(w http.ResponseWriter, code int, b []byte) {
 	w.WriteHeader(code)
 	_, _ = w.Write(b) //nolint:gosec // b is JSON from encoding/json or protojson, not HTML
 }
+
+// WriteError writes err as the Google JSON error envelope, with its status details.
+func WriteError(w http.ResponseWriter, err error) { writeError(w, err) }

@@ -18,7 +18,7 @@ func (p *ContainerInstanceProvider) snapshot() *containerInstanceSnapshot {
 
 // restore replaces the stored groups; restored groups have no running containers and report Stopped until started.
 func (p *ContainerInstanceProvider) restore(snap *containerInstanceSnapshot) {
-	p.engine.RemoveAll()
+	p.engine.RemoveUnprefixed(acaKeyPrefix)
 
 	p.mu.Lock("restore")
 	defer p.mu.Unlock()

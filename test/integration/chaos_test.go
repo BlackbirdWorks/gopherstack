@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // chaosFaultError is the JSON schema for a custom error in a chaos fault rule.
@@ -114,7 +116,7 @@ func postChaosRules(t *testing.T, ep string, rules any) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -139,7 +141,7 @@ func postChaosEffects(t *testing.T, ep string, effects chaosNetworkEffects) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()

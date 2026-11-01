@@ -2,6 +2,7 @@ package cosmosdb
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -61,12 +62,18 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetCosmosDBSettings()
 	}
 
+	m := settings.ResourceTokenMaxSeconds
+	if m != 0 && (m < MinResourceTokenMaxSeconds || m > MaxResourceTokenMaxSeconds) {
+		return nil, fmt.Errorf("%w: got %d", ErrInvalidResourceTokenMax, m)
+	}
+
 	backend := NewInMemoryBackend()
 	backend.SetServerless(settings.Serverless)
 	handler := NewHandler(backend)
 	handler.Port = settings.Port
 	handler.MasterKey = settings.MasterKey
 	handler.ValidateAuth = settings.ValidateAuth
+	handler.ResourceTokenMaxSeconds = settings.ResourceTokenMaxSeconds
 	handler.EnforceThroughput = settings.EnforceThroughput
 	handler.BurstCapacity = settings.BurstCapacity
 	handler.TLS = os.Getenv(envTLS) == trueText

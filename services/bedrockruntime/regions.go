@@ -12,6 +12,7 @@ func (h *Handler) EnableRegions() {
 	h.peers = regionpeers.New(home.region, func(region string) *Handler {
 		pb := NewInMemoryBackendWithContext(home.svcCtx, home.accountID, region)
 		pb.inheritGuardrailLookup(home)
+		pb.llm.Store(home.llm.Load())
 		p := NewHandler(pb)
 
 		if ctx := h.workerCtx.Load(); ctx != nil {

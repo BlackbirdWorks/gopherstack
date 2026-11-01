@@ -119,11 +119,7 @@ func (e *dockerEngine) insertStmt(
 			cols = append(cols, col)
 		}
 
-		if e.kind == kindPostgres {
-			marks = append(marks, "$"+strconv.Itoa(i+1))
-		} else {
-			marks = append(marks, "?")
-		}
+		marks = append(marks, "$"+strconv.Itoa(i+1))
 	}
 
 	colList := ""

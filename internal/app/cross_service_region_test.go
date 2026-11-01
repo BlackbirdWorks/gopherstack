@@ -35,7 +35,7 @@ func crossRegionServices(t *testing.T) map[string]service.Registerable {
 
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(), PortAlloc: portAlloc,
 	})
 	require.NoError(t, err)

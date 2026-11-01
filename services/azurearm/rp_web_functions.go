@@ -17,7 +17,7 @@ func (p *WebProvider) appOrError(id ResourceID) (*storedWebSite, FunctionAppInfo
 		return nil, FunctionAppInfo{}, err
 	}
 
-	info, ok := p.dataPlane.AppInfo(s.Name)
+	info, ok := p.dataPlane.AppInfo(s.dpName())
 	if !ok {
 		return nil, FunctionAppInfo{}, ErrWebSiteNotFound
 	}
@@ -37,18 +37,18 @@ func (p *WebProvider) SetState(_ context.Context, id ResourceID, action string) 
 
 	switch action {
 	case "start":
-		return p.dataPlane.SetStopped(s.Name, false)
+		return p.dataPlane.SetStopped(s.dpName(), false)
 	case "stop":
-		return p.dataPlane.SetStopped(s.Name, true)
+		return p.dataPlane.SetStopped(s.dpName(), true)
 	}
 
-	return p.dataPlane.Restart(s.Name)
+	return p.dataPlane.Restart(s.dpName())
 }
 
 // Patch serves PATCH on a site: properties are merged over the stored ones.
 func (p *WebProvider) Patch(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	p.mu.RLock("Patch.read")
-	s, ok := p.site(id.ResourceGroup, id.LeafName())
+	s, ok := p.record(id)
 
 	if !ok {
 		p.mu.RUnlock()
@@ -61,14 +61,14 @@ func (p *WebProvider) Patch(ctx context.Context, id ResourceID, body map[string]
 		fieldProperties: ehMerge(map[string]any{}, s.Extra, nil),
 	}
 
-	if s.Identity != nil {
-		merged["identity"] = s.Identity
+	if ident := p.ids.body(s.Managed); ident != nil {
+		merged[fieldIdentity] = ident
 	}
 
 	merged[webFieldKind] = s.Kind
 	p.mu.RUnlock()
 
-	for _, k := range []string{fieldLocation, webFieldKind, "identity"} {
+	for _, k := range []string{fieldLocation, webFieldKind, fieldIdentity} {
 		if v, found := body[k]; found {
 			merged[k] = v
 		}
@@ -110,7 +110,10 @@ func (p *WebProvider) functionEnvelope(id ResourceID, host string, f FunctionApp
 	}
 
 	return map[string]any{
-		"id": fid, fieldName: id.LeafName() + "/" + f.Name, fieldType: webTypeFunction, fieldProperties: props,
+		"id":            fid,
+		fieldName:       strings.Join(id.Names, "/") + "/" + f.Name,
+		fieldType:       webTypeFunction,
+		fieldProperties: props,
 	}
 }
 
@@ -191,7 +194,7 @@ func (p *WebProvider) FunctionKeys(ctx context.Context, id ResourceID, fn string
 		return nil, err
 	}
 
-	keys, err := p.dataPlane.FunctionKeys(s.Name, f.Name)
+	keys, err := p.dataPlane.FunctionKeys(s.dpName(), f.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +214,7 @@ func (p *WebProvider) FunctionSecrets(ctx context.Context, id ResourceID, fn str
 		return nil, err
 	}
 
-	keys, err := p.dataPlane.FunctionKeys(s.Name, f.Name)
+	keys, err := p.dataPlane.FunctionKeys(s.dpName(), f.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +238,7 @@ func (p *WebProvider) SetFunctionKey(
 		return nil, err
 	}
 
-	val, err := p.dataPlane.SetFunctionKey(s.Name, f.Name, keyName, keyValue(body))
+	val, err := p.dataPlane.SetFunctionKey(s.dpName(), f.Name, keyName, keyValue(body))
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +253,7 @@ func (p *WebProvider) DeleteFunctionKey(ctx context.Context, id ResourceID, fn, 
 		return err
 	}
 
-	return p.dataPlane.DeleteFunctionKey(s.Name, f.Name, keyName)
+	return p.dataPlane.DeleteFunctionKey(s.dpName(), f.Name, keyName)
 }
 
 // keyValue reads the key value from a flat or properties-wrapped KeyInfo body.
@@ -272,7 +275,7 @@ func (p *WebProvider) HostKeys(_ context.Context, id ResourceID) (map[string]any
 		return nil, err
 	}
 
-	hk, err := p.dataPlane.HostKeys(s.Name)
+	hk, err := p.dataPlane.HostKeys(s.dpName())
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +303,7 @@ func (p *WebProvider) SetHostKey(
 		return nil, err
 	}
 
-	val, err := p.dataPlane.SetHostKey(s.Name, canonicalKeyType(keyType), keyName, keyValue(body))
+	val, err := p.dataPlane.SetHostKey(s.dpName(), canonicalKeyType(keyType), keyName, keyValue(body))
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +318,7 @@ func (p *WebProvider) DeleteHostKey(_ context.Context, id ResourceID, keyType, k
 		return err
 	}
 
-	return p.dataPlane.DeleteHostKey(s.Name, canonicalKeyType(keyType), keyName)
+	return p.dataPlane.DeleteHostKey(s.dpName(), canonicalKeyType(keyType), keyName)
 }
 
 func canonicalKeyType(t string) string {

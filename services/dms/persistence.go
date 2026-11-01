@@ -112,6 +112,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	b.reinitTagsLocked(snap.ResourceTags)
+	b.settleTasksLocked()
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -272,4 +273,17 @@ func (h *Handler) Snapshot(ctx context.Context) []byte { return h.Backend.Snapsh
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return h.Backend.Restore(ctx, data)
+}
+
+// settleTasksLocked marks tasks that were mid-run when the snapshot was taken as stopped: no engine run
+// survives a restart.
+func (b *InMemoryBackend) settleTasksLocked() {
+	for _, rt := range b.replicationTasks.All() {
+		if taskActive(rt) {
+			rt.Status = statusStopped
+			if rt.StopReason == "" {
+				rt.StopReason = "Stop Reason RECOVERABLE_ERROR"
+			}
+		}
+	}
 }

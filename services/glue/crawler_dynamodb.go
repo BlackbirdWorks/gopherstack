@@ -220,24 +220,17 @@ func (r *crawlRun) scanDDBTypes(
 	}
 }
 
-func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
-	if r.ddb == nil {
-		return fmt.Errorf("%w: %q", errDDBUnavailable, t.Path)
-	}
-
-	ctx, cancel := context.WithTimeout(awsmeta.WithRegion(context.Background(), r.region), crawlerS3Timeout)
-	defer cancel()
-
+func (r *crawlRun) describeDDBTable(ctx context.Context, t DynamoDBTarget) ([]Column, map[string]string, error) {
 	desc, err := r.ddb.DescribeTable(ctx, &sdk_ddb.DescribeTableInput{TableName: aws.String(t.Path)})
 	if err != nil {
-		return fmt.Errorf("describe dynamodb table %s: %w", t.Path, err)
+		return nil, nil, fmt.Errorf("describe dynamodb table %s: %w", t.Path, err)
 	}
 
 	tbl := desc.Table
 	types := ddbKeyTypes(tbl.AttributeDefinitions)
 
 	if err = r.scanDDBTypes(ctx, t.Path, t, types); err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	keys := make([]string, 0, len(tbl.KeySchema))
@@ -262,10 +255,29 @@ func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
 	}
 
 	params := map[string]string{
-		paramClassification: ddbClassification, paramTypeOfData: "table", crawlerManagedParam: r.c.Name,
 		"recordCount": strconv.FormatInt(aws.ToInt64(tbl.ItemCount), 10),
 		"sizeKey":     strconv.FormatInt(aws.ToInt64(tbl.TableSizeBytes), 10),
 	}
+
+	return cols, params, nil
+}
+
+func (r *crawlRun) crawlDynamoDB(t DynamoDBTarget) error {
+	if r.ddb == nil {
+		return fmt.Errorf("%w: %q", errDDBUnavailable, t.Path)
+	}
+
+	ctx, cancel := context.WithTimeout(awsmeta.WithRegion(context.Background(), r.region), crawlerS3Timeout)
+	defer cancel()
+
+	cols, params, err := r.describeDDBTable(ctx, t)
+	if err != nil {
+		return err
+	}
+
+	params[paramClassification] = ddbClassification
+	params[paramTypeOfData] = typeOfDataTable
+	params[crawlerManagedParam] = r.c.Name
 
 	r.upsert(&Table{
 		Name: crawlTableName(r.c.TablePrefix, t.Path), DatabaseName: strs.Fold(r.c.DatabaseName),

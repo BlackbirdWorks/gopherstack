@@ -25,6 +25,32 @@ func cosmosRegionsOf(a *storedCosmosAccount) []CosmosRegion {
 func (p *CosmosProvider) syncRegions(a *storedCosmosAccount) {
 	multi, _ := a.properties["enableMultipleWriteLocations"].(bool)
 	p.dataPlane.SetRegions(cosmosRegionsOf(a), multi)
+
+	if pr, ok := p.dataPlane.(CosmosPolicyResources); ok {
+		pr.SetAccountPolicies(cosmosPoliciesOf(a))
+	}
+}
+
+// cosmosPoliciesOf reads the consistency, failover and backup settings of the account.
+func cosmosPoliciesOf(a *storedCosmosAccount) CosmosAccountPolicies {
+	cons := fillConsistency(a.properties[cosmosFieldConsistency])
+	out := CosmosAccountPolicies{Consistency: fmt.Sprint(cons["defaultConsistencyLevel"]), Backup: "Periodic"}
+
+	out.MaxStalenessPrefix = int64(wholeNumber(cons["maxStalenessPrefix"]))
+	out.MaxIntervalSeconds = wholeNumber(cons["maxIntervalInSeconds"])
+
+	out.AutomaticFailover, _ = a.properties["enableAutomaticFailover"].(bool)
+
+	backup := fillBackupPolicy(a.properties[cosmosFieldBackup])
+	if strings.EqualFold(fmt.Sprint(backup[cosmosFieldType]), "Continuous") {
+		out.Backup = "Continuous30Days"
+
+		if m, ok := backup["continuousModeProperties"].(map[string]any); ok {
+			out.Backup = fmt.Sprint(m[cosmosFieldTier])
+		}
+	}
+
+	return out
 }
 
 // FailoverPriorityChange applies a manual failover: the body must give every location exactly one unique
@@ -108,4 +134,16 @@ func parseFailoverPolicies(body map[string]any, current []CosmosRegion) (map[str
 	}
 
 	return prio, nil
+}
+
+// wholeNumber reads a JSON number that may have been stored as an int or a float.
+func wholeNumber(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case float64:
+		return int(n)
+	}
+
+	return 0
 }

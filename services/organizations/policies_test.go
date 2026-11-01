@@ -609,20 +609,50 @@ func TestDeletePolicy_Succeeds(t *testing.T) {
 // DeleteOrganization: OrganizationNotEmptyException when member accounts exist
 // ---------------------------------------------------------------------------
 
-// TestDisablePolicyType_WithAttached_Rejected verifies that disabling
-// a policy type while policies of that type are attached returns ConstraintViolationException.
-func TestDisablePolicyType_WithAttached_Rejected(t *testing.T) {
+// TestDisablePolicyType_WithAttached verifies that disabling the SCP type detaches
+// every SCP (Organizations User Guide, "SCP effects on permissions"), while other
+// types are still rejected while attached.
+func TestDisablePolicyType_WithAttached(t *testing.T) {
 	t.Parallel()
 
-	b, rootID := newOrgBackend(t)
+	tests := []struct {
+		name       string
+		policyType string
+		wantErr    bool
+	}{
+		{name: "scp_auto_detached", policyType: "SERVICE_CONTROL_POLICY"},
+		{name: "tag_policy_rejected", policyType: "TAG_POLICY", wantErr: true},
+	}
 
-	p, err := b.CreatePolicy("scp", "", `{"Version":"2012-10-17"}`, "SERVICE_CONTROL_POLICY", nil)
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, rootID))
+			b, rootID := newOrgBackend(t)
 
-	_, err = b.DisablePolicyType(rootID, "SERVICE_CONTROL_POLICY")
-	require.Error(t, err, "DisablePolicyType must fail while policies of that type are attached")
+			if tt.policyType != "SERVICE_CONTROL_POLICY" {
+				_, err := b.EnablePolicyType(rootID, tt.policyType)
+				require.NoError(t, err)
+			}
+
+			p, err := b.CreatePolicy("p", "", `{"Version":"2012-10-17"}`, tt.policyType, nil)
+			require.NoError(t, err)
+			require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, rootID))
+
+			_, err = b.DisablePolicyType(rootID, tt.policyType)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			attached, err := b.ListPoliciesForTarget(rootID, tt.policyType)
+			require.NoError(t, err)
+			assert.Empty(t, attached)
+		})
+	}
 }
 
 // TestEnablePolicyType_UnknownType_Rejected verifies EnablePolicyType rejects
@@ -698,10 +728,6 @@ func TestDisablePolicyType_AfterDetach_OK(t *testing.T) {
 
 	require.NoError(t, b.AttachPolicy(p.PolicySummary.ID, rootID))
 	require.NoError(t, b.DetachPolicy(p.PolicySummary.ID, rootID))
-
-	// The default FullAWSAccess SCP is also attached to root; detach it too
-	// so disabling isn't rejected by the still-attached guard.
-	require.NoError(t, b.DetachPolicy("p-FullAWSAccess", rootID))
 
 	_, err = b.DisablePolicyType(rootID, "SERVICE_CONTROL_POLICY")
 	require.NoError(t, err)
@@ -806,14 +832,6 @@ func TestHandler_DisablePolicyType(t *testing.T) {
 				"RootId":     rootID,
 				"PolicyType": "SERVICE_CONTROL_POLICY",
 			})
-
-			// The default FullAWSAccess SCP is attached to root; detach it so
-			// disabling isn't rejected by the still-attached guard.
-			detachRec := doRequest(t, h, "DetachPolicy", map[string]any{
-				"PolicyId": "p-FullAWSAccess",
-				"TargetId": rootID,
-			})
-			require.Equal(t, http.StatusOK, detachRec.Code)
 
 			rec := doRequest(t, h, "DisablePolicyType", map[string]any{
 				"RootId":     rootID,

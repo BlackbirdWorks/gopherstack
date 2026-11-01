@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -239,8 +240,17 @@ func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
-	// Task must transition to STOPPED when the runner fails rather than staying
-	// in PROVISIONING forever, which would be a resource leak with wrong semantics.
+	// The launch runs asynchronously; the task must reach STOPPED rather than stay in PROVISIONING forever.
+	require.Eventually(t, func() bool {
+		got, _, descErr := backend.DescribeTasks("", []string{tasks[0].TaskArn})
+
+		return descErr == nil && len(got) == 1 && got[0].LastStatus == "STOPPED"
+	}, 5*time.Second, 5*time.Millisecond)
+
+	got, _, err := backend.DescribeTasks("", []string{tasks[0].TaskArn})
+	require.NoError(t, err)
+
+	tasks = got
 	assert.Equal(t, "STOPPED", tasks[0].LastStatus)
 	assert.Equal(t, "STOPPED", tasks[0].DesiredStatus)
 	assert.NotNil(t, tasks[0].StoppedAt)

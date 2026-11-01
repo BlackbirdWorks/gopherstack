@@ -75,7 +75,8 @@ func testNeptuneDBClusterParameterGroup(t *testing.T) {
     "Properties": {
       "Name": "my-neptune-cluster-pg",
       "Family": "neptune1.3",
-      "Description": "test cluster parameter group"
+      "Description": "test cluster parameter group",
+      "Parameters": {"neptune_enable_audit_log": "0"}
     }
   }
 },
@@ -108,7 +109,8 @@ func testNeptuneDBParameterGroup(t *testing.T) {
     "Properties": {
       "Name": "my-neptune-pg",
       "Family": "neptune1.3",
-      "Description": "test parameter group"
+      "Description": "test parameter group",
+      "Parameters": {"neptune_query_timeout": "120000"}
     }
   }
 },

@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -20,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	oci "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 )
 
@@ -84,20 +84,6 @@ type envOpts struct {
 	register bool
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer l.Close()
-
-	tcp, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-
-	return tcp.Port
-}
-
 func newEnv(t *testing.T, opts envOpts) *env {
 	t.Helper()
 
@@ -110,7 +96,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	}
 
 	h := oci.NewHandler(be)
-	h.Port = freePort(t)
+	h.Port = 0
 	h.EnforceAuth = opts.enforce
 
 	require.NoError(t, h.StartWorker(t.Context()))
@@ -210,7 +196,7 @@ func rawDo(t *testing.T, method, url, body string, hdr map[string]string) (int, 
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

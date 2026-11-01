@@ -75,17 +75,6 @@ func echoes(t *testing.T, addr string) bool {
 	return n == 1
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer func() { _ = ln.Close() }()
-
-	return ln.Addr().(*net.TCPAddr).Port
-}
-
 func TestRunTaskSecurityGroups(t *testing.T) {
 	t.Parallel()
 
@@ -108,7 +97,7 @@ func TestRunTaskSecurityGroups(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			hostPort := freePort(t)
+			hostPort := 18080
 			cli := &bindingCapture{fakeDockerClient: &fakeDockerClient{}}
 			runner := newDockerRunnerWithClient(t.Context(), cli)
 			b := NewInMemoryBackend("000000000000", "us-east-1", runner)

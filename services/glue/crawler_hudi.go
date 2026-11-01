@@ -8,27 +8,72 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
+
+	"github.com/iskorotkov/avro/v2/ocf"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
-	hudiDir          = ".hoodie"
-	hudiProps        = "hoodie.properties"
-	hudiTypeMOR      = "MERGE_ON_READ"
-	hudiInput        = "org.apache.hudi.hadoop.HoodieParquetInputFormat"
-	hudiRealtimeIn   = "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat"
-	hudiMetaPrefix   = "_hoodie_"
-	hudiSchemaProp   = "hoodie.table.create.schema"
-	hudiPartProp     = "hoodie.table.partition.fields"
-	hudiNameProp     = "hoodie.table.name"
-	hudiTypeProp     = "hoodie.table.type"
-	hudiCommitSuffix = ".commit"
+	hudiDir         = ".hoodie"
+	hudiProps       = "hoodie.properties"
+	hudiTypeMOR     = "MERGE_ON_READ"
+	hudiInput       = "org.apache.hudi.hadoop.HoodieParquetInputFormat"
+	hudiRealtimeIn  = "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat"
+	hudiMetaPrefix  = "_hoodie_"
+	hudiSchemaProp  = "hoodie.table.create.schema"
+	hudiPartProp    = "hoodie.table.partition.fields"
+	hudiNameProp    = "hoodie.table.name"
+	hudiTypeProp    = "hoodie.table.type"
+	hudiTimelineDir = ".hoodie/timeline"
 )
 
 var errHudiNoSchema = errors.New("no Hudi schema in hoodie.properties or a completed commit")
+
+func isHudiCompletedCommit(file string) bool {
+	return strings.HasSuffix(file, ".commit") || strings.HasSuffix(file, ".deltacommit") ||
+		strings.HasSuffix(file, ".replacecommit")
+}
+
+// hudiCommitSchema reads extraMetadata.schema from a completed instant: JSON
+// in 0.x timelines, an Avro container file in 1.x.
+func hudiCommitSchema(body []byte) string {
+	if !bytes.HasPrefix(body, []byte("Obj\x01")) {
+		var commit struct {
+			ExtraMetadata map[string]string `json:"extraMetadata"`
+		}
+
+		if decodeJSON(body, &commit) != nil {
+			return ""
+		}
+
+		return commit.ExtraMetadata["schema"]
+	}
+
+	dec, err := ocf.NewDecoder(bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+
+	for dec.HasNext() {
+		var row map[string]any
+		if dec.Decode(&row) != nil {
+			return ""
+		}
+
+		switch m := row["extraMetadata"].(type) {
+		case map[string]string:
+			return m["schema"]
+		case map[string]any:
+			s, _ := m["schema"].(string)
+
+			return s
+		}
+	}
+
+	return ""
+}
 
 func hudiMetaColumns() []string {
 	return []string{
@@ -103,30 +148,32 @@ func (r *crawlRun) hudiSchema(
 
 	for _, k := range keys {
 		dir, file := splitKey(k)
-		if dir == joinKey(root, hudiDir) && strings.HasSuffix(file, hudiCommitSuffix) {
+		if (dir == joinKey(root, hudiDir) || dir == joinKey(root, hudiTimelineDir)) && isHudiCompletedCommit(file) {
 			commits = append(commits, k)
 		}
 	}
 
-	sort.Strings(commits)
+	slices.SortFunc(commits, func(x, y string) int {
+		_, fx := splitKey(x)
+		_, fy := splitKey(y)
 
-	for _, commit := range slices.Backward(commits) {
-		body, err := r.readObject(ctx, bucket, commit)
+		return strings.Compare(fx, fy)
+	})
+
+	for _, key := range slices.Backward(commits) {
+		body, err := r.readObject(ctx, bucket, key)
 		if err != nil {
 			return nil, err
 		}
 
-		var commit struct {
-			ExtraMetadata map[string]string `json:"extraMetadata"`
-		}
-
-		if decodeJSON(body, &commit) != nil || commit.ExtraMetadata["schema"] == "" {
+		def := hudiCommitSchema(body)
+		if def == "" {
 			continue
 		}
 
 		var schema any
-		if err = decodeJSON([]byte(commit.ExtraMetadata["schema"]), &schema); err != nil {
-			return nil, fmt.Errorf("parse schema of %s: %w", commit, err)
+		if err = decodeJSON([]byte(def), &schema); err != nil {
+			return nil, fmt.Errorf("parse schema of s3://%s/%s: %w", bucket, key, err)
 		}
 
 		return schema, nil

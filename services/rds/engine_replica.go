@@ -9,26 +9,17 @@ import (
 	"strconv"
 	"sync/atomic"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/dbrepl"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 const (
 	replUser     = "rdsrepl"
-	replKeyEnv   = "RDS_REPL_KEY"
 	serverIDMin  = 2
 	serverIDSpan = 1<<31 - serverIDMin
-
-	pgReplicaScript = `set -e
-host="$1"; port="$2"; shift 2
-if [ ! -s "$PGDATA/PG_VERSION" ]; then
-  gosu postgres pg_basebackup -d "host=$host port=$port user=` + replUser + ` password=$` + replKeyEnv + `" ` +
-		`-D "$PGDATA" -R -X stream -c fast
-fi
-exec docker-entrypoint.sh "$@"`
-
-	pgHBAScript = `f="$PGDATA/pg_hba.conf"; grep -q "^host replication ` + replUser + ` " "$f" || ` +
-		`echo "host replication ` + replUser + ` samenet scram-sha-256" >> "$f"`
 )
 
 var errNoNetworkRuntime = errors.New("container runtime cannot create networks")
@@ -231,8 +222,28 @@ func (b *InMemoryBackend) replicaPlan(ctx context.Context, lb *liveDB) (replPlan
 	return plan, nil
 }
 
-func pgServerFlags() []string {
-	return []string{"-c", "wal_level=replica", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
+const paramLogicalReplication = "rds.logical_replication"
+
+// pgServerFlags starts PostgreSQL like RDS: wal_level=replica unless the parameter group sets
+// rds.logical_replication=1.
+func pgServerFlags(logical bool) []string {
+	level := "wal_level=replica"
+	if logical {
+		level = "wal_level=logical"
+	}
+
+	return []string{"-c", level, "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"}
+}
+
+// logicalReplicationLocked reports whether the named parameter group sets rds.logical_replication to 1.
+func (b *InMemoryBackend) logicalReplicationLocked(group string, groups *store.Table[DBParameterGroup]) bool {
+	if group == "" {
+		return false
+	}
+
+	pg, ok := groups.Get(normalizeID(group))
+
+	return ok && pg.Parameters[paramLogicalReplication].ParameterValue == "1"
 }
 
 func mysqlServerFlags(lb *liveDB) []string {
@@ -252,7 +263,7 @@ func applyReplicationFlags(s *container.Spec, lb *liveDB, plan replPlan) {
 		return
 	}
 
-	args := append([]string{enginePostgres}, pgServerFlags()...)
+	args := append([]string{enginePostgres}, pgServerFlags(lb.logical)...)
 	if plan.network == "" {
 		s.Cmd = args
 
@@ -260,9 +271,9 @@ func applyReplicationFlags(s *container.Spec, lb *liveDB, plan replPlan) {
 	}
 
 	s.Entrypoint = append([]string{
-		"sh", "-c", pgReplicaScript, "pg-replica", plan.srcHost, strconv.Itoa(pgContainerPort),
+		"sh", "-c", dbrepl.PGReplicaScript(replUser), "pg-replica", plan.srcHost, strconv.Itoa(pgContainerPort),
 	}, args...)
-	s.Env = append(s.Env, replKeyEnv+"="+plan.srcPass)
+	s.Env = append(s.Env, dbrepl.PasswordEnv+"="+plan.srcPass)
 }
 
 // prepareSource creates the replication login on the source and lets it connect; safe to repeat.
@@ -275,13 +286,11 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 	l := in.login
 	if l.Kind != enginePostgres {
 		client, _ := mysqlClients(l.Kind)
-		stmt := fmt.Sprintf("CREATE USER IF NOT EXISTS '%[1]s'@'%%' IDENTIFIED BY '%[2]s'; "+
-			"ALTER USER '%[1]s'@'%%' IDENTIFIED BY '%[2]s'; GRANT REPLICATION SLAVE ON *.* TO '%[1]s'@'%%'",
-			replUser, pass)
+		stmt := dbrepl.MySQLReplicaUserSQL(replUser, pass)
 
-		_, err := e.run(ctx, x, in.containerID, []string{
-			cmdEnv, "MYSQL_PWD=" + l.Password, client, "-u" + mysqlRootUser, "-e", stmt,
-		})
+		_, err := e.runEnv(ctx, x, in.containerID, []string{
+			client, "-u" + mysqlRootUser, "-e", stmt,
+		}, mysqlPwdEnv(l.Password))
 
 		return err
 	}
@@ -292,19 +301,15 @@ func (e *dbEngine) prepareSource(ctx context.Context, in unitInfo, pass string) 
 	}
 
 	psql := func(sqlText string) []string {
-		return []string{cmdEnv, "PGPASSWORD=" + l.Password, "psql", "-q", "-v", "ON_ERROR_STOP=1",
-			"-U", l.User, "-d", db, "-c", sqlText}
+		return []string{"psql", "-q", "-v", "ON_ERROR_STOP=1", "-U", l.User, "-d", db, "-c", sqlText}
 	}
 
-	role := fmt.Sprintf("SET password_encryption='scram-sha-256'; DO $$ BEGIN "+
-		"CREATE ROLE %[1]s WITH LOGIN REPLICATION PASSWORD '%[2]s'; "+
-		"EXCEPTION WHEN duplicate_object THEN ALTER ROLE %[1]s WITH LOGIN REPLICATION PASSWORD '%[2]s'; END $$",
-		replUser, pass)
+	role := dbrepl.PGReplicaRoleSQL(replUser, pass)
 
 	for _, cmd := range [][]string{
-		psql(role), {"sh", "-c", pgHBAScript, "pg-hba"}, psql("SELECT pg_reload_conf()"),
+		psql(role), {"sh", "-c", dbrepl.PGHBAScript(replUser), "pg-hba"}, psql("SELECT pg_reload_conf()"),
 	} {
-		if _, err = e.run(ctx, x, in.containerID, cmd); err != nil {
+		if _, err = e.runEnv(ctx, x, in.containerID, cmd, pgPwdEnv(l.Password)); err != nil {
 			return err
 		}
 	}

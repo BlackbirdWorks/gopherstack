@@ -1,6 +1,7 @@
 package gcpcompute_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -55,10 +56,16 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 	assert.Equal(t, "10.128.0.1", sub.GetGatewayAddress())
 
 	routes := e.routes(t).List(t.Context(), &computepb.ListRoutesRequest{Project: project})
-	r, err := routes.Next()
-	require.NoError(t, err)
-	assert.Equal(t, "0.0.0.0/0", r.GetDestRange())
-	assert.Contains(t, r.GetName(), "default-route-")
+	dests := map[string]string{}
+
+	for r, rerr := routes.Next(); !errors.Is(rerr, iterator.Done); r, rerr = routes.Next() {
+		require.NoError(t, rerr)
+		assert.Contains(t, r.GetName(), "default-route-")
+		dests[r.GetDestRange()] = r.GetRouteType()
+	}
+
+	assert.Contains(t, dests, "0.0.0.0/0")
+	assert.Equal(t, "SUBNET", dests["10.128.0.0/20"])
 
 	op, err = nets.Delete(t.Context(), &computepb.DeleteNetworkRequest{Project: project, Network: "auto-net"})
 	e.done(t, op, err)
@@ -70,7 +77,7 @@ func TestAutoNetworkLifecycle(t *testing.T) {
 		Get(t.Context(), &computepb.GetSubnetworkRequest{Project: project, Region: region, Subnetwork: "auto-net"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	_, err = routes.Next()
+	_, err = e.routes(t).List(t.Context(), &computepb.ListRoutesRequest{Project: project}).Next()
 	assert.ErrorIs(t, err, iterator.Done)
 }
 

@@ -8,6 +8,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func seedContainers(t *testing.T, env *sdkEnv, names ...string) {
@@ -126,7 +128,7 @@ func TestListContainers_InvalidParams(t *testing.T) {
 				env.url+"?comp=list&"+tt.query, http.NoBody)
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

@@ -23,7 +23,7 @@
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- Data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port (X-Forwarded-Proto reports the listener protocol), the client address is the TCP peer of the emulator, and HTTP/2, gRPC and WebSocket upgrades are not proxied.
+- Default (--elbv2-listeners=routed) data plane has no real listener sockets or TLS: HTTPS listeners are served as plain HTTP on the emulator port and the client address is the TCP peer of the emulator. --elbv2-listeners=real binds a socket per listener (see 2026-10-29 section); HTTP/2, gRPC, mTLS, UDP proxy protocol and IAM-uploaded server certificates (no private key stored) are not served even there.
 - GetTrustStoreCaCertificatesBundle/GetTrustStoreRevocationContent return an empty Location: the real value is a presigned URL to an AWS-owned copy of the bundle, which the emulator does not store. The ops still validate TrustStoreNotFound/RevocationIdNotFound.
 
 ### Deferred

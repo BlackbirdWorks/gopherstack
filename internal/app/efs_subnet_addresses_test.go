@@ -39,7 +39,7 @@ func TestInitializeServices_EFSNoFreeAddresses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			services, err := initializeServices(newTestAppContext(t, 19800, 19900))
+			services, err := initializeServicesT(t, newTestAppContext(t, 19800, 19900))
 			require.NoError(t, err)
 
 			byName := serviceByName(services)

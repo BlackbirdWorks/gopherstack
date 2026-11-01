@@ -60,7 +60,7 @@ func (h *Handler) readPermissionSpec(c *echo.Context) (PermissionSpec, bool) {
 }
 
 func (h *Handler) createPermission(c *echo.Context, dbID, userID string) error {
-	ttl, err := tokenExpiry(c.Request())
+	ttl, err := h.tokenExpiry(c.Request())
 	if err != nil {
 		return h.writeUserError(c, err)
 	}
@@ -79,7 +79,7 @@ func (h *Handler) createPermission(c *echo.Context, dbID, userID string) error {
 }
 
 func (h *Handler) getPermission(c *echo.Context, dbID, userID, permID string) error {
-	ttl, err := tokenExpiry(c.Request())
+	ttl, err := h.tokenExpiry(c.Request())
 	if err != nil {
 		return h.writeUserError(c, err)
 	}
@@ -93,7 +93,7 @@ func (h *Handler) getPermission(c *echo.Context, dbID, userID, permID string) er
 }
 
 func (h *Handler) replacePermission(c *echo.Context, dbID, userID, permID string) error {
-	ttl, err := tokenExpiry(c.Request())
+	ttl, err := h.tokenExpiry(c.Request())
 	if err != nil {
 		return h.writeUserError(c, err)
 	}
@@ -131,7 +131,7 @@ func (h *Handler) writePermission(c *echo.Context, status int, info PermissionIn
 }
 
 func (h *Handler) permissionBodies(c *echo.Context, dbID, userID string) ([]map[string]any, error) {
-	ttl, err := tokenExpiry(c.Request())
+	ttl, err := h.tokenExpiry(c.Request())
 	if err != nil {
 		return nil, err
 	}

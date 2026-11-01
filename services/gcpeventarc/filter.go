@@ -2,9 +2,10 @@ package gcpeventarc
 
 import (
 	"regexp"
-	"strings"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
 )
 
 // eventType returns the value of the trigger's exact "type" filter.
@@ -140,48 +141,8 @@ func matches(filters []*eventarcpb.EventFilter, attrs map[string]string) bool {
 	return true
 }
 
-var captureRe = regexp.MustCompile(`^\{[A-Za-z_][A-Za-z0-9_]*(=\*\*)?\}$`)
-
-// compilePathPattern turns an Eventarc path pattern into an anchored expression: "*" matches within one
-// segment, "**" spans segments, "{name}" captures one segment and "{name=**}" several.
 func compilePathPattern(p string) (*regexp.Regexp, error) {
-	var sb strings.Builder
-
-	sb.WriteString("^")
-
-	segs := strings.Split(p, "/")
-	for i, seg := range segs {
-		if i > 0 {
-			sb.WriteString("/")
-		}
-
-		switch {
-		case seg == "**":
-			sb.WriteString(".*")
-		case strings.HasPrefix(seg, "{"):
-			if !captureRe.MatchString(seg) {
-				return nil, errInvalid("bad capture %q", seg)
-			}
-
-			if strings.HasSuffix(seg, "=**}") {
-				sb.WriteString(".+")
-			} else {
-				sb.WriteString("[^/]+")
-			}
-		default:
-			for _, part := range strings.SplitAfter(seg, "*") {
-				sb.WriteString(regexp.QuoteMeta(strings.TrimSuffix(part, "*")))
-
-				if strings.HasSuffix(part, "*") {
-					sb.WriteString("[^/]*")
-				}
-			}
-		}
-	}
-
-	sb.WriteString("$")
-
-	re, err := regexp.Compile(sb.String())
+	re, err := gcpevents.CompilePathPattern(p)
 	if err != nil {
 		return nil, errInvalid("bad pattern %q", p)
 	}

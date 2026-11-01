@@ -71,6 +71,16 @@ func (s *streamFakeRuntime) Exec(ctx context.Context, id string, cmd []string) (
 	return s.fakeEngineRuntime.Exec(ctx, id, cmd)
 }
 
+func (s *streamFakeRuntime) ExecEnv(
+	ctx context.Context, id string, cmd, env []string,
+) (container.ExecResult, error) {
+	s.mu.Lock()
+	s.envs = append(s.envs, slices.Clone(env))
+	s.mu.Unlock()
+
+	return s.Exec(ctx, id, cmd)
+}
+
 func (s *streamFakeRuntime) netState() ([]string, []string, []string) {
 	s.netMu.Lock()
 	defer s.netMu.Unlock()
@@ -382,4 +392,54 @@ func TestEngineReplicaFallsBackToCopyWithoutNetworks(t *testing.T) {
 	assert.Empty(t, f.rt.spec(1).Network)
 	assert.Empty(t, f.rt.spec(1).Entrypoint)
 	assert.Empty(t, f.instance(t, "rep").StatusInfos)
+}
+
+func TestEnginePostgresWalLevelFollowsParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		param string
+		want  string
+		group bool
+	}{
+		{name: "no group is replica", want: "wal_level=replica"},
+		{name: "group without the parameter is replica", group: true, want: "wal_level=replica"},
+		{name: "logical replication off", group: true, param: "0", want: "wal_level=replica"},
+		{name: "logical replication on", group: true, param: "1", want: "wal_level=logical"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newStreamFixture(t)
+			opts := rds.DBInstanceOptions{MasterUserPassword: "pw"}
+			group := ""
+
+			if tt.group {
+				_, err := f.b.CreateDBParameterGroup("pg-logical", "postgres16", "d")
+				require.NoError(t, err)
+
+				if tt.param != "" {
+					_, err = f.b.ModifyDBParameterGroup("pg-logical", []rds.DBParameter{
+						{
+							ParameterName:  "rds.logical_replication",
+							ParameterValue: tt.param,
+							ApplyMethod:    "pending-reboot",
+						},
+					})
+					require.NoError(t, err)
+				}
+
+				group = "pg-logical"
+			}
+
+			_, err := f.b.CreateDBInstance("src", "postgres", "db.t3.micro", "appdb", "master", group, 20, opts)
+			require.NoError(t, err)
+			f.waitAvailable(t, "src")
+
+			assert.Contains(t, f.rt.spec(0).Cmd, tt.want)
+		})
+	}
 }

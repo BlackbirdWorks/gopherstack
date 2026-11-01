@@ -331,6 +331,10 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if err := h.requireLaunchableImageFor(vals, imageID); err != nil {
+		return nil, err
+	}
+
 	minCount, maxCount, err := parseRunInstancesCounts(vals)
 	if err != nil {
 		return nil, err
@@ -537,6 +541,7 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 
 	if c != nil {
 		h.terminateOnCompute(h.svcCtx, cb, c, providerIDs, dnsNames)
+		h.reapComputeVolumes(h.svcCtx)
 	}
 
 	for _, ch := range changes {

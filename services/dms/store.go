@@ -2,6 +2,7 @@ package dms
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -121,6 +122,8 @@ type InMemoryBackend struct {
 	// tasksByEndpointARN indexes task ARNs by endpoint ARN (source or target) for O(1) in-use check.
 	tasksByEndpointARN map[string]map[string]struct{} // endpointARN → taskARN set
 	mu                 *lockmetrics.RWMutex
+	eng                *engineState
+	now                func() time.Time
 	accountID          string
 	region             string
 	paginationSecret   string
@@ -164,6 +167,12 @@ func closeAllTags[T any](t *store.Table[T], closer func(*T)) {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	if b.eng != nil {
+		for _, run := range b.eng.runs {
+			run.cancel()
+		}
+	}
 
 	closeAllTags(b.replicationInstances, func(ri *ReplicationInstance) { ri.Tags.Close() })
 	closeAllTags(b.endpoints, func(ep *Endpoint) { ep.Tags.Close() })

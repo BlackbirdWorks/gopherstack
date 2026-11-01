@@ -67,7 +67,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			st.FunctionKeys = map[string]map[string]string{}
 		}
 
-		b.apps[strs.Fold(st.Name)] = &app{appState: st}
+		b.apps[strs.Fold(st.key())] = &app{appState: st}
 	}
 	b.mu.Unlock()
 

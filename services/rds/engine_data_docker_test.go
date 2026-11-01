@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
@@ -76,7 +77,10 @@ func TestEngineDockerSnapshotReplicaAndPortChange(t *testing.T) {
 				assert.Equal(t, "alpha", name, id)
 			}
 
-			newPort := freePort(t)
+			newPort, err := portalloc.AcquireEphemeral()
+			require.NoError(t, err)
+			t.Cleanup(func() { portalloc.ReleaseEphemeral(newPort) })
+
 			_, err = b.ModifyDBInstance("src", "", 0, rds.DBInstanceOptions{DBPortNumber: newPort})
 			require.NoError(t, err)
 

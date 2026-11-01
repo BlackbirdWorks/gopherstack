@@ -5,7 +5,6 @@ import (
 
 	"log/slog"
 	"net"
-	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // arcStack serves the full production composition root on a real listener, so cluster endpoints resolve back to it.
@@ -39,7 +39,7 @@ func arcStack(t *testing.T) aws.Config {
 	cli := &CLI{AccountID: "000000000000", Region: regionA, Port: ":" + strconv.Itoa(port)}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(
+	services, err := initializeServicesT(t,
 		&service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()},
 	)
 	require.NoError(t, err)
@@ -56,6 +56,7 @@ func arcStack(t *testing.T) aws.Config {
 			WithTargetGates(routegates.TargetGates()).
 			WithCBORGates(routegates.CBORGates()).
 			WithPathGates(routegates.PathGates()).
+			WithAltGates(routegates.AltGates()).
 			RouteHandler(),
 	)
 
@@ -66,7 +67,7 @@ func arcStack(t *testing.T) aws.Config {
 
 	cfg, err := awscfg.LoadDefaultConfig(t.Context(),
 		awscfg.WithRegion("us-west-2"),
-		awscfg.WithHTTPClient(http.DefaultClient),
+		awscfg.WithHTTPClient(testclient.New(t)),
 		awscfg.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 	)
 	require.NoError(t, err)

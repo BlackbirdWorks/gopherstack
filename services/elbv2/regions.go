@@ -56,4 +56,5 @@ func (b *InMemoryBackend) inheritWiring(home *InMemoryBackend) {
 
 	b.ec2Resolver = home.ec2Resolver
 	b.certResolver = home.certResolver
+	b.rl.cfg = home.rl.cfg
 }

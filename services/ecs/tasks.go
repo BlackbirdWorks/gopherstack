@@ -170,8 +170,8 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 	return tasks, failures, nil
 }
 
-// startTasksOutsideLock starts containers outside the lock to avoid serializing other
-// operations behind potentially slow Docker API calls (image pull, network setup, etc.).
+// startTasksOutsideLock hands real-runner tasks to their launch goroutine (RunTask returns while they are
+// PROVISIONING) and finishes runner-less tasks inline.
 func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 	for _, w := range work {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
@@ -192,23 +192,7 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 			continue
 		}
 
-		// Transition PROVISIONING → PENDING before the potentially-slow container
-		// runtime call, then PENDING → RUNNING/STOPPED based on the result.
-		b.applyPendingTransition(w.task)
-		runErr := b.runner.RunTask(w.task, w.td)
-		b.applyRunnerTransition(w.task, clusterName, runErr)
-	}
-}
-
-// applyPendingTransition moves a PROVISIONING task to PENDING under the lock.
-// Called for tasks with a real container runner, before the runner is invoked.
-func (b *InMemoryBackend) applyPendingTransition(task *Task) {
-	b.mu.Lock("RunTask-setPending")
-	defer b.mu.Unlock()
-
-	if task.LastStatus == statusProvisioning {
-		task.LastStatus = statusPending
-		b.emitTaskStateLocked(task)
+		b.launchAsync(w, clusterName)
 	}
 }
 
@@ -239,12 +223,9 @@ func (b *InMemoryBackend) applyNoRunnerTransition(task *Task, clusterName string
 		return
 	}
 
-	// Pass through PENDING (resource provisioning complete, container starting).
 	task.LastStatus = statusPending
 	b.emitTaskStateLocked(task)
-	// Immediately advance to RUNNING since there is no real container to wait for.
-	task.LastStatus = statusRunning
-	syncContainerStatuses(task, nil)
+	b.markRunningLocked(task, b.clock())
 	b.emitTaskStateLocked(task)
 
 	if c, _ := b.clusters.Get(clusterName); c != nil {
@@ -269,57 +250,6 @@ func (b *InMemoryBackend) applyRuntimeContainerIDs(task *Task) {
 			task.Containers[i].RuntimeID = id
 		}
 	}
-}
-
-// applyRunnerTransition transitions a PENDING task to RUNNING or STOPPED
-// based on the container runtime result. Must be called without any lock held.
-func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, runErr error) {
-	b.mu.Lock("RunTask-setRunning")
-	defer b.mu.Unlock()
-
-	// Only update status if no concurrent operation (e.g. StopTask) has
-	// already changed the task away from PENDING. A task enters PENDING just
-	// before the runner call via applyPendingTransition.
-	if task.LastStatus != statusPending {
-		return
-	}
-
-	if runErr == nil {
-		task.LastStatus = statusRunning
-		b.applyRuntimeContainerIDs(task)
-		syncContainerStatuses(task, nil)
-		b.emitTaskStateLocked(task)
-
-		if c, _ := b.clusters.Get(clusterName); c != nil {
-			c.PendingTasksCount--
-			c.RunningTasksCount++
-		}
-
-		b.registerTaskWithELBv2Locked(task, clusterName)
-		b.registerTaskWithCloudMapLocked(task, clusterName)
-
-		return
-	}
-
-	// Container start failed — mark STOPPED so the task does not
-	// remain in PROVISIONING permanently (resource leak + wrong semantics).
-	now := time.Now()
-	task.LastStatus = statusStopped
-	task.DesiredStatus = statusStopped
-	task.StoppedAt = &now
-	task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
-	exitCode := 1
-	syncContainerStatuses(task, &exitCode)
-	b.emitTaskStateLocked(task)
-
-	if c, _ := b.clusters.Get(clusterName); c != nil {
-		c.PendingTasksCount--
-	}
-
-	// A failed launch for a service task counts against the deployment circuit
-	// breaker, which may trip the deployment to FAILED and (if enabled) roll the
-	// service back to its last stable task definition.
-	b.recordServiceTaskFailureLocked(clusterName, task)
 }
 
 // createTaskEntriesLocked creates task entries in PROVISIONING state. For an
@@ -438,9 +368,7 @@ func newTaskEntryLocked(
 		PlatformVersion:      input.PlatformVersion,
 		PropagateTags:        input.PropagateTags,
 		Tags:                 resolvedTags,
-		StartedAt:            &now,
-		Connectivity:         connectivityConnected,
-		ConnectivityAt:       &now,
+		CreatedAt:            &now,
 		Overrides:            input.Overrides,
 		NetworkConfiguration: input.NetworkConfiguration,
 		EnableExecuteCommand: input.EnableExecuteCommand,
@@ -642,6 +570,8 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		prevStatus := task.LastStatus
 		task.DesiredStatus = statusStopped
 		task.StoppedReason = reason
+		task.StopCode = stopCodeUserInitiated
+		b.cancelLaunchLocked(taskArn)
 
 		// Decrement the cached cluster counters once, as the task leaves its active
 		// state. This is done up front for both the fast and delayed paths so the
@@ -650,7 +580,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 			switch prevStatus {
 			case statusRunning:
 				c.RunningTasksCount--
-			case statusProvisioning, statusPending:
+			case statusProvisioning, statusPending, statusActivating:
 				c.PendingTasksCount--
 			}
 		}
@@ -729,7 +659,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 // stopped or mid-transition).
 func isStoppableStatus(status string) bool {
 	switch status {
-	case statusRunning, statusPending, statusProvisioning:
+	case statusRunning, statusPending, statusProvisioning, statusActivating:
 		return true
 	default:
 		return false
@@ -777,6 +707,10 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 			task.StoppedReason = "Essential container in task exited"
 		}
 
+		if task.StopCode == "" {
+			task.StopCode = stopCodeEssentialContainerExited
+		}
+
 		syncContainerStatuses(task, nil)
 		setContainerExitCode(task, containerName, exitCode)
 		b.emitTaskStateLocked(task)
@@ -785,7 +719,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 			switch prevStatus {
 			case statusRunning:
 				c.RunningTasksCount--
-			case statusPending, statusProvisioning:
+			case statusPending, statusProvisioning, statusActivating:
 				c.PendingTasksCount--
 			}
 		}
@@ -996,6 +930,9 @@ func (b *InMemoryBackend) newStartedTaskLocked(
 		TaskDefinitionArn:    td.TaskDefinitionArn,
 		LastStatus:           statusRunning,
 		DesiredStatus:        statusRunning,
+		CreatedAt:            &now,
+		Connectivity:         connectivityConnected,
+		ConnectivityAt:       &now,
 		Group:                input.Group,
 		LaunchType:           "EC2",
 		ContainerInstanceArn: ciArn,
@@ -1108,74 +1045,6 @@ func (b *InMemoryBackend) UpdateTaskProtection(
 	}
 
 	return out, failures, nil
-}
-
-// ExecuteCommand simulates an ECS Exec session.
-func (b *InMemoryBackend) ExecuteCommand(
-	cluster, task, container, command string,
-	interactive bool,
-) (*ExecuteCommandOutput, error) {
-	if task == "" {
-		return nil, fmt.Errorf("%w: task is required", ErrInvalidParameter)
-	}
-
-	if command == "" {
-		return nil, fmt.Errorf("%w: command is required", ErrInvalidParameter)
-	}
-
-	clusterName := clusterKey(b.resolveCluster(cluster))
-
-	b.mu.RLock("ExecuteCommand")
-	defer b.mu.RUnlock()
-
-	if !b.clusters.Has(clusterName) {
-		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
-	}
-
-	t, ok := b.tasks.Get(task)
-	if !ok || clusterKey(t.ClusterArn) != clusterName {
-		return nil, fmt.Errorf("%w: task %s not found", ErrInvalidParameter, task)
-	}
-
-	if t.LastStatus != statusRunning {
-		return nil, fmt.Errorf("%w: task %s is not in RUNNING state", ErrInvalidParameter, task)
-	}
-
-	if !t.EnableExecuteCommand {
-		return nil, fmt.Errorf(
-			"%w: ECS Exec is not enabled on task %s; set enableExecuteCommand=true when launching the task",
-			ErrInvalidParameter, task,
-		)
-	}
-
-	clusterObj, _ := b.clusters.Get(clusterName)
-	sessionID := uuid.NewString()
-
-	return &ExecuteCommandOutput{
-		ClusterArn: clusterObj.ClusterArn,
-		ContainerArn: arn.Build(
-			"ecs",
-			b.region,
-			b.accountID,
-			fmt.Sprintf("container/%s", uuid.NewString()),
-		),
-		ContainerName: container,
-		TaskArn:       t.TaskArn,
-		Interactive:   interactive,
-		Session: Session{
-			SessionID: sessionID,
-			// Honesty signal: gopherstack has no real SSM data channel or ECS Exec
-			// agent, so this stream URL is deliberately NOT the real
-			// ssmmessages.<region>.amazonaws.com host (which would look connectable
-			// but lie). It uses the reserved, non-resolvable ".invalid" TLD
-			// (RFC 6761) so callers cannot mistake it for a live AWS endpoint.
-			StreamURL: fmt.Sprintf(
-				"wss://ssm-emulated.gopherstack.invalid/v1/data-channel/%s",
-				sessionID,
-			),
-			TokenValue: uuid.NewString(),
-		},
-	}, nil
 }
 
 // containerExitStopsTaskLocked reports whether containerName's exit stops the task: true for

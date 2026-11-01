@@ -2,14 +2,15 @@ package gcprun
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
+	"sync/atomic"
 
 	"cloud.google.com/go/run/apiv2/runpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 )
 
@@ -92,57 +93,67 @@ func containerSpec(rev *runpb.Revision, p prepared, seq uint64, idx int) contain
 	}
 }
 
-// bringUp starts the instance's containers and settles in.ready with the outcome.
-func (b *InMemoryBackend) bringUp(name string, in *inst, rev *runpb.Revision) {
-	began := b.clk().Now()
-	err := b.startInstance(in, rev)
-	took := b.clk().Now().Sub(began)
+// inst is one running copy of a revision: every container of the revision sharing a network namespace.
+type inst struct {
+	mctx      context.Context
+	ports     map[int]int
+	cancel    context.CancelFunc
+	hostPorts []int
+	ids       []string
+	dirs      []string
+	seq       uint64
+	hostPort  int
+	cleaned   atomic.Bool
+}
 
-	b.mu.Lock("bringUp.done")
+func (in *inst) id() string {
+	if len(in.ids) == 0 {
+		return ""
+	}
+
+	return in.ids[0]
+}
+
+// startInst brings up one instance of the revision for its pool; ctx ends when the pool retires it.
+func (b *InMemoryBackend) startInst(ctx context.Context, name string) (*inst, error) {
+	b.mu.RLock("startInst")
 
 	r := b.revisions[name]
-	if err == nil && (r == nil || in.dead) {
-		err = errRetired
-	}
-
-	if err != nil {
-		b.failInstLocked(r, in, err)
-	} else {
-		r.startErr = ""
-		r.avgStart = took
-		b.armIdleLocked(name, r, in)
-		b.startMonitorsLocked(name, in, rev)
-		r.notifyLocked()
-	}
-
-	close(in.ready)
-	b.mu.Unlock()
-
-	if err != nil {
-		b.cleanupInst(in)
-	}
-}
-
-// failInstLocked records a failed start: the instance leaves the pool and waiters see err.
-func (b *InMemoryBackend) failInstLocked(r *revRec, in *inst, err error) {
-	in.err = err
-
 	if r == nil {
-		return
+		b.mu.RUnlock()
+
+		return nil, gcpscale.ErrRetired
 	}
 
-	if !in.dead {
-		b.detachLocked(r, in)
+	rev := clone(r.pb)
+	b.mu.RUnlock()
+
+	in := &inst{seq: b.instSeq.Add(1)}
+	in.mctx, in.cancel = context.WithCancel(ctx)
+
+	if err := b.startInstance(in, rev); err != nil {
+		b.teardownInst(in)
+		b.setStartErr(name, err.Error())
+
+		return nil, err
 	}
 
-	if !errors.Is(err, errRetired) {
-		r.startErr = err.Error()
-	}
+	b.setStartErr(name, "")
+	b.startMonitors(name, in, rev)
 
-	r.notifyLocked()
+	return in, nil
 }
 
-func (b *InMemoryBackend) startMonitorsLocked(name string, in *inst, rev *runpb.Revision) {
+func (b *InMemoryBackend) setStartErr(name, msg string) {
+	b.mu.Lock("setStartErr")
+	defer b.mu.Unlock()
+
+	if r := b.revisions[name]; r != nil {
+		r.startErr = msg
+	}
+}
+
+func (b *InMemoryBackend) startMonitors(name string, in *inst, rev *runpb.Revision) {
 	for _, c := range rev.GetContainers() {
 		if spec, ok := resolveProbe(c, c.GetLivenessProbe()); ok {
 			b.monWG.Go(func() { b.monitorLiveness(in.mctx, spec, in, name) })
@@ -274,23 +285,17 @@ func (b *InMemoryBackend) startOwner(
 		}, release)
 }
 
-// teardownInst retires a started instance: its containers, host ports and volume directories.
+// teardownInst retires an instance: its monitors, containers, host ports and volume directories.
 func (b *InMemoryBackend) teardownInst(in *inst) {
 	if in == nil {
 		return
 	}
 
-	stopTimer(in)
-
 	if in.cancel != nil {
 		in.cancel()
 	}
 
-	select {
-	case <-in.ready:
-		b.cleanupInst(in)
-	default:
-	}
+	b.cleanupInst(in)
 }
 
 func (b *InMemoryBackend) cleanupInst(in *inst) {

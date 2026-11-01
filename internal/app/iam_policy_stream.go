@@ -11,6 +11,9 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
 const (
@@ -181,4 +184,21 @@ func iamPolicySuggestHandler(rec *iampolicystream.Recorder) echo.HandlerFunc {
 
 		return c.JSON(http.StatusOK, iampolicystream.Suggest(rec.Snapshot(f.Match), all))
 	}
+}
+
+// scpProviderFor returns the Organizations backend as the SCP source, or nil when SCP enforcement is off.
+func scpProviderFor(enabled bool, services []service.Registerable) iambackend.SCPProvider {
+	if !enabled {
+		return nil
+	}
+
+	for _, svc := range services {
+		if h, ok := svc.(*organizationsbackend.Handler); ok {
+			if p, isProvider := h.Backend.(iambackend.SCPProvider); isProvider {
+				return p
+			}
+		}
+	}
+
+	return nil
 }

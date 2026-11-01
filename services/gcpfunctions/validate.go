@@ -10,13 +10,12 @@ import (
 )
 
 const (
-	// EventTypePubSub is the only event type the emulator delivers.
+	// EventTypePubSub is the Pub/Sub event type.
 	EventTypePubSub = "google.cloud.pubsub.topic.v1.messagePublished"
 
 	maxTimeout    = 3600
 	topicNameLen  = 4
 	defaultMemory = "256M"
-	defaultCPU    = "0.1666"
 	defaultTO     = 60
 	defaultMaxIns = 100
 )
@@ -90,8 +89,12 @@ func validateService(sc *functionspb.ServiceConfig) error {
 		return errInvalid("service_config.min_instance_count must not exceed max_instance_count.")
 	}
 
-	if len(sc.GetSecretEnvironmentVariables()) > 0 || len(sc.GetSecretVolumes()) > 0 {
-		return errInvalid("Secret environment variables and volumes are not supported by the emulator.")
+	if err := validateResources(sc); err != nil {
+		return err
+	}
+
+	if err := validateSecrets(sc); err != nil {
+		return err
 	}
 
 	return validateEnvVars(sc.GetEnvironmentVariables())
@@ -102,16 +105,21 @@ func (b *InMemoryBackend) validateTrigger(et *functionspb.EventTrigger) error {
 		return nil
 	}
 
-	if et.GetEventType() != EventTypePubSub {
-		return errInvalid(
-			"Event type %q is not supported by the emulator; supported: %s.",
-			et.GetEventType(),
-			EventTypePubSub,
-		)
+	switch typ := et.GetEventType(); {
+	case typ == EventTypePubSub:
+		return b.validatePubSubTrigger(et)
+	case isStorageType(typ):
+		return b.validateStorageTrigger(et)
+	case isFirestoreType(typ):
+		return validateFirestoreTrigger(et)
+	default:
+		return errInvalid("Event type %q is not supported by the emulator; supported: %s.", typ, supportedEventTypes())
 	}
+}
 
+func (b *InMemoryBackend) validatePubSubTrigger(et *functionspb.EventTrigger) error {
 	if len(et.GetEventFilters()) > 0 {
-		return errInvalid("event_filters are not supported by the emulator.")
+		return errInvalid("event_filters are not supported for Pub/Sub triggers; use pubsub_topic.")
 	}
 
 	if parts := strings.Split(et.GetPubsubTopic(), "/"); len(parts) != topicNameLen || parts[0] != "projects" ||
@@ -157,7 +165,7 @@ func applyDefaults(sc *functionspb.ServiceConfig) *functionspb.ServiceConfig {
 	}
 
 	if sc.GetAvailableCpu() == "" {
-		sc.AvailableCpu = defaultCPU
+		sc.AvailableCpu = defaultCPUFor(sc.GetAvailableMemory())
 	}
 
 	if sc.GetTimeoutSeconds() == 0 {

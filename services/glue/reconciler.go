@@ -145,9 +145,11 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 // PROVISIONING→READY, STOPPING→STOPPED. Split out of reconcileLocked to keep
 // its cognitive complexity down. Must be called with b.mu held.
 func (b *InMemoryBackend) reconcileSessionsLocked(now time.Time) {
+	b.expireSessionsLocked(now)
+
 	for id, readyAt := range b.sessionReadyAt {
 		if now.After(readyAt) {
-			if s, ok := b.sessions.Get(id); ok && s.Status == "PROVISIONING" {
+			if s, ok := b.sessions.Get(id); ok && s.Status == statusProvisioning {
 				s.Status = stateReady
 			}
 
@@ -230,7 +232,8 @@ func (b *InMemoryBackend) pendingDueLocked(now time.Time) bool {
 		flatTimerDue(b.crawlerReadyAt, now) ||
 		flatTimerDue(b.integrationReadyAt, now) ||
 		flatTimerDue(b.sessionReadyAt, now) ||
-		flatTimerDue(b.sessionStopAt, now)
+		flatTimerDue(b.sessionStopAt, now) ||
+		b.sessionExpiryDueLocked(now)
 }
 
 // nestedTimerDue reports whether any timer in a jobName→runID→time map is due at now.
@@ -339,7 +342,7 @@ func (b *InMemoryBackend) reconcileLoop(ctx context.Context, stop <-chan struct{
 		case <-stop:
 			return
 		case <-ticker.C:
-			b.advanceStates(time.Now())
+			b.advanceStates(b.clockNow())
 		}
 	}
 }
@@ -348,6 +351,8 @@ func (b *InMemoryBackend) reconcileLoop(ctx context.Context, stop <-chan struct{
 // exited, guaranteeing no leaked goroutine survives shutdown. It is idempotent and
 // safe to call even when the reconciler was never started.
 func (b *InMemoryBackend) StopReconciler() {
+	defer b.detachLiveSessions()
+
 	wasOn := func() bool {
 		b.reconcileMu.Lock()
 		defer b.reconcileMu.Unlock()

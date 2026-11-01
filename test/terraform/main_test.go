@@ -253,6 +253,12 @@ func TestMain(m *testing.M) {
 	// parallel test pays the download cost.
 	initTofuBinary(logger)
 
+	// Mirror providers locally so no per-test tofu init needs the network;
+	// on failure fall back to direct installs.
+	if mirrorErr := setupProviderMirror(tofuBinaryPath, logger); mirrorErr != nil {
+		logger.Warn("provider mirror unavailable; tofu init will use the registry", "error", mirrorErr)
+	}
+
 	// Warm the shared provider cache with a single tofu init so that parallel
 	// tests don't all race to download the ~300 MB hashicorp/aws provider.
 	warmProviderCache(logger)

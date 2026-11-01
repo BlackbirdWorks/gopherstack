@@ -247,8 +247,8 @@ func (h *Handler) writeOffer(c *echo.Context, status int, info ThroughputInfo, e
 	}
 
 	hdr := c.Response().Header()
-	hdr.Set(headerOfferMinimum, strconv.Itoa(info.MinimumThroughput()))
-	hdr.Set(headerOfferPending, "false")
+	hdr.Set(headerOfferMinimum, strconv.Itoa(info.Minimum))
+	hdr.Set(headerOfferPending, strconv.FormatBool(info.Pending))
 	hdr.Set("ETag", resourceETag(info.Modified, info.OfferRID))
 	setCharge(c, ruMetadata)
 

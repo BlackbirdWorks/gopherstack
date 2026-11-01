@@ -4,21 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"net"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 )
@@ -31,102 +24,46 @@ const (
 
 const (
 	// K3sImageRepo is the image repository the cluster engine runs.
-	K3sImageRepo = "rancher/k3s"
+	K3sImageRepo = k3sengine.ImageRepo
 	// DefaultClusterToken is the static cluster-admin bearer token, like LocalStack's K3D_CLUSTER_TOKEN default.
-	DefaultClusterToken = "gopherstack-eks-cluster-token" //nolint:gosec // documented default for a local emulator
+	DefaultClusterToken = k3sengine.DefaultToken
 
-	clusterDefaultHost   = "127.0.0.1"
-	clusterStartTimeout  = 5 * time.Minute
-	clusterProbeInterval = time.Second
-	clusterProbeTimeout  = 5 * time.Second
-	clusterStopTimeout   = 30 * time.Second
-	k3sAPIPort           = 6443
-	minTokenLen          = 16
-	majorMinorParts      = 2
-	firstK3sMinor        = 29
-	clusterStartCode     = "CLUSTER_START_FAILED"
-	tokenFileName        = "/etc/gopherstack-eks-tokens.csv"
-	envAdminAuth         = "GOPHERSTACK_EKS_ADMIN_AUTH"
-	envHost              = "GOPHERSTACK_EKS_HOST"
-	envCACert            = "GOPHERSTACK_EKS_CA_CERT"
-	envCAKey             = "GOPHERSTACK_EKS_CA_KEY"
-	k3sTLSDir            = "/var/lib/rancher/k3s/server/tls"
+	clusterStopTimeout = 30 * time.Second
+	k3sAPIPort         = k3sengine.APIPort
+	majorMinorParts    = 2
+	clusterStartCode   = "CLUSTER_START_FAILED"
 )
-
-// k3sScript writes the token file and the pre-provisioned server CA, then replaces the shell with the k3s server.
-const k3sScript = `printf '%s,admin,admin,"system:masters"\n' "$` + envAdminAuth + `" > ` + tokenFileName +
-	` && umask 077 && mkdir -p ` + k3sTLSDir +
-	` && printf '%s\n' "$` + envCACert + `" > ` + k3sTLSDir + `/server-ca.crt` +
-	` && printf '%s\n' "$` + envCAKey + `" > ` + k3sTLSDir + `/server-ca.key` +
-	` && unset ` + envCAKey + ` && exec /bin/k3s server --tls-san "$` + envHost + `"` +
-	` --disable traefik --disable servicelb --disable metrics-server` +
-	` --kube-apiserver-arg=token-auth-file=` + tokenFileName
-
-// k3sTags are the newest published rancher/k3s tags for Kubernetes 1.29 through 1.36, in minor order.
-func k3sTags() [8]string {
-	return [...]string{
-		"v1.29.15-k3s1", "v1.30.14-k3s2", "v1.31.14-k3s1", "v1.32.13-k3s1",
-		"v1.33.13-k3s1", "v1.34.12-k3s1", "v1.35.9-k3s1", "v1.36.5-k3s1",
-	}
-}
 
 var (
 	// ErrInvalidClusterEngineConfig is returned when the cluster engine host or token is unusable.
-	ErrInvalidClusterEngineConfig = errors.New("invalid EKS cluster engine configuration")
+	ErrInvalidClusterEngineConfig = k3sengine.ErrInvalidConfig
 	// ErrDefaultTokenExposed is returned when the public default token would be exposed off-host.
 	ErrDefaultTokenExposed = errors.New("EKS_CLUSTER_TOKEN must be set when EKS_CLUSTER_HOST is not loopback")
-
-	tokenPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
-	hostPattern  = regexp.MustCompile(`^[A-Za-z0-9.:-]+$`)
 )
 
 // ClusterEngineEnabled reports whether engine selects docker-backed clusters.
 func ClusterEngineEnabled(engine string) bool { return engine == EngineDocker }
 
 // K3sImage maps a Kubernetes minor version to its pinned k3s image; exact is false when it fell back to the default.
-func K3sImage(version string) (string, bool) {
-	if tag, ok := k3sTag(version); ok {
-		return K3sImageRepo + ":" + tag, true
-	}
-
-	tag, _ := k3sTag(defaultK8sVersion)
-
-	return K3sImageRepo + ":" + tag, false
-}
-
-func k3sTag(version string) (string, bool) {
-	parts := strings.Split(version, ".")
-	if len(parts) < majorMinorParts || parts[0] != "1" {
-		return "", false
-	}
-
-	tags := k3sTags()
-
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil || minor < firstK3sMinor || minor >= firstK3sMinor+len(tags) {
-		return "", false
-	}
-
-	return tags[minor-firstK3sMinor], true
-}
+func K3sImage(version string) (string, bool) { return k3sengine.Image(version, defaultK8sVersion) }
 
 // ClusterRuntime is the slice of container.Runtime the cluster engine needs.
-type ClusterRuntime interface {
-	CreateAndStart(ctx context.Context, spec container.Spec) (string, error)
-	StopAndRemove(ctx context.Context, containerID string) error
-}
+type ClusterRuntime = k3sengine.Runtime
 
 // ClusterEngineConfig configures docker-backed EKS clusters.
 type ClusterEngineConfig struct {
-	Runtime      ClusterRuntime
-	Credentials  CredentialResolver
-	Ports        *portalloc.Allocator
-	Logger       *slog.Logger
-	Probe        func(ctx context.Context, addr, token string) ([]byte, error)
-	Host         string
-	Token        string
-	Image        string
-	StartTimeout time.Duration
+	Runtime          ClusterRuntime
+	Credentials      CredentialResolver
+	Ports            *portalloc.Allocator
+	Logger           *slog.Logger
+	Probe            func(ctx context.Context, addr, token string) ([]byte, error)
+	Host             string
+	Token            string
+	Image            string
+	ImageTags        map[string]string
+	LBPorts          []int
+	VolumeMountAllow []string
+	StartTimeout     time.Duration
 }
 
 type liveCluster struct {
@@ -140,6 +77,9 @@ type liveCluster struct {
 	image       string
 	joinToken   string
 	ca          []byte
+	mounts      []string
+	lbPorts     []int
+	lbHost      []int
 	port        int
 	proxyPort   int
 	dead        atomic.Bool
@@ -147,6 +87,7 @@ type liveCluster struct {
 }
 
 type clusterEngine struct {
+	core     *k3sengine.Engine
 	clusters map[string]*liveCluster
 	agents   *safemap.Map[string, *agentNode]
 	cfg      ClusterEngineConfig
@@ -155,26 +96,30 @@ type clusterEngine struct {
 
 // EnableClusters switches the backend to docker mode: each CreateCluster starts a single-node k3s container.
 func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
-	if cfg.Host == "" {
-		cfg.Host = clusterDefaultHost
+	core, err := k3sengine.New(k3sengine.Config{
+		Runtime: cfg.Runtime, Ports: cfg.Ports, Logger: cfg.Logger, Probe: cfg.Probe, Prefix: "eks",
+		Host: cfg.Host, Token: cfg.Token, StartTimeout: cfg.StartTimeout,
+	})
+	if err != nil {
+		if errors.Is(err, k3sengine.ErrDefaultTokenExposed) {
+			return ErrDefaultTokenExposed
+		}
+
+		return err
 	}
 
-	defaulted := cfg.Token == ""
-	if defaulted {
-		cfg.Token = DefaultClusterToken
+	cfg.Host, cfg.Token = core.Host(), core.Token()
+
+	if err = validateK3sImageTags(cfg.ImageTags); err != nil {
+		return err
 	}
 
-	if !hostPattern.MatchString(cfg.Host) || !tokenPattern.MatchString(cfg.Token) || len(cfg.Token) < minTokenLen {
-		return fmt.Errorf("%w: host must match %s and token %s (min %d chars)",
-			ErrInvalidClusterEngineConfig, hostPattern, tokenPattern, minTokenLen)
+	if err = validateMountAllow(cfg.VolumeMountAllow); err != nil {
+		return err
 	}
 
-	if defaulted && container.BindHostFor(cfg.Host) != container.LoopbackHost {
-		return ErrDefaultTokenExposed
-	}
-
-	if cfg.StartTimeout <= 0 {
-		cfg.StartTimeout = clusterStartTimeout
+	if err = validateLBPortList(cfg.LBPorts); err != nil {
+		return err
 	}
 
 	b.mu.Lock("EnableClusters")
@@ -183,6 +128,7 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 	b.credentials = cfg.Credentials
 	b.clusterEng = &clusterEngine{
 		cfg:      cfg,
+		core:     core,
 		clusters: make(map[string]*liveCluster),
 		agents:   safemap.New[string, *agentNode]("eks.cluster.agents"),
 	}
@@ -190,62 +136,14 @@ func (b *InMemoryBackend) EnableClusters(cfg ClusterEngineConfig) error {
 	return nil
 }
 
-func (e *clusterEngine) addr(lc *liveCluster) string {
-	return net.JoinHostPort(e.cfg.Host, strconv.Itoa(lc.port))
-}
+func (e *clusterEngine) addr(lc *liveCluster) string { return e.core.Addr(lc.port) }
 
-func (e *clusterEngine) image(version string) string {
-	if e.cfg.Image != "" {
-		return e.cfg.Image
-	}
+func (e *clusterEngine) log(ctx context.Context) *slog.Logger { return e.core.Log(ctx) }
 
-	img, _ := K3sImage(version)
+func (e *clusterEngine) releasePort(port int) { e.core.ReleasePort(port) }
 
-	return img
-}
-
-func (e *clusterEngine) spec(name string, lc *liveCluster, port int, ca *clusterCA) container.Spec {
-	return container.Spec{
-		Name:       "gopherstack-eks-" + name + "-" + uuid.NewString()[:8],
-		Image:      lc.image,
-		Entrypoint: []string{"/bin/sh", "-c", k3sScript},
-		Env: []string{
-			envAdminAuth + "=" + e.cfg.Token, envHost + "=" + e.cfg.Host, "K3S_TOKEN=" + lc.joinToken,
-			envCACert + "=" + string(ca.certPEM), envCAKey + "=" + string(ca.keyPEM),
-		},
-		Ports: []string{
-			container.PortSpec(container.BindHostFor(e.cfg.Host), strconv.Itoa(port), strconv.Itoa(k3sAPIPort)),
-		},
-		Tmpfs:      []string{"/run", "/var/run"},
-		Privileged: true,
-	}
-}
-
-func (e *clusterEngine) log(ctx context.Context) *slog.Logger {
-	if e.cfg.Logger != nil {
-		return e.cfg.Logger
-	}
-
-	return logger.Load(ctx)
-}
-
-func (e *clusterEngine) acquirePort(name string) (int, error) {
-	return portalloc.AcquireFrom(e.cfg.Ports, "eks-"+name)
-}
-
-func (e *clusterEngine) releasePort(port int) {
-	portalloc.ReleaseTo(e.cfg.Ports, port)
-}
-
-func (e *clusterEngine) remove(containerID string, port int) {
-	ctx, cancel := context.WithTimeout(context.Background(), clusterStopTimeout)
-	defer cancel()
-
-	if err := e.cfg.Runtime.StopAndRemove(ctx, containerID); err != nil {
-		e.log(ctx).WarnContext(ctx, "eks: cluster container removal failed", "container", containerID, "error", err)
-	}
-
-	e.releasePort(port)
+func (e *clusterEngine) remove(containerID string, ports ...int) {
+	e.core.Remove(containerID, ports...)
 }
 
 func (e *clusterEngine) reap(lcs []*liveCluster) {
@@ -268,7 +166,7 @@ func (e *clusterEngine) reap(lcs []*liveCluster) {
 		}
 
 		if lc.containerID != "" {
-			e.wg.Go(func() { e.remove(lc.containerID, lc.port) })
+			e.wg.Go(func() { e.remove(lc.containerID, append([]int{lc.port}, lc.lbHost...)...) })
 		}
 	}
 }
@@ -329,65 +227,50 @@ func (b *InMemoryBackend) closeClusters() {
 	e.reap(lcs)
 	e.wg.Wait()
 	e.agents.Close()
-
-	if c, ok := e.cfg.Runtime.(io.Closer); ok {
-		_ = c.Close()
-	}
+	e.core.Close()
 }
 
 // launchClusterLocked registers a pending cluster and starts its container in the background.
-func (b *InMemoryBackend) launchClusterLocked(name, version string) {
+func (b *InMemoryBackend) launchClusterLocked(name, version string, kv map[string]string) error {
 	e := b.clusterEng
 	if e == nil {
-		return
+		return nil
+	}
+
+	opts, image, err := e.resolveLaunch(version, kv)
+	if err != nil {
+		return err
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lc := &liveCluster{
-		cancel: cancel, name: name, kick: make(chan struct{}, 1), image: e.image(version), joinToken: randomHex32(),
+		cancel: cancel, name: name, kick: make(chan struct{}, 1), image: image, joinToken: randomHex32(),
+		mounts: opts.mounts, lbPorts: opts.lbPorts,
 	}
 	e.clusters[name] = lc
 
 	e.wg.Go(func() { b.runCluster(ctx, name, version, lc) })
+
+	return nil
 }
 
 func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, lc *liveCluster) {
 	e := b.clusterEng
 
-	ca, err := newClusterCA(name)
+	inst, err := e.core.Launch(ctx,
+		k3sengine.Node{Name: name, Image: lc.image, JoinToken: lc.joinToken, Mounts: lc.mounts, LBPorts: lc.lbPorts},
+		func(i *k3sengine.Instance) bool { return b.recordCluster(name, lc, i.ContainerID, i.Port, i.LBHost) })
 	if err != nil {
-		b.failCluster(ctx, name, lc, err)
+		if !errors.Is(err, k3sengine.ErrSuperseded) {
+			b.failCluster(ctx, name, lc, err)
+		}
 
 		return
 	}
 
-	var port int
+	ca := &clusterCA{certPEM: inst.CA.CertPEM, keyPEM: inst.CA.KeyPEM}
 
-	id, err := container.CreateAndStartRetry(ctx, e.cfg.Runtime,
-		func() (container.Spec, error) {
-			p, perr := e.acquirePort(name)
-			if perr != nil {
-				return container.Spec{}, perr
-			}
-
-			port = p
-
-			return e.spec(name, lc, p, ca), nil
-		},
-		func() { e.releasePort(port) })
-	if err != nil {
-		b.failCluster(ctx, name, lc, err)
-
-		return
-	}
-
-	if !b.recordCluster(name, lc, id, port) {
-		e.remove(id, port)
-
-		return
-	}
-
-	caPEM, err := e.awaitReady(ctx, e.addr(lc), ca.certPEM)
+	caPEM, err := e.core.AwaitReady(ctx, e.addr(lc), ca.certPEM)
 	if err != nil {
 		b.failCluster(ctx, name, lc, err)
 
@@ -420,7 +303,7 @@ func (b *InMemoryBackend) runCluster(ctx context.Context, name, version string, 
 	e.wg.Go(func() { b.runReconciler(ctx, name, version, lc) })
 }
 
-func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int) bool {
+func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string, port int, lbHost []int) bool {
 	b.mu.Lock("recordCluster")
 	defer b.mu.Unlock()
 
@@ -430,6 +313,7 @@ func (b *InMemoryBackend) recordCluster(name string, lc *liveCluster, id string,
 
 	lc.containerID = id
 	lc.port = port
+	lc.lbHost = lbHost
 
 	return true
 }
@@ -486,41 +370,10 @@ func (b *InMemoryBackend) failCluster(ctx context.Context, name string, lc *live
 	b.clusterEng.reap([]*liveCluster{lc})
 }
 
-func (e *clusterEngine) probe(ctx context.Context, addr string, ca []byte) ([]byte, error) {
-	if e.cfg.Probe != nil {
-		return e.cfg.Probe(ctx, addr, e.cfg.Token)
-	}
-
-	return ca, probeK3s(ctx, addr, e.cfg.Token, ca)
-}
-
-func (e *clusterEngine) awaitReady(ctx context.Context, addr string, ca []byte) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, e.cfg.StartTimeout)
-	defer cancel()
-
-	ticker := time.NewTicker(clusterProbeInterval)
-	defer ticker.Stop()
-
-	for {
-		pctx, pcancel := context.WithTimeout(ctx, clusterProbeTimeout)
-		got, err := e.probe(pctx, addr, ca)
-
-		pcancel()
-
-		if err == nil {
-			return got, nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("API server not ready: %w", err)
-		case <-ticker.C:
-		}
-	}
-}
-
 // applyLiveEndpoint replaces the synthetic endpoint and CA of a ready docker cluster with the real ones.
 func (b *InMemoryBackend) applyLiveEndpoint(cp *Cluster) {
+	b.applyExternalEndpoint(cp)
+
 	if b.clusterEng == nil {
 		return
 	}
@@ -546,7 +399,20 @@ func (b *InMemoryBackend) relaunchClustersLocked() {
 		}
 
 		cl.Status = statusCreating
-		b.launchClusterLocked(cl.Name, cl.Version)
+
+		var kv map[string]string
+		if cl.Tags != nil {
+			kv = cl.Tags.Clone()
+		}
+
+		if err := b.launchClusterLocked(cl.Name, cl.Version, kv); err != nil {
+			cl.Status = statusFailed
+			b.clusterEng.log(context.Background()).Warn("eks: cluster not relaunched",
+				"code", clusterStartCode, "cluster", cl.Name, "error", err)
+
+			continue
+		}
+
 		b.resetEngineResourcesLocked(cl.Name)
 	}
 }

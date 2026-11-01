@@ -70,6 +70,26 @@ Replaces the entire fault configuration.
 - `probability`: Float between `0.0` and `1.0`. A value of `0` is treated as `1.0` (always fire).
 - `error`: Custom HTTP error. Defaults to 503 `ServiceUnavailable` if not provided.
 
+### Effect rules: `dynamodb:transaction-conflict`
+
+A rule with an `effect` is not an HTTP error; the owning service applies it. `dynamodb:transaction-conflict` makes the targeted DynamoDB items behave as if an unfinished `TransactWriteItems` held them, so the documented conflict errors fire (`TransactionConflictException` for `PutItem`/`UpdateItem`/`DeleteItem`, `TransactionCanceledException` with `TransactionConflict` reasons for transactions, `UnprocessedItems` for `BatchWriteItem`). `GetItem` is never affected. Without a rule, DynamoDB still raises these errors when requests genuinely overlap.
+
+```json
+[
+  {
+    "effect": "dynamodb:transaction-conflict",
+    "operation": "PutItem",
+    "target": {"table": "orders", "key": {"pk": "order-1"}},
+    "probability": 0.3,
+    "holdOps": 2,
+    "holdMs": 500
+  }
+]
+```
+
+- `target.table` / `target.key` narrow the rule (key values are the scalar string form of the key attributes); `operation` and `region` work as for other rules.
+- `holdOps`: after the first forced conflict on an item, the next N operations on it conflict too. `holdMs`: the same for N milliseconds.
+
 ### Other Fault Endpoints
 
 - `GET /_gopherstack/chaos/faults`: Returns current fault rules.

@@ -143,6 +143,15 @@ func NewTransactionCanceledException(msg string, reasons []CancellationReason) *
 	}
 }
 
+// NewTransactionConflictException is the single-item rejection of a PutItem/UpdateItem/DeleteItem that
+// overlaps an in-flight TransactWriteItems.
+func NewTransactionConflictException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#TransactionConflictException",
+		Message: msg,
+	}
+}
+
 func NewTransactionInProgressException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#TransactionInProgressException",

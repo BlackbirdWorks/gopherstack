@@ -74,7 +74,7 @@ func newLeakEnv(t *testing.T) *leakEnv {
 	cli.portAlloc = setupPortAllocatorWithReservations(t.Context(), log, cli)
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(&service.AppContext{
+	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: log, Config: &cli, JanitorCtx: t.Context(), PortAlloc: cli.portAlloc,
 	})
 	require.NoError(t, err)
@@ -307,6 +307,36 @@ func TestLeakS3(t *testing.T) {
 				require.NoError(t, err)
 				_, err = c.DeleteBucket(ctx, &sdks3.DeleteBucketInput{Bucket: b})
 				require.NoError(t, err)
+			}
+		}, settle: true},
+		{name: "multipart_abandoned_bucket_delete", op: func(t *testing.T, c *sdks3.Client) func(int) {
+			t.Helper()
+
+			return func(i int) {
+				b := aws.String("leak-mpa-" + strconv.Itoa(i))
+				_, err := c.CreateBucket(ctx, &sdks3.CreateBucketInput{Bucket: b})
+				require.NoError(t, err)
+
+				cm, err := c.CreateMultipartUpload(ctx, &sdks3.CreateMultipartUploadInput{
+					Bucket: b, Key: aws.String("mp"),
+				})
+				require.NoError(t, err)
+
+				_, err = c.UploadPart(ctx, &sdks3.UploadPartInput{
+					Bucket: b, Key: aws.String("mp"), UploadId: cm.UploadId,
+					PartNumber: aws.Int32(1), Body: bytes.NewReader(payload),
+				})
+				require.NoError(t, err)
+
+				_, err = c.DeleteBucket(ctx, &sdks3.DeleteBucketInput{Bucket: b})
+				if err != nil {
+					_, err = c.AbortMultipartUpload(ctx, &sdks3.AbortMultipartUploadInput{
+						Bucket: b, Key: aws.String("mp"), UploadId: cm.UploadId,
+					})
+					require.NoError(t, err)
+					_, err = c.DeleteBucket(ctx, &sdks3.DeleteBucketInput{Bucket: b})
+					require.NoError(t, err)
+				}
 			}
 		}, settle: true},
 		{name: "versioned_put_delete_version", op: func(t *testing.T, c *sdks3.Client) func(int) {

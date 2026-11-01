@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -52,6 +53,8 @@ type EnforcementConfig struct {
 	Global *config.GlobalConfig `json:"global,omitempty"`
 	// Recorder, when non-nil, receives one event per evaluated request.
 	Recorder *iampolicystream.Recorder `json:"-"`
+	// SCPs, when non-nil, gates otherwise-allowed requests on the caller account's service control policies.
+	SCPs SCPProvider `json:"-"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
@@ -460,6 +463,9 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	dec := decideScoped(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx, scope)
+
+	dec, scpMsg := cfg.applySCPs(dec, action, matchResource, condCtx)
+
 	if cfg.Recorder != nil {
 		dec = dec.attribute(backend, attribution{
 			principalArn: condCtx.PrincipalARN, resourceArn: resourceARN, identity: policyDocs, resource: resourceDocs,
@@ -467,6 +473,17 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	}
 
 	cfg.record(c, dec, action, matchResource, condCtx.PrincipalARN, callerName)
+
+	return cfg.finish(c, next, dec, scope, scpMsg, callerName, action, matchResource)
+}
+
+// finish lets an allowed (or audited) request through and otherwise writes the denial.
+func (cfg EnforcementConfig) finish(
+	c *echo.Context, next echo.HandlerFunc, dec requestDecision, scope RequestScope,
+	scpMsg, callerName, action, matchResource string,
+) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
 
 	if dec.allow {
 		return next(c)
@@ -482,6 +499,10 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	log.InfoContext(ctx, "IAM enforcement: access denied ("+dec.reason+")",
 		"caller", callerName, "action", action, "resource", matchResource, "reason", dec.reason,
 		"matchedSid", dec.match.Sid)
+
+	if scpMsg != "" && scope.Deny == nil {
+		return writeAccessDeniedMsg(c, action, matchResource, scpMsg)
+	}
 
 	return scope.deny(c, action, matchResource)
 }
@@ -725,10 +746,10 @@ func isS3Request(r *http.Request) bool {
 	return true
 }
 
-func writeJSONRPCAccessDenied(c *echo.Context, action string) error {
+func writeJSONRPCAccessDenied(c *echo.Context, action, msg string) error {
 	resp := jsonRPCErrorResponse{
 		Type:    "com.amazon.coral.service#AccessDeniedException",
-		Message: "User is not authorized to perform: " + action,
+		Message: cmp.Or(msg, "User is not authorized to perform: "+action),
 	}
 
 	body, err := json.Marshal(resp)
@@ -757,15 +778,15 @@ func isRESTJSONAction(action string) bool {
 }
 
 // writeRESTJSONAccessDenied answers with the code in X-Amzn-Errortype, which REST-JSON SDKs read first.
-func writeRESTJSONAccessDenied(c *echo.Context, action string) error {
+func writeRESTJSONAccessDenied(c *echo.Context, action, msg string) error {
 	c.Response().Header().Set("X-Amzn-Errortype", "AccessDeniedException")
 
 	return c.JSON(http.StatusForbidden, map[string]string{
-		"message": "User is not authorized to perform: " + action,
+		"message": cmp.Or(msg, "User is not authorized to perform: "+action),
 	})
 }
 
-func writeS3AccessDenied(c *echo.Context, resource string) error {
+func writeS3AccessDenied(c *echo.Context, resource, msg string) error {
 	reqID := c.Response().Header().Get("X-Amz-Request-Id")
 	if reqID == "" {
 		reqID = "gopherstack-request"
@@ -773,7 +794,7 @@ func writeS3AccessDenied(c *echo.Context, resource string) error {
 
 	resp := s3AccessDeniedError{
 		Code:      codeAccessDenied,
-		Message:   "Access Denied",
+		Message:   cmp.Or(msg, "Access Denied"),
 		Resource:  resource,
 		RequestID: reqID,
 		HostID:    "gopherstack",
@@ -789,12 +810,12 @@ func writeS3AccessDenied(c *echo.Context, resource string) error {
 	return c.XMLBlob(http.StatusForbidden, append([]byte(xml.Header), body...))
 }
 
-func writeQueryXMLAccessDenied(c *echo.Context, action string) error {
+func writeQueryXMLAccessDenied(c *echo.Context, action, msg string) error {
 	resp := accessDeniedResponse{
 		Xmlns: iamXMLNS,
 		Error: iamDeniedError{
 			Code:    "AccessDenied",
-			Message: "User is not authorized to perform: " + action,
+			Message: cmp.Or(msg, "User is not authorized to perform: "+action),
 			Type:    "Sender",
 		},
 		RequestID: c.Response().Header().Get("X-Amz-Request-Id"),
@@ -812,20 +833,25 @@ func writeQueryXMLAccessDenied(c *echo.Context, action string) error {
 
 // writeAccessDenied writes a protocol-appropriate access denied error response.
 func writeAccessDenied(c *echo.Context, action, resource string) error {
+	return writeAccessDeniedMsg(c, action, resource, "")
+}
+
+// writeAccessDeniedMsg is writeAccessDenied with msg replacing the default text when non-empty.
+func writeAccessDeniedMsg(c *echo.Context, action, resource, msg string) error {
 	r := c.Request()
 	if isJSONRPCRequest(r) {
-		return writeJSONRPCAccessDenied(c, action)
+		return writeJSONRPCAccessDenied(c, action, msg)
 	}
 
 	if isRESTJSONAction(action) {
-		return writeRESTJSONAccessDenied(c, action)
+		return writeRESTJSONAccessDenied(c, action, msg)
 	}
 
 	if isS3Request(r) {
-		return writeS3AccessDenied(c, resource)
+		return writeS3AccessDenied(c, resource, msg)
 	}
 
-	return writeQueryXMLAccessDenied(c, action)
+	return writeQueryXMLAccessDenied(c, action, msg)
 }
 
 // canonicalDocs rewrites non-commercial ARN partitions to the form the evaluator matches against.

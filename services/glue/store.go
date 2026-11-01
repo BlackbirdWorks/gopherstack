@@ -27,6 +27,9 @@ var ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExi
 // awsAwsjson11_deserializeOpErrorDeleteGlossary/DeleteFormType error switches.
 var ErrConflict = awserr.New("ConflictException", awserr.ErrConflict)
 
+// ErrTableParameterChanged is returned by SwapTableParameters when the guarded parameter moved.
+var ErrTableParameterChanged = awserr.New("ConcurrentModificationException", awserr.ErrConflict)
+
 // ErrConcurrentRunsExceeded is returned by StartJobRun/StartWorkflowRun when
 // the job/workflow's MaxConcurrentRuns limit is already reached, mirroring
 // AWS's ConcurrentRunsExceededException (confirmed in
@@ -208,6 +211,13 @@ type InMemoryBackend struct {
 	ramShareCreator ResourceShareCreator
 	crawlerS3       CrawlerS3
 	crawlerDDB      CrawlerDynamoDB
+	crawlerSecrets  CrawlerSecrets
+
+	// engine-backed interactive sessions; liveSessions is never persisted
+	sessionEngine SessionEngine
+	liveSessions  map[string]*liveSession
+	clockFn       func() time.Time
+	sessIdle      chan struct{}
 
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
@@ -270,6 +280,7 @@ type InMemoryBackend struct {
 	reconcileMu       sync.Mutex
 	reconcileInterval time.Duration
 	reconcileOn       bool
+	sessWorkers       int
 }
 
 // NewInMemoryBackend creates a new in-memory Glue backend.
@@ -303,6 +314,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		integrationReadyAt:        make(map[string]time.Time),
 		sessionReadyAt:            make(map[string]time.Time),
 		sessionStopAt:             make(map[string]time.Time),
+		liveSessions:              make(map[string]*liveSession),
 	}
 
 	registerAllTables(b)
@@ -323,6 +335,8 @@ func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend 
 
 // Reset clears all backend state, returning it to the initial empty state.
 func (b *InMemoryBackend) Reset() {
+	b.detachLiveSessions()
+
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 

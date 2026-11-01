@@ -67,3 +67,39 @@ func TestDefaultSettings(t *testing.T) {
 	assert.Equal(t, cosmosdb.DefaultMasterKey, s.MasterKey)
 	assert.False(t, s.ValidateAuth)
 }
+
+func TestProvider_Init_ResourceTokenMax(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		max     int
+		wantErr bool
+	}{
+		{"unset", 0, false},
+		{"legacy cap", 18000, false},
+		{"upper bound", 86400, false},
+		{"below minimum", 599, true},
+		{"above maximum", 86401, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &cosmosdb.Provider{}
+			reg, err := p.Init(&service.AppContext{
+				Config: fakeConfigProvider{settings: cosmosdb.Settings{ResourceTokenMaxSeconds: tc.max}},
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, cosmosdb.ErrInvalidResourceTokenMax)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.max, reg.(*cosmosdb.Handler).ResourceTokenMaxSeconds)
+		})
+	}
+}

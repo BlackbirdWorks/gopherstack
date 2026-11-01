@@ -2,6 +2,7 @@ package organizations
 
 import (
 	"cmp"
+	"context"
 	"slices"
 	"strconv"
 	"strings"
@@ -68,7 +69,7 @@ const (
 
 // AcceptHandshake accepts an OPEN handshake.
 // For INVITE handshakes, the invited account is added to the organization.
-func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error) {
+func (b *InMemoryBackend) AcceptHandshake(ctx context.Context, handshakeID string) (*Handshake, error) {
 	b.mu.Lock("AcceptHandshake")
 	defer b.mu.Unlock()
 
@@ -79,8 +80,12 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 		return nil, ErrHandshakeNotFound
 	}
 
+	if err := b.authorizeHandshakeCaller(ctx, h, false); err != nil {
+		return nil, err
+	}
+
 	if h.State != handshakeStateOpen {
-		return nil, ErrHandshakeConstraintViolation
+		return nil, handshakeStateError(h.State, handshakeStateAccepted)
 	}
 
 	h.State = handshakeStateAccepted
@@ -109,6 +114,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 					b.accounts.Put(acct)
 					b.accountParent[acctID] = b.root.ID
 					b.addAccountChild(b.root.ID, acctID)
+					b.attachDefaultSCPLocked(acctID)
 					b.setTagsLocked(acctID, h.PendingTags)
 				}
 
@@ -121,7 +127,7 @@ func (b *InMemoryBackend) AcceptHandshake(handshakeID string) (*Handshake, error
 }
 
 // CancelHandshake cancels an OPEN handshake.
-func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error) {
+func (b *InMemoryBackend) CancelHandshake(ctx context.Context, handshakeID string) (*Handshake, error) {
 	b.mu.Lock("CancelHandshake")
 	defer b.mu.Unlock()
 
@@ -132,8 +138,12 @@ func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error
 		return nil, ErrHandshakeNotFound
 	}
 
+	if err := b.authorizeHandshakeCaller(ctx, h, true); err != nil {
+		return nil, err
+	}
+
 	if h.State != handshakeStateOpen {
-		return nil, ErrHandshakeConstraintViolation
+		return nil, handshakeStateError(h.State, handshakeStateCanceled)
 	}
 
 	h.State = handshakeStateCanceled
@@ -144,7 +154,7 @@ func (b *InMemoryBackend) CancelHandshake(handshakeID string) (*Handshake, error
 }
 
 // DeclineHandshake declines an OPEN handshake.
-func (b *InMemoryBackend) DeclineHandshake(handshakeID string) (*Handshake, error) {
+func (b *InMemoryBackend) DeclineHandshake(ctx context.Context, handshakeID string) (*Handshake, error) {
 	b.mu.Lock("DeclineHandshake")
 	defer b.mu.Unlock()
 
@@ -155,8 +165,12 @@ func (b *InMemoryBackend) DeclineHandshake(handshakeID string) (*Handshake, erro
 		return nil, ErrHandshakeNotFound
 	}
 
+	if err := b.authorizeHandshakeCaller(ctx, h, false); err != nil {
+		return nil, err
+	}
+
 	if h.State != handshakeStateOpen {
-		return nil, ErrHandshakeConstraintViolation
+		return nil, handshakeStateError(h.State, handshakeStateDeclined)
 	}
 
 	h.State = handshakeStateDeclined

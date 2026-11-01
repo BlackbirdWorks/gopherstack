@@ -42,12 +42,19 @@ var defaultFaultError = FaultError{
 // FaultRule defines a single fault injection rule. All fields are optional;
 // omitting a field means "match any". Rules are evaluated sequentially;
 // the first match wins.
+//
+// A rule with Effect set is not an HTTP error fault: the middleware ignores it
+// and the owning service consumes it through [FaultStore.MatchEffects].
 type FaultRule struct {
-	Error       *FaultError `json:"error,omitempty"`
-	Probability *float64    `json:"probability,omitempty"`
-	Service     string      `json:"service,omitempty"`
-	Region      string      `json:"region,omitempty"`
-	Operation   string      `json:"operation,omitempty"`
+	Error       *FaultError   `json:"error,omitempty"`
+	Probability *float64      `json:"probability,omitempty"`
+	Target      *EffectTarget `json:"target,omitempty"`
+	Service     string        `json:"service,omitempty"`
+	Region      string        `json:"region,omitempty"`
+	Operation   string        `json:"operation,omitempty"`
+	Effect      string        `json:"effect,omitempty"`
+	HoldOps     int           `json:"holdOps,omitempty"`
+	HoldMs      int           `json:"holdMs,omitempty"`
 }
 
 // ShouldTrigger reports whether this fault should fire based on its probability.
@@ -239,6 +246,8 @@ func (s *FaultStore) DeleteExactRules(rules []FaultRule) {
 
 func faultRulesEqual(a, b FaultRule) bool {
 	if a.Service != b.Service || a.Region != b.Region || a.Operation != b.Operation ||
+		a.Effect != b.Effect || a.HoldOps != b.HoldOps || a.HoldMs != b.HoldMs ||
+		!effectTargetsEqual(a.Target, b.Target) ||
 		(a.Probability == nil) != (b.Probability == nil) {
 		return false
 	}
@@ -258,7 +267,9 @@ func rulesContainMatch(candidates []FaultRule, target FaultRule) bool {
 	for _, c := range candidates {
 		if c.Service == target.Service &&
 			c.Region == target.Region &&
-			c.Operation == target.Operation {
+			c.Operation == target.Operation &&
+			c.Effect == target.Effect &&
+			effectTargetsEqual(c.Target, target.Target) {
 			return true
 		}
 	}
@@ -274,12 +285,29 @@ func (s *FaultStore) Match(svc, op, region string) (FaultRule, bool) {
 	defer s.mu.RUnlock()
 
 	for _, r := range s.rules {
-		if ruleMatches(r, svc, op, region) {
+		if r.Effect == "" && ruleMatches(r, svc, op, region) {
 			return r, true
 		}
 	}
 
 	return FaultRule{}, false
+}
+
+// MatchEffects returns, in order, every rule carrying the given effect that
+// matches the service, operation and region.
+func (s *FaultStore) MatchEffects(effect, svc, op, region string) []FaultRule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var out []FaultRule
+
+	for _, r := range s.rules {
+		if r.Effect == effect && ruleMatches(r, svc, op, region) {
+			out = append(out, r)
+		}
+	}
+
+	return out
 }
 
 // GetEffects returns a copy of the current network effects.

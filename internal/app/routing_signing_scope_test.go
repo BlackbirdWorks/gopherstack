@@ -215,7 +215,8 @@ func TestRoutingSigningScopeDispatch(t *testing.T) {
 			router := service.NewServiceRouter(reg).
 				WithTargetGates(routegates.TargetGates()).
 				WithCBORGates(routegates.CBORGates()).
-				WithPathGates(routegates.PathGates())
+				WithPathGates(routegates.PathGates()).
+				WithAltGates(routegates.AltGates())
 
 			var (
 				mu  sync.Mutex
@@ -263,7 +264,8 @@ func TestRoutingSigningScopeUnimplementedNotBatch(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 
 	tests := []struct {
 		name, authSvc, uri string

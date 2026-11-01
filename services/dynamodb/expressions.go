@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/expr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -146,6 +147,9 @@ func updateExpressionErrorMessage(err error) string {
 		return "The document path provided in the update expression is invalid for update"
 	case errors.Is(err, expr.ErrOperandIncorrectType):
 		return "An operand in the update expression has an incorrect data type"
+	case errors.Is(err, dynamonum.ErrOverflow), errors.Is(err, dynamonum.ErrUnderflow),
+		errors.Is(err, dynamonum.ErrTooManyDigits):
+		return err.Error()
 	case errors.Is(err, expr.ErrOverlappingDocumentPaths):
 		return "Two document paths overlap with each other; must remove or rewrite one of these paths"
 	default:
@@ -282,10 +286,10 @@ func (c *ParsedCondition) Evaluate(
 }
 
 // BoundCondition is a ParsedCondition bound to one request's expression attribute maps,
-// resolving each :value placeholder once across many items. Not safe for concurrent use.
+// resolving placeholders and attribute names once across many items. Not safe for
+// concurrent use.
 type BoundCondition struct {
-	eval *expr.Evaluator
-	node expr.Node
+	compiled *expr.CompiledCondition
 }
 
 // Bind fixes attrValues and attrNames for repeated Evaluate calls over many items.
@@ -294,28 +298,18 @@ func (c *ParsedCondition) Bind(attrValues map[string]any, attrNames map[string]s
 		return &BoundCondition{}
 	}
 
-	eval := &expr.Evaluator{AttrNames: attrNames, AttrValues: attrValues}
-	eval.Memoize()
-
-	return &BoundCondition{eval: eval, node: c.node}
+	return &BoundCondition{compiled: expr.CompileCondition(c.node, attrNames, attrValues)}
 }
 
 // Evaluate reports whether item satisfies the condition; a zero condition matches everything.
 func (b *BoundCondition) Evaluate(item map[string]any) bool {
-	if b.node == nil {
+	if b.compiled == nil {
 		return true
 	}
 
-	b.eval.Item = item
+	matched, err := b.compiled.Evaluate(item)
 
-	result, err := b.eval.Evaluate(b.node)
-	if err != nil {
-		return false
-	}
-
-	matched, ok := result.(bool)
-
-	return ok && matched
+	return err == nil && matched
 }
 
 // validateEAVTypes checks that expression attribute values are structurally valid

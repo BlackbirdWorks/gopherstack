@@ -3,6 +3,7 @@ package timestreamwrite
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -26,6 +27,7 @@ func NewInMemoryBackendForRegion(region string) *InMemoryBackend {
 		mu:       lockmetrics.New("timestreamwrite"),
 		registry: store.NewRegistry(),
 		region:   region,
+		now:      time.Now,
 	}
 	registerAllTables(b)
 	b.ensureNonNilMaps()
@@ -118,4 +120,11 @@ func (b *InMemoryBackend) isKnownARNLocked(arn string) bool {
 	}
 
 	return false
+}
+
+// SetClock replaces the wall clock used for retention decisions.
+func (b *InMemoryBackend) SetClock(now func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+	b.now = now
 }

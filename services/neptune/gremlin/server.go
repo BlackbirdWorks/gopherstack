@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	opEval           = "eval"
+	opBytecode       = "bytecode"
 	maxFrameBytes    = 4 << 20
 	maxScriptBytes   = 1 << 20
 	defaultBatchSize = 64
@@ -28,8 +30,10 @@ const (
 // Options configures a Server.
 type Options struct {
 	// Track registers a running query and returns its cancellable context and a finish callback.
-	Track   func(parent context.Context, query string) (context.Context, func())
-	Timeout time.Duration
+	Track func(parent context.Context, query string) (context.Context, func())
+	// Authorize, when set, vets each query before it runs; ctx is the request (or WebSocket handshake) context.
+	Authorize func(ctx context.Context, write, del bool) error
+	Timeout   time.Duration
 }
 
 // Server serves Gremlin over WebSocket and HTTP against one graph.
@@ -100,7 +104,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if s.handleFrame(conn, mt, data) != nil {
+		if s.handleFrame(r.Context(), conn, mt, data) != nil {
 			return
 		}
 	}
@@ -172,23 +176,23 @@ func parseJSONRequest(body []byte, c codec) (*message, error) {
 	return msg, nil
 }
 
-func (s *Server) handleFrame(conn *websocket.Conn, mt int, data []byte) error {
+func (s *Server) handleFrame(ctx context.Context, conn *websocket.Conn, mt int, data []byte) error {
 	msg, err := parseFrame(mt, data)
 	if err != nil {
 		return writeResult(conn, &message{id: uuid.Nil.String(), codec: codecV3}, nil, err)
 	}
 
-	out, err := s.execute(msg)
+	out, err := s.execute(ctx, msg)
 
 	return writeResult(conn, msg, out, err)
 }
 
-func (s *Server) execute(msg *message) ([]any, error) {
+func (s *Server) execute(ctx context.Context, msg *message) ([]any, error) {
 	switch msg.op {
-	case "eval":
-		return s.evalMessage(msg)
-	case "bytecode":
-		return s.bytecodeMessage(msg)
+	case opEval:
+		return s.evalMessage(ctx, msg)
+	case opBytecode:
+		return s.bytecodeMessage(ctx, msg)
 	case "close":
 		return nil, nil
 	}
@@ -217,7 +221,7 @@ func (s *Server) queryContext(msg *message, label string) (context.Context, func
 	}
 }
 
-func (s *Server) evalMessage(msg *message) ([]any, error) {
+func (s *Server) evalMessage(reqCtx context.Context, msg *message) ([]any, error) {
 	script, ok := msg.args["gremlin"].(string)
 	if !ok || strings.TrimSpace(script) == "" {
 		return nil, invalidArg("A message with an [eval] op code requires a [gremlin] argument.")
@@ -227,22 +231,38 @@ func (s *Server) evalMessage(msg *message) ([]any, error) {
 		return nil, invalidArg("The Gremlin script exceeds the maximum size of %d bytes", maxScriptBytes)
 	}
 
+	if err := s.authorize(reqCtx, ScriptAccess(script)); err != nil {
+		return nil, err
+	}
+
 	ctx, finish := s.queryContext(msg, script)
 	defer finish()
 
 	return s.eng.Eval(ctx, s.graph, script, bindingsOf(msg.args["bindings"]))
 }
 
-func (s *Server) bytecodeMessage(msg *message) ([]any, error) {
+func (s *Server) bytecodeMessage(reqCtx context.Context, msg *message) ([]any, error) {
 	tr, ok := msg.args["gremlin"].(*Traversal)
 	if !ok {
 		return nil, invalidArg("A message with a [bytecode] op code requires a [gremlin] argument of bytecode.")
+	}
+
+	if err := s.authorize(reqCtx, tr.Access()); err != nil {
+		return nil, err
 	}
 
 	ctx, finish := s.queryContext(msg, "bytecode: "+describe(tr))
 	defer finish()
 
 	return s.eng.Bytecode(ctx, s.graph, tr)
+}
+
+func (s *Server) authorize(ctx context.Context, a Access) error {
+	if s.opt.Authorize == nil {
+		return nil
+	}
+
+	return s.opt.Authorize(ctx, a.Write, a.Delete)
 }
 
 func describe(tr *Traversal) string {
@@ -325,27 +345,26 @@ func writeResult(conn *websocket.Conn, msg *message, out []any, err error) error
 }
 
 func writeFrame(conn *websocket.Conn, msg *message, code int, text string, data []any, hasData bool) error {
-	var (
-		payload []byte
-		mt      = websocket.TextMessage
-	)
-
-	if msg.codec == codecBinary {
-		mt = websocket.BinaryMessage
-		w := &bbWriter{}
-		payload = w.response(msg.id, code, text, data, hasData)
-	} else {
-		var err error
-
-		payload, err = graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
-		if err != nil {
-			payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
-		}
-	}
+	mt, payload := encodeFrame(msg, code, text, data, hasData)
 
 	_ = conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 
 	return conn.WriteMessage(mt, payload)
+}
+
+func encodeFrame(msg *message, code int, text string, data []any, hasData bool) (int, []byte) {
+	if msg.codec == codecBinary {
+		w := &bbWriter{}
+
+		return websocket.BinaryMessage, w.response(msg.id, code, text, data, hasData)
+	}
+
+	payload, err := graphsonWriter{v2: msg.codec == codecV2}.response(msg.id, code, text, data, hasData)
+	if err != nil {
+		payload, _ = graphsonWriter{}.response(msg.id, StatusSerializationErr, err.Error(), nil, false)
+	}
+
+	return websocket.TextMessage, payload
 }
 
 type httpRequest struct {
@@ -362,7 +381,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := uuid.NewString()
-	msg := &message{id: id, op: "eval", args: map[string]any{"gremlin": req.Gremlin}}
+	msg := &message{id: id, op: opEval, args: map[string]any{"gremlin": req.Gremlin}}
 
 	if req.Bindings != nil {
 		b := NewMap()
@@ -381,7 +400,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		msg.args["bindings"] = b
 	}
 
-	out, err := s.evalMessage(msg)
+	out, err := s.evalMessage(r.Context(), msg)
 	if err != nil {
 		writeHTTPError(w, asGremlinError(err), id)
 

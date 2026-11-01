@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -110,7 +111,28 @@ func convertNumberSetType(val any) (types.AttributeValue, error) {
 		return nil, err
 	}
 
-	return &types.AttributeValueMemberNS{Value: ns}, nil
+	return &types.AttributeValueMemberNS{Value: canonicalNumbers(ns)}, nil
+}
+
+// canonicalNumbers normalises each number, copying only when one changes.
+func canonicalNumbers(ns []string) []string {
+	out := ns
+
+	for i, n := range ns {
+		c := dynamonum.Canonical(n)
+		if c == n {
+			continue
+		}
+
+		if &out[0] == &ns[0] {
+			out = make([]string, len(ns))
+			copy(out, ns)
+		}
+
+		out[i] = c
+	}
+
+	return out
 }
 
 func convertBinarySetType(val any) (types.AttributeValue, error) {
@@ -166,7 +188,7 @@ func ToSDKAttributeValue(v any) (types.AttributeValue, error) {
 				return nil, fmt.Errorf("%w, got %T", ErrInvalidTypeN, val)
 			}
 
-			return &types.AttributeValueMemberN{Value: s}, nil
+			return &types.AttributeValueMemberN{Value: dynamonum.Canonical(s)}, nil
 		case "BOOL":
 			bVal, matched := val.(bool)
 			if !matched {

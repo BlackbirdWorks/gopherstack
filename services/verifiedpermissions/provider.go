@@ -28,6 +28,18 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
 
+	var settings Settings
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetVerifiedPermissionsSettings()
+	}
+
+	client, err := oidcHTTPClient(settings.OIDCCAFile)
+	if err != nil {
+		return nil, err
+	}
+
+	handler.WithTokenVerifier(NewTokenVerifier(settings.DisableJWTVerification, client))
+
 	handler.EnableRegions()
 
 	return handler, nil

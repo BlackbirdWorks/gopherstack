@@ -51,6 +51,14 @@ func (db *InMemoryDB) transactWriteItemsOp(
 	}
 	defer cleanupToken()
 
+	txn, conflictErr := db.beginTransactWrite(ctx, input.TransactItems)
+	if conflictErr != nil {
+		return nil, conflictErr
+	}
+	defer txn.release()
+
+	db.runTxnHook(opTransactWriteItems, 0)
+
 	tableNames := db.transactTableNames(input.TransactItems)
 	region := getRegionFromContext(ctx, db)
 
@@ -679,6 +687,14 @@ func (db *InMemoryDB) transactGetItemsOp(
 		}
 	}
 	sort.Strings(tableNames)
+
+	txn, conflictErr := db.beginTransactRead(ctx, input.TransactItems, tableNames)
+	if conflictErr != nil {
+		return nil, conflictErr
+	}
+	defer txn.release()
+
+	db.runTxnHook(opTransactGetItems, 0)
 
 	tables, lockErr := db.lockTablesRead(ctx, tableNames)
 	if lockErr != nil {

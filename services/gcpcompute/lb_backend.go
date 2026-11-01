@@ -76,6 +76,10 @@ func bsSpec() lbSpec[computeapi.BackendService] {
 				out = append(out, be.Group)
 			}
 
+			if v.SecurityPolicy != "" {
+				out = append(out, v.SecurityPolicy)
+			}
+
 			return out
 		},
 	}
@@ -156,6 +160,10 @@ func prepBackendService(b *InMemoryBackend, c lbCtx, in *computeapi.BackendServi
 	in.HealthChecks = hcs
 
 	if err = normalizeBSExtras(in); err != nil {
+		return err
+	}
+
+	if err = b.resolveBSSecurityPolicyLocked(c, in); err != nil {
 		return err
 	}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )
 
@@ -50,7 +51,7 @@ func TestHandler_MalformedBodyCarriesTypedErrorCode(t *testing.T) {
 		"AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/rds-data/aws4_request, "+
 			"SignedHeaders=content-type;host, Signature=deadbeef")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

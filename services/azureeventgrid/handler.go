@@ -10,7 +10,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -21,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -128,12 +128,12 @@ func (h *Handler) loadOrGenerateCert() (tls.Certificate, error) {
 
 // StartWorker binds the HTTPS listener and starts the delivery worker.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var lc net.ListenConfig
-
-	ln, err := lc.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	ln, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("azureeventgrid: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	cert, err := h.loadOrGenerateCert()
 	if err != nil {

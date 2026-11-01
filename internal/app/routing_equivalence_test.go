@@ -191,7 +191,8 @@ func TestRoutingEquivalence(t *testing.T) {
 	router := service.NewServiceRouter(reg).
 		WithTargetGates(routegates.TargetGates()).
 		WithCBORGates(routegates.CBORGates()).
-		WithPathGates(routegates.PathGates())
+		WithPathGates(routegates.PathGates()).
+		WithAltGates(routegates.AltGates())
 	scan := selectAll(t, cases, func(c *echo.Context) string { return scanSelect(entries, c) })
 	lookup := selectAll(t, cases, func(c *echo.Context) string { return entryName(router.Lookup(c)) })
 
@@ -243,14 +244,17 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 
 	neverMatch := []string{
 		"AzureAppConfig", "AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
-		"AzureFile", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
+		"AzureFile", "AzureGraph", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
 		"GCPMonitoring",
 		"GCPRedis", "AzureRedis", "AzureSQL", "GCPSpanner", "GCPBigtable", "GCPCloudBuild", "GCPEventarc",
-		"GCPWorkflows", "GCPDNS", "GCPCompute",
+		"GCPWorkflows", "GCPDNS", "GCPCompute", "GCPDatastore", "GCPContainer",
+		"GCPIdentityToolkit", "GCPAPIGateway", "GCPBatch", "GCPResourceManager",
 		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
-		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore",
+		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
+		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring", "OCINoSQL", "OCIAPIGateway", "OCIEvents",
+		"OCILoadBalancer", "OCIArtifacts", "OCIContainerInstances",
 	}
 
 	for _, e := range entries {
@@ -263,37 +267,11 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 	assert.Empty(t, missing, "services never selected by the corpus")
 }
 
-func TestRouteTargetGatesHold(t *testing.T) {
-	t.Parallel()
+func cborCovered(name string, rc routingCase) bool {
+	shape := routegates.CBORGates()[name]
+	path, _ := splitURI(rc.uri)
 
-	_, entries := routingFixture(t)
-	cases := loadRoutingCorpus(t)
-	byName := map[string]*service.Entry{}
-
-	for _, e := range entries {
-		byName[e.Registerable.Name()] = e
-	}
-
-	for name, prefixes := range routegates.TargetGates() {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			entry := byName[name]
-			require.NotNil(t, entry, "gate names an unregistered service")
-
-			for _, rc := range cases {
-				for _, target := range []string{"", "Zz.Op", "Zz" + strings.Join(prefixes, "")} {
-					rc.target = target
-					if hasTargetPrefix(target, prefixes) {
-						continue
-					}
-
-					c := echo.NewContext(rc.request(t), httptest.NewRecorder())
-					require.False(t, entry.Matcher(c), "%s matched %s %s, target %q", name, rc.method, rc.uri, target)
-				}
-			}
-		})
-	}
+	return shape != "" && strings.HasPrefix(path, "/service/"+shape+"/operation/")
 }
 
 func hasTargetPrefix(target string, prefixes []string) bool {

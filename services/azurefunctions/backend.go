@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +50,7 @@ type appState struct {
 	SystemKeys      map[string]string            `json:"systemKeys"`
 	FunctionKeys    map[string]map[string]string `json:"functionKeys"`
 	Name            string                       `json:"name"`
+	Slot            string                       `json:"slot,omitempty"`
 	Kind            string                       `json:"kind"`
 	LinuxFx         string                       `json:"linuxFx"`
 	AppCommandLine  string                       `json:"appCommandLine,omitempty"`
@@ -191,15 +193,43 @@ func (b *InMemoryBackend) HostName(name string) string {
 	b.mu.RLock("HostName")
 	defer b.mu.RUnlock()
 
+	if a, ok := b.apps[strs.Fold(name)]; ok {
+		return b.hostNameLocked(a.label())
+	}
+
 	return b.hostNameLocked(name)
 }
 
-func (b *InMemoryBackend) hostNameLocked(name string) string {
-	return name + "." + b.domain + ":" + strconv.Itoa(b.port)
+func (b *InMemoryBackend) hostNameLocked(label string) string {
+	return label + "." + b.domain + ":" + strconv.Itoa(b.port)
 }
 
-func (b *InMemoryBackend) scmHostNameLocked(name string) string {
-	return name + ".scm." + b.domain + ":" + strconv.Itoa(b.port)
+func (b *InMemoryBackend) scmHostNameLocked(label string) string {
+	return label + ".scm." + b.domain + ":" + strconv.Itoa(b.port)
+}
+
+// SlotSep joins an app name and slot name into the data-plane name of a deployment slot.
+const SlotSep = "/"
+
+// SlotName is the data-plane name of an app's deployment slot.
+func SlotName(app, slot string) string { return app + SlotSep + slot }
+
+// key is the data-plane name: the app name, or app/slot for a deployment slot.
+func (a *appState) key() string {
+	if a.Slot == "" {
+		return a.Name
+	}
+
+	return SlotName(a.Name, a.Slot)
+}
+
+// label is the first DNS label of the app's hostnames: <app>, or <app>-<slot> for a slot.
+func (a *appState) label() string {
+	if a.Slot == "" {
+		return a.Name
+	}
+
+	return a.Name + "-" + a.Slot
 }
 
 // AppConfig is what ARM supplies about a site: its kind and the runtime stack it selected.
@@ -225,7 +255,7 @@ type AppInfo struct {
 
 func (b *InMemoryBackend) infoLocked(a *app) AppInfo {
 	info := AppInfo{
-		Created: a.Created, HostName: b.hostNameLocked(a.Name), SCMHost: b.scmHostNameLocked(a.Name),
+		Created: a.Created, HostName: b.hostNameLocked(a.label()), SCMHost: b.scmHostNameLocked(a.label()),
 		Stopped: a.Stopped, Deployed: len(a.Zip) > 0,
 	}
 
@@ -261,8 +291,10 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 	a, ok := b.apps[strs.Fold(name)]
 	if !ok {
 		a = &app{}
+		appName, slot, _ := strings.Cut(name, SlotSep)
 		a.appState = appState{
-			Name:            name,
+			Name:            appName,
+			Slot:            slot,
 			Created:         b.now().UTC(),
 			Settings:        map[string]string{},
 			HostKeys:        map[string]string{defaultKeyName: newKey()},
@@ -299,15 +331,28 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 func (b *InMemoryBackend) DeleteApp(name string) {
 	b.mu.Lock("DeleteApp")
 
-	var old box
+	var olds []box
 
 	if a, ok := b.apps[strs.Fold(name)]; ok {
-		old = b.takeBoxLocked(a)
+		olds = append(olds, b.takeBoxLocked(a))
 		delete(b.apps, strs.Fold(name))
+	}
+
+	if !strings.Contains(name, SlotSep) {
+		prefix := strs.Fold(name) + SlotSep
+
+		for k, a := range b.apps {
+			if strings.HasPrefix(k, prefix) {
+				olds = append(olds, b.takeBoxLocked(a))
+				delete(b.apps, k)
+			}
+		}
 	}
 	b.mu.Unlock()
 
-	b.teardown(old)
+	for _, x := range olds {
+		b.teardown(x)
+	}
 }
 
 // App returns the app's data-plane view.
@@ -330,7 +375,7 @@ func (b *InMemoryBackend) Names() []string {
 
 	out := make([]string, 0, len(b.apps))
 	for _, a := range b.apps {
-		out = append(out, a.Name)
+		out = append(out, a.key())
 	}
 
 	sort.Strings(out)
@@ -424,7 +469,12 @@ func (b *InMemoryBackend) PublishingCredentials(name string) (string, string, st
 		return "", "", "", ErrAppNotFound
 	}
 
-	return "$" + a.Name, a.PublishPassword, "http://" + b.scmHostNameLocked(a.Name), nil
+	user := "$" + a.Name
+	if a.Slot != "" {
+		user += "__" + a.Slot
+	}
+
+	return user, a.PublishPassword, "http://" + b.scmHostNameLocked(a.label()), nil
 }
 
 // Deploy stores a zip package as the app's site content and records the deployment.
@@ -490,4 +540,12 @@ func (b *InMemoryBackend) Package(name string) []byte {
 	}
 
 	return nil
+}
+
+func (a *appState) slotName() string {
+	if a.Slot == "" {
+		return "Production"
+	}
+
+	return a.Slot
 }

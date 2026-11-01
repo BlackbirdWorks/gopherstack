@@ -2,7 +2,7 @@
 service: timestreamquery
 sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.44.3
 last_audit_commit: a98a164d                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 25)
-last_audit_date: 2026-10-07
+last_audit_date: 2026-10-31
 overall: A            # this pass (gopherstack-r80d batch 25): DescribeScheduledQuery's
                        # ScheduledQuery.TargetConfiguration.TimestreamConfiguration was missing 2 of
                        # its 4 required members (TimeColumn/DimensionMappings) -- CreateScheduledQuery's
@@ -22,14 +22,14 @@ overall: A            # this pass (gopherstack-r80d batch 25): DescribeScheduled
                        # explicit (manual) ExecuteScheduledQuery call, so the claim contradicted the
                        # only mechanism that ever populates it; now MANUAL_TRIGGER_SUCCESS.
 ops:
-  Query: {wire: fixed, errors: ok, state: ok, persist: ok, note: "deterministic mock rows/columns inferred from SQL projection (documented; no real Timestream Write data source exists to query against). ClientToken TTL fixed 8h->4h to match documented window. marshalColumnInfos (shared with PrepareQuery) previously hand-picked only Type.ScalarType out of ColumnInfo, silently dropping ArrayColumnInfo/RowColumnInfo/TimeSeriesMeasureValueColumnInfo whenever set; now passes the full ColumnType struct through so the nested union marshals correctly (types.Type)."}
+  Query: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executes real SQL over records written via TimestreamWrite (2026-10-31, gopherstack-49qct.77; see the \"Query execution\" section). Rows/columns are computed, not inferred. ClientToken TTL fixed 8h->4h to match documented window. marshalColumnInfos (shared with PrepareQuery) previously hand-picked only Type.ScalarType out of ColumnInfo, silently dropping ArrayColumnInfo/RowColumnInfo/TimeSeriesMeasureValueColumnInfo whenever set; now passes the full ColumnType struct through so the nested union marshals correctly (types.Type)."}
   CancelQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was non-idempotent: 2nd CancelQuery on the same QueryId 404'd (ValidationException) instead of succeeding per documented idempotent-cancel contract. Now marks Cancelled in place instead of deleting."}
   PrepareQuery: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "disguised no-op: ValidateOnly=true (the ONLY mode real Timestream documents as supported) returned an EMPTY Columns/Parameters list, discarding the inferred result for the one mode real clients use. Now returns the same inferred Columns/Parameters regardless of ValidateOnly. Shares the marshalColumnInfos nested-union fix noted under Query. 2026-08-20: verified PrepareQueryOutput.Columns is actually types.SelectColumn (api_op_PrepareQuery.go), a WIDER sibling of types.ColumnInfo carrying three extra optional fields (Aliased/DatabaseName/TableName) this package's marshalColumnInfos reuse omits -- see gaps (Parameters is types.ParameterMapping, wire-identical {Name,Type} to ColumnInfo, so no gap there)."}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreateScheduledQuery: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ClientToken was parsed by the SDK request but never read by the handler/backend, so an SDK-auto-retried create (aws-sdk-go-v2 auto-generates ClientToken via idempotency-token-autofill middleware) hit ConflictException instead of replaying the original success. Now caches ClientToken->Arn for 8h and replays. Also: KmsKeyId (types.go:659) was accepted nowhere on the request and returned nowhere on ScheduledQueryDescription (types.go:659, same field name) -- a silent-drop, not just missing encryption. Now parsed, stored, and echoed back on DescribeScheduledQuery (still no actual at-rest encryption -- see gaps). 2026-08-20: TargetConfiguration.TimestreamConfiguration.DimensionMappings/TimeColumn (both required subfields of types.TimestreamConfiguration whenever TargetConfiguration is set, api_op_CreateScheduledQuery.go) plus MeasureNameColumn/MixedMeasureMappings/MultiMeasureMappings (optional) were accepted nowhere on create and echoed nowhere on describe -- confirmed with a failing real-SDK round-trip test before the fix. Now modeled end-to-end via ScheduledQueryTargetDetail, parsed in parseTargetConfiguration, and echoed in targetConfigurationView. 2026-08-23: closed the previously-disclosed ErrorReportConfiguration.S3Configuration.EncryptionOption/ObjectKeyPrefix gap (both real, optional members of types.S3Configuration) -- only BucketName was parsed/stored/echoed; now both are threaded through the same accepted-and-echoed pattern as KmsKeyId (still no actual encryption applied, honestly scoped, see gaps)."}
   DeleteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeScheduledQuery: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LastRunSummary.ExecutionStats used the misspelled wire field ExecutionTimeInMillisecs; real field is ExecutionTimeInMillis (no trailing ecs) per awsAwsjson10_deserializeDocumentExecutionStats. gopherstack-r80d batch 25: ScheduledQueryDescription.TargetConfiguration.TimestreamConfiguration (types/types.go, TimestreamConfiguration struct) requires DatabaseName/DimensionMappings/TableName/TimeColumn once TargetConfiguration itself is present (validators.go:651-666, validateTimestreamConfiguration) -- CreateScheduledQuery's request parsing only ever read DatabaseName/TableName from the request body, silently dropping TimeColumn/DimensionMappings (no backing struct field at all). A real client's CreateScheduledQuery request setting a full, client-side-valid TargetConfiguration (the SDK's own validator requires all 4 once TargetConfiguration is set at all) got back a DescribeScheduledQuery response missing 2 required members. Fixed: added TargetTimeColumn/TargetDimensionMappings to the ScheduledQuery domain model, threaded through CreateScheduledQuery's request parsing and the StorageBackend interface/InMemoryBackend signature, and echoed on DescribeScheduledQuery's TargetConfiguration.TimestreamConfiguration view."}
-  ExecuteScheduledQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "documented as running a scheduled query manually (api_op_ExecuteScheduledQuery.go: 'You can use this API to run a scheduled query manually'). This emulator has no scheduler goroutine, so ExecuteScheduledQuery is the ONLY code path that ever populates a run -- yet LastRunSummary.RunStatus and ScheduledQueryListEntry.LastRunStatus always claimed AUTO_TRIGGER_SUCCESS, asserting an automatic trigger that never happened. Fixed to MANUAL_TRIGGER_SUCCESS."}
+  ExecuteScheduledQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-10-31: now runs the query (with @scheduled_runtime = InvocationTime) and ingests the result rows into the target table per TargetConfiguration (TimeColumn, DimensionMappings, MeasureNameColumn, MixedMeasureMappings, MultiMeasureMappings); LastRunSummary carries the real RunStatus (MANUAL_TRIGGER_SUCCESS or MANUAL_TRIGGER_FAILURE + FailureReason) and ExecutionStats (QueryResultRows, RecordsIngested, DataWrites, CumulativeBytesScanned, BytesMetered, ExecutionTimeInMillis). Earlier: documented as running a scheduled query manually (api_op_ExecuteScheduledQuery.go: 'You can use this API to run a scheduled query manually'). This emulator has no scheduler goroutine, so ExecuteScheduledQuery is the ONLY code path that ever populates a run -- yet LastRunSummary.RunStatus and ScheduledQueryListEntry.LastRunStatus always claimed AUTO_TRIGGER_SUCCESS, asserting an automatic trigger that never happened. Fixed to MANUAL_TRIGGER_SUCCESS."}
   ListScheduledQueries: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccountSettings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "DELETED an invented LastUpdatedTime field: neither DescribeAccountSettingsOutput nor UpdateAccountSettingsOutput (real SDK) defines one. Now also surfaces QueryCompute.ProvisionedCapacity.NotificationConfiguration when set (see UpdateAccountSettings)."}
@@ -38,14 +38,47 @@ families:
   tags: {status: deferred, note: "TagResource/UntagResource/ListTagsForResource are in GetSupportedOperations() and have working handlers/backend methods (own ARN-keyed tag map), but RouteMatcher intentionally excludes them (writeServiceTagOps) so production traffic is routed to the TimestreamWrite handler's unified cross-resource tag store instead. Verified TimestreamWrite's TagResource treats ResourceARN as an opaque key (no resource-type-specific lookup), so scheduled-query ARNs tag correctly there. This package's own tag handlers are dead code in production, reachable only via direct unit tests / Handler() bypassing RouteMatcher -- confirmed intentional, not a routing bug."}
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "Query engine: functions outside the Trino/Athena SQLite function set (time-series: create_time_series, interpolate_*, derivative_*, integral_*, ...; geospatial; parse_duration, typeof, current_timezone beyond a literal) return ValidationException 'Function ... not registered'. The exact real message text is unverified."
+  - "Query engine: result ColumnInfo types for expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP); boolean-valued expressions (comparisons) report BIGINT, and an empty result reports VARCHAR for computed columns. Plain column references keep their declared type."
+  - "Query engine: table schema is derived from the records still retained, so a table whose records have all aged out (or were never written) loses its dimension/measure columns until new data arrives; real Timestream keeps the schema. SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is unverified."
+  - "Query paging: a NextToken is valid for 5 uses or 1 hour (Query API doc), but issuing a newer token does not invalidate older ones, and the 1 MB page-size cap is not applied (MaxRows only; default 1000)."
+  - "Query: the 60 s timeout, QueryExecutionException, EXPLAIN, UNLOAD and parameterised (@name) queries other than @scheduled_runtime are not implemented."
+  - "ScheduledQuery: no scheduler (every run is a manual ExecuteScheduledQuery), no S3 error report on failed rows, RecentlyFailedRuns and run QueryInsightsResponse are omitted."
 structural_gaps:
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
-  - "ScheduledQueryDescription.RecentlyFailedRuns and ScheduledQueryRunSummary.QueryInsightsResponse: ExecuteScheduledQuery runs no real query engine, so no run can fail or produce insights; both fields are optional and omitted."
-deferred:
-  - "Query/CancelQuery against genuinely long-running or multi-page real query execution semantics -- this emulator's Query is synchronous and instantaneous (matches the mock-data-source design already documented in QueryWithOptions), so QueryExecutionException (a real error type for query engine failures) is never returned. Acceptable per the documented deterministic-mock design; revisit only if a real backing data source is added."
 leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are self-contained caches with their own mutex, reset on Reset()/version-mismatch Restore(); queries table is bounded by maxRetainedQueries (10000) with arbitrary eviction, cancelled or not. No goroutines/tickers in this package -- nothing to ctx-parent or drain on Shutdown."}
 ---
+
+## Query execution (2026-10-31, gopherstack-49qct.77)
+
+Sources: Timestream Developer Guide "Date / time functions" (ago, bin, now, interval literals, ns timestamps),
+"Query" API reference (MaxRows 1-1000, ClientToken 4 h window, NextToken valid for 5 uses or 1 hour, ConflictException
+for polling a cancelled query), DESCRIBE/SHOW statements, ScheduledQuery TimestreamConfiguration shapes in
+aws-sdk-go-v2 timestreamquery.
+
+**Engine.** `Query` loads each referenced `"db"."table"` from TimestreamWrite (via `RecordSource`, wired in
+internal/app) into a private in-memory SQLite database and runs the statement after translating Trino SQL with
+athena's `TranslateTrino` (joins, CTEs, window functions, GROUP BY/HAVING, UNION, `INTERVAL` arithmetic, the Trino
+string/date/JSON/array function set and aggregates such as approx_percentile, max_by, count_if). Timestream-only
+syntax is rewritten first (`ts_rewrite.go`): `measure_value::double|bigint|varchar|boolean|timestamp` columns,
+interval literals (`15m`, `1d`, `10day`), `ago()`, `bin()`, `now()`/`current_timestamp`/`current_date`,
+`@scheduled_runtime`. Extra functions: from/to_milliseconds, from/to_nanoseconds. DESCRIBE, SHOW DATABASES|TABLES|
+MEASURES (with LIKE) are answered from the derived schema.
+
+**Table model.** Dimensions (varchar), `measure_name`, `time` (ns timestamp, rendered `2026-10-31 12:00:00.000000000`),
+`measure_value::<type>` for single-measure records and one column per MULTI attribute; absent values are NULL.
+Records older than the memory window but inside `MagneticStoreRetentionPeriodInDays` stay queryable; older ones are
+excluded at query time and removed by the retention sweep (which now uses the magnetic window, not the memory window).
+
+**Result model.** ColumnInfo scalar types, Datum ScalarValue/NullValue, doubles rendered Java-style (`60.25`, `100.0`,
+`1.0E7`), unaliased expression columns named `_col<N>`. Pagination materialises the result; tokens are `queryId:offset`.
+
+**Status.** CumulativeBytesScanned = stored size of every record of every referenced table (time 8 B + measure name +
+values + dimension names/values); CumulativeBytesMetered = max(scanned, 10 MB) whenever a table is read, else 0.
+
+Tests: internal/app/timestream_query_sdk_test.go (SDK write + query, full app), test/integration/timestream_query_parity_test.go,
+services/timestreamquery/ts_rewrite_test.go, services/timestreamwrite/records_test.go (TestTableData_RetentionAndRestore).
 
 ## Notes
 

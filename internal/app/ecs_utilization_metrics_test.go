@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"testing"
+	"time"
 
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,17 @@ func TestServiceMetrics_ECSUtilization(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, bk.StartTaskForService("util", "web", td.TaskDefinitionArn))
+
+	require.Eventually(t, func() bool {
+		arns, listErr := bk.ListTasks("util")
+		if listErr != nil || len(arns) == 0 {
+			return false
+		}
+
+		tasks, _, descErr := bk.DescribeTasks("util", arns)
+
+		return descErr == nil && len(tasks) == 1 && tasks[0].LastStatus == "RUNNING"
+	}, metricWaitFor, 10*time.Millisecond)
 
 	ecsbackend.NewReconciler(bk).RunOnce(t.Context())
 

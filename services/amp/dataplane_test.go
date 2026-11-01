@@ -33,7 +33,7 @@ func (f *fixture) do(t *testing.T, method, path string, body io.Reader, hdr map[
 		req.Header.Set(k, v)
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := f.http.Do(req)
 	require.NoError(t, err)
 
 	defer res.Body.Close()

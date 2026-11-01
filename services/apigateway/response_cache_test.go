@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -214,7 +215,7 @@ func TestStageResponseCache_ControlInvalidation(t *testing.T) {
 					req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=x")
 				}
 
-				resp, doErr := http.DefaultClient.Do(req)
+				resp, doErr := testclient.New(t).Do(req)
 				require.NoError(t, doErr)
 				_ = resp.Body.Close()
 

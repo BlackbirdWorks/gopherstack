@@ -242,7 +242,9 @@ func (b *InMemoryBackend) restoreRemediationExecutionsFromDTO(tables map[string]
 
 // Snapshot implements persistence.Persistable; other regions ride in an additive "regions" key.
 func (h *Handler) Snapshot(ctx context.Context) []byte {
-	return h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
+	base := h.peers.Snapshot(h.Backend.Snapshot(ctx), func(p *Handler) []byte { return p.Backend.Snapshot(ctx) })
+
+	return h.accounts.snapshot(base, func(a *Handler) []byte { return a.Snapshot(ctx) })
 }
 
 // Restore implements persistence.Persistable.
@@ -251,11 +253,16 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	return h.peers.Restore(
+	err := h.peers.Restore(
 		data,
 		func(p *Handler, d []byte) error { return p.Backend.Restore(ctx, d) },
 		func(p *Handler) { p.Backend.Reset() },
 	)
+	if err != nil {
+		return err
+	}
+
+	return h.accounts.restore(data, func(a *Handler, d []byte) error { return a.Restore(ctx, d) })
 }
 
 // Reset implements service.Resettable.
@@ -264,5 +271,9 @@ func (h *Handler) Reset() {
 
 	for _, p := range h.peers.Drain() {
 		p.Backend.Reset()
+	}
+
+	for _, a := range h.accounts.drain() {
+		a.Reset()
 	}
 }

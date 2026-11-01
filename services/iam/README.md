@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 2 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,6 +18,8 @@
 
 - AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07).
 - SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType ("Resource Policy" vs the SDK enum "resource") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'.
+- Resource control policies (RCPs) are not evaluated in the enforcement path: they constrain resources in member accounts for any principal, and resolving the owning account from S3-style account-less resource ARNs is not derivable. SCPs are enforced (scp.go).
+- The AWS root user of a member account is not SCP-restricted: enforcement skips root principals entirely (resolveSTSUserIdentityPolicies), whereas SCPs apply to member-account root.
 
 ### Structural gaps
 

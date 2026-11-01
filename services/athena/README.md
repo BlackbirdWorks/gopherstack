@@ -7,15 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 26 (26 ok) |
+| PARITY entries audited | 27 (26 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 7 |
+| Known gaps | 10 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- Iceberg: DELETE, UPDATE, MERGE, OPTIMIZE, VACUUM, CTAS with table_type='ICEBERG', ALTER TABLE schema/partition evolution, equality deletes, ORC/Avro data files, writing nested (array/map/struct) columns, the $partitions metadata table, partition pruning from manifest bounds (all data files are read), timestamp precision above milliseconds.
+- S3 Tables catalog: CREATE/DROP TABLE and CTAS through s3tablescatalog/<bucket> are rejected (use the S3 Tables API); ListDatabases/GetTableMetadata/ListTableMetadata do not enumerate s3tablescatalog tables; ROW-column dot access is not resolved on S3 Tables tables at plan time.
+- Delta Lake: deletion vectors and reader versions above 3 fail NOT_SUPPORTED; id column-mapping and timestampNtz reads are untested against real writers.
 - ORC/Avro input and output formats: no pure-Go ORC or Avro library in go.mod (only parquet-go), so these stay NOT_SUPPORTED until a dependency is approved.
 - Complex-type results: Boolean expression results render 1/0 rather than true/false (SQLite has no boolean type); ROW(...) constructors, CAST(... AS ROW(...)) and anonymous rows are unsupported; map and row expression results both report ColumnInfo type map; integral doubles inside arrays render without the .0 suffix; col.field dereference works on ROW columns of a referenced table only (not CTE/subquery outputs or lambda parameters).
 - Lambda functions cover transform, filter, reduce, any_match/all_match/none_match, map_filter, transform_values, transform_keys and zip_with; array_sort(arr, comparator), map_zip_with, reduce_agg and zip_with over more than two arrays are not translated.

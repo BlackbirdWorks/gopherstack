@@ -15,8 +15,9 @@ type CloneInput struct {
 
 // CloneInstance creates a new instance with the settings, accounts and data of the source.
 func (b *InMemoryBackend) CloneInstance(project, instance string, in CloneInput) (*Operation, error) {
-	if in.PointInTime != "" || (in.PitrTimestampMs != "" && in.PitrTimestampMs != "0") {
-		return nil, errInvalid("Point-in-time clones are not supported by the emulator.")
+	at, pitr, err := recoveryTarget(in)
+	if err != nil {
+		return nil, err
 	}
 
 	if in.DestinationProject != "" && in.DestinationProject != project {
@@ -35,6 +36,12 @@ func (b *InMemoryBackend) CloneInstance(project, instance string, in CloneInput)
 		return nil, err
 	}
 
+	if pitr {
+		if err = b.checkRecoveryLocked(src, at); err != nil {
+			return nil, err
+		}
+	}
+
 	if _, dup := b.instances[instKey(project, in.DestinationInstanceName)]; dup {
 		return nil, errConflict("instanceAlreadyExists", "The Cloud SQL instance already exists.")
 	}
@@ -47,6 +54,10 @@ func (b *InMemoryBackend) CloneInstance(project, instance string, in CloneInput)
 	b.instances[instKey(project, in.DestinationInstanceName)] = dst
 	op := b.newOpLocked(project, instance, "CLONE", opMeta{})
 	b.enqueueLocked(dst, task{op: op.Name, fn: func(ctx context.Context) error {
+		if pitr {
+			return b.populateRecovery(ctx, src, dst, at)
+		}
+
 		return b.populateClone(ctx, src, dst, in.DatabaseNames)
 	}})
 

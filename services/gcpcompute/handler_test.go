@@ -1,7 +1,6 @@
 package gcpcompute_test
 
 import (
-	"net"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,20 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpcompute"
 )
-
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-
-	return port
-}
 
 type fakeConfig struct{ port int }
 
@@ -90,12 +78,13 @@ func TestStartWorkerServesAndConflicts(t *testing.T) {
 	t.Parallel()
 
 	first := gcpcompute.NewHandler(gcpcompute.NewInMemoryBackend())
-	first.Port = freePort(t)
+	first.Port = 0
 	require.NoError(t, first.StartWorker(t.Context()))
 	t.Cleanup(func() { first.Shutdown(t.Context()) })
 	require.NotEmpty(t, first.Addr())
 
-	resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(first.Port) + "/compute/v1/projects/p/global/networks")
+	resp, err := testclient.New(t).
+		Get("http://127.0.0.1:" + strconv.Itoa(first.Port) + "/compute/v1/projects/p/global/networks")
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusOK, resp.StatusCode)

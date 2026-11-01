@@ -57,6 +57,7 @@ type Handler struct {
 	Backend       *InMemoryBackend
 	dispatchTable map[string]service.JSONOpFunc
 	peers         *regionpeers.Set[Handler]
+	accounts      *accountSet
 }
 
 // NewHandler creates a new AWS Config handler.
@@ -222,6 +223,10 @@ func extractNamedField(body []byte, key string) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		if a := h.accounts.get(awsmeta.Account(c.Request().Context())); a != nil {
+			return a.Handler()(c)
+		}
+
 		if p := h.peers.Get(awsmeta.Region(c.Request().Context())); p != nil {
 			return p.Handler()(c)
 		}

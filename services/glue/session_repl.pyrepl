@@ -1,0 +1,123 @@
+import ast
+import contextlib
+import io
+import json
+import os
+import signal
+import sys
+import threading
+import time
+import traceback
+
+D = "/session"
+ns = {"__name__": "__main__"}
+state = {"cur": 0}
+
+
+def put(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(json.dumps(obj))
+    os.chmod(tmp, 0o644)
+    os.rename(tmp, path)
+
+
+def init_spark():
+    from pyspark.conf import SparkConf
+    from pyspark.context import SparkContext
+    from awsglue.context import GlueContext
+    from awsglue.job import Job
+
+    conf = SparkConf()
+    for kv in json.loads(os.environ.get("GLUE_SPARK_CONF", "[]")):
+        k, _, v = kv.partition("=")
+        conf.set(k, v)
+    sc = SparkContext.getOrCreate(conf=conf)
+    gc = GlueContext(sc)
+    ns.update(sc=sc, sparkContext=sc, glueContext=gc, spark=gc.spark_session, job=Job(gc))
+
+
+def run(code, count):
+    out = io.StringIO()
+    try:
+        tree = ast.parse(code, "<statement>", "exec")
+        last = None
+        if tree.body and isinstance(tree.body[-1], ast.Expr):
+            last = ast.Expression(tree.body.pop().value)
+            ast.fix_missing_locations(last)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            exec(compile(tree, "<statement>", "exec"), ns)
+            if last is not None:
+                v = eval(compile(last, "<statement>", "eval"), ns)
+                if v is not None:
+                    ns["_"] = v
+                    out.write(repr(v))
+        return {"ok": True, "text": out.getvalue(), "count": count}
+    except BaseException as e:
+        tb = [ln.rstrip("\n") for ln in traceback.format_exception(type(e), e, e.__traceback__)]
+        return {"ok": False, "text": out.getvalue(), "ename": type(e).__name__,
+                "evalue": str(e), "traceback": tb, "count": count}
+
+
+def watcher():
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT})
+    fired = 0
+    while True:
+        try:
+            with open(os.path.join(D, "heartbeat"), "w") as f:
+                f.write(str(time.time()))
+            n = state["cur"]
+            if n and n != fired and os.path.exists(os.path.join(D, "cancel", str(n))):
+                fired = n
+                sc = ns.get("sc")
+                if sc is not None:
+                    try:
+                        sc.cancelAllJobs()
+                    except Exception:
+                        pass
+                os.kill(os.getpid(), signal.SIGINT)
+        except Exception:
+            pass
+        time.sleep(0.2)
+
+
+def main():
+    signal.signal(signal.SIGTERM, lambda *_: os._exit(0))
+    if os.environ.get("GLUE_SESSION_SPARK") == "1":
+        try:
+            init_spark()
+        except BaseException as e:
+            put(os.path.join(D, "ready.json"), {"status": "error", "message": "%s: %s" % (type(e).__name__, e)})
+            sys.exit(1)
+    threading.Thread(target=watcher, daemon=True).start()
+    put(os.path.join(D, "ready.json"), {"status": "ok"})
+    n = 0
+    count = 0
+    while True:
+        n += 1
+        req = os.path.join(D, "req", "%d.json" % n)
+        while True:
+            try:
+                if os.path.exists(req):
+                    break
+                time.sleep(0.02)
+            except KeyboardInterrupt:
+                pass
+        with open(req) as f:
+            code = json.load(f)["code"]
+        count += 1
+        state["cur"] = n
+        if os.path.exists(os.path.join(D, "cancel", str(n))):
+            res = {"ok": False, "text": "", "ename": "KeyboardInterrupt", "evalue": "cancelled",
+                   "traceback": [], "count": count}
+        else:
+            try:
+                res = run(code, count)
+            except KeyboardInterrupt:
+                res = {"ok": False, "text": "", "ename": "KeyboardInterrupt", "evalue": "cancelled",
+                       "traceback": [], "count": count}
+        state["cur"] = 0
+        put(os.path.join(D, "resp", "%d.json" % n), res)
+
+
+main()

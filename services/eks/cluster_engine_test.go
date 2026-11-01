@@ -272,7 +272,6 @@ func TestDockerCluster_Lifecycle(t *testing.T) {
 	}{
 		{name: "mapped", version: "1.31", wantImage: "rancher/k3s:v1.31.14-k3s1"},
 		{name: "default_version", version: "", wantImage: "rancher/k3s:v1.32.13-k3s1"},
-		{name: "unmapped_falls_back", version: "1.20", wantImage: "rancher/k3s:v1.32.13-k3s1"},
 	}
 
 	for _, tt := range tests {

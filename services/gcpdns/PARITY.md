@@ -1,6 +1,6 @@
 ---
 service: gcpdns
-sdk_module: google.golang.org/api@v0.302.0
+sdk_module: google.golang.org/api@v0.304.0
 last_audit_commit: 423518f77
 last_audit_date: 2026-10-25
 overall: B

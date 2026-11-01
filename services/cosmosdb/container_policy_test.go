@@ -318,7 +318,9 @@ func TestComputedProperties_UsableInQueries(t *testing.T) {
 
 	h := newPolicyHandler(t, `{"id":"c","partitionKey":{"paths":["/pk"],"kind":"Hash"},`+
 		`"computedProperties":[{"name":"cp_lower","query":"SELECT VALUE LOWER(c.name) FROM c"},`+
-		`{"name":"cp_len","query":"SELECT VALUE LENGTH(c.name) FROM c"}]}`)
+		`{"name":"cp_len","query":"SELECT VALUE LENGTH(c.name) FROM c"}],`+
+		`"indexingPolicy":{"indexingMode":"consistent","includedPaths":[{"path":"/*"},{"path":"/cp_len/?"}],`+
+		`"excludedPaths":[]}}`)
 
 	for _, d := range []string{`{"id":"1","pk":"x","name":"Alice"}`, `{"id":"2","pk":"x","name":"BOB"}`} {
 		require.Equal(t, http.StatusCreated, doRequest(t, h, http.MethodPost, collDocsPath, nil, []byte(d)).Code)

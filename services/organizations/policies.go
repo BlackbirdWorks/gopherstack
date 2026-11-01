@@ -332,6 +332,10 @@ func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, er
 		Status: policyStatusEnabled,
 	})
 
+	if policyType == policyTypeSCP {
+		b.attachDefaultSCPEverywhereLocked()
+	}
+
 	return copyRoot(b.root), nil
 }
 
@@ -368,6 +372,10 @@ func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, e
 
 	if !found {
 		return nil, ErrPolicyTypeNotEnabled
+	}
+
+	if policyType == policyTypeSCP {
+		b.detachAllSCPsLocked()
 	}
 
 	// AWS rejects disabling a policy type when policies of that type are still attached to any target.

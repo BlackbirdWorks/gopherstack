@@ -121,6 +121,8 @@ const (
 	fnVector
 	fnFullText
 	fnRank
+	fnMore
+	fnDocumentID
 )
 
 // udfNamespace is the prefix of a user-defined function call: udf.name(args).
@@ -140,6 +142,8 @@ func builtinKind(name string) fnKind {
 		return fnFullText
 	case biRRF:
 		return fnRank
+	case biDocumentid:
+		return fnDocumentID
 	case biAbs,
 		biCeiling,
 		biFloor,
@@ -163,9 +167,13 @@ func builtinKind(name string) fnKind {
 		biGetcurrentticks, biGetcurrentticksstatic, biDatetimeadd, biDatetimediff, biDatetimepart,
 		biDatetimetotimestamp, biTimestamptodatetime, biDatetimefromparts, biDatetimetoticks, biTickstodatetime:
 		return fnDate
-	case aggCount, aggSum, aggAvg, aggMin, aggMax:
+	case aggCount, aggCountIf, aggSum, aggAvg, aggMin, aggMax:
 		return fnAggregate
 	default:
+		if moreKind(name) {
+			return fnMore
+		}
+
 		return fnUnknown
 	}
 }
@@ -195,6 +203,10 @@ func builtinArity(name string) (int, int) {
 	case biLog:
 		return 1, arityPair
 	default:
+		if lo, hi, ok := moreArity(name); ok {
+			return lo, hi
+		}
+
 		return 1, 1
 	}
 }
@@ -212,7 +224,9 @@ func (ec *evalCtx) callBuiltin(kind fnKind, name string, args []any) any {
 	case fnDate:
 		return ec.callDate(name, args)
 	case fnSpatial:
-		return callSpatial(name, args)
+		return callSpatial(name, args, ec.geometry)
+	case fnMore:
+		return ec.callMore(name, args)
 	default:
 		return undef{}
 	}
@@ -839,12 +853,7 @@ func parseDateTime(v any) (time.Time, bool) {
 		return time.Time{}, false
 	}
 
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return time.Time{}, false
-	}
-
-	return t.UTC(), true
+	return parseCosmosDateTime(s)
 }
 
 func dateTimeOp(name string, args []any) any {

@@ -24,6 +24,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
@@ -113,20 +114,40 @@ import (
 // when shutdown itself completes on time (gopherstack-becu).
 const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
 
-// waitForServerReady polls the health endpoint instead of a fixed sleep,
-// since startup time varies under load.
+// waitForServerReady polls health until 200, bounded by the test deadline rather
+// than a wall-clock budget: startup time grows with every service and CI load.
 func waitForServerReady(t *testing.T, port int) {
 	t.Helper()
 
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
+	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_gopherstack/health", port), func(resp *http.Response) bool {
 		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
+	})
+}
+
+// waitForEndpoint polls url until ready accepts the response, bounded by the test context.
+func waitForEndpoint(t *testing.T, url string, ready func(*http.Response) bool) {
+	t.Helper()
+
+	client := testclient.New(t)
+	tick := time.NewTicker(50 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		if resp, err := client.Get(url); err == nil {
+			ok := ready(resp)
+			resp.Body.Close()
+
+			if ok {
+				return
+			}
+		}
+
+		select {
+		case <-t.Context().Done():
+			t.Fatalf("server did not become ready: %v", t.Context().Err())
+		case <-tick.C:
+		}
+	}
 }
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
@@ -3072,17 +3093,9 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
+	waitForServerReady(t, port)
 
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
-
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
+	resp, err := testclient.New(t).Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -3124,17 +3137,9 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 		errCh <- run(ctx, cli)
 	}()
 
+	waitForServerReady(t, port)
+
 	client := &http.Client{Timeout: 2 * time.Second}
-
-	require.Eventually(t, func() bool {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_gopherstack/health", port))
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-
-		return resp.StatusCode == http.StatusOK
-	}, 3*time.Second, 50*time.Millisecond, "server did not become ready")
 
 	tests := []struct {
 		validate func(t *testing.T, body map[string]any)
@@ -3200,20 +3205,11 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	}
 
 	// READY runs after the listener accepts, so wait for it before asserting stage state.
-	require.Eventually(t, func() bool {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-
+	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port), func(resp *http.Response) bool {
 		var body map[string]any
-		if json.NewDecoder(resp.Body).Decode(&body) != nil {
-			return false
-		}
 
-		return body["completed"] == true
-	}, 10*time.Second, 20*time.Millisecond)
+		return json.NewDecoder(resp.Body).Decode(&body) == nil && body["completed"] == true
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

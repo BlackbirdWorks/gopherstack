@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
 )
 
 const (
@@ -95,16 +94,18 @@ func validateFullTextIndexes(pol indexingPolicy, fp fullTextPolicy) error {
 	return nil
 }
 
-// ftTokens lowercases s and splits it on anything that is not a letter or digit. There is no stemming or stop-word
-// removal.
-func ftTokens(s string) []string {
-	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
+// ftTerm is one search term: the analysed word and how many edits a document word may differ by (fuzzy search,
+// at most two).
+type ftTerm struct {
+	text string
+	dist int
 }
 
-// ftTerms collects the search terms from string arguments or one array of strings, tokenized and deduplicated.
-func ftTerms(args []any) ([]string, bool) {
+const maxFuzzyDistance = 2
+
+// ftTerms collects the search terms from string arguments, {"term": ..., "distance": n} objects or one array of
+// either, analysed and deduplicated. A string with several words contributes each word.
+func ftTerms(lang string, args []any) ([]ftTerm, bool) {
 	var raw []any
 	if len(args) == 1 {
 		if arr, ok := args[0].([]any); ok {
@@ -120,22 +121,50 @@ func ftTerms(args []any) ([]string, bool) {
 		return nil, false
 	}
 
-	var terms []string
+	var terms []ftTerm
 
 	for _, a := range raw {
-		s, ok := a.(string)
+		text, dist, ok := ftTermOf(a)
 		if !ok {
 			return nil, false
 		}
 
-		for _, t := range ftTokens(s) {
-			if !slices.Contains(terms, t) {
-				terms = append(terms, t)
+		for _, t := range ftAnalyze(lang, text) {
+			term := ftTerm{text: t, dist: dist}
+			if !slices.Contains(terms, term) {
+				terms = append(terms, term)
 			}
 		}
 	}
 
 	return terms, len(terms) > 0
+}
+
+func ftTermOf(a any) (string, int, bool) {
+	switch t := a.(type) {
+	case string:
+		return t, 0, true
+	case map[string]any:
+		text, ok := t["term"].(string)
+		if !ok {
+			return "", 0, false
+		}
+
+		dist := 0
+
+		if d, has := t["distance"]; has {
+			n, nok := intArg(d)
+			if !nok || n < 0 || n > maxFuzzyDistance {
+				return "", 0, false
+			}
+
+			dist = n
+		}
+
+		return text, dist, true
+	}
+
+	return "", 0, false
 }
 
 func termFreq(tokens []string) map[string]int {
@@ -154,12 +183,15 @@ func (ec *evalCtx) evalFullText(n *exprCall, args []any) any {
 		return undef{}
 	}
 
-	terms, ok := ftTerms(args[1:])
+	lang := ec.ftLanguage(n)
+
+	terms, ok := ftTerms(lang, args[1:])
 	if !ok {
 		return undef{}
 	}
 
-	tf := termFreq(ftTokens(text))
+	tokens := ftAnalyze(lang, text)
+	tf := termFreq(tokens)
 
 	switch n.name {
 	case biFullTextContains, biFullTextContainsAll:
@@ -167,20 +199,62 @@ func (ec *evalCtx) evalFullText(n *exprCall, args []any) any {
 	case biFullTextContainsAny:
 		return countPresent(tf, terms) > 0
 	default:
-		return floatResult(ec.bm25(n, tf, len(ftTokens(text)), terms))
+		for _, t := range terms {
+			if t.dist > 0 {
+				return undef{}
+			}
+		}
+
+		return floatResult(ec.bm25(n, tf, len(tokens), terms))
 	}
 }
 
-func countPresent(tf map[string]int, terms []string) int {
+func countPresent(tf map[string]int, terms []ftTerm) int {
 	c := 0
 
 	for _, t := range terms {
-		if tf[t] > 0 {
+		if termPresent(tf, t) {
 			c++
 		}
 	}
 
 	return c
+}
+
+func termPresent(tf map[string]int, t ftTerm) bool {
+	if tf[t.text] > 0 {
+		return true
+	}
+
+	if t.dist == 0 {
+		return false
+	}
+
+	for word := range tf {
+		if editDistance(word, t.text) <= t.dist {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ftLanguage is the language of the text path a call reads: the path's language in the full-text policy, else the
+// policy default, else en-US.
+func (ec *evalCtx) ftLanguage(n *exprCall) string {
+	if ec.coll != nil {
+		if path, ok := rootPath(n.args[0]); ok {
+			if lang := ec.coll.ftLang[path]; lang != "" {
+				return lang
+			}
+		}
+
+		if ec.coll.ftDefaultLang != "" {
+			return ec.coll.ftDefaultLang
+		}
+	}
+
+	return defaultFullTextLanguage
 }
 
 // bm25Stats are the corpus statistics of one full-text path.
@@ -192,11 +266,12 @@ type bm25Stats struct {
 
 // bm25 scores a document against terms with Okapi BM25 over the whole scanned container (the real service
 // scores per physical partition).
-func (ec *evalCtx) bm25(n *exprCall, tf map[string]int, docLen int, terms []string) float64 {
+func (ec *evalCtx) bm25(n *exprCall, tf map[string]int, docLen int, terms []ftTerm) float64 {
 	st := ec.ftCorpus(n)
 	score := 0.0
 
-	for _, t := range terms {
+	for _, term := range terms {
+		t := term.text
 		f := float64(tf[t])
 		if f == 0 {
 			continue
@@ -233,7 +308,7 @@ func (ec *evalCtx) ftCorpus(n *exprCall) *bm25Stats {
 			continue
 		}
 
-		tokens := ftTokens(text)
+		tokens := ftAnalyze(ec.ftLanguage(n), text)
 		st.n++
 		total += len(tokens)
 

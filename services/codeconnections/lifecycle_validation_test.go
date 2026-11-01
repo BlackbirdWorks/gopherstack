@@ -3,6 +3,7 @@ package codeconnections_test
 import (
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -212,17 +213,22 @@ func TestSDK_StatusLifecycle(t *testing.T) {
 func TestSDK_StatusCompletes(t *testing.T) {
 	t.Parallel()
 
-	client, b := newCCFixture(t)
-	b.SetConnectionHandshakeDelay(20 * time.Millisecond)
+	synctest.Test(t, func(t *testing.T) {
+		client, b := newCCFixture(t)
+		b.SetConnectionHandshakeDelay(20 * time.Millisecond)
 
-	conn, err := client.CreateConnection(t.Context(), &ccsdk.CreateConnectionInput{
-		ConnectionName: aws.String("c"), ProviderType: cctypes.ProviderTypeGithub,
+		conn, err := client.CreateConnection(t.Context(), &ccsdk.CreateConnectionInput{
+			ConnectionName: aws.String("c"), ProviderType: cctypes.ProviderTypeGithub,
+		})
+		require.NoError(t, err)
+
+		require.Eventually(t, func() bool {
+			got, getErr := client.GetConnection(
+				t.Context(),
+				&ccsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn},
+			)
+
+			return getErr == nil && got.Connection.ConnectionStatus == cctypes.ConnectionStatusAvailable
+		}, 5*time.Second, 10*time.Millisecond)
 	})
-	require.NoError(t, err)
-
-	require.Eventually(t, func() bool {
-		got, getErr := client.GetConnection(t.Context(), &ccsdk.GetConnectionInput{ConnectionArn: conn.ConnectionArn})
-
-		return getErr == nil && got.Connection.ConnectionStatus == cctypes.ConnectionStatusAvailable
-	}, 5*time.Second, 10*time.Millisecond)
 }

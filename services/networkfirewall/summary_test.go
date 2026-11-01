@@ -2,6 +2,7 @@ package networkfirewall_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -116,39 +117,41 @@ func TestSetLifecycleDelay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := nf.NewInMemoryBackend(testAccount, testRegion)
-			b.SetLifecycleDelay(tt.delay)
+			synctest.Test(t, func(t *testing.T) {
+				b := nf.NewInMemoryBackend(testAccount, testRegion)
+				b.SetLifecycleDelay(tt.delay)
 
-			h := nf.NewHandler(b)
-			h.AccountID, h.DefaultRegion = testAccount, testRegion
-			f := &fixture{handler: h, client: newClient(t, h, testRegion)}
+				h := nf.NewHandler(b)
+				h.AccountID, h.DefaultRegion = testAccount, testRegion
+				f := &fixture{handler: h, client: newClient(t, h, testRegion)}
 
-			pol := f.policy(t, "pol")
-			created := f.firewall(t, "fw", aws.ToString(pol.FirewallPolicyResponse.FirewallPolicyArn))
-			assert.Equal(t, types.FirewallStatusValueProvisioning, created.FirewallStatus.Status)
+				pol := f.policy(t, "pol")
+				created := f.firewall(t, "fw", aws.ToString(pol.FirewallPolicyResponse.FirewallPolicyArn))
+				assert.Equal(t, types.FirewallStatusValueProvisioning, created.FirewallStatus.Status)
 
-			status := func() types.FirewallStatusValue {
-				d, err := f.client.DescribeFirewall(
-					t.Context(),
-					&sdk.DescribeFirewallInput{FirewallName: aws.String("fw")},
-				)
-				require.NoError(t, err)
+				status := func() types.FirewallStatusValue {
+					d, err := f.client.DescribeFirewall(
+						t.Context(),
+						&sdk.DescribeFirewallInput{FirewallName: aws.String("fw")},
+					)
+					require.NoError(t, err)
 
-				return d.FirewallStatus.Status
-			}
+					return d.FirewallStatus.Status
+				}
 
-			if tt.settles {
-				require.Eventually(
-					t,
-					func() bool { return status() == types.FirewallStatusValueReady },
-					5*time.Second,
-					5*time.Millisecond,
-				)
-			}
+				if tt.settles {
+					require.Eventually(
+						t,
+						func() bool { return status() == types.FirewallStatusValueReady },
+						5*time.Second,
+						5*time.Millisecond,
+					)
+				}
 
-			if tt.stillRun {
-				assert.Equal(t, types.FirewallStatusValueProvisioning, status())
-			}
+				if tt.stillRun {
+					assert.Equal(t, types.FirewallStatusValueProvisioning, status())
+				}
+			})
 		})
 	}
 }

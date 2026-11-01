@@ -284,11 +284,11 @@ func lookupFunctionKeyword(ident string) (TokenType, bool) {
 	switch ident {
 	case "size":
 		return TokenSize, true
-	case "attribute_exists":
+	case funcAttributeExists:
 		return TokenAttributeExists, true
-	case "attribute_not_exists":
+	case funcAttributeNotExists:
 		return TokenAttributeNotExists, true
-	case "begins_with":
+	case funcBeginsWith:
 		return TokenBeginsWith, true
 	case "contains":
 		return TokenContains, true

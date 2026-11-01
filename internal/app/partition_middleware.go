@@ -109,7 +109,9 @@ func scannableBody(r *http.Request, service string) bool {
 }
 
 func scanBody(r *http.Request, partition string) (string, bool) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxPartitionScanBody+1))
+	buf := bytes.NewBuffer(make([]byte, 0, r.ContentLength+bytes.MinRead))
+	_, err := buf.ReadFrom(io.LimitReader(r.Body, maxPartitionScanBody+1))
+	body := buf.Bytes()
 	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(body))
 
@@ -117,8 +119,13 @@ func scanBody(r *http.Request, partition string) (string, bool) {
 		return "", false
 	}
 
+	form := strings.Contains(r.Header.Get("Content-Type"), "x-www-form-urlencoded")
+	if !form && !bytes.Contains(body, []byte("arn:")) {
+		return "", false
+	}
+
 	text := string(body)
-	if strings.Contains(r.Header.Get("Content-Type"), "x-www-form-urlencoded") {
+	if form {
 		if vals, perr := url.ParseQuery(text); perr == nil {
 			text = flattenValues(vals)
 		}

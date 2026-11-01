@@ -95,6 +95,14 @@ func validateSearchIndexes(indexing json.RawMessage, p ContainerPolicies) error 
 		return fmt.Errorf("%w: %s", ErrInvalidContainerPolicy, msgLazyIndexing)
 	}
 
+	if spErr := validateSpatialIndexes(pol.SpatialIndexes, geospatialType(p.GeospatialConfig)); spErr != nil {
+		return spErr
+	}
+
+	if cpErr := checkComputedIndexes(pol, p.ComputedProperties); cpErr != nil {
+		return cpErr
+	}
+
 	vp, err := parseVectorPolicy(p.VectorEmbeddingPolicy)
 	if err != nil {
 		return err
@@ -121,6 +129,14 @@ func (c *storedContainer) checkReplaceIndexes(spec ContainerSpec) error {
 
 	if eff.FullTextPolicy == nil {
 		eff.FullTextPolicy = c.FullTextPolicy
+	}
+
+	if eff.GeospatialConfig == nil {
+		eff.GeospatialConfig = c.GeospatialConfig
+	}
+
+	if eff.ComputedProperties == nil {
+		eff.ComputedProperties = c.ComputedProperties
 	}
 
 	indexing := spec.IndexingPolicy
@@ -239,6 +255,10 @@ func validateComputedProperty(p computedProperty, seen map[string]struct{}) erro
 	if err != nil || !isBareSelectValue(stmt) {
 		return fmt.Errorf("%w: computed property %q must be SELECT VALUE <expression> FROM <alias>",
 			ErrInvalidContainerPolicy, p.Name)
+	}
+
+	if why := forbiddenComputedUse(stmt.items[0].expr); why != "" {
+		return fmt.Errorf("%w: computed property %q cannot use %s", ErrInvalidContainerPolicy, p.Name, why)
 	}
 
 	return nil

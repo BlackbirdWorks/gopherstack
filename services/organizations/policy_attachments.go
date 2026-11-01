@@ -63,6 +63,10 @@ func (b *InMemoryBackend) DetachPolicy(policyID, targetID string) error {
 		return ErrPolicyNotAttached
 	}
 
+	if b.lastSCPLocked(policyID, targetID) {
+		return ErrMinPolicyAttachment
+	}
+
 	b.policyTargets[policyID] = removeString(targets, targetID)
 	b.targetPolicies[targetID] = removeString(b.targetPolicies[targetID], policyID)
 

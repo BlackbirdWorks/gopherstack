@@ -367,18 +367,6 @@ func TestRule_NameTooLong(t *testing.T) {
 	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
 }
 
-func TestRule_MutuallyExclusivePatternAndSchedule(t *testing.T) {
-	t.Parallel()
-	b := newBackend()
-
-	_, err := b.PutRule(context.Background(), eventbridge.PutRuleInput{
-		Name:               "bad-rule",
-		EventPattern:       `{"source":["x"]}`,
-		ScheduleExpression: "rate(1 minute)",
-	})
-	require.ErrorIs(t, err, eventbridge.ErrInvalidParameter)
-}
-
 func TestRule_RequiresPatternOrSchedule(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
@@ -413,13 +401,13 @@ func TestPutRule_MutualExclusion(t *testing.T) {
 		input   eventbridge.PutRuleInput
 	}{
 		{
-			name: "both set rejects",
+			name: "both set allowed",
 			input: eventbridge.PutRuleInput{
 				Name:               "r",
 				ScheduleExpression: "rate(1 minute)",
 				EventPattern:       `{"source":["x"]}`,
 			},
-			wantErr: eventbridge.ErrInvalidParameter,
+			wantErr: nil,
 		},
 		{
 			name:    "neither set rejects",

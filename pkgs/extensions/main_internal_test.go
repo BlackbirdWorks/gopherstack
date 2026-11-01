@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/testleak"
 )
 
@@ -71,7 +72,7 @@ func runHelper() {
 	)
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("GOPHERSTACK_EXTENSION_TOKEN"))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Transport: httpclient.NewTransport()}).Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		os.Exit(3)
 	}

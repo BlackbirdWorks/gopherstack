@@ -42,7 +42,7 @@ func newASGEC2LaunchTemplateWiringClients(t *testing.T) (*ec2sdk.Client, *assdk.
 	}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(appCtx)
+	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
 
 	byName := serviceByName(services)

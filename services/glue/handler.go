@@ -53,6 +53,8 @@ func (h *Handler) EnableRegions(ctx context.Context) {
 		nb.ramShareCreator = home.currentResourceShareCreator()
 		nb.crawlerS3 = home.currentCrawlerS3()
 		nb.crawlerDDB = home.currentCrawlerDDB()
+		nb.crawlerSecrets = home.currentCrawlerSecrets()
+		nb.sessionEngine = home.currentSessionEngine()
 		nb.StartReconciler(ctx)
 
 		return NewHandler(nb)

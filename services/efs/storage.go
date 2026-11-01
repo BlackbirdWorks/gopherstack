@@ -238,3 +238,56 @@ func (b *InMemoryBackend) FileSystemHostDir(region, fsID string) (string, error)
 
 	return dir, nil
 }
+
+// ErrRootDirectoryWithAccessPoint reports a root directory other than "/" combined with an access point.
+var ErrRootDirectoryWithAccessPoint = errors.New("rootDirectory must be omitted or / when an access point is used")
+
+// ErrAccessPointFileSystemMismatch reports an access point that belongs to a different file system.
+var ErrAccessPointFileSystemMismatch = errors.New("access point does not belong to the file system")
+
+// ResolveVolumeMount returns the host directory for an ECS efsVolumeConfiguration: the access point's root
+// directory when accessPointID is set (rootDirectory must then be omitted or "/"), else rootDirectory
+// under the file system.
+func (b *InMemoryBackend) ResolveVolumeMount(
+	region, fsID, accessPointID, rootDirectory string,
+) (AccessPointMount, error) {
+	if accessPointID == "" {
+		return b.resolveFileSystemRoot(region, fsID, rootDirectory)
+	}
+
+	b.mu.RLock("ResolveVolumeMount")
+	ap, ok := b.accessPoints.Get(regionKey(region, accessPointID))
+	b.mu.RUnlock()
+
+	if !ok {
+		return AccessPointMount{}, fmt.Errorf("%w: %s", ErrAccessPointNotFound, accessPointID)
+	}
+
+	if ap.FileSystemID != fsID {
+		return AccessPointMount{}, fmt.Errorf("%w: %s", ErrAccessPointFileSystemMismatch, accessPointID)
+	}
+
+	if rootDirectory != "" && rootDirectory != "/" {
+		return AccessPointMount{}, ErrRootDirectoryWithAccessPoint
+	}
+
+	return b.ResolveAccessPointMount(ap.AccessPointArn)
+}
+
+func (b *InMemoryBackend) resolveFileSystemRoot(region, fsID, rootDirectory string) (AccessPointMount, error) {
+	fsDir, err := b.FileSystemHostDir(region, fsID)
+	if err != nil {
+		return AccessPointMount{}, err
+	}
+
+	if cherr := os.Chmod(fsDir, rootDirPerm); cherr != nil {
+		return AccessPointMount{}, fmt.Errorf("chmod file system dir: %w", cherr)
+	}
+
+	dir, err := ensureRootDirectory(fsDir, &RootDirectory{Path: rootDirectory})
+	if err != nil {
+		return AccessPointMount{}, err
+	}
+
+	return AccessPointMount{HostDir: dir, FileSystemID: fsID}, nil
+}

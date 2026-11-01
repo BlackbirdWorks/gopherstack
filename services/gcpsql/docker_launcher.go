@@ -4,25 +4,31 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const (
-	dumpMount     = "/gopherstack-dump"
-	pgPort        = "5432"
-	mysqlPort     = "3306"
-	readyInterval = 500 * time.Millisecond
-	teardownLimit = 30 * time.Second
-	maxDumpBytes  = 256 << 20
+	dumpMount      = "/gopherstack-dump"
+	pgDataDir      = "/var/lib/postgresql/data"
+	volumeLabel    = "gopherstack.gcpsql"
+	staleVolumeAge = 10 * time.Minute
+	dumpDirLabel   = "gopherstack.gcpsql.dumpdir"
+	shapeLabel     = "gopherstack.gcpsql.shape"
+	adoptReadyWait = 30 * time.Second
+	pgPort         = "5432"
+	readyInterval  = 500 * time.Millisecond
+	teardownLimit  = 30 * time.Second
+	maxDumpBytes   = 256 << 20
 )
 
 type containerRuntime interface {
@@ -36,11 +42,12 @@ type containerRuntime interface {
 type dockerLauncher struct {
 	lr      *gcpserve.LazyRuntime
 	pool    *portalloc.Allocator
+	log     *slog.Logger
 	startup time.Duration
 }
 
 func newDockerLauncher(log *slog.Logger, pool *portalloc.Allocator, startup time.Duration) *dockerLauncher {
-	return &dockerLauncher{lr: gcpserve.NewLazyRuntime(log, "gcpsql.runtime"), pool: pool, startup: startup}
+	return &dockerLauncher{lr: gcpserve.NewLazyRuntime(log, "gcpsql.runtime"), pool: pool, log: log, startup: startup}
 }
 
 // Close releases the runtime client.
@@ -63,14 +70,27 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 		return nil, err
 	}
 
+	if kind == kindMySQL {
+		return l.launchMySQL(ctx, r, rt, spec, image)
+	}
+
 	dir, err := os.MkdirTemp("", "gopherstack-gcpsql-")
 	if err != nil {
 		return nil, fmt.Errorf("dump dir: %w", err)
 	}
 
 	e := &dockerEngine{
-		rt: rt, pool: l.pool, kind: kind, image: image, id: spec.ID, password: spec.Password, dir: dir,
-		mu: lockmetrics.New("gcpsql.engine"),
+		rt: rt, pool: l.pool, image: image, id: spec.ID, password: spec.Password, dir: dir,
+		mu: lockmetrics.New("gcpsql.engine"), spec: spec,
+	}
+
+	if vr, vok := r.(container.VolumeRuntime); vok && spec.Persist {
+		e.vols = vr
+		e.volData = volumeName("data", spec.Project, spec.ID)
+
+		if spec.Replica == nil {
+			e.volPITR = volumeName("pitr", spec.Project, spec.ID)
+		}
 	}
 
 	lctx, cancel := context.WithTimeout(ctx, l.startup)
@@ -85,32 +105,130 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Engine, e
 	return e, nil
 }
 
+func (l *dockerLauncher) launchMySQL(
+	ctx context.Context, r any, rt containerRuntime, spec LaunchSpec, image string,
+) (Engine, error) {
+	var vr container.VolumeRuntime
+	if v, ok := r.(container.VolumeRuntime); ok {
+		vr = v
+	}
+
+	eng, err := mysqlengine.New(mysqlengine.Config{
+		Runtime: rt, Volumes: vr, Ports: l.pool, Logger: l.log, Prefix: "gopherstack-gcpsql",
+		Service: "gcpsql", ReplUser: replUser, StartTimeout: l.startup,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrRuntimeUnavailable, err)
+	}
+
+	srv, err := eng.Launch(ctx, mysqlSpec(spec, image))
+	if err != nil {
+		return nil, err //nolint:wrapcheck // launch errors carry the image
+	}
+
+	return &mysqlEngine{srv: srv}, nil
+}
+
+// SweepVolumes deletes the unused persistent volumes of instances not in keep, left by an earlier run.
+func (l *dockerLauncher) SweepVolumes(ctx context.Context, keep map[string]bool) {
+	r, err := l.lr.Get()
+	if err != nil {
+		return
+	}
+
+	vr, ok := r.(container.VolumeRuntime)
+	if !ok {
+		return
+	}
+
+	names, err := vr.ListUnusedVolumes(ctx, volumeLabel, staleVolumeAge)
+	if err != nil {
+		return
+	}
+
+	for _, n := range names {
+		if !keep[n] && strings.HasPrefix(n, volumePrefix) {
+			if err = vr.RemoveVolume(ctx, n); err != nil {
+				logger.Load(ctx).WarnContext(ctx, "gcpsql: stale volume removal failed", "volume", n, "error", err)
+			}
+		}
+	}
+}
+
 type dockerEngine struct {
 	rt       containerRuntime
+	vols     container.VolumeRuntime
 	pool     *portalloc.Allocator
 	mu       *lockmetrics.RWMutex
+	net      *sourceNet
+	ctrID    string
 	image    string
 	id       string
-	password string
+	replPass string
 	dir      string
-	ctrID    string
+	password string
+	ctrName  string
+	volData  string
+	volPITR  string
+	netID    string
+	spec     LaunchSpec
 	port     int
-	kind     dbKind
+	promoted bool
 }
 
 func (e *dockerEngine) boot(ctx context.Context) error {
-	id, err := container.CreateAndStartRetry(ctx, e.rt, e.prepare, e.releasePort)
-	if err != nil {
-		return fmt.Errorf("start %s: %w", e.image, err)
-	}
-
-	e.setContainer(id)
-
-	if err = e.waitReady(ctx); err != nil {
+	if err := e.createVolumes(ctx); err != nil {
 		return err
 	}
 
+	if !e.adopt(ctx) {
+		id, err := container.CreateAndStartRetry(ctx, e.rt, e.prepare, e.releasePort)
+		if err != nil {
+			return fmt.Errorf("start %s: %w", e.image, err)
+		}
+
+		e.setContainer(id)
+	}
+
+	if err := e.waitReady(ctx); err != nil {
+		return err
+	}
+
+	if e.spec.Replica != nil {
+		return nil
+	}
+
+	if e.spec.Recovery != nil {
+		if err := e.waitPromoted(ctx); err != nil {
+			return err
+		}
+	}
+
 	return e.bootstrap(ctx)
+}
+
+func (e *dockerEngine) volumeLabels() map[string]string {
+	return map[string]string{volumeLabel: "true", volumeLabel + ".instance": e.spec.Project + "/" + e.id}
+}
+
+func (e *dockerEngine) createVolumes(ctx context.Context) error {
+	for _, v := range []string{e.volData, e.volPITR} {
+		if v == "" {
+			continue
+		}
+
+		if e.spec.Fresh {
+			if err := e.vols.RemoveVolume(ctx, v); err != nil {
+				return fmt.Errorf("discard stale volume %s: %w", v, err)
+			}
+		}
+
+		if err := e.vols.CreateVolume(ctx, v, e.volumeLabels()); err != nil {
+			return fmt.Errorf("create volume %s: %w", v, err)
+		}
+	}
+
+	return nil
 }
 
 func (e *dockerEngine) setContainer(id string) {
@@ -143,22 +261,33 @@ func (e *dockerEngine) prepare() (container.Spec, error) {
 	e.port = port
 	e.mu.Unlock()
 
+	name := "gopherstack-gcpsql-" + sanitizeName(e.id) + "-" + strconv.Itoa(port)
+
+	e.mu.Lock("prepare")
+	e.ctrName = name
+	e.mu.Unlock()
+
 	spec := container.Spec{
-		Name:   "gopherstack-gcpsql-" + sanitizeName(e.id) + "-" + strconv.Itoa(port),
-		Image:  e.image,
-		Mounts: []string{e.dir + ":" + dumpMount},
+		Name:        name,
+		Labels:      e.ownerLabels(),
+		Image:       e.image,
+		Mounts:      []string{e.dir + ":" + dumpMount},
+		MemoryBytes: e.spec.MemoryBytes,
+		NanoCPUs:    e.spec.NanoCPUs,
 	}
 
-	cport := pgPort
+	if r := e.netSource(); r != nil {
+		spec.Network = r.Network
 
-	if e.kind == kindMySQL {
-		cport = mysqlPort
-		spec.Env = []string{"MYSQL_ROOT_PASSWORD=" + e.pass()}
-	} else {
-		spec.Env = []string{"POSTGRES_USER=" + pgAdminUser, "POSTGRES_PASSWORD=" + e.pass()}
+		e.mu.Lock("prepare")
+		e.netID = r.NetworkID
+		e.mu.Unlock()
 	}
 
-	spec.Ports = []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), cport)}
+	spec.Env = []string{"POSTGRES_USER=" + pgAdminUser, "POSTGRES_PASSWORD=" + e.pass()}
+	e.pgLaunch(&spec)
+
+	spec.Ports = []string{container.PortSpec(container.LoopbackHost, strconv.Itoa(port), pgPort)}
 
 	return spec, nil
 }
@@ -191,12 +320,6 @@ func (e *dockerEngine) Endpoint() (string, int) {
 	return container.LoopbackHost, e.port
 }
 
-func (e *dockerEngine) addr() string {
-	h, p := e.Endpoint()
-
-	return net.JoinHostPort(h, strconv.Itoa(p))
-}
-
 func (e *dockerEngine) waitReady(ctx context.Context) error {
 	tick := time.NewTicker(readyInterval)
 	defer tick.Stop()
@@ -227,13 +350,7 @@ func (e *dockerEngine) ping(ctx context.Context) error {
 	return db.PingContext(pctx)
 }
 
-func (e *dockerEngine) adminDB() string {
-	if e.kind == kindPostgres {
-		return pgAdminUser
-	}
-
-	return ""
-}
+func (e *dockerEngine) adminDB() string { return pgAdminUser }
 
 // Stop implements Engine.
 func (e *dockerEngine) Stop(ctx context.Context) error {
@@ -260,6 +377,7 @@ func (e *dockerEngine) Close(ctx context.Context) {
 		}
 	}
 
+	e.releaseNetwork(ctx)
 	e.releasePort()
 
 	_ = os.RemoveAll(e.dir)

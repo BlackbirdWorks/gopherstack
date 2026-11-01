@@ -47,12 +47,13 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 		}
 	}
 
-	v, ok := r.m[seg]
-	if !ok && r.src != nil {
+	if r.src != nil {
 		if expr, isComputed := r.src.computed[seg]; isComputed {
 			return r.computedValue(expr), true
 		}
 	}
+
+	v, ok := r.m[seg]
 
 	if i, isInt := v.(int64); isInt {
 		return json.Number(strconv.FormatInt(i, 10)), true
@@ -151,7 +152,7 @@ func (b *InMemoryBackend) RunQuery(
 	b.mu.RLock("QueryDocuments")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -166,7 +167,7 @@ func (b *InMemoryBackend) RunQueryOpts(
 	b.mu.RLock("QueryDocuments")
 	defer b.mu.RUnlock()
 
-	c, err := b.findContainer(dbID, containerID)
+	c, err := b.findDataContainer(dbID, containerID, true)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -176,7 +177,7 @@ func (b *InMemoryBackend) RunQueryOpts(
 		return QueryResult{}, err
 	}
 
-	if idxErr := checkQueryIndexing(stmt, c.IndexingPolicy, opts); idxErr != nil {
+	if idxErr := checkQueryIndexing(stmt, c.IndexingPolicy, opts, b.computedExprs(c)); idxErr != nil {
 		return QueryResult{}, idxErr
 	}
 
@@ -212,5 +213,25 @@ func (b *InMemoryBackend) queryLocked(
 	udf := b.newUDFRuntime(c.UDFs)
 	defer udf.close()
 
-	return executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
+	res, err := executeStatementWith(stmt, params, rows, udf, b.newQueryColl(c))
+	res.Loaded = loadedCharge(stmt, c.IndexingPolicy, res)
+
+	return res, err
+}
+
+// loadedCharge sums the read cost of the documents the query had to retrieve: those its filter kept when the
+// indexing policy can serve the filter, every examined document otherwise (or when there is no filter).
+func loadedCharge(stmt *sqlSelectStmt, indexing json.RawMessage, res QueryResult) float64 {
+	docs := res.Matched
+	if stmt.where == nil || parseIndexingPolicy(indexing).needsScan(stmt.where) {
+		docs = res.Visited
+	}
+
+	var total float64
+
+	for _, d := range docs {
+		total += readCharge(int(docBytes(d)))
+	}
+
+	return total
 }

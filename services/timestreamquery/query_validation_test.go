@@ -18,7 +18,7 @@ func TestQuerySyntaxValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{"SELECT 1", false},
-		{"  select * from db.t where x in (1, 2)", false},
+		{"  select * from db.t where measure_name in ('a', 'b')", false},
 		{"WITH a AS (SELECT 1) SELECT * FROM a", false},
 		{"SELEC 1", true},
 		{"DROP TABLE x", true},

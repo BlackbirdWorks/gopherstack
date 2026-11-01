@@ -22,6 +22,10 @@ const sprocOptimisticTries = 4
 // failure, not at all. The script runs on a private copy of the container without holding the backend lock and is
 // committed only if the container was not written meanwhile; after repeated conflicts it runs under the lock.
 func (b *InMemoryBackend) ExecuteSproc(dbID, collID, id, partitionKey string, args []any) (ScriptOutput, error) {
+	if b.cur.Load() != nil {
+		return b.executeSprocLocked(dbID, collID, id, partitionKey, args)
+	}
+
 	for range sprocOptimisticTries {
 		out, done, err := b.trySprocOptimistic(dbID, collID, id, partitionKey, args)
 		if done {
@@ -37,7 +41,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 ) (ScriptOutput, bool, error) {
 	b.mu.RLock("ExecuteSproc")
 
-	tx, err := b.beginTx(dbID, collID)
+	tx, err := b.beginTxAt(dbID, collID, false)
 	if err != nil {
 		b.mu.RUnlock()
 
@@ -60,6 +64,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	script := *s
 	live := tx.c
 	shadow := tx.c.shadowCopy()
+	shadow.keep = b.changeRetention()
 	b.mu.RUnlock()
 
 	stx := &containerTx{b: b, c: shadow, dbID: dbID, collID: collID, now: tx.now, seq0: tx.seq0}
@@ -68,7 +73,12 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	b.mu.Lock("ExecuteSproc")
 	defer b.mu.Unlock()
 
-	if cur, findErr := b.findContainer(dbID, collID); findErr != nil || cur != live || live.ChangeSeq != tx.seq0 {
+	if cur, findErr := b.findDataContainer(
+		dbID,
+		collID,
+		false,
+	); findErr != nil || cur != live ||
+		live.ChangeSeq != tx.seq0 {
 		return ScriptOutput{}, false, nil
 	}
 
@@ -77,6 +87,7 @@ func (b *InMemoryBackend) trySprocOptimistic(
 	}
 
 	live.Documents, live.ChangeLog, live.ChangeSeq = shadow.Documents, shadow.ChangeLog, shadow.ChangeSeq
+	live.ChangeFloor = shadow.ChangeFloor
 	live.sorted.Store(nil)
 
 	return out, true, nil
@@ -92,6 +103,7 @@ func (c *storedContainer) shadowCopy() *storedContainer {
 		UniqueKeyPolicy: c.UniqueKeyPolicy, GeospatialConfig: c.GeospatialConfig,
 		VectorEmbeddingPolicy: c.VectorEmbeddingPolicy, FullTextPolicy: c.FullTextPolicy,
 		ComputedProperties: c.ComputedProperties, ChangeLog: slices.Clip(c.ChangeLog), ChangeSeq: c.ChangeSeq,
+		ChangeFloor: c.ChangeFloor, keep: c.keep,
 	}
 }
 
