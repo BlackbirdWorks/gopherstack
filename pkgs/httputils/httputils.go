@@ -653,3 +653,11 @@ func WriteJSONBytes(w http.ResponseWriter, code int, body []byte) {
 	w.WriteHeader(code)
 	_, _ = w.Write(body)
 }
+
+// WriteAmzJSON11Bytes writes an already-encoded body as application/x-amz-json-1.1.
+func WriteAmzJSON11Bytes(w http.ResponseWriter, code int, body []byte) {
+	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	_, _ = w.Write(body)
+}

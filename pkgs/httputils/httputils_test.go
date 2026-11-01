@@ -486,3 +486,15 @@ func TestWriteJSONBytes(t *testing.T) {
 		})
 	}
 }
+
+func TestWriteAmzJSON11Bytes(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	httputils.WriteAmzJSON11Bytes(rec, http.StatusAccepted, []byte(`{}`))
+
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Equal(t, "application/x-amz-json-1.1", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+	assert.JSONEq(t, `{}`, rec.Body.String())
+}
