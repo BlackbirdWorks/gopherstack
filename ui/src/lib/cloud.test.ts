@@ -337,6 +337,23 @@ describe("new GCP console pages", () => {
     });
   });
 
+  it("registers DNS and Autonomous Database", () => {
+    expect(availableOciServices(["OCIDNS", "OCIDatabase"]).map((s) => s.id)).toEqual([
+      "dns",
+      "database",
+    ]);
+    expect(ociServiceById("dns")).toMatchObject({
+      portLabel: "ocidns",
+      defaultPort: 8168,
+      healthName: "OCIDNS",
+    });
+    expect(ociServiceById("database")).toMatchObject({
+      portLabel: "ocidatabase",
+      defaultPort: 8170,
+      healthName: "OCIDatabase",
+    });
+  });
+
   it("registers Identity Platform and Flexible Server", () => {
     expect(gcpServiceById("identitytoolkit")).toMatchObject({
       portLabel: "gcpidentitytoolkit",

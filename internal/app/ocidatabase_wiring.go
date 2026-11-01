@@ -30,3 +30,8 @@ func wireOCIDatabase(byName map[string]service.Registerable) {
 		})
 	}
 }
+
+// GetOCIDatabaseHandler returns the OCIDatabase handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIDatabaseHandler() service.Registerable { return c.ociDatabaseHandler }

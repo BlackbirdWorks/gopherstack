@@ -21,7 +21,7 @@
 - Not routed: clones, refreshable clones, Data Guard, disaster recovery, key rotation and Vault keys, secretId, Data Safe, Operations Insights, Database Management, maintenance windows, resource pools, scheduled operations, regional wallets, character set listing, shrink, upgrade and the Exadata, container database and software image families. opc-dry-run is ignored.
 - Docker engine: every consumer group maps to the single FREEPDB1 service, the database is Oracle Database Free (no Autonomous features, ORDS, APEX or Mongo API behind connectionUrls), workload, compute and storage settings do not size the container, and dbName rename does not change the service name. Containers and TLS material do not survive an emulator restart.
 - mTLS support is the TLS handshake level: the listener verifies the wallet client certificate against the database's client CA; Oracle's own wallet-based authentication is not involved.
-- IAM policy enforcement, quotas and the dashboard page are not modelled.
+- IAM policy enforcement and quotas are not modelled.
 
 ## More
 

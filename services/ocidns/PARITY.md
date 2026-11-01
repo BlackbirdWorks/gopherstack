@@ -76,5 +76,4 @@ items_still_open:
   - "Private DNS is not served: resolver endpoint addresses, forwarding rules, views attached to resolvers and PRIVATE zones affect no query. resolutionMode TRANSPARENT and RTYPE_TRANSPARENT are stored only."
   - "ALIAS records are stored and exclusive with A, AAAA and CNAME but are not resolved on the wire. Record types beyond the supported list, DNSSEC types and non-apex SOA are refused; rdata is validated and normalised by the DNS library, which may differ from Oracle's presentation."
   - "History is not kept: zoneVersion queries for older versions are 404, and the CREATING, UPDATING and DELETING lifecycle states, work requests, opc-retry-token idempotency, quotas and IAM policy enforcement are not modelled. Unicode zone names are not converted to punycode."
-  - "No dashboard page: OCI DNS is not listed in the web UI."
 ---

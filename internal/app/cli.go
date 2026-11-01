@@ -502,6 +502,8 @@ type CLI struct {
 	ociLoadBalancerHandler        service.Registerable
 	ociArtifactsHandler           service.Registerable
 	ociContainerInstancesHandler  service.Registerable
+	ociDNSHandler                 service.Registerable
+	ociDatabaseHandler            service.Registerable
 	azureMonitorHandler           service.Registerable
 	ociVaultHandler               service.Registerable
 	ociStreamingHandler           service.Registerable
@@ -3560,6 +3562,8 @@ func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociLoadBalancerHandler = byName["OCILoadBalancer"]
 	cli.ociArtifactsHandler = byName["OCIArtifacts"]
 	cli.ociContainerInstancesHandler = byName["OCIContainerInstances"]
+	cli.ociDNSHandler = byName["OCIDNS"]
+	cli.ociDatabaseHandler = byName["OCIDatabase"]
 
 	storeAdditionalCLIHandlers(cli, byName)
 }

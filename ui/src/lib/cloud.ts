@@ -601,6 +601,22 @@ export const OCI_SERVICES: readonly OciService[] = [
     portLabel: "ocicontainerinstances",
     defaultPort: 8167,
   },
+  {
+    id: "dns",
+    label: "DNS",
+    description: "Oracle Cloud DNS zones, records, views, resolvers and a live query panel",
+    healthName: "OCIDNS",
+    portLabel: "ocidns",
+    defaultPort: 8168,
+  },
+  {
+    id: "database",
+    label: "Autonomous Database",
+    description: "Oracle Cloud Autonomous Databases, connection strings, backups and wallets",
+    healthName: "OCIDatabase",
+    portLabel: "ocidatabase",
+    defaultPort: 8170,
+  },
 ];
 
 export function parseCloud(value: string | null | undefined): Cloud | null {
