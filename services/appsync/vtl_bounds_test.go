@@ -18,7 +18,11 @@ func TestRenderVTL_ListIndexBounds(t *testing.T) {
 		want string
 	}{
 		{name: "in_range", tmpl: `#set($l=["a","b"])$l.remove(1)|$l.size()`, want: "b|1"},
-		{name: "beyond_int32", tmpl: `#set($l=["a","b"])$l.remove(5000000000)|$l.size()`, want: "$l.remove(5000000000)|2"},
+		{
+			name: "beyond_int32",
+			tmpl: `#set($l=["a","b"])$l.remove(5000000000)|$l.size()`,
+			want: "$l.remove(5000000000)|2",
+		},
 	}
 
 	for _, tt := range tests {

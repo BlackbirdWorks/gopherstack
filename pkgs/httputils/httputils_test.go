@@ -464,12 +464,12 @@ func TestWriteJSONBytes(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		body     []byte
 		wantBody string
+		body     []byte
 		code     int
 	}{
 		{name: "with_body", body: []byte(`{"a":1}`), wantBody: `{"a":1}`, code: http.StatusCreated},
-		{name: "no_body", body: nil, wantBody: "", code: http.StatusOK},
+		{name: "no_body", wantBody: "", code: http.StatusOK},
 	}
 
 	for _, tt := range tests {

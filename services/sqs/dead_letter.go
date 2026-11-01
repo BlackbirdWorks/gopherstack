@@ -73,7 +73,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		}
 	}
 
-	q.MaxReceiveCount = int(count)
+	q.MaxReceiveCount = count
 	q.dlq = dlq
 
 	now := backend.now()

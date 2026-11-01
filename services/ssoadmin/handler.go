@@ -741,7 +741,7 @@ func writeJSON(c *echo.Context, status int, v any) error {
 	if err != nil {
 		return err
 	}
-	var w http.ResponseWriter = c.Response()
+	w := http.ResponseWriter(c.Response())
 
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
