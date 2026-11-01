@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -17,6 +18,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
 // wireRDSIntegrations connects the RDS Data API and DMS to the services they read and write.
@@ -53,6 +55,23 @@ func wireDMSStores(byName map[string]service.Registerable) {
 	}
 
 	dmsH.Backend.SetStores(stores)
+
+	if h, hok := byName["SecretsManager"].(*secretsmanagerbackend.Handler); hok {
+		dmsH.Backend.SetSecrets(dmsSecrets{bk: h.Backend})
+	}
+}
+
+// dmsSecrets resolves endpoint SecretsManagerSecretId values against the in-process Secrets Manager.
+type dmsSecrets struct{ bk secretsmanagerbackend.StorageBackend }
+
+func (d dmsSecrets) SecretString(ctx context.Context, region, secretID string) (string, error) {
+	out, err := d.bk.GetSecretValue(secretsmanagerbackend.WithRegion(ctx, region),
+		&secretsmanagerbackend.GetSecretValueInput{SecretID: secretID})
+	if err != nil {
+		return "", err
+	}
+
+	return out.SecretString, nil
 }
 
 type dmsObjects struct{ bk *s3backend.InMemoryBackend }
@@ -63,6 +82,42 @@ func (o *dmsObjects) PutObject(ctx context.Context, bucket, key string, body []b
 	})
 
 	return err
+}
+
+func (o *dmsObjects) ListObjects(ctx context.Context, bucket, prefix string) ([]string, error) {
+	var (
+		keys  []string
+		token *string
+	)
+
+	for {
+		out, err := o.bk.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket: aws.String(bucket), Prefix: aws.String(prefix), ContinuationToken: token,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range out.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+
+		if !aws.ToBool(out.IsTruncated) || out.NextContinuationToken == nil {
+			return keys, nil
+		}
+
+		token = out.NextContinuationToken
+	}
+}
+
+func (o *dmsObjects) GetObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := o.bk.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, err
+	}
+	defer out.Body.Close()
+
+	return io.ReadAll(out.Body)
 }
 
 func (o *dmsObjects) CheckBucket(ctx context.Context, bucket string) error {

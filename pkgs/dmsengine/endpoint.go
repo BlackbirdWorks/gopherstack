@@ -33,6 +33,12 @@ type EndpointConfig struct {
 	SlotName string
 	// S3Settings, KinesisSettings and DynamoDBSettings carry the raw settings JSON objects.
 	S3Settings       string
+	// ExternalTableDefinition is the S3 source's table-definition JSON (the endpoint member or S3Settings'
+	// ExternalTableDefinition).
+	ExternalTableDefinition string
+	// SecretID and SecretRoleARN are SecretsManagerSecretId and SecretsManagerAccessRoleArn from the engine settings.
+	SecretID      string
+	SecretRoleARN string
 	KinesisSettings  string
 	DynamoDBSettings string
 	Port             int
@@ -51,6 +57,9 @@ func (c EndpointConfig) addr() string {
 // ObjectStore writes objects into the emulator's S3.
 type ObjectStore interface {
 	PutObject(ctx context.Context, bucket, key string, body []byte) error
+	// ListObjects returns the keys under prefix in lexicographic order.
+	ListObjects(ctx context.Context, bucket, prefix string) ([]string, error)
+	GetObject(ctx context.Context, bucket, key string) ([]byte, error)
 	CheckBucket(ctx context.Context, bucket string) error
 }
 
@@ -100,7 +109,7 @@ type Opener interface {
 func SupportedSource(engine string) bool {
 	f := FamilyOf(engine)
 
-	return f == FamilyMySQL || f == FamilyPostgres
+	return f == FamilyMySQL || f == FamilyPostgres || f == FamilyS3
 }
 
 // SupportedTarget reports whether the engine can write to the endpoint engine.
@@ -119,6 +128,8 @@ func (o *defaultOpener) OpenSource(ctx context.Context, ep EndpointConfig) (Sour
 		return openMySQLSource(ctx, ep)
 	case FamilyPostgres:
 		return openPGSource(ctx, ep)
+	case FamilyS3:
+		return newS3Source(ep, o.stores.Objects)
 	default:
 		return nil, fmt.Errorf("%w: %s as a source", ErrUnsupportedEngine, ep.Engine)
 	}

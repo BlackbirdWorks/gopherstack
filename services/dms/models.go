@@ -415,6 +415,18 @@ type ReplicationConfig struct {
 	CdcStartTime     *time.Time `json:",omitempty"`
 	CdcStartPosition string     `json:",omitempty"`
 	CdcStopPosition  string     `json:",omitempty"`
+	// Run state of the Replication, filled by the engine.
+	StartDate          time.Time        `json:",omitzero"`
+	StopDate           time.Time        `json:",omitzero"`
+	FullLoadStartDate  time.Time        `json:",omitzero"`
+	FullLoadFinishDate time.Time        `json:",omitzero"`
+	CreateTime         time.Time        `json:",omitzero"`
+	UpdateTime         time.Time        `json:",omitzero"`
+	TableStats         []TableStatistic `json:",omitempty"`
+	StopReason         string           `json:",omitempty"`
+	FailureMessage     string           `json:",omitempty"`
+	RecoveryCheckpoint string           `json:",omitempty"`
+	ElapsedTimeMillis  int64            `json:"-"`
 }
 
 // ComputeConfig mirrors types.ComputeConfig (types.go:190) -- configuration
