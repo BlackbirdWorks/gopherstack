@@ -2,9 +2,11 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetCollaborationIDNamespaceAssociation(
@@ -15,7 +17,7 @@ func (h *Handler) handleGetCollaborationIDNamespaceAssociation(
 		CollaborationIdentifier          string `json:"collaborationIdentifier"`
 		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.GetCollaborationIDNamespaceAssociation(
 		req.CollaborationIdentifier,
 		req.IDNamespaceAssociationIdentifier,
@@ -35,7 +37,7 @@ func (h *Handler) handleListCollaborationIDNamespaceAssociations(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationIDNamespaceAssociations(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
@@ -64,7 +66,7 @@ func (h *Handler) handleCreateIDNamespaceAssociation(
 		Name                 string            `json:"name"`
 		Description          string            `json:"description"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.CreateIDNamespaceAssociation(
 		req.MembershipIdentifier,
 		req.Name,
@@ -85,7 +87,7 @@ func (h *Handler) handleGetIDNamespaceAssociation(_ context.Context, body []byte
 		MembershipIdentifier             string `json:"membershipIdentifier"`
 		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.GetIDNamespaceAssociation(
 		req.MembershipIdentifier,
 		req.IDNamespaceAssociationIdentifier,
@@ -105,7 +107,7 @@ func (h *Handler) handleListIDNamespaceAssociations(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListIDNamespaceAssociations(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -132,7 +134,7 @@ func (h *Handler) handleUpdateIDNamespaceAssociation(
 		IDNamespaceAssociationIdentifier string         `json:"idNamespaceAssociationIdentifier"`
 		Description                      string         `json:"description"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.UpdateIDNamespaceAssociation(
 		req.MembershipIdentifier,
 		req.IDNamespaceAssociationIdentifier,
@@ -154,7 +156,7 @@ func (h *Handler) handleDeleteIDNamespaceAssociation(
 		MembershipIdentifier             string `json:"membershipIdentifier"`
 		IDNamespaceAssociationIdentifier string `json:"idNamespaceAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteIDNamespaceAssociation(
 		req.MembershipIdentifier,

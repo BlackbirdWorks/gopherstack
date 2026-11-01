@@ -2,13 +2,16 @@ package gcpstorage
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Patch is a decoded JSON request body, keyed by field name. A null value
 // clears the field, as in a JSON merge patch.
-type Patch map[string]json.RawMessage
+type Patch map[string]jsontext.Value
 
 const (
 	keyContentType        = "contentType"
@@ -26,16 +29,16 @@ const (
 	defaultContentType    = "application/octet-stream"
 )
 
-func isNull(raw json.RawMessage) bool { return string(bytes.TrimSpace(raw)) == "null" }
+func isNull(raw jsontext.Value) bool { return string(bytes.TrimSpace(raw)) == "null" }
 
-func decodeField[T any](raw json.RawMessage, field string) (T, *APIError) {
+func decodeField[T any](raw jsontext.Value, field string) (T, *APIError) {
 	var v T
 
 	if isNull(raw) {
 		return v, nil
 	}
 
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := json.Unmarshal(raw, &v, jsonx.V1()); err != nil {
 		return v, errInvalid("Invalid value for field '" + field + "'.")
 	}
 
@@ -58,7 +61,7 @@ func validStorageClass(sc string) bool {
 	}
 }
 
-func mergeStringMap(raw json.RawMessage, dst map[string]string, field string) (map[string]string, *APIError) {
+func mergeStringMap(raw jsontext.Value, dst map[string]string, field string) (map[string]string, *APIError) {
 	if isNull(raw) {
 		return nil, nil
 	}
@@ -233,7 +236,7 @@ func applyBucket(b *Bucket, p Patch, create bool) *APIError {
 		}
 
 		if b.Config == nil {
-			b.Config = map[string]json.RawMessage{}
+			b.Config = map[string]jsontext.Value{}
 		}
 
 		b.Config[k] = raw

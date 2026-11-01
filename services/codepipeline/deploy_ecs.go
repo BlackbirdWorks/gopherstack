@@ -2,10 +2,12 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -97,7 +99,7 @@ func (b *InMemoryBackend) ecsStartDeployment(
 	}
 
 	var defs []imageDefinition
-	if err = json.Unmarshal(body, &defs); err != nil || len(defs) == 0 {
+	if err = json.Unmarshal(body, &defs, jsonx.V1()); err != nil || len(defs) == 0 {
 		return "", fmt.Errorf(
 			"%w: image definitions file %q must be a non-empty JSON array of name/imageUri",
 			ErrValidation,

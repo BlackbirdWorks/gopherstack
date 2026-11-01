@@ -1,7 +1,7 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -124,15 +124,15 @@ type Application struct {
 	DisplayName                string                   `json:"displayName"`
 	Description                string                   `json:"description,omitempty"`
 	API                        APIApplication           `json:"api"`
-	Certification              json.RawMessage          `json:"certification,omitempty"`
-	VerifiedPublisher          json.RawMessage          `json:"verifiedPublisher,omitempty"`
+	Certification              jsontext.Value           `json:"certification,omitempty"`
+	VerifiedPublisher          jsontext.Value           `json:"verifiedPublisher,omitempty"`
 	SPA                        RedirectFacet            `json:"spa"`
-	DisabledByMicrosoftStatus  json.RawMessage          `json:"disabledByMicrosoftStatus,omitempty"`
-	AddIns                     json.RawMessage          `json:"addIns,omitempty"`
-	ParentalControlSettings    json.RawMessage          `json:"parentalControlSettings,omitempty"`
-	Info                       json.RawMessage          `json:"info,omitempty"`
-	OptionalClaims             json.RawMessage          `json:"optionalClaims,omitempty"`
-	AuthenticationBehaviors    json.RawMessage          `json:"authenticationBehaviors,omitempty"`
+	DisabledByMicrosoftStatus  jsontext.Value           `json:"disabledByMicrosoftStatus,omitempty"`
+	AddIns                     jsontext.Value           `json:"addIns,omitempty"`
+	ParentalControlSettings    jsontext.Value           `json:"parentalControlSettings,omitempty"`
+	Info                       jsontext.Value           `json:"info,omitempty"`
+	OptionalClaims             jsontext.Value           `json:"optionalClaims,omitempty"`
+	AuthenticationBehaviors    jsontext.Value           `json:"authenticationBehaviors,omitempty"`
 	PublicClient               RedirectFacet            `json:"publicClient"`
 	IdentifierURIs             []string                 `json:"identifierUris"`
 	Tags                       []string                 `json:"tags"`
@@ -147,18 +147,18 @@ type Application struct {
 
 // ServicePrincipal is the local instance of an application in the tenant.
 type ServicePrincipal struct {
-	AddIns                        json.RawMessage      `json:"addIns,omitempty"`
-	DisabledByMicrosoftStatus     json.RawMessage      `json:"disabledByMicrosoftStatus,omitempty"`
-	ResourceSpecificPermissions   json.RawMessage      `json:"resourceSpecificApplicationPermissions,omitempty"`
-	PasswordSSOSettings           json.RawMessage      `json:"passwordSingleSignOnSettings,omitempty"`
-	PreferredKeyEndDateTime       json.RawMessage      `json:"preferredTokenSigningKeyEndDateTime,omitempty"`
-	CustomSecurityAttributes      json.RawMessage      `json:"customSecurityAttributes,omitempty"`
+	AddIns                        jsontext.Value       `json:"addIns,omitempty"`
+	DisabledByMicrosoftStatus     jsontext.Value       `json:"disabledByMicrosoftStatus,omitempty"`
+	ResourceSpecificPermissions   jsontext.Value       `json:"resourceSpecificApplicationPermissions,omitempty"`
+	PasswordSSOSettings           jsontext.Value       `json:"passwordSingleSignOnSettings,omitempty"`
+	PreferredKeyEndDateTime       jsontext.Value       `json:"preferredTokenSigningKeyEndDateTime,omitempty"`
+	CustomSecurityAttributes      jsontext.Value       `json:"customSecurityAttributes,omitempty"`
 	SAMLMetadataURL               string               `json:"samlMetadataUrl,omitempty"`
 	ApplicationTemplateID         string               `json:"applicationTemplateId,omitempty"`
 	CreatedDateTime               time.Time            `json:"createdDateTime"`
-	Info                          json.RawMessage      `json:"info,omitempty"`
-	VerifiedPublisher             json.RawMessage      `json:"verifiedPublisher,omitempty"`
-	SAMLSingleSignOnSettings      json.RawMessage      `json:"samlSingleSignOnSettings,omitempty"`
+	Info                          jsontext.Value       `json:"info,omitempty"`
+	VerifiedPublisher             jsontext.Value       `json:"verifiedPublisher,omitempty"`
+	SAMLSingleSignOnSettings      jsontext.Value       `json:"samlSingleSignOnSettings,omitempty"`
 	ID                            string               `json:"id"`
 	AppID                         string               `json:"appId"`
 	DisplayName                   string               `json:"displayName"`

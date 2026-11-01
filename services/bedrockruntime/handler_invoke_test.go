@@ -3,7 +3,7 @@ package bedrockruntime_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- InvokeModel tests ---
@@ -60,7 +62,7 @@ func TestHandler_InvokeModel(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, tt.wantKey)
 
 			invocations := h.Backend.ListInvocations()
@@ -107,7 +109,7 @@ func TestHandler_InvokeModel_ModelFamilies(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Contains(t, out, tt.wantKey)
 		})
 	}
@@ -160,7 +162,7 @@ func TestInvokeModel_AcceptHeader_JSON(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -180,7 +182,7 @@ func TestInvokeModel_AcceptHeader_Wildcard(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -342,7 +344,7 @@ func TestInvocationTruncation(t *testing.T) {
 		largePrompt[i] = 'x'
 	}
 
-	body, _ := json.Marshal(map[string]any{"prompt": string(largePrompt)})
+	body, _ := json.Marshal(map[string]any{"prompt": string(largePrompt)}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -391,7 +393,7 @@ func TestInvokeModel_Claude3_MessagesAPIFormat(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			// Messages API format fields (not Claude 2 `completion` field)
 			assert.Contains(t, out, "id", "Claude 3 response must include 'id' field")
@@ -439,7 +441,7 @@ func TestInvokeModel_Claude2_LegacyCompletionFormat(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			// Legacy completion format
 			assert.Contains(t, out, "completion", "Claude 2 response must use legacy 'completion' field")
@@ -478,7 +480,7 @@ func TestInvokeModel_ARNModelIDWithEmbeddedSlash(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Claude 3 Messages API format fields (not the legacy `completion` field
 	// that the truncated-ARN bug would have produced).
@@ -579,7 +581,7 @@ func TestInvokeModelWithResponseStream_ChunkPayloadIsBase64WrappedBytes(t *testi
 	require.NoError(t, err)
 
 	var modelResp map[string]any
-	require.NoError(t, json.Unmarshal(decoded, &modelResp))
+	require.NoError(t, json.Unmarshal(decoded, &modelResp, jsonx.V1()))
 	assert.Equal(t, "end_turn", modelResp["stop_reason"])
 	assert.Equal(t, "This is a mock response from Gopherstack.", modelResp["completion"])
 }
@@ -614,7 +616,7 @@ func TestInvokeModel_GuardrailIdentifierWithoutVersion_Returns400(t *testing.T) 
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -629,7 +631,7 @@ func TestInvokeModel_GuardrailIdentifierWithoutVersion_Returns400(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "ValidationException", out["__type"])
 }
 
@@ -637,7 +639,7 @@ func TestInvokeModel_GuardrailIdentifierWithVersion_Succeeds(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -657,7 +659,7 @@ func TestInvokeModelWithResponseStream_GuardrailIdentifierWithoutVersion_Returns
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(
@@ -680,7 +682,7 @@ func TestInvokeModel_PerformanceConfigLatency_EchoedInResponse(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/model/anthropic.claude-v2/invoke", bytes.NewReader(body))
@@ -711,7 +713,7 @@ func TestInvokeModelWithResponseStream_PerformanceConfigLatency_EchoedInResponse
 	t.Parallel()
 
 	h := newTestHandler(t)
-	body, _ := json.Marshal(map[string]any{"prompt": "Hello"})
+	body, _ := json.Marshal(map[string]any{"prompt": "Hello"}, jsonx.V1())
 
 	e := echo.New()
 	req := httptest.NewRequest(

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -62,7 +63,7 @@ func doRequest(t *testing.T, h *directoryservice.Handler, op string, body any) *
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -89,7 +90,7 @@ func mustCreateSimpleAD(t *testing.T, h *directoryservice.Handler, name string) 
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	id, ok := resp["DirectoryId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)
@@ -107,7 +108,7 @@ func mustCreateMicrosoftAD(t *testing.T, h *directoryservice.Handler, name strin
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	id, ok := resp["DirectoryId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, id)
@@ -119,7 +120,7 @@ func mustCreateMicrosoftAD(t *testing.T, h *directoryservice.Handler, name strin
 func respBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }

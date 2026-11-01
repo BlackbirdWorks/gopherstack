@@ -1,11 +1,13 @@
 package batch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const reservedEnvPrefix = "AWS_BATCH"
@@ -51,12 +53,12 @@ type EksPropertiesOverride struct {
 func deepCopy[T any](v T) T {
 	var out T
 
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return v
 	}
 

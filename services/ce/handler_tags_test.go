@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -30,7 +32,7 @@ func TestHandler_TagOperations(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 				arn := createOut["CostCategoryArn"].(string)
 
 				// Tag
@@ -47,7 +49,7 @@ func TestHandler_TagOperations(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec3.Code)
 
 				var listOut map[string]any
-				require.NoError(t, json.NewDecoder(rec3.Body).Decode(&listOut))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec3.Body), &listOut, jsonx.V1()))
 				tags, _ := listOut["ResourceTags"].([]any)
 				var envVal string
 				for _, tagAny := range tags {
@@ -94,7 +96,7 @@ func TestHandler_TagOperations_AnomalyMonitor(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	monitorARN := createOut["MonitorArn"].(string)
 
 	// Tag.
@@ -111,7 +113,7 @@ func TestHandler_TagOperations_AnomalyMonitor(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	tags, _ := listOut["ResourceTags"].([]any)
 
 	var found bool
@@ -153,7 +155,7 @@ func TestHandler_TagOperations_AnomalySubscription(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	subARN := createOut["SubscriptionArn"].(string)
 
 	// Tag.
@@ -170,7 +172,7 @@ func TestHandler_TagOperations_AnomalySubscription(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	tags, _ := listOut["ResourceTags"].([]any)
 	assert.NotEmpty(t, tags)
 
@@ -278,7 +280,7 @@ func TestHandler_ListTagsForResource_EmptyTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 	arn := createOut["CostCategoryArn"].(string)
 
 	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceArn": arn})
@@ -287,7 +289,7 @@ func TestHandler_ListTagsForResource_EmptyTags(t *testing.T) {
 	var out struct {
 		ResourceTags []map[string]string `json:"ResourceTags"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 	// Must be an empty array, not nil/absent.
 	assert.NotNil(t, out.ResourceTags)
 	assert.Empty(t, out.ResourceTags)

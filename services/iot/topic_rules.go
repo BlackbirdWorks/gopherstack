@@ -1,7 +1,7 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -26,9 +26,9 @@ func cloneRuleAction(a RuleAction) RuleAction {
 		out.SNS = &cp
 	}
 	if len(a.Other) > 0 {
-		out.Other = make(map[string]json.RawMessage, len(a.Other))
+		out.Other = make(map[string]jsontext.Value, len(a.Other))
 		for k, v := range a.Other {
-			out.Other[k] = append(json.RawMessage(nil), v...)
+			out.Other[k] = append(jsontext.Value(nil), v...)
 		}
 	}
 

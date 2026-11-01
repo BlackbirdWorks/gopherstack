@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetCollaborationAnalysisTemplate(
@@ -16,7 +18,7 @@ func (h *Handler) handleGetCollaborationAnalysisTemplate(
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		AnalysisTemplateArn     string `json:"analysisTemplateArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.GetCollaborationAnalysisTemplate(
 		req.CollaborationIdentifier,
 		req.AnalysisTemplateArn,
@@ -36,7 +38,7 @@ func (h *Handler) handleListCollaborationAnalysisTemplates(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationAnalysisTemplates(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
@@ -61,7 +63,7 @@ func (h *Handler) handleBatchGetCollaborationAnalysisTemplate(
 		CollaborationIdentifier string   `json:"collaborationIdentifier"`
 		AnalysisTemplateArns    []string `json:"analysisTemplateArns"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, errs, err := h.Backend.BatchGetCollaborationAnalysisTemplate(
 		req.CollaborationIdentifier,
 		req.AnalysisTemplateArns,
@@ -86,7 +88,7 @@ func (h *Handler) handleCreateAnalysisTemplate(_ context.Context, body []byte) (
 		Format               string                     `json:"format"`
 		AnalysisParameters   []map[string]any           `json:"analysisParameters"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum("format", crtypes.AnalysisFormat(req.Format)); err != nil {
 		return nil, err
 	}
@@ -117,7 +119,7 @@ func (h *Handler) handleGetAnalysisTemplate(_ context.Context, body []byte) ([]b
 		MembershipIdentifier       string `json:"membershipIdentifier"`
 		AnalysisTemplateIdentifier string `json:"analysisTemplateIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.GetAnalysisTemplate(
 		req.MembershipIdentifier,
 		req.AnalysisTemplateIdentifier,
@@ -137,7 +139,7 @@ func (h *Handler) handleListAnalysisTemplates(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListAnalysisTemplates(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -160,7 +162,7 @@ func (h *Handler) handleUpdateAnalysisTemplate(_ context.Context, body []byte) (
 		AnalysisTemplateIdentifier string `json:"analysisTemplateIdentifier"`
 		Description                string `json:"description"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	t, err := h.Backend.UpdateAnalysisTemplate(
 		req.MembershipIdentifier,
 		req.AnalysisTemplateIdentifier,
@@ -178,7 +180,7 @@ func (h *Handler) handleDeleteAnalysisTemplate(_ context.Context, body []byte) (
 		MembershipIdentifier       string `json:"membershipIdentifier"`
 		AnalysisTemplateIdentifier string `json:"analysisTemplateIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteAnalysisTemplate(
 		req.MembershipIdentifier,

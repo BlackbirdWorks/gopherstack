@@ -1,7 +1,7 @@
 package cloudfront
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleDomainAssociationError maps UpdateDomainAssociation errors. Its own
@@ -194,13 +196,13 @@ func (c *tenantCustomizationsXML) toMap() map[string]any {
 		return nil
 	}
 
-	raw, err := json.Marshal(c)
+	raw, err := json.Marshal(c, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var out map[string]any
-	if json.Unmarshal(raw, &out) != nil {
+	if json.Unmarshal(raw, &out, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -212,13 +214,13 @@ func tenantCustomizationsFromMap(m map[string]any) *tenantCustomizationsXML {
 		return nil
 	}
 
-	raw, err := json.Marshal(m)
+	raw, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var out tenantCustomizationsXML
-	if json.Unmarshal(raw, &out) != nil {
+	if json.Unmarshal(raw, &out, jsonx.V1()) != nil {
 		return nil
 	}
 

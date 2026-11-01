@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -111,7 +112,7 @@ func TestAccuracy_CustomModel_GetViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, m.ModelArn, out["modelArn"])
 			assert.Equal(t, tt.modelName, out["modelName"])
 			assert.NotEmpty(t, out["creationTime"])
@@ -156,7 +157,7 @@ func TestAccuracy_CustomModel_ListViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			models := out["modelSummaries"].([]any)
 			assert.Len(t, models, tt.wantLen)
 		})
@@ -200,7 +201,7 @@ func TestAccuracy_CustomModel_ListFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			models := out["modelSummaries"].([]any)
 
 			gotNames := make([]string, 0, len(models))
@@ -266,7 +267,7 @@ func TestHandler_CustomModelLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	modelARN := createOut["modelArn"].(string)
 
 	// List custom models.
@@ -274,7 +275,7 @@ func TestHandler_CustomModelLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.NotEmpty(t, listOut["modelSummaries"])
 
 	// Get custom model by ARN.

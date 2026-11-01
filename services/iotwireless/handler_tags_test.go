@@ -1,7 +1,7 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListTagsTagUntagResource(t *testing.T) {
@@ -51,7 +53,7 @@ func TestHandler_ListTagsTagUntagResource(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			arn := createResp["Arn"].(string)
 			require.NotEmpty(t, arn)
 
@@ -85,7 +87,7 @@ func TestHandler_ListTagsTagUntagResource(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tagList, ok := tagsResp["Tags"].([]any)
 			require.True(t, ok)
 

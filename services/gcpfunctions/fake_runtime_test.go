@@ -2,7 +2,8 @@ package gcpfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type received struct {
@@ -118,7 +120,7 @@ func (f *fakeRuntime) CreateAndStart(_ context.Context, spec container.Spec) (st
 		}
 
 		w.WriteHeader(int(f.reply.Load()))
-		_ = json.NewEncoder(w).Encode(rec)
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), rec)
 	})}
 
 	go f.serve(c, l, addr)

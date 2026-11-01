@@ -3,7 +3,7 @@ package gcpcontainer_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -115,7 +116,7 @@ func (e *env) raw(t *testing.T, method, path string, body any) (int, map[string]
 	var rdr io.Reader
 
 	if body != nil {
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rdr = bytes.NewReader(raw)
@@ -136,7 +137,7 @@ func (e *env) raw(t *testing.T, method, path string, body any) (int, map[string]
 	require.NoError(t, err)
 
 	if len(raw) > 0 {
-		require.NoError(t, json.Unmarshal(raw, &out), string(raw))
+		require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()), string(raw))
 	}
 
 	return resp.StatusCode, out

@@ -2,12 +2,14 @@ package bedrockagentcore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) exchange(hreq *http.Request) (string, error) {
 		AccessToken string `json:"access_token"`
 	}
 
-	if err = json.Unmarshal(body, &out); err != nil || out.AccessToken == "" {
+	if err = json.Unmarshal(body, &out, jsonx.V1()); err != nil || out.AccessToken == "" {
 		return "", invalid("the token endpoint did not return an access_token")
 	}
 
@@ -136,7 +138,11 @@ func (b *InMemoryBackend) tokenEndpoint(ctx context.Context, p ProviderInfo) (st
 		TokenEndpoint string `json:"token_endpoint"`
 	}
 
-	if err = json.NewDecoder(io.LimitReader(resp.Body, maxTokenResponse)).Decode(&meta); err != nil ||
+	if err = json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(resp.Body, maxTokenResponse)),
+		&meta,
+		jsonx.V1(),
+	); err != nil ||
 		meta.TokenEndpoint == "" {
 		return "", invalid("the discovery document of provider %q has no token_endpoint", p.Name)
 	}

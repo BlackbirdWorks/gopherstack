@@ -2,12 +2,13 @@ package amplify
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // generateAccessLogs handles POST /apps/{appId}/accesslogs.
@@ -27,7 +28,7 @@ func (h *Handler) generateAccessLogs(ctx context.Context, c *echo.Context, appID
 		EndTime    string `json:"endTime"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return amplifyErrorJSON(c, http.StatusBadRequest, "invalid request body")
 	}
 

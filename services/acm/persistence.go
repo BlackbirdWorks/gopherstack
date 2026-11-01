@@ -2,11 +2,13 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -60,7 +62,7 @@ func buildPersistenceDTORegistry() (*store.Registry, *store.Table[regionalDTO[Ce
 // directly, as before. Timers are runtime-only and were never persisted;
 // Restore rebuilds them from certificate state (see below).
 type backendSnapshot struct {
-	Tables             map[string]json.RawMessage                    `json:"tables"`
+	Tables             map[string]jsontext.Value                     `json:"tables"`
 	IdempotencyMap     map[string]map[string]certIdempotencyEntry    `json:"idempotencyMap,omitempty"`
 	AccountIdempotency map[string]map[string]accountIdempotencyEntry `json:"accountIdempotency,omitempty"`
 	AccountConfig      map[string]AccountConfig                      `json:"accountConfig"`
@@ -246,7 +248,7 @@ func (b *InMemoryBackend) applyRestoredMaps(snap *backendSnapshot) {
 // restoreCerts rebuilds the "dirty" certs store.Table from snap's DTO table,
 // factored out of Restore to keep Restore's own cognitive complexity low.
 // Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreCerts(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreCerts(tables map[string]jsontext.Value) error {
 	dtoReg, certDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("acm: restore snapshot cert table: %w", err)
@@ -279,7 +281,7 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 	snap := handlerSnapshot{
 		Tags: tagsMap,
 	}
-	if err := json.Unmarshal(h.Backend.Snapshot(ctx), &snap.Backend); err != nil {
+	if err := json.Unmarshal(h.Backend.Snapshot(ctx), &snap.Backend, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -291,12 +293,12 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	var snap handlerSnapshot
 
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := json.Unmarshal(data, &snap, jsonx.V1()); err != nil {
 		// Fall back to backend-only snapshot for backward compatibility.
 		return h.Backend.Restore(ctx, data)
 	}
 
-	backendData, err := json.Marshal(snap.Backend)
+	backendData, err := json.Marshal(snap.Backend, jsonx.V1())
 	if err != nil {
 		return err
 	}

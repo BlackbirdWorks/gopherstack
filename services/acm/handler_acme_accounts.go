@@ -2,7 +2,9 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type acmeAccountWire struct {
@@ -36,7 +38,7 @@ type describeAcmeAccountOutput struct {
 
 func (h *Handler) jsonDescribeAcmeAccount(ctx context.Context, body []byte) (any, error) {
 	var input describeAcmeAccountInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -63,7 +65,7 @@ type listAcmeAccountsOutput struct {
 
 func (h *Handler) jsonListAcmeAccounts(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeAccountsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -89,7 +91,7 @@ type revokeAcmeAccountOutput struct{}
 
 func (h *Handler) jsonRevokeAcmeAccount(ctx context.Context, body []byte) (any, error) {
 	var input revokeAcmeAccountInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -114,7 +115,7 @@ func sqsAttributesFromProps(props map[string]any, params, physicalIDs map[string
 	}
 
 	if rp, ok := props["RedrivePolicy"]; ok {
-		if b, err := json.Marshal(resolveDeep(rp, params, physicalIDs)); err == nil {
+		if b, err := json.Marshal(resolveDeep(rp, params, physicalIDs), jsonx.V1()); err == nil {
 			attrs["RedrivePolicy"] = string(b)
 		}
 	}

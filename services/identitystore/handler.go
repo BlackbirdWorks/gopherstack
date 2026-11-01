@@ -3,7 +3,7 @@ package identitystore
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -129,7 +130,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		IdentityStoreID string `json:"IdentityStoreId"`
 	}
 
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -306,7 +307,7 @@ func (h *Handler) parseAlternateIDRequest(c *echo.Context, body []byte) (alterna
 		IdentityStoreID     string              `json:"IdentityStoreId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		_ = h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 
 		return alternateIDResult{}, errResponseWritten
@@ -444,7 +445,7 @@ func validNextToken(body []byte) bool {
 		NextToken string `json:"NextToken"`
 	}
 
-	if json.Unmarshal(body, &req) != nil || req.NextToken == "" {
+	if json.Unmarshal(body, &req, jsonx.V1()) != nil || req.NextToken == "" {
 		return true
 	}
 

@@ -1,7 +1,7 @@
 package emrserverless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
 
@@ -34,7 +35,7 @@ func createAppWithArch(t *testing.T, h *emrserverless.Handler, name, releaseLabe
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	id := out["applicationId"]
 	require.NotEmpty(t, id)
 
@@ -146,7 +147,7 @@ func TestHandler_CreateApplication_Architecture(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			app, _ := out["application"].(map[string]any)
 
 			if tt.wantInOutput {

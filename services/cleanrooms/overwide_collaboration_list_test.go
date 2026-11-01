@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestOverWideCollaborationListResponses asserts on the raw response body
@@ -270,7 +272,7 @@ func TestOverWideCollaborationListResponses(t *testing.T) {
 			body := tt.raw(t)
 
 			var decoded map[string]any
-			require.NoError(t, json.Unmarshal(body, &decoded))
+			require.NoError(t, json.Unmarshal(body, &decoded, jsonx.V1()))
 
 			rawItems, ok := decoded[tt.itemsKey]
 			require.True(t, ok, "missing items key %q in response: %s", tt.itemsKey, body)
@@ -309,7 +311,7 @@ func createCleanroomsCollabAndMembership(t *testing.T, e *echo.Echo) (string, st
 	})
 	require.Equal(t, http.StatusOK, colRec.Code)
 	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(colRec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(colRec.Body.Bytes(), &colResp, jsonx.V1()))
 	collabID, _ := colResp["collaboration"].(map[string]any)["id"].(string)
 	require.NotEmpty(t, collabID)
 
@@ -318,7 +320,7 @@ func createCleanroomsCollabAndMembership(t *testing.T, e *echo.Echo) (string, st
 	})
 	require.Equal(t, http.StatusOK, memRec.Code)
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(memRec.Body.Bytes(), &memResp, jsonx.V1()))
 	memID, _ := memResp["membership"].(map[string]any)["id"].(string)
 	require.NotEmpty(t, memID)
 

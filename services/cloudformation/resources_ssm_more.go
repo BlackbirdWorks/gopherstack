@@ -2,10 +2,11 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -382,7 +383,7 @@ func jsonProp(props map[string]any, key string) string {
 		return s
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return ""
 	}

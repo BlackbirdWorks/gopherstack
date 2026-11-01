@@ -3,12 +3,15 @@ package bedrockruntime
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxOllamaErrBody = 4096
@@ -22,10 +25,10 @@ type ollamaOptions struct {
 }
 
 type ollamaToolFunc struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Arguments   json.RawMessage `json:"arguments,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Arguments   jsontext.Value `json:"arguments,omitempty"`
+	Parameters  jsontext.Value `json:"parameters,omitempty"`
 }
 
 type ollamaToolCall struct {
@@ -135,7 +138,7 @@ func (e *ollamaStatusError) Error() string {
 func (o *ollamaBackend) post(ctx context.Context, call *ollamaCall) (*http.Response, error) {
 	endpoint, payload := call.endpoint()
 
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal ollama request: %w", err)
 	}
@@ -159,7 +162,7 @@ func (o *ollamaBackend) post(ctx context.Context, call *ollamaCall) (*http.Respo
 		msg := strings.TrimSpace(string(b))
 
 		var e ollamaChunk
-		if json.Unmarshal(b, &e) == nil && e.Error != "" {
+		if json.Unmarshal(b, &e, jsonx.V1()) == nil && e.Error != "" {
 			msg = e.Error
 		}
 
@@ -185,12 +188,12 @@ func (o *ollamaBackend) run(
 	defer resp.Body.Close()
 
 	res := &ollamaResult{}
-	dec := json.NewDecoder(resp.Body)
+	dec := jsontext.NewDecoder(resp.Body)
 
 	for {
 		var ch ollamaChunk
 
-		if derr := dec.Decode(&ch); derr != nil {
+		if derr := json.UnmarshalDecode(dec, &ch, jsonx.V1()); derr != nil {
 			return nil, fmt.Errorf("%w: reading ollama response: %w", errOllamaUnreachable, derr)
 		}
 

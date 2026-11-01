@@ -2,7 +2,7 @@ package comprehend
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -41,7 +41,7 @@ const comprehendSnapshotVersion = 1
 // nothing for store.Table to key on (see store_setup.go's file doc comment).
 // They are persisted directly here.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage   `json:"tables"`
+	Tables           map[string]jsontext.Value    `json:"tables"`
 	Tags             map[string]map[string]string `json:"tags"`
 	Policies         map[string]string            `json:"policies"`
 	PolicyRevisions  map[string]string            `json:"policyRevisions"`

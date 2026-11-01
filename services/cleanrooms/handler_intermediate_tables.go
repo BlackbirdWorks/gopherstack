@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateIntermediateTable(_ context.Context, body []byte) ([]byte, error) {
@@ -18,7 +20,7 @@ func (h *Handler) handleCreateIntermediateTable(_ context.Context, body []byte) 
 		KmsKeyArn                       string            `json:"kmsKeyArn"`
 		RetentionInDays                 int32             `json:"retentionInDays"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	it, err := h.Backend.CreateIntermediateTable(
 		req.MembershipIdentifier,
 		req.Name,
@@ -40,7 +42,7 @@ func (h *Handler) handleGetIntermediateTable(_ context.Context, body []byte) ([]
 		MembershipIdentifier        string `json:"membershipIdentifier"`
 		IntermediateTableIdentifier string `json:"intermediateTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	it, err := h.Backend.GetIntermediateTable(req.MembershipIdentifier, req.IntermediateTableIdentifier)
 	if err != nil {
 		return nil, err
@@ -57,7 +59,7 @@ func (h *Handler) handleListIntermediateTables(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListIntermediateTables(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -81,7 +83,7 @@ func (h *Handler) handleUpdateIntermediateTable(_ context.Context, body []byte) 
 		Description                 string `json:"description"`
 		KmsKeyArn                   string `json:"kmsKeyArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	it, err := h.Backend.UpdateIntermediateTable(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -100,7 +102,7 @@ func (h *Handler) handleDeleteIntermediateTable(_ context.Context, body []byte) 
 		MembershipIdentifier        string `json:"membershipIdentifier"`
 		IntermediateTableIdentifier string `json:"intermediateTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteIntermediateTable(req.MembershipIdentifier, req.IntermediateTableIdentifier)
 }
@@ -114,7 +116,7 @@ func (h *Handler) handleListIntermediateTableVersions(
 		MembershipIdentifier        string `json:"membershipIdentifier"`
 		IntermediateTableIdentifier string `json:"intermediateTableIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListIntermediateTableVersions(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -143,7 +145,7 @@ func (h *Handler) handlePopulateIntermediateTable(_ context.Context, body []byte
 		IntermediateTableIdentifier string            `json:"intermediateTableIdentifier"`
 		AnalysisPayerAccountID      string            `json:"analysisPayerAccountId"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	result, err := h.Backend.PopulateIntermediateTable(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -164,7 +166,7 @@ func (h *Handler) handleDisallowIntermediateTable(_ context.Context, body []byte
 		MembershipIdentifier  string `json:"membershipIdentifier"`
 		IntermediateTableName string `json:"intermediateTableName"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	// IncludeDescendants defaults to true on the wire (see
 	// DisallowIntermediateTableInput's doc comment in the real SDK).
 	includeDescendants := true
@@ -184,7 +186,7 @@ func (h *Handler) handleCreateIntermediateTableAnalysisRule(_ context.Context, b
 		IntermediateTableIdentifier string         `json:"intermediateTableIdentifier"`
 		AnalysisRuleType            string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),
@@ -211,7 +213,7 @@ func (h *Handler) handleGetIntermediateTableAnalysisRule(_ context.Context, body
 		IntermediateTableIdentifier string `json:"intermediateTableIdentifier"`
 		AnalysisRuleType            string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	r, err := h.Backend.GetIntermediateTableAnalysisRule(
 		req.MembershipIdentifier,
 		req.IntermediateTableIdentifier,
@@ -231,7 +233,7 @@ func (h *Handler) handleUpdateIntermediateTableAnalysisRule(_ context.Context, b
 		IntermediateTableIdentifier string         `json:"intermediateTableIdentifier"`
 		AnalysisRuleType            string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),
@@ -258,7 +260,7 @@ func (h *Handler) handleDeleteIntermediateTableAnalysisRule(_ context.Context, b
 		IntermediateTableIdentifier string `json:"intermediateTableIdentifier"`
 		AnalysisRuleType            string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.IntermediateTableAnalysisRuleType(req.AnalysisRuleType),

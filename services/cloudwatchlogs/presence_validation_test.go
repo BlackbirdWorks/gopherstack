@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -50,7 +51,7 @@ func TestGetLogFields_DataSourceTypePresenceValidation(t *testing.T) {
 			handler := cloudwatchlogs.NewHandler(backend)
 			doLogsRequest(t, handler, e, "CreateLogGroup", `{"logGroupName":"grp"}`)
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, handler, e, "GetLogFields", string(bodyBytes))
@@ -58,7 +59,7 @@ func TestGetLogFields_DataSourceTypePresenceValidation(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterException", resp["__type"])
 			}
 		})
@@ -115,14 +116,14 @@ func TestListAggregateLogGroupSummaries_GroupByPresenceValidation(t *testing.T) 
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeLogsRequest(t, "ListAggregateLogGroupSummaries", string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantCode == http.StatusBadRequest {
 				assert.Equal(t, tt.wantError, resp["__type"])

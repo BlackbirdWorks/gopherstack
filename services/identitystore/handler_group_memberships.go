@@ -2,12 +2,14 @@ package identitystore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxIsMemberInGroupsIDs is the maximum number of GroupIds allowed per IsMemberInGroups request.
@@ -74,7 +76,7 @@ type listGroupMembershipsRequest struct {
 
 func (h *Handler) handleCreateGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createGroupMembershipRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -103,7 +105,7 @@ func (h *Handler) handleCreateGroupMembership(ctx context.Context, c *echo.Conte
 
 func (h *Handler) handleDescribeGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeGroupMembershipRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -125,7 +127,7 @@ func (h *Handler) handleDescribeGroupMembership(ctx context.Context, c *echo.Con
 
 func (h *Handler) handleListGroupMemberships(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupMembershipsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -152,7 +154,7 @@ func (h *Handler) handleListGroupMemberships(ctx context.Context, c *echo.Contex
 
 func (h *Handler) handleDeleteGroupMembership(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteGroupMembershipRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -173,7 +175,7 @@ func (h *Handler) handleDeleteGroupMembership(ctx context.Context, c *echo.Conte
 
 func (h *Handler) handleGetGroupMembershipID(ctx context.Context, c *echo.Context, body []byte) error {
 	var req getGroupMembershipIDRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -202,7 +204,7 @@ func (h *Handler) handleGetGroupMembershipID(ctx context.Context, c *echo.Contex
 
 func (h *Handler) handleListGroupMembershipsForMember(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupMembershipsForMemberRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -229,7 +231,7 @@ func (h *Handler) handleListGroupMembershipsForMember(ctx context.Context, c *ec
 
 func (h *Handler) handleIsMemberInGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req isMemberInGroupsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

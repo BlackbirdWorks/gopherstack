@@ -2,7 +2,9 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createLogStreamInput struct {
@@ -38,7 +40,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateLogStream": func(ctx context.Context, b []byte) (any, error) {
 			var input createLogStreamInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if _, err := h.Backend.CreateLogStream(ctx, input.LogGroupName, input.LogStreamName); err != nil {
@@ -49,7 +51,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 		},
 		"DeleteLogStream": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteLogStreamInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DeleteLogStream(ctx, input.LogGroupName, input.LogStreamName); err != nil {
@@ -60,7 +62,7 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 		},
 		"DescribeLogStreams": func(ctx context.Context, b []byte) (any, error) {
 			var input describeLogStreamsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := validateDescribeLimit(input.Limit); err != nil {

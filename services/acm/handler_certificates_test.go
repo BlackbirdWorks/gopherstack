@@ -3,7 +3,8 @@ package acm_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -42,7 +44,7 @@ func TestACMHandler_ImportCertificate(t *testing.T) {
 				in, _ := json.Marshal(map[string]string{
 					"Certificate": b64(certPEM),
 					"PrivateKey":  b64(keyPEM),
-				})
+				}, jsonx.V1())
 
 				return string(in)
 			}(),
@@ -57,7 +59,7 @@ func TestACMHandler_ImportCertificate(t *testing.T) {
 		{
 			name: "missing_key",
 			body: func() string {
-				in, _ := json.Marshal(map[string]string{"Certificate": b64(certPEM)})
+				in, _ := json.Marshal(map[string]string{"Certificate": b64(certPEM)}, jsonx.V1())
 
 				return string(in)
 			}(),
@@ -147,7 +149,7 @@ func TestACMHandler_ExportCertificate(t *testing.T) {
 			body, _ := json.Marshal(map[string]string{
 				"CertificateArn": tt.certARN,
 				"Passphrase":     "dGVzdA==",
-			})
+			}, jsonx.V1())
 			rec := postACMJSON(t, h, "ExportCertificate", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 			for _, s := range tt.wantContains {
@@ -183,9 +185,9 @@ func TestACMHandler_GetCertificate(t *testing.T) {
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-			body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+			body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 			rec := postACMJSON(t, h, "GetCertificate", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 			for _, s := range tt.wantContains {
@@ -208,9 +210,9 @@ func TestACMHandler_DescribeCertificate_RealistFields(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -224,7 +226,7 @@ func TestACMHandler_DescribeCertificate_RealistFields(t *testing.T) {
 			SignatureAlgorithm string `json:"SignatureAlgorithm"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.NotEmpty(t, descOut.Certificate.Serial, "Serial should be set")
 	assert.Contains(t, descOut.Certificate.Subject, "realism.example.com", "Subject should contain domain")
 	assert.Contains(t, descOut.Certificate.Issuer, "realism.example.com", "Issuer should contain domain (self-signed)")
@@ -247,16 +249,16 @@ func TestACMHandler_ImportCertificate_RealistFields(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{
 		"Certificate": b64(src.CertificateBody),
 		"PrivateKey":  b64(src.PrivateKey),
-	})
+	}, jsonx.V1())
 	importRec := postACMJSON(t, h, "ImportCertificate", string(body))
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut, jsonx.V1()))
 
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": importOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": importOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -266,7 +268,7 @@ func TestACMHandler_ImportCertificate_RealistFields(t *testing.T) {
 			Type       string `json:"Type"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "IMPORTED", descOut.Certificate.Type)
 	assert.NotNil(t, descOut.Certificate.ImportedAt, "ImportedAt should be set for imported cert")
 }
@@ -288,14 +290,14 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 	body1, _ := json.Marshal(map[string]string{
 		"Certificate": b64(src1.CertificateBody),
 		"PrivateKey":  b64(src1.PrivateKey),
-	})
+	}, jsonx.V1())
 	importRec := postACMJSON(t, h, "ImportCertificate", string(body1))
 	require.Equal(t, http.StatusOK, importRec.Code)
 
 	var importOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut, jsonx.V1()))
 	originalARN := importOut.CertificateArn
 
 	// Re-import using the same ARN with new cert material
@@ -303,7 +305,7 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 		"CertificateArn": originalARN,
 		"Certificate":    b64(src2.CertificateBody),
 		"PrivateKey":     b64(src2.PrivateKey),
-	})
+	}, jsonx.V1())
 	reImportRec := postACMJSON(t, h, "ImportCertificate", string(body2))
 	require.Equal(t, http.StatusOK, reImportRec.Code)
 
@@ -311,7 +313,7 @@ func TestACMHandler_ImportCertificate_ReImport(t *testing.T) {
 	var reImportOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reImportRec.Body.Bytes(), &reImportOut))
+	require.NoError(t, json.Unmarshal(reImportRec.Body.Bytes(), &reImportOut, jsonx.V1()))
 	assert.Equal(t, originalARN, reImportOut.CertificateArn, "re-import should return same ARN")
 }
 
@@ -330,7 +332,7 @@ func TestACMHandler_RequestCertificate_IdempotencyToken(t *testing.T) {
 	var out1 struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	// Second call with same token should return same ARN
 	rec2 := postACMJSON(t, h, "RequestCertificate", body)
@@ -339,7 +341,7 @@ func TestACMHandler_RequestCertificate_IdempotencyToken(t *testing.T) {
 	var out2 struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1.CertificateArn, out2.CertificateArn,
 		"repeated RequestCertificate with same IdempotencyToken must return same ARN")
@@ -376,7 +378,7 @@ func TestACMHandler_RequestCertificate_DomainValidation(t *testing.T) {
 			t.Parallel()
 
 			h := newACMHandler()
-			body, _ := json.Marshal(map[string]string{"DomainName": tt.domain})
+			body, _ := json.Marshal(map[string]string{"DomainName": tt.domain}, jsonx.V1())
 			rec := postACMJSON(t, h, "RequestCertificate", string(body))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
@@ -395,9 +397,9 @@ func TestACMHandler_DescribeCertificate_KeyUsageAndInUseBy(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -408,7 +410,7 @@ func TestACMHandler_DescribeCertificate_KeyUsageAndInUseBy(t *testing.T) {
 			InUseBy          []string            `json:"InUseBy"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	require.NotEmpty(t, descOut.Certificate.KeyUsage, "KeyUsage should be set")
 	assert.Equal(t, "DIGITAL_SIGNATURE", descOut.Certificate.KeyUsage[0]["Name"])
@@ -430,9 +432,9 @@ func TestACMHandler_RequestCertificate_EMAIL_ValidationEmails(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -444,7 +446,7 @@ func TestACMHandler_RequestCertificate_EMAIL_ValidationEmails(t *testing.T) {
 			} `json:"DomainValidationOptions"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
 
 	dvo := descOut.Certificate.DomainValidationOptions[0]
@@ -483,7 +485,7 @@ func TestACMHandler_ExportCertificate_PassphraseRequired(t *testing.T) {
 		{
 			name: "missing_passphrase_rejected",
 			body: func() string {
-				b2, _ := json.Marshal(map[string]string{"CertificateArn": importedCert.ARN})
+				b2, _ := json.Marshal(map[string]string{"CertificateArn": importedCert.ARN}, jsonx.V1())
 
 				return string(b2)
 			}(),
@@ -496,7 +498,7 @@ func TestACMHandler_ExportCertificate_PassphraseRequired(t *testing.T) {
 				b2, _ := json.Marshal(map[string]string{
 					"CertificateArn": importedCert.ARN,
 					"Passphrase":     "dGVzdC1wYXNz", // base64("test-pass")
-				})
+				}, jsonx.V1())
 
 				return string(b2)
 			}(),
@@ -509,7 +511,7 @@ func TestACMHandler_ExportCertificate_PassphraseRequired(t *testing.T) {
 				b2, _ := json.Marshal(map[string]string{
 					"CertificateArn": importedCert.ARN,
 					"Passphrase":     "not-valid-base64!!!",
-				})
+				}, jsonx.V1())
 
 				return string(b2)
 			}(),
@@ -548,7 +550,7 @@ func TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent(t *testing.T
 	exportBody, _ := json.Marshal(map[string]string{
 		"CertificateArn": imported.ARN,
 		"Passphrase":     "dGVzdA==", // base64("test")
-	})
+	}, jsonx.V1())
 	rec := postACMJSON(t, h, "ExportCertificate", string(exportBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -557,7 +559,7 @@ func TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent(t *testing.T
 		Certificate      string `json:"Certificate"`
 		PrivateKey       string `json:"PrivateKey"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.CertificateChain, "CertificateChain should always be present on export")
 	assert.NotEmpty(t, out.Certificate)
 	assert.NotEmpty(t, out.PrivateKey)
@@ -565,7 +567,7 @@ func TestACMHandler_ExportCertificate_CertificateChainAlwaysPresent(t *testing.T
 
 func mustMarshal(t *testing.T, v any) string {
 	t.Helper()
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)
@@ -623,7 +625,7 @@ func TestACMHandler_SubjectAlternativeNames_IncludesPrimaryDomain(t *testing.T) 
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 			descBody := mustMarshal(t, map[string]string{"CertificateArn": reqOut.CertificateArn})
 			descRec := postACMJSON(t, h, "DescribeCertificate", descBody)
@@ -634,7 +636,7 @@ func TestACMHandler_SubjectAlternativeNames_IncludesPrimaryDomain(t *testing.T) 
 					SubjectAlternativeNames []string `json:"SubjectAlternativeNames"`
 				} `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 			sans := descOut.Certificate.SubjectAlternativeNames
 			require.NotEmpty(t, sans, "SubjectAlternativeNames must not be empty")
@@ -676,21 +678,21 @@ func TestACMHandler_DescribeCertificate_InUseByIsAlwaysArray(t *testing.T) {
 			var reqOut struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+			require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 			descBody := mustMarshal(t, map[string]string{"CertificateArn": reqOut.CertificateArn})
 			descRec := postACMJSON(t, h, "DescribeCertificate", descBody)
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			// Use raw JSON to verify InUseBy is an array, not null or missing.
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 
 			certRaw, ok := raw["Certificate"]
 			require.True(t, ok, "response must have Certificate field")
 
-			var certMap map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(certRaw, &certMap))
+			var certMap map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(certRaw, &certMap, jsonx.V1()))
 
 			inUseByRaw, present := certMap["InUseBy"]
 			require.True(t, present,
@@ -716,7 +718,7 @@ func TestACMHandler_Serial_ColonSeparatedHexFormat(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	descBody := mustMarshal(t, map[string]string{"CertificateArn": reqOut.CertificateArn})
 	descRec := postACMJSON(t, h, "DescribeCertificate", descBody)
@@ -727,7 +729,7 @@ func TestACMHandler_Serial_ColonSeparatedHexFormat(t *testing.T) {
 			Serial string `json:"Serial"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	serial := descOut.Certificate.Serial
 	require.NotEmpty(t, serial, "Serial must be set for an issued certificate")
@@ -769,7 +771,7 @@ func TestACMHandler_ImportedCertificate_SerialColonFormat(t *testing.T) {
 	var importOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut, jsonx.V1()))
 
 	descBody := mustMarshal(t, map[string]string{"CertificateArn": importOut.CertificateArn})
 	descRec := postACMJSON(t, h, "DescribeCertificate", descBody)
@@ -780,7 +782,7 @@ func TestACMHandler_ImportedCertificate_SerialColonFormat(t *testing.T) {
 			Serial string `json:"Serial"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	serial := descOut.Certificate.Serial
 	require.NotEmpty(t, serial, "imported cert Serial must be set")

@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getResourcesInput struct {
@@ -47,7 +49,7 @@ func (h *Handler) resourceActions() map[string]actionFn {
 
 func (h *Handler) getResourcesAction(b []byte) (int, any, error) {
 	var input getResourcesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	resources, position, err := h.Backend.GetResources(input.RestAPIID, input.Position, input.Limit)
@@ -64,7 +66,7 @@ func (h *Handler) getResourcesAction(b []byte) (int, any, error) {
 
 func (h *Handler) getResourceAction(b []byte) (int, any, error) {
 	var input getResourceInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	r, err := h.Backend.GetResource(input.RestAPIID, input.ResourceID)
@@ -77,7 +79,7 @@ func (h *Handler) getResourceAction(b []byte) (int, any, error) {
 
 func (h *Handler) createResourceAction(b []byte) (int, any, error) {
 	var input createResourceInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	r, err := h.Backend.CreateResource(input.RestAPIID, input.ParentID, input.PathPart)
@@ -90,7 +92,7 @@ func (h *Handler) createResourceAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteResourceAction(b []byte) (int, any, error) {
 	var input deleteResourceInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteResource(input.RestAPIID, input.ResourceID); err != nil {
@@ -102,7 +104,7 @@ func (h *Handler) deleteResourceAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateResourceAction(b []byte) (int, any, error) {
 	var input updateResourceHandlerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	res, err := h.Backend.UpdateResource(input.RestAPIID, input.ResourceID, input.UpdateResourceInput)

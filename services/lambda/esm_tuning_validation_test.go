@@ -1,12 +1,14 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestESM_TuningValidation(t *testing.T) {
@@ -124,7 +126,7 @@ func TestESM_UpdateTuningValidation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	uuid, _ := created["UUID"].(string)
 

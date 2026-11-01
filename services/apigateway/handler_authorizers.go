@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createAuthorizerInput struct {
@@ -67,7 +69,7 @@ func (h *Handler) authorizerActions() map[string]actionFn {
 
 func (h *Handler) createAuthorizerAction(b []byte) (int, any, error) {
 	var input createAuthorizerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	ttl := defaultAuthorizerTTLSeconds
@@ -94,7 +96,7 @@ func (h *Handler) createAuthorizerAction(b []byte) (int, any, error) {
 
 func (h *Handler) getAuthorizerAction(b []byte) (int, any, error) {
 	var input getAuthorizerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	auth, err := h.Backend.GetAuthorizer(input.RestAPIID, input.AuthorizerID)
@@ -107,7 +109,7 @@ func (h *Handler) getAuthorizerAction(b []byte) (int, any, error) {
 
 func (h *Handler) getAuthorizersAction(b []byte) (int, any, error) {
 	var input getAuthorizersInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	auths, err := h.Backend.GetAuthorizers(input.RestAPIID)
@@ -127,7 +129,7 @@ func (h *Handler) getAuthorizersAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateAuthorizerAction(b []byte) (int, any, error) {
 	var input updateAuthorizerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	auth, err := h.Backend.UpdateAuthorizer(input.RestAPIID, input.AuthorizerID, UpdateAuthorizerInput{
@@ -150,7 +152,7 @@ func (h *Handler) updateAuthorizerAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteAuthorizerAction(b []byte) (int, any, error) {
 	var input deleteAuthorizerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteAuthorizer(input.RestAPIID, input.AuthorizerID); err != nil {
@@ -162,7 +164,7 @@ func (h *Handler) deleteAuthorizerAction(b []byte) (int, any, error) {
 
 func (h *Handler) testInvokeAuthorizerAction(b []byte) (int, any, error) {
 	var input TestInvokeAuthorizerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	auth, err := h.Backend.GetAuthorizer(input.RestAPIID, input.AuthorizerID)

@@ -2,7 +2,8 @@ package cloudtrail_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/cloudtrail"
 )
@@ -34,7 +36,7 @@ func doCloudTrailOp(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -55,7 +57,7 @@ func parseCloudTrailResp(t *testing.T, rec *httptest.ResponseRecorder) map[strin
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -535,7 +537,7 @@ func TestCloudTrailListOperationsSmoke(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code, "op %s should return 200", op)
 
 		var m map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &m, jsonx.V1()))
 	}
 
 	// ListQueries takes EventDataStore as required input (real
@@ -551,7 +553,7 @@ func TestCloudTrailListOperationsSmoke(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "op ListQueries should return 200")
 
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &m, jsonx.V1()))
 }
 
 // TestCloudTrailAncillaryOperationsSmoke covers ancillary read-only handlers

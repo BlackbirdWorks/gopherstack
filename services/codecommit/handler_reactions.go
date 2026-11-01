@@ -2,11 +2,12 @@ package codecommit
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,7 +23,7 @@ func (h *Handler) handleGetCommentReactions(body []byte) (any, error) {
 		NextToken       string `json:"nextToken"`
 		MaxResults      int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.CommentID == "" {
@@ -97,7 +98,7 @@ func (h *Handler) handlePutCommentReaction(ctx context.Context, body []byte) (an
 		CommentID     string `json:"commentId"`
 		ReactionValue string `json:"reactionValue"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.CommentID == "" || req.ReactionValue == "" {

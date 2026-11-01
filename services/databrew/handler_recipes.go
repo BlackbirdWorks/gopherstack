@@ -2,10 +2,12 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseRecipeSubOp(method, subOp string) string {
@@ -115,7 +117,7 @@ func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, 
 		Name        string            `json:"Name"`
 		Description string            `json:"Description"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -132,7 +134,7 @@ func (h *Handler) handleCreateRecipe(ctx context.Context, body []byte) ([]byte, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: r.Name})
+	return json.Marshal(map[string]string{keyName: r.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte, error) {
@@ -140,7 +142,7 @@ func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte
 		Name          string `json:"Name"`
 		RecipeVersion string `json:"RecipeVersion"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	r, err := h.Backend.DescribeRecipe(ctx, req.Name, req.RecipeVersion)
@@ -148,7 +150,7 @@ func (h *Handler) handleDescribeRecipe(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(r)
+	return json.Marshal(r, jsonx.V1())
 }
 
 func (h *Handler) handleListRecipes(ctx context.Context, body []byte) ([]byte, error) {
@@ -157,7 +159,7 @@ func (h *Handler) handleListRecipes(ctx context.Context, body []byte) ([]byte, e
 		NextToken     string `json:"NextToken"`
 		RecipeVersion string `json:"RecipeVersion"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -173,14 +175,14 @@ func (h *Handler) handlePublishRecipe(ctx context.Context, body []byte) ([]byte,
 		Name        string `json:"Name"`
 		Description string `json:"Description"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.PublishRecipe(ctx, req.Name, req.Description); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, error) {
@@ -189,7 +191,7 @@ func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, 
 		Description string       `json:"Description"`
 		Steps       []RecipeStep `json:"Steps"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := validateRecipeStepMembers(req.Steps); err != nil {
@@ -200,21 +202,21 @@ func (h *Handler) handleUpdateRecipe(ctx context.Context, body []byte) ([]byte, 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteRecipe(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteRecipe(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleBatchDeleteRecipeVersion(ctx context.Context, body []byte) ([]byte, error) {
@@ -222,7 +224,7 @@ func (h *Handler) handleBatchDeleteRecipeVersion(ctx context.Context, body []byt
 		Name           string   `json:"Name"`
 		RecipeVersions []string `json:"RecipeVersions"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	errs, err := h.Backend.BatchDeleteRecipeVersion(ctx, req.Name, req.RecipeVersions)
@@ -230,7 +232,7 @@ func (h *Handler) handleBatchDeleteRecipeVersion(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyName: req.Name, "Errors": errs})
+	return json.Marshal(map[string]any{keyName: req.Name, "Errors": errs}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([]byte, error) {
@@ -238,14 +240,14 @@ func (h *Handler) handleDeleteRecipeVersion(ctx context.Context, body []byte) ([
 		Name          string `json:"Name"`
 		RecipeVersion string `json:"RecipeVersion"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteRecipeVersion(ctx, req.Name, req.RecipeVersion); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name, "RecipeVersion": req.RecipeVersion})
+	return json.Marshal(map[string]string{keyName: req.Name, "RecipeVersion": req.RecipeVersion}, jsonx.V1())
 }
 
 func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]byte, error) {
@@ -254,7 +256,7 @@ func (h *Handler) handleListRecipeVersions(ctx context.Context, body []byte) ([]
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)

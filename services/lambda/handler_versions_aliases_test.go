@@ -1,13 +1,14 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -69,7 +70,7 @@ func TestPublishVersion(t *testing.T) {
 
 			if tt.wantVersion != "" {
 				var ver lambda.FunctionVersion
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ver, jsonx.V1()))
 				assert.Equal(t, tt.wantVersion, ver.Version)
 				assert.Equal(t, tt.wantDesc, ver.Description)
 				assert.Equal(t, tt.funcName, ver.FunctionName)
@@ -134,7 +135,7 @@ func TestListVersionsByFunction(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var out lambda.ListVersionsByFunctionOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Versions, tt.wantCount)
 				for i, v := range tt.wantVersions {
 					assert.Equal(t, v, out.Versions[i].Version)
@@ -238,7 +239,7 @@ func TestCreateAlias(t *testing.T) {
 
 			if tt.wantName != "" {
 				var alias lambda.FunctionAlias
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias, jsonx.V1()))
 				assert.Equal(t, tt.wantName, alias.Name)
 				assert.Equal(t, tt.wantVersion, alias.FunctionVersion)
 			}
@@ -312,7 +313,7 @@ func TestGetAlias(t *testing.T) {
 
 			if tt.wantName != "" {
 				var alias lambda.FunctionAlias
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias, jsonx.V1()))
 				assert.Equal(t, tt.wantName, alias.Name)
 			}
 		})
@@ -378,7 +379,7 @@ func TestListAliases(t *testing.T) {
 
 			if tt.wantCount > 0 {
 				var out lambda.ListAliasesOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Aliases, tt.wantCount)
 			}
 		})
@@ -456,7 +457,7 @@ func TestUpdateAlias(t *testing.T) {
 
 			if tt.wantVersion != "" {
 				var alias lambda.FunctionAlias
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alias, jsonx.V1()))
 				assert.Equal(t, tt.wantVersion, alias.FunctionVersion)
 			}
 		})

@@ -2,9 +2,11 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // protectedJobWire shadows the request-only "type" key; types.ProtectedJob has no type member.
@@ -23,7 +25,7 @@ func (h *Handler) handleStartProtectedJob(_ context.Context, body []byte) ([]byt
 		Type                 string         `json:"type"`
 		PayerAccountID       string         `json:"jobComputePayerAccountId"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	j, err := h.Backend.StartProtectedJob(
 		req.MembershipIdentifier,
 		req.Type,
@@ -43,7 +45,7 @@ func (h *Handler) handleGetProtectedJob(_ context.Context, body []byte) ([]byte,
 		MembershipIdentifier   string `json:"membershipIdentifier"`
 		ProtectedJobIdentifier string `json:"protectedJobIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	j, err := h.Backend.GetProtectedJob(req.MembershipIdentifier, req.ProtectedJobIdentifier)
 	if err != nil {
 		return nil, err
@@ -60,7 +62,7 @@ func (h *Handler) handleListProtectedJobs(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListProtectedJobs(
 		req.MembershipIdentifier,
 		qp(c, "status"),
@@ -84,7 +86,7 @@ func (h *Handler) handleUpdateProtectedJob(_ context.Context, body []byte) ([]by
 		ProtectedJobIdentifier string `json:"protectedJobIdentifier"`
 		TargetStatus           string `json:"targetStatus"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	j, err := h.Backend.UpdateProtectedJob(
 		req.MembershipIdentifier,
 		req.ProtectedJobIdentifier,

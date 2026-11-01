@@ -1,7 +1,7 @@
 package appconfigdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
 
@@ -361,14 +362,14 @@ func TestHandler_RetryAfterHeader(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "p",
 				"RequiredMinimumPollIntervalInSeconds": tt.pollInterval,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
 			require.Equal(t, http.StatusCreated, sessionRec.Code)
 
 			var sessionResp map[string]string
-			require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &sessionResp))
+			require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &sessionResp, jsonx.V1()))
 			tok := sessionResp["InitialConfigurationToken"]
 
 			// First poll — gets content.
@@ -635,13 +636,13 @@ func TestHandler_PollRateLimitEnforced(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "p",
 				"RequiredMinimumPollIntervalInSeconds": tt.pollInterval,
-			})
+			}, jsonx.V1())
 
 			rec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var sessionResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sessionResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sessionResp, jsonx.V1()))
 			tok := sessionResp["InitialConfigurationToken"]
 
 			// First poll — succeeds.
@@ -657,7 +658,7 @@ func TestHandler_PollRateLimitEnforced(t *testing.T) {
 			assert.Equal(t, tt.wantRetry, rec2.Header().Get("Retry-After"))
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "BadRequestException", body["__type"])
 			assert.Equal(t, "InvalidParameters", body["Reason"])
 

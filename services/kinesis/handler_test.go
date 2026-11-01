@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
-	"encoding/json"
+	"encoding/json/v2"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -57,7 +58,7 @@ func doRequest(t *testing.T, h *kinesis.Handler, action string, body any) *httpt
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -159,7 +160,7 @@ func doParityRequest(t *testing.T, h *kinesis.Handler, action string, body any) 
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -255,7 +256,7 @@ func TestKinesisHandler_ErrorResponses(t *testing.T) {
 				var errResp struct {
 					Type string `json:"__type"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})
@@ -312,7 +313,7 @@ func TestExtractResource(t *testing.T) {
 	e := echo.New()
 
 	// Valid body
-	body, _ := json.Marshal(map[string]string{"StreamName": "my-stream"})
+	body, _ := json.Marshal(map[string]string{"StreamName": "my-stream"}, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	c := e.NewContext(req, httptest.NewRecorder())

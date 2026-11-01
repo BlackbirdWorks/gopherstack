@@ -1,7 +1,7 @@
 package detective_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/detective"
 )
 
@@ -20,7 +21,7 @@ func TestDetective_Tags(t *testing.T) { //nolint:paralleltest // existing issue.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	tests := []struct {
@@ -39,7 +40,7 @@ func TestDetective_Tags(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				tags, ok := resp["Tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Empty(t, tags)
@@ -67,7 +68,7 @@ func TestDetective_Tags(t *testing.T) { //nolint:paralleltest // existing issue.
 
 				tagRec := doRequest(t, h, http.MethodGet, "/tags/"+graphArn, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &resp, jsonx.V1()))
 				tags := resp["Tags"].(map[string]any)
 				assert.Equal(t, "myval", tags["mykey"])
 			},
@@ -237,7 +238,7 @@ func TestTagResource_EmptyTags_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/tags/"+graphArn, map[string]any{
@@ -259,7 +260,7 @@ func TestUntagResource_NonExistentKey_Succeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	req := doRequest(t, h, http.MethodDelete, "/tags/"+graphArn+"?tagKeys=does-not-exist", nil)
@@ -279,14 +280,14 @@ func TestListTagsForResource_NoTags_Returns_EmptyObject(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodGet, "/tags/"+graphArn, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, hasKey := resp["Tags"]
 	assert.True(t, hasKey, "ListTagsForResource must include Tags field")
@@ -309,14 +310,14 @@ func TestCreateGraph_Tags_VisibleInListTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodGet, "/tags/"+graphArn, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags, _ := tagsResp["Tags"].(map[string]any)
 
 	assert.Equal(t, "prod", tags["env"], "tags set at graph creation must be visible via ListTagsForResource")

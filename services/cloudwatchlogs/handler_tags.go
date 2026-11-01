@@ -2,10 +2,11 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -136,7 +137,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 	return map[string]actionFn{
 		"ListTagsLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsLogGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -144,7 +145,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 		},
 		"ListTagsForResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input listTagsForResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -152,7 +153,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 		},
 		"TagLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagLogGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			var kv map[string]string
@@ -165,7 +166,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 		},
 		"UntagLogGroup": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagLogGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			h.removeTags(input.LogGroupName, input.Tags)
@@ -174,7 +175,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 		},
 		"TagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			h.setTags(input.ResourceArn, maps.Clone(input.Tags))
@@ -183,7 +184,7 @@ func (h *Handler) logTagActions() map[string]actionFn {
 		},
 		"UntagResource": func(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			h.removeTags(input.ResourceArn, input.TagKeys)

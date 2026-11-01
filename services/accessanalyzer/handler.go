@@ -2,7 +2,7 @@ package accessanalyzer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -232,7 +233,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		return c.JSON(statusCode, struct{}{})
 	}
 
-	data, err := json.Marshal(result)
+	data, err := json.Marshal(result, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			errorBody("InternalFailure", "failed to serialize response"))

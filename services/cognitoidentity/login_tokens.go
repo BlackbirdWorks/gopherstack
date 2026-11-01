@@ -5,10 +5,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const jwtSegments = 3
@@ -28,7 +30,7 @@ func parseLoginClaims(token string) (map[string]any, bool) {
 	}
 
 	var claims map[string]any
-	if json.Unmarshal(raw, &claims) != nil {
+	if json.Unmarshal(raw, &claims, jsonx.V1()) != nil {
 		return nil, false
 	}
 
@@ -123,7 +125,7 @@ func (b *InMemoryBackend) verifyLoginSignature(token string, claims map[string]a
 		Kid string `json:"kid"`
 	}
 
-	if json.Unmarshal(rawHdr, &hdr) != nil {
+	if json.Unmarshal(rawHdr, &hdr, jsonx.V1()) != nil {
 		return errBadSignature
 	}
 

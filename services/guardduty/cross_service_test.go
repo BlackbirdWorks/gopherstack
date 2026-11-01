@@ -1,12 +1,13 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
@@ -97,7 +98,7 @@ func TestMemberOps_AutoEnableOrganizationMembersAll_AllowedAfterAccountLeavesOrg
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.Empty(t, out["unprocessedAccounts"], "account should have been processed, not left unprocessed")
 		})
 	}

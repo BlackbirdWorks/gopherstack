@@ -1,13 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -31,7 +32,7 @@ func TestIPSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				ipSetID := cr["ipSetId"].(string)
 				require.NotEmpty(t, ipSetID)
 
@@ -39,7 +40,7 @@ func TestIPSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "my-ipset", gr["name"])
 				assert.Equal(t, "TXT", gr["format"])
 				assert.Equal(t, "ACTIVE", gr["status"])
@@ -53,7 +54,7 @@ func TestIPSet_CRUD(t *testing.T) {
 					"name": "upd-ipset", "format": "TXT", "location": "s3://b/f.txt",
 				})
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				ipSetID := cr["ipSetId"].(string)
 
 				rec = doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/ipset/"+ipSetID, map[string]any{
@@ -64,7 +65,7 @@ func TestIPSet_CRUD(t *testing.T) {
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "updated-ipset", gr["name"])
 				assert.Equal(t, "ACTIVE", gr["status"])
 			},
@@ -77,7 +78,7 @@ func TestIPSet_CRUD(t *testing.T) {
 					"name": "del-ipset", "format": "TXT", "location": "s3://b/f.txt",
 				})
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				ipSetID := cr["ipSetId"].(string)
 
 				rec = doRequest(t, h, http.MethodDelete, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
@@ -87,7 +88,7 @@ func TestIPSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "DELETED", gr["status"])
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/ipset", nil)
@@ -111,7 +112,7 @@ func TestIPSet_CRUD(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ids, ok := resp["ipSetIds"].([]any)
 				require.True(t, ok)
 				assert.Len(t, ids, 3)
@@ -125,12 +126,12 @@ func TestIPSet_CRUD(t *testing.T) {
 					"name": "inactive-ipset", "format": "TXT", "location": "s3://b/f.txt",
 				})
 				var cr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 				ipSetID := cr["ipSetId"].(string)
 
 				rec = doRequest(t, h, http.MethodGet, "/detector/"+detectorID+"/ipset/"+ipSetID, nil)
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				assert.Equal(t, "INACTIVE", gr["status"])
 			},
 		},
@@ -156,7 +157,7 @@ func TestListIPSets_Empty_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["ipSetIds"]
 	require.True(t, exists, "ListIPSets must include 'ipSetIds' key")
@@ -182,14 +183,14 @@ func TestIPSet_Tags_EmptyMap_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	ipSetID := createResp["ipSetId"].(string)
 
 	rec = doRequest(t, h, http.MethodGet, "/detector/"+id+"/ipset/"+ipSetID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["tags"]
 	require.True(t, exists, "GetIPSet response must include 'tags' key")

@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -849,7 +850,7 @@ func brokerPropertiesFromHeader(r *http.Request) brokerProperties {
 
 	var bp brokerProperties
 
-	_ = json.Unmarshal([]byte(raw), &bp)
+	_ = json.Unmarshal([]byte(raw), &bp, jsonx.V1())
 
 	return bp
 }
@@ -979,7 +980,7 @@ func (h *Handler) writeLockedMessage(c *echo.Context, req parsedRequest, info Me
 	bp.LockToken = info.LockToken
 	bp.LockedUntilUtc = info.LockedUntil.UTC().Format(http.TimeFormat)
 
-	bpJSON, err := json.Marshal(bp)
+	bpJSON, err := json.Marshal(bp, jsonx.V1())
 	if err != nil {
 		return h.writeError(c, http.StatusInternalServerError, "InternalError", "Failed to marshal BrokerProperties.")
 	}
@@ -1199,7 +1200,7 @@ func (h *Handler) writeBodyReadError(c *echo.Context, err error) error {
 }
 
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
-	body, err := json.Marshal(azureError{Code: code, Message: message})
+	body, err := json.Marshal(azureError{Code: code, Message: message}, jsonx.V1())
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal error")
 	}

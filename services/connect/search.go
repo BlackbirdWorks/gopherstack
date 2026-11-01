@@ -1,11 +1,13 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TimeRange bounds a contact search.
@@ -70,23 +72,23 @@ type SearchContactsInput struct {
 	TimeRange      TimeRange
 	InstanceID     string `json:"InstanceId"`
 	NextToken      string
-	SearchCriteria json.RawMessage
+	SearchCriteria jsontext.Value
 	MaxResults     int32
 }
 
-func parseCriteria(raw json.RawMessage) (*ContactSearchCriteria, error) {
+func parseCriteria(raw jsontext.Value) (*ContactSearchCriteria, error) {
 	var crit ContactSearchCriteria
 
 	if len(raw) == 0 {
 		return &crit, nil
 	}
 
-	if err := json.Unmarshal(raw, &crit); err != nil {
+	if err := json.Unmarshal(raw, &crit, jsonx.V1()); err != nil {
 		return nil, invalidParamErr("SearchCriteria is not valid")
 	}
 
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &members); err != nil {
+	var members map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &members, jsonx.V1()); err != nil {
 		return nil, invalidParamErr("SearchCriteria is not valid")
 	}
 
@@ -291,7 +293,7 @@ type ContactSearchSummary struct {
 	InitiationMethod    string             `json:"InitiationMethod"`
 	Name                string             `json:"Name,omitempty"`
 	PreviousContactID   string             `json:"PreviousContactId,omitempty"`
-	SegmentAttributes   json.RawMessage    `json:"SegmentAttributes,omitempty"`
+	SegmentAttributes   jsontext.Value     `json:"SegmentAttributes,omitempty"`
 }
 
 func summarizeContact(c *contactRec) ContactSearchSummary {

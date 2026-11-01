@@ -2,7 +2,7 @@ package glue
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
@@ -35,13 +35,13 @@ type createJobInput struct {
 
 // jobExtraMembers are the CreateJob/JobUpdate members shared by both inputs.
 type jobExtraMembers struct {
-	NonOverridableArguments   map[string]string          `json:"NonOverridableArguments,omitempty"`
-	CodeGenConfigurationNodes map[string]json.RawMessage `json:"CodeGenConfigurationNodes,omitempty"`
-	JobRunQueuingEnabled      *bool                      `json:"JobRunQueuingEnabled,omitempty"`
-	LogURI                    string                     `json:"LogUri,omitempty"`
-	SecurityConfiguration     string                     `json:"SecurityConfiguration,omitempty"`
-	ExecutionClass            string                     `json:"ExecutionClass,omitempty"`
-	MaintenanceWindow         string                     `json:"MaintenanceWindow,omitempty"`
+	NonOverridableArguments   map[string]string         `json:"NonOverridableArguments,omitempty"`
+	CodeGenConfigurationNodes map[string]jsontext.Value `json:"CodeGenConfigurationNodes,omitempty"`
+	JobRunQueuingEnabled      *bool                     `json:"JobRunQueuingEnabled,omitempty"`
+	LogURI                    string                    `json:"LogUri,omitempty"`
+	SecurityConfiguration     string                    `json:"SecurityConfiguration,omitempty"`
+	ExecutionClass            string                    `json:"ExecutionClass,omitempty"`
+	MaintenanceWindow         string                    `json:"MaintenanceWindow,omitempty"`
 }
 
 func (m jobExtraMembers) apply(j *Job) {

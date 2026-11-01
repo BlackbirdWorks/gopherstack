@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -95,7 +97,7 @@ func TestHandler_AssociateMergedGraphqlApi(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		assoc, ok := resp["sourceApiAssociation"].(map[string]any)
 		require.True(t, ok)
 		assert.NotEmpty(t, assoc["associationId"])
@@ -138,7 +140,7 @@ func TestHandler_AssociateSourceGraphqlApi(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		assoc, ok := resp["sourceApiAssociation"].(map[string]any)
 		require.True(t, ok)
 		assert.NotEmpty(t, assoc["associationId"])
@@ -178,7 +180,7 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &createResp, jsonx.V1()))
 	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
 
 	// List source API associations.
@@ -186,7 +188,7 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &listResp, jsonx.V1()))
 	assocs := listResp["sourceApiAssociationSummaries"].([]any)
 	assert.Len(t, assocs, 1)
 
@@ -195,7 +197,7 @@ func TestHandler_SourceAPIAssociations_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec3.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec3.Body), &getResp, jsonx.V1()))
 	assoc := getResp["sourceApiAssociation"].(map[string]any)
 	assert.Equal(t, mrgAPI.APIID, assoc["mergedApiId"])
 
@@ -225,7 +227,7 @@ func TestHandler_DisassociateMergedGraphqlApi(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &createResp, jsonx.V1()))
 	assocID := createResp["sourceApiAssociation"].(map[string]any)["associationId"].(string)
 
 	// Disassociate.
@@ -246,7 +248,7 @@ func TestHandler_ListSourceApiAssociations_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Empty(t, resp["sourceApiAssociationSummaries"])
 }
 
@@ -318,7 +320,7 @@ func TestHandler_StartSchemaMerge(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			assert.Equal(t, appsync.SourceAPIAssociationStatusMergeSuccess, resp["sourceApiAssociationStatus"])
 		})
 	}

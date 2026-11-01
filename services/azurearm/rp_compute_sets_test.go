@@ -1,7 +1,8 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestComputeSDK_AvailabilitySets(t *testing.T) {
@@ -462,7 +465,7 @@ func TestComputeSDK_ListPagingAndPatch(t *testing.T) {
 	}
 
 	var page listPage
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&page))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &page, jsonx.V1()))
 	assert.Len(t, page.Value, 2)
 	require.NotEmpty(t, page.NextLink)
 
@@ -470,7 +473,7 @@ func TestComputeSDK_ListPagingAndPatch(t *testing.T) {
 	resp = s.rawDo(t, http.MethodGet, next, "")
 
 	var last listPage
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&last))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &last, jsonx.V1()))
 	assert.Len(t, last.Value, 1)
 	assert.Empty(t, last.NextLink)
 

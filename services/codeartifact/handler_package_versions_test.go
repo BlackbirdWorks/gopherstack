@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -72,7 +73,7 @@ func TestHandler_DescribePackageVersion(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pv, _ := resp["packageVersion"].(map[string]any)
 				assert.Equal(t, "1.0.0", pv["version"])
 				assert.NotEmpty(t, pv["status"])
@@ -110,7 +111,7 @@ func TestHandler_DeletePackageVersions(t *testing.T) {
 	// aws-sdk-go-v2 deserializers.go's ...PackageVersionErrorMap/
 	// ...SuccessfulPackageVersionInfoMap.
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failed, _ := resp["failedVersions"].(map[string]any)
 	require.Len(t, failed, 1)
 	failedEntry, _ := failed["99.0.0"].(map[string]any)
@@ -162,7 +163,7 @@ func TestHandler_CopyPackageVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failed, _ := resp["failedVersions"].(map[string]any)
 	require.Len(t, failed, 1)
 	failedEntry, _ := failed["9.9.9"].(map[string]any)
@@ -215,7 +216,7 @@ func TestHandler_PackageVersionRevision(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pv, _ := resp["packageVersion"].(map[string]any)
 	assert.NotEmpty(t, pv["revision"])
 }
@@ -244,7 +245,7 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		// deserializers.go's ...SuccessfulPackageVersionInfoMap/
 		// ...PackageVersionErrorMap.
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		successList, _ := resp["successfulVersions"].(map[string]any)
 		require.Len(t, successList, 1)
@@ -279,7 +280,7 @@ func TestHandler_SuccessfulVersions(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		// "Copied" is not a real PackageVersionStatus enum value (real values:
 		// Published/Unfinished/Unlisted/Archived/Disposed/Deleted) -- the copied
@@ -309,7 +310,7 @@ func TestHandler_PackageVersionMap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pv, _ := resp["packageVersion"].(map[string]any)
 
 	publishedTime, _ := pv["publishedTime"].(float64)
@@ -340,7 +341,7 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	// aws-sdk-go-v2 deserializers.go's
 	// ...SuccessfulPackageVersionInfoMap/...PackageVersionErrorMap.
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	success, _ := resp["successfulVersions"].(map[string]any)
 	entry, _ := success["1.0.0"].(map[string]any)
 	assert.Equal(t, "Disposed", entry["status"])
@@ -358,7 +359,7 @@ func TestHandler_DisposePackageVersions_StatusChange(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	pv, _ := descResp["packageVersion"].(map[string]any)
 	assert.Equal(t, "Disposed", pv["status"])
 }
@@ -386,7 +387,7 @@ func TestHandler_UpdatePackageVersionsStatus_StatusChange(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	pv, _ := descResp["packageVersion"].(map[string]any)
 	assert.Equal(t, "Archived", pv["status"])
 }
@@ -408,7 +409,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, pubRec.Code)
 	var pubResp map[string]any
-	require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp))
+	require.NoError(t, json.Unmarshal(pubRec.Body.Bytes(), &pubResp, jsonx.V1()))
 	assert.Equal(t, "1.0.0", pubResp["version"])
 	assert.Equal(t, "Published", pubResp["status"])
 	asset, _ := pubResp["asset"].(map[string]any)
@@ -422,7 +423,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	pv, _ := descResp["packageVersion"].(map[string]any)
 	assert.Equal(t, "Published", pv["status"])
 
@@ -442,7 +443,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec2.Code)
 	var descResp2 map[string]any
-	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2))
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descResp2, jsonx.V1()))
 	pv2, _ := descResp2["packageVersion"].(map[string]any)
 	assert.Equal(t, "Archived", pv2["status"])
 
@@ -462,7 +463,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, descRec3.Code)
 	var descResp3 map[string]any
-	require.NoError(t, json.Unmarshal(descRec3.Body.Bytes(), &descResp3))
+	require.NoError(t, json.Unmarshal(descRec3.Body.Bytes(), &descResp3, jsonx.V1()))
 	pv3, _ := descResp3["packageVersion"].(map[string]any)
 	assert.Equal(t, "Disposed", pv3["status"])
 
@@ -482,7 +483,7 @@ func TestHandler_PackageVersionLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	versions, _ := listResp["versions"].([]any)
 	assert.Empty(t, versions)
 }
@@ -520,7 +521,7 @@ func TestHandler_CopyPackageVersions_ToSelf(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, copyRec2.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(copyRec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(copyRec2.Body.Bytes(), &resp, jsonx.V1()))
 	failed, _ := resp["failedVersions"].(map[string]any)
 	require.Len(t, failed, 1)
 	entry, _ := failed["18.0.0"].(map[string]any)
@@ -603,7 +604,7 @@ func TestHandler_DisposePackageVersions(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["successfulVersions"])
 				assert.NotNil(t, resp["failedVersions"])
 			}
@@ -691,7 +692,7 @@ func TestHandler_UpdatePackageVersionsStatus(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["successfulVersions"])
 				assert.NotNil(t, resp["failedVersions"])
 			}
@@ -715,7 +716,7 @@ func TestListPackageVersions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1, _ := out1["versions"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["nextToken"].(string)
@@ -728,7 +729,7 @@ func TestListPackageVersions_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2, _ := out2["versions"].([]any)
 	assert.Len(t, page2, 2)
 }
@@ -768,7 +769,7 @@ func TestPackageVersion_HasPackageName(t *testing.T) {
 					Version     string `json:"version"`
 				} `json:"packageVersion"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.pkgName, out.PackageVersion.PackageName)
 			assert.Equal(t, "1.0.0", out.PackageVersion.Version)
 		})

@@ -1,13 +1,14 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -51,7 +52,7 @@ func inventoryArchiveIDs(t *testing.T, body []byte) []string {
 			ArchiveID string `json:"ArchiveId"`
 		} `json:"ArchiveList"`
 	}
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	ids := make([]string, len(resp.ArchiveList))
 	for i, a := range resp.ArchiveList {
@@ -177,7 +178,7 @@ func TestInitiateJob_InventoryRetrieval_InvalidParameters(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterValueException", errResp["code"])
 		})
 	}
@@ -200,7 +201,7 @@ func TestDescribeJob_InventoryRetrieval_EchoesParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasTopLevelFormat := resp["Format"]
 	assert.False(t, hasTopLevelFormat, "top-level Format is not a real GlacierJobDescription field")
@@ -231,7 +232,7 @@ func TestDescribeJob_ArchiveRetrieval_NoInventoryRetrievalParameters(t *testing.
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, has := resp["InventoryRetrievalParameters"]
 	assert.False(t, has)

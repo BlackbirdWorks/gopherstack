@@ -1,12 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestEc2DeepInspectionConfiguration(t *testing.T) {
@@ -36,7 +38,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						_, ok := resp["status"]
 						assert.True(t, ok)
 					},
@@ -50,7 +52,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						paths, _ := resp["packagePaths"].([]any)
 						assert.Len(t, paths, 2)
 					},
@@ -79,7 +81,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						members, _ := resp["accountIds"].([]any)
 						assert.Len(t, members, 1)
 					},
@@ -100,7 +102,7 @@ func TestEc2DeepInspectionConfiguration(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						accounts, _ := resp["accountIds"].([]any)
 						assert.Len(t, accounts, 1)
 					},

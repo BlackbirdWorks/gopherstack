@@ -1,7 +1,8 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -83,7 +85,7 @@ func TestInitiateMultipartUpload(t *testing.T) {
 
 			if tt.wantUploadID {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["uploadId"])
 
 				uploadID := rec.Header().Get("X-Amz-Multipart-Upload-Id")
@@ -257,7 +259,7 @@ func TestCompleteMultipartUpload(t *testing.T) {
 
 			if tt.wantArchive {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["archiveId"])
 				assert.NotEmpty(t, rec.Header().Get("X-Amz-Archive-Id"))
 			}
@@ -377,7 +379,7 @@ func TestListMultipartUploads(t *testing.T) {
 			var resp struct {
 				UploadsList []any `json:"UploadsList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.UploadsList, tt.wantCount)
 		})
 	}
@@ -469,7 +471,7 @@ func TestListParts(t *testing.T) {
 				var resp struct {
 					Parts []any `json:"Parts"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.Parts, tt.wantParts)
 			}
 		})
@@ -541,7 +543,7 @@ func TestMultipartUpload_FullRoundTrip(t *testing.T) {
 			var partsResp struct {
 				Parts []any `json:"Parts"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &partsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &partsResp, jsonx.V1()))
 			assert.Len(t, partsResp.Parts, 1)
 
 			// List uploads — should have 1
@@ -551,7 +553,7 @@ func TestMultipartUpload_FullRoundTrip(t *testing.T) {
 			var uploadsResp struct {
 				UploadsList []any `json:"UploadsList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp, jsonx.V1()))
 			assert.Len(t, uploadsResp.UploadsList, 1)
 
 			// Complete the upload
@@ -567,13 +569,13 @@ func TestMultipartUpload_FullRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var completeResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &completeResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &completeResp, jsonx.V1()))
 			assert.NotEmpty(t, completeResp["archiveId"])
 
 			// After completion, list uploads should be empty
 			rec = doRequest(t, h, http.MethodGet, "/-/vaults/"+tt.vaultName+"/multipart-uploads", "")
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &uploadsResp, jsonx.V1()))
 			assert.Empty(t, uploadsResp.UploadsList)
 		})
 	}
@@ -818,7 +820,7 @@ func TestUploadMultipartPart_RequiresContentRange(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 			require.NotEmpty(t, uploadID)
 
@@ -893,7 +895,7 @@ func TestCompleteMultipartUpload_RequiresHeaders(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 			require.NotEmpty(t, uploadID)
 
@@ -953,7 +955,7 @@ func TestListMultipartUploads_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	uploads := resp["UploadsList"].([]any)
 	assert.Len(t, uploads, 2)
@@ -1007,7 +1009,7 @@ func TestListParts_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var upResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &upResp, jsonx.V1()))
 	uploadID := upResp["uploadId"].(string)
 
 	// Upload 3 parts.
@@ -1029,7 +1031,7 @@ func TestListParts_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var partsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &partsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &partsResp, jsonx.V1()))
 	parts := partsResp["Parts"].([]any)
 	require.Len(t, parts, 3)
 
@@ -1039,7 +1041,7 @@ func TestListParts_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var pPage1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pPage1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pPage1, jsonx.V1()))
 	assert.Len(t, pPage1["Parts"].([]any), 1)
 	assert.NotEmpty(t, pPage1["Marker"])
 }
@@ -1082,7 +1084,7 @@ func TestListParts_PartsAlwaysArray(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 			require.NotEmpty(t, uploadID)
 
@@ -1101,8 +1103,8 @@ func TestListParts_PartsAlwaysArray(t *testing.T) {
 				"/"+testAccountID+"/vaults/listparts-audit-vault/multipart-uploads/"+uploadID, "")
 			require.Equal(t, http.StatusOK, listRec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			partsRaw, present := resp["Parts"]
 			assert.True(t, present, "Parts key must be present in ListParts response")
@@ -1150,7 +1152,7 @@ func TestMultipartUpload_FullLifecycle(t *testing.T) {
 				"", headers)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 			require.NotEmpty(t, uploadID)
 			// Location header must be set.
@@ -1175,7 +1177,7 @@ func TestMultipartUpload_FullLifecycle(t *testing.T) {
 				"", nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 			var listParts map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listParts))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listParts, jsonx.V1()))
 			parts := listParts["Parts"].([]any)
 			assert.Len(t, parts, 1)
 
@@ -1189,7 +1191,7 @@ func TestMultipartUpload_FullLifecycle(t *testing.T) {
 				})
 			require.Equal(t, http.StatusCreated, rec3.Code)
 			var completeResp map[string]string
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &completeResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &completeResp, jsonx.V1()))
 			archiveID := completeResp["archiveId"]
 			assert.NotEmpty(t, archiveID)
 			assert.Equal(t, checksum, rec3.Header().Get("X-Amz-Sha256-Tree-Hash"))
@@ -1199,7 +1201,7 @@ func TestMultipartUpload_FullLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/mp-lifecycle-"+tt.name+"/multipart-uploads", "", nil)
 			require.Equal(t, http.StatusOK, rec4.Code)
 			var listUploads map[string]any
-			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &listUploads))
+			require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &listUploads, jsonx.V1()))
 			uploads := listUploads["UploadsList"].([]any)
 			assert.Empty(t, uploads)
 
@@ -1215,7 +1217,7 @@ func TestMultipartUpload_FullLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/mp-lifecycle-"+tt.name, "", nil)
 			require.Equal(t, http.StatusOK, descVault.Code)
 			var vaultDesc map[string]any
-			require.NoError(t, json.Unmarshal(descVault.Body.Bytes(), &vaultDesc))
+			require.NoError(t, json.Unmarshal(descVault.Body.Bytes(), &vaultDesc, jsonx.V1()))
 			assert.EqualValues(t, 1, vaultDesc["NumberOfArchives"])
 		})
 	}
@@ -1242,7 +1244,7 @@ func TestMultipartUpload_AbortLifecycle(t *testing.T) {
 				"", map[string]string{"X-Amz-Part-Size": "1048576"})
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 
 			// Abort.
@@ -1255,7 +1257,7 @@ func TestMultipartUpload_AbortLifecycle(t *testing.T) {
 				"/"+testAccountID+"/vaults/mp-abort-vault/multipart-uploads", "", nil)
 			require.Equal(t, http.StatusOK, rec3.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 			uploads := listResp["UploadsList"].([]any)
 			assert.Empty(t, uploads, tt.name)
 
@@ -1293,7 +1295,7 @@ func TestListParts_MarkerNotFound(t *testing.T) {
 				map[string]string{"X-Amz-Part-Size": "1048576"})
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 			require.NotEmpty(t, uploadID)
 
@@ -1303,8 +1305,8 @@ func TestListParts_MarkerNotFound(t *testing.T) {
 				"", nil)
 			require.Equal(t, http.StatusOK, rec2.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			partsRaw := resp["Parts"]
 			assert.Equal(t, "[]", string(partsRaw), tt.name)
 		})
@@ -1338,7 +1340,7 @@ func TestListParts_MarkerPagination(t *testing.T) {
 				"", map[string]string{"X-Amz-Part-Size": "1048576"})
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 
 			// Upload 2 parts.
@@ -1363,7 +1365,7 @@ func TestListParts_MarkerPagination(t *testing.T) {
 				"", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var page1 map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 			parts1 := page1["Parts"].([]any)
 			require.Len(t, parts1, 1)
 			markerVal, hasMarker := page1["Marker"].(string)
@@ -1375,7 +1377,7 @@ func TestListParts_MarkerPagination(t *testing.T) {
 			rec = doRequestWithHeaders(t, h, http.MethodGet, secondPage, "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var page2 map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 			parts2 := page2["Parts"].([]any)
 			assert.Len(t, parts2, 1)
 			_, hasMarker2 := page2["Marker"]

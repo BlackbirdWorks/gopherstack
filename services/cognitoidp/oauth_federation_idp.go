@@ -5,7 +5,8 @@ import (
 	"crypto/rsa"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -201,7 +203,11 @@ func idpFetchJSON(
 		return idpErrorf("%s returned status %d", req.URL.Host, resp.StatusCode)
 	}
 
-	if err = json.NewDecoder(io.LimitReader(resp.Body, maxIDPDocBytes)).Decode(out); err != nil {
+	if err = json.UnmarshalDecode(
+		jsontext.NewDecoder(io.LimitReader(resp.Body, maxIDPDocBytes)),
+		out,
+		jsonx.V1(),
+	); err != nil {
 		return idpErrorf("invalid JSON from %s: %v", req.URL.Host, err)
 	}
 

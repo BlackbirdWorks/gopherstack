@@ -1,8 +1,10 @@
 package codecommit
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type tagResourceInput struct {
@@ -21,7 +23,7 @@ type listTagsForResourceInput struct {
 
 func (h *Handler) handleTagResource(body []byte) (any, error) {
 	var in tagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -38,7 +40,7 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 
 func (h *Handler) handleUntagResource(body []byte) (any, error) {
 	var in untagResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -55,7 +57,7 @@ func (h *Handler) handleUntagResource(body []byte) (any, error) {
 
 func (h *Handler) handleListTagsForResource(body []byte) (any, error) {
 	var in listTagsForResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 

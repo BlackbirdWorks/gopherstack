@@ -2,8 +2,9 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -57,7 +58,7 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 // backend whenever the caller supplied a malformed tag.
 func (h *Handler) createKeyAction(ctx context.Context, b []byte) (any, error) {
 	var input CreateKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

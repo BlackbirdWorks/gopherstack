@@ -1,7 +1,7 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"time"
 )
@@ -72,7 +72,7 @@ type Analyzer struct {
 	Name                   string            `json:"name"`
 	Type                   AnalyzerType      `json:"type"`
 	Status                 AnalyzerStatus    `json:"status"`
-	Configuration          json.RawMessage   `json:"configuration,omitempty"`
+	Configuration          jsontext.Value    `json:"configuration,omitempty"`
 }
 
 // ArchiveRule represents an archive rule for an analyzer.
@@ -169,7 +169,7 @@ const (
 // echoed back opaquely as submitted instead of decoded into the full union.
 type AccessPreview struct {
 	CreatedAt      time.Time
-	Configurations map[string]json.RawMessage
+	Configurations map[string]jsontext.Value
 	ID             string
 	AnalyzerArn    string
 	Status         AccessPreviewStatus
@@ -230,7 +230,7 @@ func cloneFilter(f map[string]FilterCriterion) map[string]FilterCriterion {
 func copyAnalyzer(a *Analyzer) *Analyzer {
 	cp := *a
 	cp.Tags = cloneTags(a.Tags)
-	cp.Configuration = append(json.RawMessage(nil), a.Configuration...)
+	cp.Configuration = append(jsontext.Value(nil), a.Configuration...)
 
 	return &cp
 }

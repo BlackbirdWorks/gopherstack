@@ -2,11 +2,13 @@ package cloudfront
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -112,7 +114,7 @@ var dirtyTableNames = struct {
 // registerAllTables doc for the clean/dirty split), merged into one map so a
 // single Tables blob round-trips the whole backend.
 type backendSnapshot struct {
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 
 	DistributionFunctionAssociations map[string][]FunctionAssociation `json:"distributionFunctionAssociations,omitempty"`
 	DistributionAliases              map[string][]string              `json:"distributionAliases,omitempty"`
@@ -199,7 +201,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                              b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "cloudfront: Snapshot marshal failure", "error", err)
 
@@ -277,7 +279,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // b.registry -- see store_setup.go's registerAllTables doc) from an ephemeral DTO
 // [store.Registry] built from tables, converting each DTO back to a live
 // Invalidation. Must be called with the lock held.
-func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(tables map[string]jsontext.Value) error {
 	dtoReg := store.NewRegistry()
 	invalidationDTOs := store.Register(dtoReg, dirtyTableNames.invalidations, store.New(invalidationSnapshotKey))
 	tenantInvalidationDTOs := store.Register(
@@ -550,7 +552,7 @@ func tableFrom[T any](snap *backendSnapshot, name string) []*T {
 	}
 
 	var out []*T
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil
 	}
 

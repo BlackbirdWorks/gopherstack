@@ -2,7 +2,7 @@ package iam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"strings"
@@ -223,13 +223,13 @@ func (h *Handler) forAccount(root *InMemoryBackend, acct string) *Handler {
 	return sh
 }
 
-func (h *Handler) accountSnapshots(ctx context.Context) map[string]json.RawMessage {
+func (h *Handler) accountSnapshots(ctx context.Context) map[string]jsontext.Value {
 	root, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return nil
 	}
 
-	var out map[string]json.RawMessage
+	var out map[string]jsontext.Value
 
 	for _, id := range root.Accounts() {
 		data := h.forAccount(root, id).Snapshot(ctx)
@@ -238,7 +238,7 @@ func (h *Handler) accountSnapshots(ctx context.Context) map[string]json.RawMessa
 		}
 
 		if out == nil {
-			out = make(map[string]json.RawMessage)
+			out = make(map[string]jsontext.Value)
 		}
 
 		out[id] = data
@@ -247,7 +247,7 @@ func (h *Handler) accountSnapshots(ctx context.Context) map[string]json.RawMessa
 	return out
 }
 
-func (h *Handler) restoreAccounts(ctx context.Context, snaps map[string]json.RawMessage) error {
+func (h *Handler) restoreAccounts(ctx context.Context, snaps map[string]jsontext.Value) error {
 	root, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
 		return nil

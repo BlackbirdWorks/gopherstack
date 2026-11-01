@@ -1,7 +1,8 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -51,13 +53,13 @@ func TestExperiment_EndTime_AbsentBeforeComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec2.Code)
 
 	// Immediately after start, endTime should be absent (omitempty).
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 
 	mustJSON(t, rec2, &raw)
 
-	var expRaw map[string]json.RawMessage
+	var expRaw map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw))
+	require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw, jsonx.V1()))
 	_, hasEndTime := expRaw["endTime"]
 	assert.False(t, hasEndTime, "endTime must be absent on a running experiment")
 }
@@ -113,13 +115,13 @@ func TestExperiment_EndTime_PresentAfterComplete(t *testing.T) {
 		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
 		require.Equal(t, http.StatusOK, rec3.Code)
 
-		var raw map[string]json.RawMessage
+		var raw map[string]jsontext.Value
 
 		mustJSON(t, rec3, &raw)
 
-		var expRaw map[string]json.RawMessage
+		var expRaw map[string]jsontext.Value
 
-		require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw))
+		require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw, jsonx.V1()))
 
 		statusRaw, hasStatus := expRaw["status"]
 		require.True(t, hasStatus)
@@ -128,7 +130,7 @@ func TestExperiment_EndTime_PresentAfterComplete(t *testing.T) {
 			Status string `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(statusRaw, &status))
+		require.NoError(t, json.Unmarshal(statusRaw, &status, jsonx.V1()))
 		require.Equal(t, "completed", status.Status)
 
 		endTimeRaw, hasEndTime := expRaw["endTime"]
@@ -136,7 +138,7 @@ func TestExperiment_EndTime_PresentAfterComplete(t *testing.T) {
 
 		var endTime float64
 
-		require.NoError(t, json.Unmarshal(endTimeRaw, &endTime))
+		require.NoError(t, json.Unmarshal(endTimeRaw, &endTime, jsonx.V1()))
 		assert.Greater(t, endTime, 0.0, "endTime must be a positive Unix timestamp")
 	})
 }
@@ -359,13 +361,13 @@ func TestExperiment_StatusAndState_BothPresent(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	var raw map[string]json.RawMessage
+	var raw map[string]jsontext.Value
 
 	mustJSON(t, rec, &raw)
 
-	var expRaw map[string]json.RawMessage
+	var expRaw map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw))
+	require.NoError(t, json.Unmarshal(raw["experiment"], &expRaw, jsonx.V1()))
 	_, hasStatus := expRaw["status"]
 	_, hasState := expRaw["state"]
 	assert.True(t, hasStatus, "experiment must have 'status' field")
@@ -522,22 +524,22 @@ func TestExperimentStatus_ErrorField_Present(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
-	var resp map[string]json.RawMessage
+	var resp map[string]jsontext.Value
 
 	mustJSON(t, rec, &resp)
 
 	expRaw := resp["experiment"]
 
-	var exp map[string]json.RawMessage
+	var exp map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(expRaw, &exp))
+	require.NoError(t, json.Unmarshal(expRaw, &exp, jsonx.V1()))
 
 	statusRaw, ok := exp["status"]
 	require.True(t, ok, "experiment should have status field")
 
-	var status map[string]json.RawMessage
+	var status map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(statusRaw, &status))
+	require.NoError(t, json.Unmarshal(statusRaw, &status, jsonx.V1()))
 
 	// state.error should be absent for non-failed experiments (omitempty).
 	_, hasError := status["error"]

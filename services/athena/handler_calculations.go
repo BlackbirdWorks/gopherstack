@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type startCalculationInput struct {
 	SessionID          string `json:"SessionId"`
@@ -24,7 +28,7 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"StartCalculationExecution": func(b []byte) (any, error) {
 			var input startCalculationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -52,7 +56,7 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 		},
 		"GetCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -73,7 +77,7 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 		},
 		"GetCalculationExecutionStatus": func(b []byte) (any, error) {
 			var input calculationIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -86,7 +90,7 @@ func (h *Handler) calcCoreOps() map[string]athenaActionFn {
 		},
 		"GetCalculationExecutionCode": func(b []byte) (any, error) {
 			var input calculationIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -104,7 +108,7 @@ func (h *Handler) calcControlOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"StopCalculationExecution": func(b []byte) (any, error) {
 			var input calculationIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -117,7 +121,7 @@ func (h *Handler) calcControlOps() map[string]athenaActionFn {
 		},
 		"ListCalculationExecutions": func(b []byte) (any, error) {
 			var input listCalculationsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

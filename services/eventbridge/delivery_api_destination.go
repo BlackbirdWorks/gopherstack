@@ -2,7 +2,7 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/httptarget"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -125,7 +126,7 @@ func mergeBodyParameters(payload string, params []ConnectionBodyParameter) strin
 	}
 
 	var obj map[string]any
-	if err := json.Unmarshal([]byte(payload), &obj); err != nil || obj == nil {
+	if err := json.Unmarshal([]byte(payload), &obj, jsonx.V1()); err != nil || obj == nil {
 		return payload
 	}
 
@@ -133,7 +134,7 @@ func mergeBodyParameters(payload string, params []ConnectionBodyParameter) strin
 		obj[p.Key] = p.Value
 	}
 
-	merged, err := json.Marshal(obj)
+	merged, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
 		return payload
 	}
@@ -253,7 +254,7 @@ func fetchOAuthToken(ctx context.Context, oauth *ResolvedOAuth) (string, error) 
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
 	}
-	if err = json.Unmarshal(data, &tokenResp); err != nil {
+	if err = json.Unmarshal(data, &tokenResp, jsonx.V1()); err != nil {
 		return "", err
 	}
 	if tokenResp.AccessToken == "" {

@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAssociateAgentKnowledgeBaseVersion locks in real AWS's constraint on
@@ -29,7 +31,7 @@ func TestAssociateAgentKnowledgeBaseVersion(t *testing.T) {
 
 		var agentResp map[string]map[string]any
 
-		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp)
+		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp, jsonx.V1())
 		agentID, _ := agentResp["agent"]["agentId"].(string)
 
 		kbRec := doRequest(t, h, e, http.MethodPut, "/knowledgebases", map[string]any{
@@ -44,7 +46,7 @@ func TestAssociateAgentKnowledgeBaseVersion(t *testing.T) {
 
 		var kbResp map[string]map[string]any
 
-		_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp)
+		_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp, jsonx.V1())
 		kbID, _ := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 		rec := doRequest(t, h, e, http.MethodPut,
@@ -58,7 +60,7 @@ func TestAssociateAgentKnowledgeBaseVersion(t *testing.T) {
 
 		var resp map[string]map[string]any
 
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
 
@@ -83,7 +85,7 @@ func TestAssociateAgentKnowledgeBaseVersion(t *testing.T) {
 
 		var agentResp map[string]map[string]any
 
-		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp)
+		_ = json.Unmarshal(agentRec.Body.Bytes(), &agentResp, jsonx.V1())
 		agentID, _ := agentResp["agent"]["agentId"].(string)
 
 		kbRec := doRequest(t, h, e, http.MethodPut, "/knowledgebases", map[string]any{
@@ -98,7 +100,7 @@ func TestAssociateAgentKnowledgeBaseVersion(t *testing.T) {
 
 		var kbResp map[string]map[string]any
 
-		_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp)
+		_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp, jsonx.V1())
 		kbID, _ := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 		rec := doRequest(t, h, e, http.MethodPut,

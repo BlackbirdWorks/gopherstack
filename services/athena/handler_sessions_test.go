@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -17,7 +18,7 @@ func jsonNested(t *testing.T, body []byte, keys ...string) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(body, &m))
+	require.NoError(t, json.Unmarshal(body, &m, jsonx.V1()))
 	cur := m
 
 	for _, k := range keys {
@@ -296,7 +297,7 @@ func TestHandler_ListSessions(t *testing.T) {
 
 			if tt.wantNonEmpty {
 				var m map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 				assert.NotEmpty(t, m["Sessions"])
 			}
 		})
@@ -409,7 +410,7 @@ func TestHandler_ListNotebookSessions(t *testing.T) {
 				var body struct {
 					NotebookSessionsList []map[string]any `json:"NotebookSessionsList"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Len(t, body.NotebookSessionsList, 1, "expected the started session to be linked to its notebook")
 			}
 		})
@@ -458,7 +459,7 @@ func TestHandler_ListEngineVersions_NoInventedAuthEngineVersionField(t *testing.
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string][]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp["EngineVersions"])
 
 	for _, ev := range resp["EngineVersions"] {
@@ -744,7 +745,7 @@ func TestGetSessionEndpoint_UsesConfiguredRegion(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			url, _ := resp["EndpointUrl"].(string)
 			assert.Contains(t, url, tt.wantPrefix,

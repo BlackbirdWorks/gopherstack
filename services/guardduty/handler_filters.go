@@ -1,10 +1,11 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchFilterOps(op, path, query string, body []byte) (any, int, bool, error) {
@@ -54,7 +55,7 @@ func (h *Handler) handleCreateFilter(detectorID string, body []byte) (any, int, 
 		Rank            int32             `json:"rank"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -122,7 +123,7 @@ func (h *Handler) handleUpdateFilter(detectorID, filterName string, body []byte)
 		Rank            int32          `json:"rank"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

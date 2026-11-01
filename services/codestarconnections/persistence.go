@@ -2,7 +2,7 @@ package codestarconnections
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -87,10 +87,10 @@ func resourceSyncStatusDTOKeyFn(d *resourceSyncStatusDTO) string {
 // an incompatible (older or newer) build of this backend as though it were
 // the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // persistenceDTOTables groups every ephemeral DTO table Snapshot/Restore
@@ -246,7 +246,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // syncBlockers; see store_setup.go's registerAllTables doc) from tables via
 // the ephemeral DTO registry, factored out of Restore to keep Restore's own
 // cognitive complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreDirtyTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 	if err := dtos.registry.RestoreAll(tables); err != nil {
 		return fmt.Errorf("codestarconnections: restore snapshot DTO tables: %w", err)

@@ -2,8 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDescribeWorkspaceConfiguration(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -17,14 +19,14 @@ func (h *Handler) handleDescribeWorkspaceConfiguration(_ context.Context, r *htt
 	return json.Marshal(map[string]any{
 		"configuration":  configuration,
 		"grafanaVersion": grafanaVersion,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleUpdateWorkspaceConfiguration(_ context.Context, r *http.Request, body []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
 
 	var req updateWorkspaceConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -32,5 +34,5 @@ func (h *Handler) handleUpdateWorkspaceConfiguration(_ context.Context, r *http.
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

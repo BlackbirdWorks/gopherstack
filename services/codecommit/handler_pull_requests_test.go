@@ -1,13 +1,15 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreatePullRequest(t *testing.T) {
@@ -82,7 +84,7 @@ func TestHandler_CreatePullRequest(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pr, ok := resp["pullRequest"].(map[string]any)
 				require.True(t, ok, "pullRequest key should be present")
@@ -154,7 +156,7 @@ func TestHandler_CreatePullRequest_RepoMetadataInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 
 	assert.NotEmpty(t, pr["pullRequestId"])
@@ -226,7 +228,7 @@ func TestHandler_ListPullRequests_StatusFilter(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["pullRequest"].(map[string]any)["pullRequestId"].(string)
 			}
@@ -249,7 +251,7 @@ func TestHandler_ListPullRequests_StatusFilter(t *testing.T) {
 
 			if tt.wantHTTPCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ids := resp["pullRequestIds"].([]any)
 				assert.Len(t, ids, tt.wantCount)
 			}
@@ -276,7 +278,7 @@ func TestHandler_ListPullRequests_ClosedFilterIncludesMerged(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var mergeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mergeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mergeResp, jsonx.V1()))
 	mergedPR := mergeResp["pullRequest"].(map[string]any)
 	assert.Equal(
 		t, "CLOSED", mergedPR["pullRequestStatus"],
@@ -290,7 +292,7 @@ func TestHandler_ListPullRequests_ClosedFilterIncludesMerged(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	ids := listResp["pullRequestIds"].([]any)
 	require.Len(t, ids, 1)
 	assert.Equal(t, prID, ids[0])
@@ -317,7 +319,7 @@ func TestHandler_ListPullRequests_NumericDescendingOrder(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ids := resp["pullRequestIds"].([]any)
 	require.Len(t, ids, 3)
 
@@ -361,7 +363,7 @@ func TestHandler_MergePullRequest_AlreadyMerged(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			prID := resp["pullRequest"].(map[string]any)["pullRequestId"].(string)
 
 			// First merge — should succeed.
@@ -373,7 +375,7 @@ func TestHandler_MergePullRequest_AlreadyMerged(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "PullRequestAlreadyClosedException", errResp["__type"])
 		})
 	}
@@ -405,13 +407,13 @@ func TestHandler_MergePullRequest_StatusBecomesClosed(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			prID := resp["pullRequest"].(map[string]any)["pullRequestId"].(string)
 
 			rec = doRequest(t, h, strategy, map[string]any{"pullRequestId": prID})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			mergedPR := resp["pullRequest"].(map[string]any)
 			assert.Equal(t, "CLOSED", mergedPR["pullRequestStatus"])
 		})
@@ -431,7 +433,7 @@ func TestHandler_UpdatePullRequestStatus(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "CLOSED", pr["pullRequestStatus"])
 }
@@ -488,7 +490,7 @@ func TestHandler_UpdatePullRequestStatus_Validation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			prID := resp["pullRequest"].(map[string]any)["pullRequestId"].(string)
 
 			rec = doRequest(t, h, "UpdatePullRequestStatus", map[string]any{
@@ -552,7 +554,7 @@ func TestHandler_UpdatePullRequestStatus_TableDriven(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp["__type"])
 			}
 		})
@@ -581,7 +583,7 @@ func TestHandler_PullRequest_FieldsPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	pr, ok := resp["pullRequest"].(map[string]any)
 	require.True(t, ok)
@@ -619,7 +621,7 @@ func TestHandler_UpdatePullRequestDescription(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "new description", pr["description"])
 }
@@ -637,7 +639,7 @@ func TestHandler_UpdatePullRequestDescription_Reflected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "A much better description", pr["description"])
 }
@@ -655,7 +657,7 @@ func TestHandler_UpdatePullRequestTitle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "updated title", pr["title"])
 }
@@ -673,7 +675,7 @@ func TestHandler_UpdatePullRequestTitle_Reflected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pr := resp["pullRequest"].(map[string]any)
 	assert.Equal(t, "Updated Title", pr["title"])
 	assert.Equal(t, prID, pr["pullRequestId"])

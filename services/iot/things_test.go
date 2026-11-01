@@ -1,7 +1,7 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -705,8 +706,8 @@ func TestUpdateThing_MergeFalse_ReplacesAttributes(t *testing.T) {
 			require.NoError(t, err)
 
 			var bodyAttr iot.AttributePayload
-			raw, _ := json.Marshal(tt.updateBody["attributePayload"])
-			require.NoError(t, json.Unmarshal(raw, &bodyAttr))
+			raw, _ := json.Marshal(tt.updateBody["attributePayload"], jsonx.V1())
+			require.NoError(t, json.Unmarshal(raw, &bodyAttr, jsonx.V1()))
 
 			err = b.UpdateThing(&iot.UpdateThingInput{
 				ThingName:        "merge-test",

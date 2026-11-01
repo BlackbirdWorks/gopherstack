@@ -2,7 +2,7 @@ package cloudcontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -125,12 +126,12 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // marshalError serialises a typed AWS error response into bytes.
 func marshalError(errType, message string) []byte {
-	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message}, jsonx.V1())
 
 	return payload
 }
@@ -142,8 +143,6 @@ func marshalError(errType, message string) []byte {
 // exceptions (e.g. ConcurrentModificationException, ServiceInternalErrorException) use 500.
 // See e.g. https://docs.aws.amazon.com/cloudcontrolapi/latest/APIReference/API_GetResource.html#API_GetResource_Errors
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, ErrClientTokenConflict):
@@ -170,7 +169,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrValidation):
 		return ccError(c, http.StatusBadRequest, "InvalidRequestException", err,
 			"The request is invalid.")
-	case errors.Is(err, errUnknownAction), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, errUnknownAction), jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return ccError(c, http.StatusBadRequest, "InvalidRequestException", err, "The request is invalid.")
 	default:
 		return ccError(c, http.StatusInternalServerError, "ServiceInternalErrorException", err,

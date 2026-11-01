@@ -3,11 +3,12 @@ package firehose
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -25,7 +26,7 @@ func buildSplunkBody(records [][]byte, hecType string) ([]byte, string) {
 
 		var buf bytes.Buffer
 		for _, rec := range records {
-			line, marshalErr := json.Marshal(hecEvent{Event: string(rec)})
+			line, marshalErr := json.Marshal(hecEvent{Event: string(rec)}, jsonx.V1())
 			if marshalErr != nil {
 				continue
 			}

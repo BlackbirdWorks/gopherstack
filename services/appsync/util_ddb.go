@@ -1,10 +1,12 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func ddbTyped(v any) any {
@@ -118,7 +120,7 @@ func utilDynamo() map[string]utilFn {
 				return nil, err
 			}
 
-			b, err := json.Marshal(v)
+			b, err := json.Marshal(v, jsonx.V1())
 
 			return string(b), err
 		}

@@ -2,9 +2,11 @@ package cognitoidentity
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -50,12 +52,12 @@ func issueOpenIDToken(
 		claims[openIDTagsClaim] = tags
 	}
 
-	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
+	header, err := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"}, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("encode token header: %w", err)
 	}
 
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("encode token claims: %w", err)
 	}

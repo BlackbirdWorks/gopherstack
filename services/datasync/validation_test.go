@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDataSync_RequestValidation(t *testing.T) {
@@ -86,7 +88,7 @@ func TestDataSync_RequestValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", out["__type"])
 			assert.Contains(t, out["message"], tt.wantMsg)
 			assert.NotContains(t, out["message"], "InvalidRequestException:")
@@ -106,7 +108,7 @@ func TestDataSync_ResourceIDFormats(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var start map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 	tests := []struct {
 		name string

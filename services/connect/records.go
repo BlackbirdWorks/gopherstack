@@ -1,7 +1,7 @@
 package connect
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -90,13 +90,13 @@ type promptRec struct {
 }
 
 type contactRec struct {
-	InstanceID       string          `json:"instanceId"`
-	ParticipantID    string          `json:"participantId,omitempty"`
-	ParticipantToken string          `json:"participantToken,omitempty"`
-	FlowID           string          `json:"flowId,omitempty"`
-	TaskTemplateID   string          `json:"taskTemplateId,omitempty"`
-	Contact          Contact         `json:"contact"`
-	References       json.RawMessage `json:"references,omitempty"`
+	InstanceID       string         `json:"instanceId"`
+	ParticipantID    string         `json:"participantId,omitempty"`
+	ParticipantToken string         `json:"participantToken,omitempty"`
+	FlowID           string         `json:"flowId,omitempty"`
+	TaskTemplateID   string         `json:"taskTemplateId,omitempty"`
+	Contact          Contact        `json:"contact"`
+	References       jsontext.Value `json:"references,omitempty"`
 }
 
 type integrationRec struct {

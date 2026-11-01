@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -226,7 +227,7 @@ func TestWireErrorTypes_NotValidationException(t *testing.T) {
 			var resp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantType, resp.Type)
 			assert.NotEqual(t, "ValidationException", resp.Type)
 		})
@@ -351,7 +352,7 @@ func TestWireErrorTypes_MalformedKeyIDArn(t *testing.T) {
 			var resp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantType, resp.Type)
 		})
 	}
@@ -360,7 +361,7 @@ func TestWireErrorTypes_MalformedKeyIDArn(t *testing.T) {
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)

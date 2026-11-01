@@ -2,7 +2,8 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -55,7 +57,7 @@ func TestDescribeStream_ByARN(t *testing.T) {
 					StreamARN  string `json:"StreamARN"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "arn-describe-stream", resp.StreamDescription.StreamName)
 			assert.Equal(t, desc.StreamARN, resp.StreamDescription.StreamARN)
 		})
@@ -100,7 +102,7 @@ func TestDescribeStreamSummary_ByARN(t *testing.T) {
 					StreamARN  string `json:"StreamARN"`
 				} `json:"StreamDescriptionSummary"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "arn-summary-stream", resp.StreamDescriptionSummary.StreamName)
 			assert.Equal(t, desc.StreamARN, resp.StreamDescriptionSummary.StreamARN)
 		})
@@ -142,7 +144,7 @@ func TestDescribeStream_EncryptionFields(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "KMS", resp.StreamDescription.EncryptionType)
 		assert.Equal(t, "alias/my-key-id", resp.StreamDescription.KeyID)
 	})
@@ -181,7 +183,7 @@ func TestDescribeStreamSummary_EncryptionFields(t *testing.T) {
 			} `json:"StreamDescriptionSummary"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "KMS", resp.StreamDescriptionSummary.EncryptionType)
 		assert.Equal(t, "alias/summary-key-id", resp.StreamDescriptionSummary.KeyID)
 	})
@@ -208,7 +210,10 @@ func TestDescribeStreamSummary_OpenShardCountAndConsumerCount(t *testing.T) {
 			} `json:"StreamDescription"`
 		}
 
-		require.NoError(t, json.NewDecoder(strings.NewReader(descRec.Body.String())).Decode(&descResp))
+		require.NoError(
+			t,
+			json.UnmarshalDecode(jsontext.NewDecoder(strings.NewReader(descRec.Body.String())), &descResp, jsonx.V1()),
+		)
 
 		regRec := doParityRequest(t, h, "RegisterStreamConsumer", map[string]any{
 			"StreamARN":    descResp.StreamDescription.StreamARN,
@@ -228,7 +233,10 @@ func TestDescribeStreamSummary_OpenShardCountAndConsumerCount(t *testing.T) {
 			} `json:"StreamDescriptionSummary"`
 		}
 
-		require.NoError(t, json.NewDecoder(strings.NewReader(sumRec.Body.String())).Decode(&sumResp))
+		require.NoError(
+			t,
+			json.UnmarshalDecode(jsontext.NewDecoder(strings.NewReader(sumRec.Body.String())), &sumResp, jsonx.V1()),
+		)
 
 		assert.Equal(t, 3, sumResp.StreamDescriptionSummary.OpenShardCount)
 		assert.Equal(t, 1, sumResp.StreamDescriptionSummary.ConsumerCount)
@@ -269,7 +277,7 @@ func TestDescribeStream_StreamCreationTimestamp(t *testing.T) {
 					StreamCreationTimestamp float64 `json:"StreamCreationTimestamp"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			assert.GreaterOrEqual(t, int64(resp.StreamDescription.StreamCreationTimestamp), before)
 		})
 	}
@@ -309,7 +317,7 @@ func TestDescribeStream_StreamModeDetails(t *testing.T) {
 					} `json:"StreamModeDetails"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotNil(t, resp.StreamDescription.StreamModeDetails)
 			assert.Equal(t, tt.wantMode, resp.StreamDescription.StreamModeDetails.StreamMode)
 		})
@@ -366,7 +374,7 @@ func TestDescribeStreamSummary_OpenShardCount_AfterMerge(t *testing.T) {
 							ShardID string `json:"ShardId"`
 						} `json:"Shards"`
 					}
-					require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &shardsResp))
+					require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &shardsResp, jsonx.V1()))
 					require.Len(t, shardsResp.Shards, 2)
 
 					rec3 := doRequest(t, h, "MergeShards", map[string]any{
@@ -387,7 +395,7 @@ func TestDescribeStreamSummary_OpenShardCount_AfterMerge(t *testing.T) {
 						OpenShardCount int `json:"OpenShardCount"`
 					} `json:"StreamDescriptionSummary"`
 				}
-				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &summaryResp))
+				require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &summaryResp, jsonx.V1()))
 				assert.Equal(t, tt.wantOpenShards, summaryResp.StreamDescriptionSummary.OpenShardCount)
 			})
 		})
@@ -426,7 +434,7 @@ func TestDescribeStream_EncryptionTypeDefault(t *testing.T) {
 					EncryptionType string `json:"EncryptionType"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantEncryption, resp.StreamDescription.EncryptionType)
 		})
 	}
@@ -454,7 +462,7 @@ func TestDescribeStream_IncludesClosedShardsAfterMerge(t *testing.T) {
 		}
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		s0 := descResp.StreamDescription.Shards[0].ShardID
 		s1 := descResp.StreamDescription.Shards[1].ShardID
 
@@ -468,7 +476,7 @@ func TestDescribeStream_IncludesClosedShardsAfterMerge(t *testing.T) {
 		// After merge: 2 closed parents + 1 open merged = 3 total.
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-merge"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Len(t, descResp.StreamDescription.Shards, 3)
 	})
 }
@@ -495,7 +503,7 @@ func TestDescribeStream_IncludesClosedShardsAfterSplit(t *testing.T) {
 		}
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		shardID := descResp.StreamDescription.Shards[0].ShardID
 
 		const splitKey = "170141183460469231731687303715884105728"
@@ -509,7 +517,7 @@ func TestDescribeStream_IncludesClosedShardsAfterSplit(t *testing.T) {
 		// After split: 1 closed parent + 2 open children = 3 total.
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-closed-split"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Len(t, descResp.StreamDescription.Shards, 3)
 	})
 }
@@ -537,7 +545,7 @@ func TestDescribeStream_OpenShardNoEndingSequenceNumber(t *testing.T) {
 	}
 	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-open-shard"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	require.Len(t, descResp.StreamDescription.Shards, 1)
 	// Open shards have an empty EndingSequenceNumber.
 	assert.Empty(t, descResp.StreamDescription.Shards[0].SequenceNumberRange.EndingSequenceNumber)
@@ -585,7 +593,7 @@ func TestDescribeStream_OpenShardWithRecordsNoEndingSeq(t *testing.T) {
 		}
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "open-shard-with-records"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 1)
 
 		shard := descResp.StreamDescription.Shards[0]
@@ -625,7 +633,7 @@ func TestDescribeStream_UpdateShardCount_IncludesOldClosedShards(t *testing.T) {
 		}
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "describe-usc-stream"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Len(t, descResp.StreamDescription.Shards, 5, "3 closed + 2 open = 5")
 	})
 }
@@ -734,7 +742,7 @@ func TestDescribeStream_ClosedShardHasEndingSequenceNumber(t *testing.T) {
 
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 1)
 		shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -750,7 +758,7 @@ func TestDescribeStream_ClosedShardHasEndingSequenceNumber(t *testing.T) {
 		// Re-describe: closed shard should have a non-empty EndingSequenceNumber.
 		rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "closing-seqnum-stream"})
 		require.Equal(t, http.StatusOK, rec.Code)
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		require.Len(t, descResp.StreamDescription.Shards, 3)
 
 		closedCount := 0

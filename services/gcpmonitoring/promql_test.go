@@ -1,7 +1,7 @@
 package gcpmonitoring_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,6 +18,7 @@ import (
 	"google.golang.org/genproto/googleapis/api/monitoredres"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -67,7 +68,7 @@ func (e *env) promQuery(t *testing.T, q string) promReply {
 	require.Equal(t, http.StatusOK, code, string(body))
 
 	var r promReply
-	require.NoError(t, json.Unmarshal(body, &r))
+	require.NoError(t, json.Unmarshal(body, &r, jsonx.V1()))
 
 	return r
 }
@@ -165,7 +166,7 @@ func TestPromQLRangeQuery(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, string(body))
 
 	var r promReply
-	require.NoError(t, json.Unmarshal(body, &r))
+	require.NoError(t, json.Unmarshal(body, &r, jsonx.V1()))
 	require.Equal(t, "matrix", r.Data.ResultType)
 	require.Len(t, r.Data.Result, 1)
 
@@ -294,7 +295,7 @@ func TestPromQLProjectIsolation(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 
 	var r promReply
-	require.NoError(t, json.Unmarshal(body, &r))
+	require.NoError(t, json.Unmarshal(body, &r, jsonx.V1()))
 	assert.Empty(t, r.Data.Result)
 }
 
@@ -363,7 +364,7 @@ func TestPromQLErrors(t *testing.T) {
 			assert.Equal(t, tt.status, code, string(body))
 
 			var r promReply
-			require.NoError(t, json.Unmarshal(body, &r))
+			require.NoError(t, json.Unmarshal(body, &r, jsonx.V1()))
 			assert.Equal(t, "error", r.Status)
 			assert.Equal(t, tt.errType, r.ErrorType)
 		})

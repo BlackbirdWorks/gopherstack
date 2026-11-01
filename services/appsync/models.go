@@ -2,11 +2,13 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/vektah/gqlparser/v2/ast"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -227,7 +229,7 @@ func (r Resolver) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
 		PipelineConfig *pipelineConfigWire `json:"pipelineConfig,omitempty"`
 		alias
-	}{alias: alias(r), PipelineConfig: pc})
+	}{alias: alias(r), PipelineConfig: pc}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [Resolver.MarshalJSON], needed so a
@@ -241,7 +243,7 @@ func (r *Resolver) UnmarshalJSON(data []byte) error {
 		PipelineConfig *pipelineConfigWire `json:"pipelineConfig,omitempty"`
 	}{alias: (*alias)(r)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -456,10 +458,10 @@ func (a *APICache) UnmarshalJSON(data []byte) error {
 
 	aux := struct {
 		*alias
-		HealthMetricsConfig json.RawMessage `json:"healthMetricsConfig,omitempty"`
+		HealthMetricsConfig jsontext.Value `json:"healthMetricsConfig,omitempty"`
 	}{alias: (*alias)(a)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -468,12 +470,12 @@ func (a *APICache) UnmarshalJSON(data []byte) error {
 	}
 
 	// A real string (or null, a no-op unmarshal target) decodes here directly.
-	if err := json.Unmarshal(aux.HealthMetricsConfig, &a.HealthMetricsConfig); err == nil {
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &a.HealthMetricsConfig, jsonx.V1()); err == nil {
 		return nil
 	}
 
 	var legacy bool
-	if err := json.Unmarshal(aux.HealthMetricsConfig, &legacy); err != nil {
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &legacy, jsonx.V1()); err != nil {
 		return fmt.Errorf("APICache: invalid healthMetricsConfig %s: %w", aux.HealthMetricsConfig, err)
 	}
 

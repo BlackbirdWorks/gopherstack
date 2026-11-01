@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -54,7 +55,7 @@ func TestHandler_CreateRoute(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 				assert.Equal(t, tt.routeKey, route.RouteKey)
 				assert.NotEmpty(t, route.RouteID)
 			}
@@ -117,7 +118,7 @@ func TestHandler_GetRoutes(t *testing.T) {
 				}
 
 				var resp listResp
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.Items, len(tt.routes))
 			}
 		})
@@ -159,7 +160,7 @@ func TestHandler_GetRoute(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 				routeID = route.RouteID
 			}
 
@@ -204,7 +205,7 @@ func TestHandler_DeleteRoute(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 				routeID = route.RouteID
 			}
 
@@ -249,7 +250,7 @@ func TestHandler_UpdateRoute(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var route apigatewayv2.Route
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &route, jsonx.V1()))
 				routeID = route.RouteID
 			}
 
@@ -355,7 +356,7 @@ func TestUpdateRouteClearsAuthorizerIDOnNone(t *testing.T) {
 			require.Equal(t, http.StatusCreated, authRR.Code)
 
 			var authResult map[string]any
-			require.NoError(t, json.Unmarshal(authRR.Body.Bytes(), &authResult))
+			require.NoError(t, json.Unmarshal(authRR.Body.Bytes(), &authResult, jsonx.V1()))
 			authID := authResult["authorizerId"].(string)
 
 			// Create a route with JWT authorization.
@@ -367,7 +368,7 @@ func TestUpdateRouteClearsAuthorizerIDOnNone(t *testing.T) {
 			require.Equal(t, http.StatusCreated, routeRR.Code)
 
 			var routeResult map[string]any
-			require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &routeResult))
+			require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &routeResult, jsonx.V1()))
 			routeID := routeResult["routeId"].(string)
 
 			// Patch the route with the test body.
@@ -381,7 +382,7 @@ func TestUpdateRouteClearsAuthorizerIDOnNone(t *testing.T) {
 			require.Equal(t, http.StatusOK, patchRR.Code)
 
 			var updated map[string]any
-			require.NoError(t, json.Unmarshal(patchRR.Body.Bytes(), &updated))
+			require.NoError(t, json.Unmarshal(patchRR.Body.Bytes(), &updated, jsonx.V1()))
 
 			assert.Equal(t, tt.wantAuthType, updated["authorizationType"])
 
@@ -417,7 +418,7 @@ func TestUpdateRouteClearsAuthorizerIDRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, authRR.Code)
 
 	var authResult map[string]any
-	require.NoError(t, json.Unmarshal(authRR.Body.Bytes(), &authResult))
+	require.NoError(t, json.Unmarshal(authRR.Body.Bytes(), &authResult, jsonx.V1()))
 	authID := authResult["authorizerId"].(string)
 
 	// Create route with JWT auth.
@@ -429,7 +430,7 @@ func TestUpdateRouteClearsAuthorizerIDRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, routeRR.Code)
 
 	var routeResult map[string]any
-	require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &routeResult))
+	require.NoError(t, json.Unmarshal(routeRR.Body.Bytes(), &routeResult, jsonx.V1()))
 	routeID := routeResult["routeId"].(string)
 
 	// Verify initial state: JWT auth with authorizer ID set.
@@ -446,7 +447,7 @@ func TestUpdateRouteClearsAuthorizerIDRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRR.Code)
 
 	var getResult map[string]any
-	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &getResult))
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &getResult, jsonx.V1()))
 
 	assert.Equal(t, "NONE", getResult["authorizationType"])
 	assert.Empty(t, getResult["authorizerId"], "authorizerId should be empty after UpdateRoute to NONE")
@@ -498,7 +499,7 @@ func TestGetRoutes_Pagination(t *testing.T) {
 					NextToken string               `json:"nextToken"`
 					Items     []apigatewayv2.Route `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Items), tc.maxResults)
 
 				for _, r := range resp.Items {
@@ -540,7 +541,7 @@ func TestCreateRoute_APIKeyRequiredPresentAndFalse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	v, hasKey := resp["apiKeyRequired"]
 	assert.True(t, hasKey, "apiKeyRequired should be present in response")
@@ -562,7 +563,7 @@ func TestCreateRoute_AuthorizationScopesIsEmptyArray(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, hasKey := resp["authorizationScopes"]
 	assert.True(t, hasKey, "authorizationScopes should be present in response")
@@ -586,7 +587,7 @@ func TestGetRoute_AuthorizationScopesIsEmptyArray(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created, jsonx.V1()))
 	routeID, _ := created["routeId"].(string)
 	require.NotEmpty(t, routeID)
 
@@ -595,7 +596,7 @@ func TestGetRoute_AuthorizationScopesIsEmptyArray(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr2.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &got, jsonx.V1()))
 
 	raw, hasKey := got["authorizationScopes"]
 	assert.True(t, hasKey, "authorizationScopes should be present in GetRoute response")

@@ -3,11 +3,14 @@ package bqsql
 import (
 	"crypto/rand"
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -56,7 +59,7 @@ func udfParseJSON(a []driver.Value) (driver.Value, error) {
 	}
 
 	s := toStr(a[0])
-	if !json.Valid([]byte(s)) {
+	if !jsontext.Value([]byte(s)).IsValid(jsonx.V1()) {
 		return nil, errBQ("syntax error while parsing value in JSON")
 	}
 
@@ -75,7 +78,7 @@ func udfJSONValue(scalarOnly bool) udfFn {
 		}
 
 		var doc any
-		if err := json.Unmarshal([]byte(toStr(a[0])), &doc); err != nil {
+		if err := json.Unmarshal([]byte(toStr(a[0])), &doc, jsonx.V1()); err != nil {
 			return nil, errBQ("Invalid JSON: %v", err)
 		}
 
@@ -103,7 +106,7 @@ func jsonNodeText(node any, scalarOnly bool) driver.Value {
 		}
 	}
 
-	b, _ := json.Marshal(node)
+	b, _ := json.Marshal(node, jsonx.V1())
 
 	return string(b)
 }

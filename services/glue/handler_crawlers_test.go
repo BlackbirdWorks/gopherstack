@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -72,7 +73,7 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 			} `json:"Targets"`
 		} `json:"Crawler"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "cron(0 12 * * ? *)", out.Crawler.Schedule.ScheduleExpression)
 	assert.Equal(t, `{"Version":1.0}`, out.Crawler.Configuration)
@@ -86,7 +87,7 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 
 	cat := out
 	cat.Crawler.Targets.CatalogTargets = nil
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cat))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cat, jsonx.V1()))
 	require.Len(t, cat.Crawler.Targets.CatalogTargets, 1)
 	assert.Equal(t, "db1", cat.Crawler.Targets.CatalogTargets[0].DatabaseName)
 
@@ -100,7 +101,7 @@ func Test_Crawler_CreateOptions_RoundTrip(t *testing.T) {
 
 	rec = doGlueRequest(t, h, "GetCrawler", map[string]any{"Name": "crawler1"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "curated_", out.Crawler.TablePrefix)
 }
 
@@ -265,7 +266,7 @@ func TestCrawler_Lifecycle_States(t *testing.T) {
 			if tt.wantState != "" && tt.wantCode == http.StatusOK {
 				getRec := doGlueRequest(t, h, "GetCrawler", map[string]any{"Name": "cr-lifecycle"})
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 				cr := out["Crawler"].(map[string]any)
 				assert.Equal(t, tt.wantState, cr["State"])
 			}
@@ -412,7 +413,7 @@ func TestHTTPBatchGetCrawlers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	crawlers, ok := out["Crawlers"].([]any)
 	require.True(t, ok)
 	assert.Len(t, crawlers, 1)
@@ -453,7 +454,7 @@ func TestListCrawlers(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			names, _ := out["CrawlerNames"].([]any)
 			assert.Len(t, names, tt.wantLen)
 
@@ -515,7 +516,7 @@ func TestCrawlerErrors(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantErrorType, out["__type"])
 		})
 	}
@@ -582,7 +583,7 @@ func TestCrawlerSchedule(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 		})
@@ -660,7 +661,7 @@ func TestListCrawls_ReturnsRealCrawlHistory(t *testing.T) {
 	var before struct {
 		Crawls []map[string]any `json:"Crawls"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &before, jsonx.V1()))
 	assert.Empty(t, before.Crawls, "no crawl has started yet")
 
 	rec = doGlueRequest(t, h, "StartCrawler", map[string]any{"Name": "my-crawler"})
@@ -672,7 +673,7 @@ func TestListCrawls_ReturnsRealCrawlHistory(t *testing.T) {
 	var after struct {
 		Crawls []map[string]any `json:"Crawls"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after, jsonx.V1()))
 	require.Len(t, after.Crawls, 1)
 	assert.NotEmpty(t, after.Crawls[0]["CrawlId"])
 	assert.NotEmpty(t, after.Crawls[0]["StartTime"])

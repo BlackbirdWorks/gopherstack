@@ -1,7 +1,7 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -166,7 +167,7 @@ func legacySnapshot(t *testing.T, data []byte) []byte {
 		Tags    map[string]map[string]string `json:"tags,omitempty"`
 		Backend []byte                       `json:"backend"`
 	}
-	require.NoError(t, json.Unmarshal(data, &snap))
+	require.NoError(t, json.Unmarshal(data, &snap, jsonx.V1()))
 
 	modern := ruleARNPrefix + "r1"
 	legacy := ruleARNPrefix + "default/r1"
@@ -179,7 +180,7 @@ func legacySnapshot(t *testing.T, data []byte) []byte {
 	}
 	snap.Tags = tags
 
-	out, err := json.Marshal(snap)
+	out, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

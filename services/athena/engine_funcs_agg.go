@@ -2,13 +2,15 @@ package athena
 
 import (
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"sort"
 	"strings"
 
 	sqlitedriver "modernc.org/sqlite"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aggState is one running aggregate; step ignores NULL inputs unless nullsToo.
@@ -152,7 +154,7 @@ func jsonElem(v driver.Value) any {
 	if s, ok := v.(string); ok {
 		var parsed any
 		if t := strings.TrimPrefix(s, containerMark); len(t) > 0 && (t[0] == '[' || t[0] == '{') &&
-			json.Unmarshal([]byte(t), &parsed) == nil {
+			json.Unmarshal([]byte(t), &parsed, jsonx.V1()) == nil {
 			return parsed
 		}
 	}

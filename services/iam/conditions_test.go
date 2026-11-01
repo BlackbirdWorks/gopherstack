@@ -2,11 +2,12 @@ package iam_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -1058,7 +1059,7 @@ func TestConditionTagKeyFallsThroughToExtra(t *testing.T) {
 
 // mustJSON marshals v to a compact JSON string, panicking on error (test-only).
 func mustJSON(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		panic("marshal policy: " + err.Error())
 	}

@@ -1,12 +1,14 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // pruneDriftDetections removes all drift detection entries associated with a stack
@@ -218,12 +220,12 @@ func deepCopyProps(props map[string]any) map[string]any {
 	if props == nil {
 		return nil
 	}
-	data, err := json.Marshal(props)
+	data, err := json.Marshal(props, jsonx.V1())
 	if err != nil {
 		return props
 	}
 	var out map[string]any
-	if uerr := json.Unmarshal(data, &out); uerr != nil {
+	if uerr := json.Unmarshal(data, &out, jsonx.V1()); uerr != nil {
 		return props
 	}
 

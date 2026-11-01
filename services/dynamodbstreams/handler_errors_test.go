@@ -1,13 +1,14 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -49,7 +50,7 @@ func TestHandler_ErrorPropagation_ResourceNotFound(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 
 			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 
 			// Must use a structured error type (not just the operation name).
 			assert.Contains(t, errBody["__type"], "ResourceNotFoundException",
@@ -95,7 +96,7 @@ func TestHandler_ErrorPropagation_ValidationException(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 
 			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Contains(t, errBody["__type"], tt.wantErrType,
 				"error __type must contain %s", tt.wantErrType)
 		})
@@ -140,7 +141,7 @@ func TestHandler_ErrorNamespace_DynamoDBStreams(t *testing.T) {
 			assert.Equal(t, 400, resp.Code)
 
 			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &errBody, jsonx.V1()))
 
 			errType := errBody["__type"]
 			assert.Contains(t, errType, tt.wantErr)

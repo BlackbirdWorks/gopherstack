@@ -2,16 +2,18 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string `json:"resourceArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	tags, err := h.Backend.ListTagsForResource(req.ResourceArn)
 	if err != nil {
 		return nil, err
@@ -25,7 +27,7 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		Tags        map[string]string `json:"tags"`
 		ResourceArn string            `json:"resourceArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.TagResource(req.ResourceArn, req.Tags)
 }
@@ -39,7 +41,7 @@ func (h *Handler) handleUntagResource(
 		ResourceArn string   `json:"resourceArn"`
 		TagKeys     []string `json:"tagKeys"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	// tagKeys can also come from query params
 	if len(req.TagKeys) == 0 {
 		req.TagKeys = c.Request().URL.Query()["tagKeys"]

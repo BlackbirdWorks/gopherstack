@@ -1,7 +1,7 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -51,7 +52,7 @@ func TestListProvisionedCapacity(t *testing.T) {
 			var resp struct {
 				ProvisionedCapacityList []any `json:"ProvisionedCapacityList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ProvisionedCapacityList, tt.wantCount)
 		})
 	}
@@ -84,7 +85,7 @@ func TestPurchaseProvisionedCapacity(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["capacityId"])
 			assert.NotEmpty(t, rec.Header().Get("X-Amz-Capacity-Id"))
 		})
@@ -113,7 +114,7 @@ func TestProvisionedCapacity_MaxTwoPerAccount(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", errResp["code"])
 }
 
@@ -139,7 +140,7 @@ func TestProvisionedCapacity_ExpiresAfterOneMonth(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	capList := resp["ProvisionedCapacityList"].([]any)
 	require.Len(t, capList, 1)
 
@@ -222,7 +223,7 @@ func TestProvisionedCapacity_PurchaseAndList(t *testing.T) {
 				"/"+testAccountID+"/provisioned-capacity", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			list := resp["ProvisionedCapacityList"].([]any)
 			assert.Len(t, list, tt.wantCount)
 		})
@@ -274,7 +275,7 @@ func TestProvisionedCapacity_DatesPresent(t *testing.T) {
 				"/"+testAccountID+"/provisioned-capacity", "", nil)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var purchaseResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &purchaseResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &purchaseResp, jsonx.V1()))
 			capID := purchaseResp["capacityId"]
 			require.NotEmpty(t, capID)
 
@@ -282,7 +283,7 @@ func TestProvisionedCapacity_DatesPresent(t *testing.T) {
 				"/"+testAccountID+"/provisioned-capacity", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			list := listResp["ProvisionedCapacityList"].([]any)
 			require.Len(t, list, 1)
 			capItem := list[0].(map[string]any)

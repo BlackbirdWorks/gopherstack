@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerPromptCRUD(t *testing.T) {
@@ -28,7 +30,7 @@ func TestHandlerPromptCRUD(t *testing.T) {
 	}
 
 	var createResp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
+	_ = json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1())
 	promptID, _ := createResp["id"].(string)
 
 	if promptID == "" {
@@ -42,7 +44,7 @@ func TestHandlerPromptCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPost, "/prompts", createBody)
 
 		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["id"].(string)
 
 		rec2 := doRequest(t, h2, e2, http.MethodGet, "/prompts/"+id, nil)
@@ -67,7 +69,7 @@ func TestHandlerPromptCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPost, "/prompts", createBody)
 
 		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["id"].(string)
 
 		rec2 := doRequest(t, h2, e2, http.MethodPost, "/prompts/"+id+"/versions", map[string]any{

@@ -1,13 +1,15 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestACMHandler_RequestCertificate_InputRealism(t *testing.T) {
@@ -66,7 +68,7 @@ func TestACMHandler_RequestCertificate_InputRealism(t *testing.T) {
 				Type    string `json:"__type"`
 				Message string `json:"message"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp.Type)
 			assert.NotContains(t, errResp.Message, "Exception")
 		})
@@ -83,7 +85,7 @@ func TestACMHandler_WildcardValidationRecordAndNotFound(t *testing.T) {
 	var created struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec = postACMJSON(t, h, "DescribeCertificate", `{"CertificateArn":"`+created.CertificateArn+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)

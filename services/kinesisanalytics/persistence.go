@@ -2,9 +2,11 @@ package kinesisanalytics
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -28,11 +30,11 @@ const kinesisanalyticsSnapshotVersion = 1
 // Application is persisted directly (no DTO) because every field, including
 // the additive Region, already round-trips through encoding/json.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	NextID    int64                      `json:"next_id"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	NextID    int64                     `json:"next_id"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -56,7 +58,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextID:    b.nextID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "kinesisanalytics: failed to marshal snapshot", "error", err)
 

@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonEncryptionReq struct {
@@ -19,7 +21,7 @@ func (h *Handler) handleStartStreamEncryption(
 	body []byte,
 ) (any, error) {
 	var req jsonEncryptionReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -41,7 +43,7 @@ func (h *Handler) handleStopStreamEncryption(
 	body []byte,
 ) (any, error) {
 	var req jsonEncryptionReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

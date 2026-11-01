@@ -1,7 +1,8 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // partitionKeyDefSpec is the "partitionKey" sub-object of a container definition:
@@ -24,9 +26,9 @@ type containerBodyRequest struct {
 	DefaultTTL     *int                `json:"defaultTtl"`
 	ID             string              `json:"id"`
 	PartitionKey   partitionKeyDefSpec `json:"partitionKey"`
-	IndexingPolicy json.RawMessage     `json:"indexingPolicy"`
+	IndexingPolicy jsontext.Value      `json:"indexingPolicy"`
 
-	ConflictResolutionPolicy json.RawMessage `json:"conflictResolutionPolicy"`
+	ConflictResolutionPolicy jsontext.Value `json:"conflictResolutionPolicy"`
 
 	ContainerPolicies
 }
@@ -111,7 +113,7 @@ func (h *Handler) readContainerRequest(c *echo.Context) (containerBodyRequest, b
 		return req, false
 	}
 
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		_ = h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 
 		return req, false
@@ -288,12 +290,12 @@ func resourceTS(modified time.Time) int64 {
 }
 
 // echoOrDefault returns raw, or def when raw is unset.
-func echoOrDefault(raw json.RawMessage, def string) json.RawMessage {
+func echoOrDefault(raw jsontext.Value, def string) jsontext.Value {
 	if len(raw) > 0 {
 		return raw
 	}
 
-	return json.RawMessage(def)
+	return jsontext.Value(def)
 }
 
 // addPolicyFields echoes the container policies; unset unique-key and geospatial settings show their defaults.
@@ -301,7 +303,7 @@ func addPolicyFields(body map[string]any, p ContainerPolicies) {
 	body["uniqueKeyPolicy"] = echoOrDefault(p.UniqueKeyPolicy, defaultUniqueKeyPol)
 	body["geospatialConfig"] = echoOrDefault(p.GeospatialConfig, defaultGeoConfig)
 
-	for key, raw := range map[string]json.RawMessage{
+	for key, raw := range map[string]jsontext.Value{
 		"vectorEmbeddingPolicy": p.VectorEmbeddingPolicy, "fullTextPolicy": p.FullTextPolicy,
 		"computedProperties": p.ComputedProperties,
 	} {
@@ -331,7 +333,7 @@ func containerBody(info ContainerInfo) map[string]any {
 		kind = partitionKindMultiHash
 	}
 
-	indexing := json.RawMessage(defaultIndexingPolicy)
+	indexing := jsontext.Value(defaultIndexingPolicy)
 	if len(info.IndexingPolicy) > 0 {
 		indexing = info.IndexingPolicy
 	}
@@ -357,7 +359,7 @@ func containerBody(info ContainerInfo) map[string]any {
 
 	addPolicyFields(body, info.ContainerPolicies)
 
-	body["conflictResolutionPolicy"] = json.RawMessage(defaultConflictResolutionPolicy)
+	body["conflictResolutionPolicy"] = jsontext.Value(defaultConflictResolutionPolicy)
 	if len(info.ConflictResolutionPolicy) > 0 {
 		body["conflictResolutionPolicy"] = info.ConflictResolutionPolicy
 	}

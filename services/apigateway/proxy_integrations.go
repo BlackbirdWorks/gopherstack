@@ -4,7 +4,8 @@ import (
 	"container/list"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime"
@@ -16,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -43,7 +45,7 @@ func (h *Handler) handleAWSProxy(
 		return
 	}
 
-	payload, _ := json.Marshal(event)
+	payload, _ := json.Marshal(event, jsonx.V1())
 
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(
 		ctx,
@@ -315,7 +317,10 @@ func writeAWSIntegrationReadError(ctx context.Context, w http.ResponseWriter, re
 		w.Header().Set(headerContentType, contentTypeJSON)
 		w.Header().Set("X-Amzn-Errortype", "UnsupportedMediaTypeException")
 		w.WriteHeader(http.StatusUnsupportedMediaType)
-		_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Unsupported Media Type"})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{jsonMessageKey: "Unsupported Media Type"},
+		)
 
 		return
 	}
@@ -983,7 +988,10 @@ func writeInternalServerError(w http.ResponseWriter, status int) {
 	w.Header().Set(headerContentType, "application/json")
 	w.Header().Set("X-Amzn-Errortype", "InternalServerErrorException")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Internal server error"})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]string{jsonMessageKey: "Internal server error"},
+	)
 }
 
 var errMalformedProxyResponse = errors.New("malformed Lambda proxy response")
@@ -997,8 +1005,8 @@ const (
 // way execute-api does: a JSON object with an integer statusCode, and
 // string-valued headers and body.
 func parseLambdaProxyResponse(raw []byte) (*LambdaProxyResponse, error) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &obj, jsonx.V1()); err != nil || obj == nil {
 		return nil, errMalformedProxyResponse
 	}
 
@@ -1009,14 +1017,14 @@ func parseLambdaProxyResponse(raw []byte) (*LambdaProxyResponse, error) {
 		return nil, errMalformedProxyResponse
 	}
 
-	var n json.Number
-	if err := json.Unmarshal(code, &n); err != nil {
+	var n jsonx.Number
+	if err := json.Unmarshal(code, &n, jsonx.V1()); err != nil {
 		var str string
-		if json.Unmarshal(code, &str) != nil {
+		if json.Unmarshal(code, &str, jsonx.V1()) != nil {
 			return nil, errMalformedProxyResponse
 		}
 
-		n = json.Number(str)
+		n = jsonx.Number(str)
 	}
 
 	status, err := strconv.Atoi(n.String())
@@ -1045,13 +1053,13 @@ func parseLambdaProxyResponse(raw []byte) (*LambdaProxyResponse, error) {
 	return &resp, nil
 }
 
-func decodeProxyField(obj map[string]json.RawMessage, key string, dst any) error {
+func decodeProxyField(obj map[string]jsontext.Value, key string, dst any) error {
 	raw, ok := obj[key]
 	if !ok || string(raw) == jsonNull {
 		return nil
 	}
 
-	if err := json.Unmarshal(raw, dst); err != nil {
+	if err := json.Unmarshal(raw, dst, jsonx.V1()); err != nil {
 		return errMalformedProxyResponse
 	}
 

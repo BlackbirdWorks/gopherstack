@@ -1,7 +1,6 @@
 package azuremonitor
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor/kql"
 )
 
@@ -69,7 +69,7 @@ func convertDatetime(v any) (any, bool) {
 
 func numberToInt(v any) (int64, bool) {
 	switch x := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		n, err := x.Int64()
 
 		return n, err == nil
@@ -86,7 +86,7 @@ func numberToInt(v any) (int64, bool) {
 
 func numberToFloat(v any) (float64, bool) {
 	switch x := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		f, err := x.Float64()
 
 		return f, err == nil
@@ -103,7 +103,7 @@ func normalizeDynamic(v any) any {
 	switch x := v.(type) {
 	case float64:
 		return kql.NormalizeJSON(x)
-	case json.Number:
+	case jsonx.Number:
 		if n, err := x.Int64(); err == nil {
 			return n
 		}

@@ -8,7 +8,7 @@ package inspector2_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -56,7 +57,7 @@ func auditDo(t *testing.T, h *inspector2.Handler, method, path string, body any)
 
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -82,7 +83,7 @@ func auditCreateFilter(t *testing.T, h *inspector2.Handler, name string) string 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, ok := resp["arn"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, arn)
@@ -95,7 +96,7 @@ func auditCreateFilter(t *testing.T, h *inspector2.Handler, name string) string 
 func inspector2UnmarshalError(t *testing.T, data []byte, v any) error {
 	t.Helper()
 
-	return json.Unmarshal(data, v)
+	return json.Unmarshal(data, v, jsonx.V1())
 }
 
 // auditCreateConnector creates an Azure connector named name, associated
@@ -116,7 +117,7 @@ func auditCreateConnector(t *testing.T, h *inspector2.Handler, name, awsConfigCo
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, ok := resp["connectorArn"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, arn)
@@ -149,7 +150,7 @@ func parityDo(t *testing.T, h *inspector2.Handler, method, path string, body any
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -185,7 +186,7 @@ func parityListFindings(t *testing.T, h *inspector2.Handler, body map[string]any
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	findings, ok := resp["findings"].([]any)
 	if !ok {
@@ -205,7 +206,7 @@ func parityListFindingsWithToken(
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	findings, _ := resp["findings"].([]any)
 	nextToken, _ := resp["nextToken"].(string)

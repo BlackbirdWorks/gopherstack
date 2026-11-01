@@ -1,7 +1,7 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -246,7 +247,7 @@ func TestDeleteRecoveryPointVaultLock(t *testing.T) {
 		var probe struct {
 			RecoveryPointIndexStatus map[string]string `json:"recoveryPointIndexStatus"`
 		}
-		require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &probe))
+		require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &probe, jsonx.V1()))
 		assert.NotContains(t, probe.RecoveryPointIndexStatus, "idx-vault:arn:aws:backup:::rp/1")
 	})
 }

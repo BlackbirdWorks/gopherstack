@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestClassifier_CRUD(t *testing.T) {
@@ -148,7 +150,7 @@ func TestClassifier_GetClassifiers(t *testing.T) {
 	rec := doGlueRequest(t, h, "GetClassifiers", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	classifiers := out["Classifiers"].([]any)
 	assert.Len(t, classifiers, 2)
 }

@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 )
 
@@ -33,7 +33,7 @@ func (rc *ResourceCreator) createWAFv2WebACL(
 	acl, err := rc.backends.WAFv2.Backend.CreateWebACL(
 		ctx,
 		name, scope, "",
-		json.RawMessage(`{"Allow":{}}`), nil,
+		jsontext.Value(`{"Allow":{}}`), nil,
 		nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil,
 		nil,

@@ -16,12 +16,13 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -31,7 +32,7 @@ func TestDescribeKey_GrantTokens_WireField(t *testing.T) {
 	// The field must deserialize from the AWS wire name "GrantTokens".
 	var input kms.DescribeKeyInput
 	require.NoError(t, json.Unmarshal(
-		[]byte(`{"KeyId":"k-123","GrantTokens":["tok-a","tok-b"]}`), &input))
+		[]byte(`{"KeyId":"k-123","GrantTokens":["tok-a","tok-b"]}`), &input, jsonx.V1()))
 	assert.Equal(t, "k-123", input.KeyID)
 	assert.Equal(t, []string{"tok-a", "tok-b"}, input.GrantTokens)
 }

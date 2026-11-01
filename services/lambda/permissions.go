@@ -4,13 +4,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AddPermission adds a permission statement to a function's resource-based policy.
@@ -271,10 +273,9 @@ func buildPermissionStatementJSON(p *FunctionPermission, resourceArn string) str
 
 	var buf bytes.Buffer
 
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
+	enc := jsontext.NewEncoder(&buf, jsonx.V1(), jsontext.EscapeForHTML(false))
 
-	if err := enc.Encode(stmt); err != nil {
+	if err := json.MarshalEncode(enc, stmt); err != nil {
 		return ""
 	}
 

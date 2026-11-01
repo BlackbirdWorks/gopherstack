@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -123,7 +124,7 @@ func TestHandler_CreatePortal(t *testing.T) {
 
 			if tt.wantPortal {
 				var portal apigatewayv2.Portal
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal, jsonx.V1()))
 				assert.NotEmpty(t, portal.PortalID)
 				assert.Empty(t, portal.PublishStatus)
 				require.NotNil(t, portal.LastModified)
@@ -184,7 +185,7 @@ func TestHandler_CreatePortalProduct(t *testing.T) {
 
 			if tt.wantName != "" {
 				var product apigatewayv2.PortalProduct
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product, jsonx.V1()))
 				assert.Equal(t, tt.wantName, product.DisplayName)
 				assert.NotEmpty(t, product.PortalProductID)
 			}
@@ -234,7 +235,7 @@ func TestHandler_CreateProductPage(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var product apigatewayv2.PortalProduct
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product, jsonx.V1()))
 				portalProductID = product.PortalProductID
 			}
 
@@ -252,7 +253,7 @@ func TestHandler_CreateProductPage(t *testing.T) {
 
 			if tt.wantPage {
 				var page apigatewayv2.ProductPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page, jsonx.V1()))
 				assert.NotEmpty(t, page.ProductPageID)
 			}
 		})
@@ -333,7 +334,7 @@ func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var product apigatewayv2.PortalProduct
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &product, jsonx.V1()))
 				portalProductID = product.PortalProductID
 			}
 
@@ -351,7 +352,7 @@ func TestHandler_CreateProductRestEndpointPage(t *testing.T) {
 
 			if tt.wantPage {
 				var page apigatewayv2.ProductRestEndpointPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page, jsonx.V1()))
 				assert.NotEmpty(t, page.ProductRestEndpointPageID)
 				require.NotNil(t, page.RestEndpointIdentifier)
 				require.NotNil(t, page.RestEndpointIdentifier.IdentifierParts)
@@ -399,7 +400,7 @@ func TestHandler_ListPortals(t *testing.T) {
 			var out struct {
 				Items []apigatewayv2.Portal `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Items, tt.portalCnt)
 		})
 	}
@@ -434,7 +435,7 @@ func TestHandler_GetPortal(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var portal apigatewayv2.Portal
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &portal, jsonx.V1()))
 
 			portalID := portal.PortalID
 			if tt.useWrongID {
@@ -486,7 +487,7 @@ func TestHandler_ListPortalProducts(t *testing.T) {
 			var out struct {
 				Items []apigatewayv2.PortalProduct `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Items, tt.productCnt)
 		})
 	}
@@ -523,7 +524,7 @@ func TestHandler_GetPortalProduct(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var pp apigatewayv2.PortalProduct
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp, jsonx.V1()))
 
 			ppID := pp.PortalProductID
 			if tt.useWrongID {
@@ -578,7 +579,7 @@ func TestHandler_ListProductPages(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var pp apigatewayv2.PortalProduct
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp, jsonx.V1()))
 				ppID = pp.PortalProductID
 			}
 
@@ -596,7 +597,7 @@ func TestHandler_ListProductPages(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.ProductPage `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.pageCnt)
 			}
 		})
@@ -645,7 +646,7 @@ func TestHandler_ListProductRestEndpointPages(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var pp apigatewayv2.PortalProduct
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp, jsonx.V1()))
 				ppID = pp.PortalProductID
 			}
 
@@ -671,7 +672,7 @@ func TestHandler_ListProductRestEndpointPages(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.ProductRestEndpointPage `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.pageCnt)
 			}
 		})
@@ -683,7 +684,7 @@ func createPortal(t *testing.T, h *apigatewayv2.Handler) string {
 	rr := doRequest(t, h, http.MethodPost, "/v2/portals", validCreatePortalBody())
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var p apigatewayv2.Portal
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p, jsonx.V1()))
 
 	return p.PortalID
 }
@@ -695,7 +696,7 @@ func createPortalProduct(t *testing.T, h *apigatewayv2.Handler) string {
 	})
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var pp apigatewayv2.PortalProduct
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &pp, jsonx.V1()))
 
 	return pp.PortalProductID
 }
@@ -879,7 +880,7 @@ func TestHandler_GetProductPage(t *testing.T) {
 					fmt.Sprintf("/v2/portalproducts/%s/productpages", ppID), map[string]any{})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p, jsonx.V1()))
 
 				return ppID, p.ProductPageID
 			},
@@ -932,7 +933,7 @@ func TestHandler_DeleteProductPage(t *testing.T) {
 					fmt.Sprintf("/v2/portalproducts/%s/productpages", ppID), map[string]any{})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p, jsonx.V1()))
 
 				return ppID, p.ProductPageID
 			},
@@ -986,7 +987,7 @@ func TestHandler_GetProductRestEndpointPage(t *testing.T) {
 				)
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductRestEndpointPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p, jsonx.V1()))
 
 				return ppID, p.ProductRestEndpointPageID
 			},
@@ -1040,7 +1041,7 @@ func TestHandler_DeleteProductRestEndpointPage(t *testing.T) {
 				)
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var p apigatewayv2.ProductRestEndpointPage
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &p, jsonx.V1()))
 
 				return ppID, p.ProductRestEndpointPageID
 			},
@@ -1094,7 +1095,7 @@ func TestHandler_ListPortals_MaxResultsHonoured(t *testing.T) {
 		NextToken string                `json:"nextToken"`
 		Items     []apigatewayv2.Portal `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Items, 1, "maxResults=1 must limit the page to 1 item")
 	require.NotEmpty(t, page1.NextToken, "a partial page must return a nextToken")
 
@@ -1106,7 +1107,7 @@ func TestHandler_ListPortals_MaxResultsHonoured(t *testing.T) {
 		NextToken string                `json:"nextToken"`
 		Items     []apigatewayv2.Portal `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.Items, portalCount-1, "second page must return the remainder")
 }
 
@@ -1130,7 +1131,7 @@ func TestHandler_ListPortalProducts_MaxResultsHonoured(t *testing.T) {
 		NextToken string                       `json:"nextToken"`
 		Items     []apigatewayv2.PortalProduct `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Items, 1, "maxResults=1 must limit the page to 1 item")
 	require.NotEmpty(t, page1.NextToken, "a partial page must return a nextToken")
 
@@ -1142,6 +1143,6 @@ func TestHandler_ListPortalProducts_MaxResultsHonoured(t *testing.T) {
 		NextToken string                       `json:"nextToken"`
 		Items     []apigatewayv2.PortalProduct `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rr2.Body.Bytes(), &page2, jsonx.V1()))
 	require.Len(t, page2.Items, productCount-1, "second page must return the remainder")
 }

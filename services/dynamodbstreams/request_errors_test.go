@@ -1,13 +1,14 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -60,7 +61,7 @@ func TestHandler_RequestErrorShapes(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, tt.wantType, body["__type"])
 			assert.NotEmpty(t, body["message"])
 

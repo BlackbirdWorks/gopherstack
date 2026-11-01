@@ -2,11 +2,12 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -126,7 +127,7 @@ func (h *Handler) GetTagsForTest(resourceID string) []map[string]string {
 
 func (h *Handler) jsonTagCA(ctx context.Context, body []byte) (any, error) {
 	var input tagCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -151,7 +152,7 @@ func (h *Handler) jsonTagCA(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonUntagCA(ctx context.Context, body []byte) (any, error) {
 	var input untagCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -171,7 +172,7 @@ func (h *Handler) jsonUntagCA(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonListTags(ctx context.Context, body []byte) (any, error) {
 	var input listTagsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 

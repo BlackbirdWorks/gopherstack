@@ -1,13 +1,15 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -46,14 +48,14 @@ func TestVpcLinkSecurityGroupIDsNullBug(t *testing.T) {
 			rr := doRequest(t, h, http.MethodPost, "/v2/vpclinks", tt.body)
 			require.Equal(t, http.StatusCreated, rr.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw, jsonx.V1()))
 
 			_, ok := raw["securityGroupIds"]
 			assert.True(t, ok, "securityGroupIds key must always be present in VpcLink response")
 
 			var link apigatewayv2.VpcLink
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &link))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &link, jsonx.V1()))
 			assert.Equal(t, tt.wantSecGroups, link.SecurityGroupIDs)
 		})
 	}
@@ -71,8 +73,8 @@ func TestVpcLinkSubnetIDsNullBug(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rr.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, ok := raw["subnetIds"]
 	assert.True(t, ok, "subnetIds key must always be present in VpcLink response")
@@ -92,13 +94,13 @@ func TestVpcLinkGetReturnsArrayFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRR.Code)
 
 	var created apigatewayv2.VpcLink
-	require.NoError(t, json.Unmarshal(createRR.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRR.Body.Bytes(), &created, jsonx.V1()))
 
 	getRR := doRequest(t, h, http.MethodGet, "/v2/vpclinks/"+created.VpcLinkID, nil)
 	require.Equal(t, http.StatusOK, getRR.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(getRR.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasSec := raw["securityGroupIds"]
 	assert.True(t, hasSec, "securityGroupIds key must be present in GetVpcLink response")

@@ -1,8 +1,11 @@
 package emr
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // regionContextKey is the context key under which the per-request AWS region is stored.
@@ -585,13 +588,13 @@ type KerberosAttributes struct {
 func (k KerberosAttributes) MarshalJSON() ([]byte, error) {
 	type plain KerberosAttributes
 
-	raw, err := json.Marshal(plain(k))
+	raw, err := json.Marshal(plain(k), jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
-	var fields map[string]json.RawMessage
-	if err = json.Unmarshal(raw, &fields); err != nil {
+	var fields map[string]jsontext.Value
+	if err = json.Unmarshal(raw, &fields, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -599,7 +602,7 @@ func (k KerberosAttributes) MarshalJSON() ([]byte, error) {
 		delete(fields, secret)
 	}
 
-	return json.Marshal(fields)
+	return json.Marshal(fields, jsonx.V1())
 }
 
 // PlacementGroupConfig is the placement group configuration for a single

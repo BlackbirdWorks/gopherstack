@@ -3,16 +3,18 @@ package lakeformation
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGrantPermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in grantPermissionsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) handleGrantPermissions(ctx context.Context, c *echo.Context, b
 
 func (h *Handler) handleRevokePermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in revokePermissionsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -55,7 +57,7 @@ func (h *Handler) handleRevokePermissions(ctx context.Context, c *echo.Context, 
 func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body []byte) error {
 	var in listPermissionsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -85,7 +87,7 @@ func (h *Handler) handleListPermissions(_ context.Context, c *echo.Context, body
 
 func (h *Handler) handleBatchGrantPermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in batchGrantPermissionsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -99,7 +101,7 @@ func (h *Handler) handleBatchGrantPermissions(ctx context.Context, c *echo.Conte
 
 func (h *Handler) handleBatchRevokePermissions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in batchRevokePermissionsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -139,7 +141,7 @@ func (h *Handler) runBatchPermissions(
 func (h *Handler) handleGetEffectivePermissionsForPath(_ context.Context, c *echo.Context, body []byte) error {
 	var in getEffectivePermissionsForPathInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}

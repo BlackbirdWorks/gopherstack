@@ -1,7 +1,7 @@
 package bedrockagentcorecontrol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
 )
 
@@ -98,7 +99,7 @@ func TestCredentialProviders_StoreRealSecrets(t *testing.T) {
 	assert.Contains(t, arn, ":secret:bedrock-agentcore-identity-default/apikey/vendor/apiKey")
 
 	var payload map[string]string
-	require.NoError(t, json.Unmarshal([]byte(store.values[arn]), &payload))
+	require.NoError(t, json.Unmarshal([]byte(store.values[arn]), &payload, jsonx.V1()))
 	assert.Equal(t, "sk-1", payload["apiKey"], "the key is stored, not discarded")
 
 	info, ok := seam.Provider(dpScope(), dataplane.ProviderAPIKey, "vendor")

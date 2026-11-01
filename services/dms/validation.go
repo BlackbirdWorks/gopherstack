@@ -1,11 +1,13 @@
 package dms
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -45,7 +47,7 @@ func validateReplicationInstanceInput(identifier, class string, allocatedStorage
 }
 
 func validateTableMappings(mappings string) error {
-	if mappings != "" && !json.Valid([]byte(mappings)) {
+	if mappings != "" && !jsontext.Value([]byte(mappings)).IsValid(jsonx.V1()) {
 		return fmt.Errorf("%w: TableMappings must be valid JSON", ErrValidation)
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) checkMarker(body []byte) error {
 		NextToken *string `json:"NextToken"`
 	}
 
-	if json.Unmarshal(body, &in) != nil {
+	if json.Unmarshal(body, &in, jsonx.V1()) != nil {
 		return nil //nolint:nilerr // malformed bodies are rejected by the op decoder
 	}
 

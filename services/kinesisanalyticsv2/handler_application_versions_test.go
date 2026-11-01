@@ -1,12 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestKAV2_ApplicationOperationsLifecycle exercises
@@ -29,7 +31,7 @@ func TestKAV2_ApplicationOperationsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	opID, ok := startOut["OperationId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, opID)
@@ -41,7 +43,7 @@ func TestKAV2_ApplicationOperationsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	details, ok := descOut["ApplicationOperationInfoDetails"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "StartApplication", details["Operation"])
@@ -55,7 +57,7 @@ func TestKAV2_ApplicationOperationsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	items, ok := listOut["ApplicationOperationInfoList"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
@@ -103,7 +105,7 @@ func TestKAV2_RollbackApplication(t *testing.T) {
 	require.Equal(t, http.StatusOK, rollbackRec.Code)
 
 	var rollbackOut map[string]any
-	require.NoError(t, json.Unmarshal(rollbackRec.Body.Bytes(), &rollbackOut))
+	require.NoError(t, json.Unmarshal(rollbackRec.Body.Bytes(), &rollbackOut, jsonx.V1()))
 	assert.NotEmpty(t, rollbackOut["OperationId"])
 
 	detail, ok := rollbackOut["ApplicationDetail"].(map[string]any)

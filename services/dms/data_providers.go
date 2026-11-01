@@ -2,7 +2,8 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -226,8 +228,9 @@ func mergeDataProviderSettings(current, incoming string, exact bool) string {
 		return incoming
 	}
 
-	var cur, inc map[string]map[string]json.RawMessage
-	if json.Unmarshal([]byte(current), &cur) != nil || json.Unmarshal([]byte(incoming), &inc) != nil {
+	var cur, inc map[string]map[string]jsontext.Value
+	if json.Unmarshal([]byte(current), &cur, jsonx.V1()) != nil ||
+		json.Unmarshal([]byte(incoming), &inc, jsonx.V1()) != nil {
 		return incoming
 	}
 
@@ -240,7 +243,7 @@ func mergeDataProviderSettings(current, incoming string, exact bool) string {
 		maps.Copy(curFields, fields)
 	}
 
-	out, err := json.Marshal(cur)
+	out, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return incoming
 	}

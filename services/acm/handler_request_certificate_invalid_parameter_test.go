@@ -1,13 +1,15 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestACMHandler_RequestCertificate_InvalidParameterException verifies that RequestCertificate's
@@ -40,7 +42,7 @@ func TestACMHandler_RequestCertificate_InvalidParameterException(t *testing.T) {
 			var errResp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", errResp.Type)
 		})
 	}
@@ -65,7 +67,7 @@ func TestACMHandler_RequestCertificate_IdempotencyMismatch_InvalidParameterExcep
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", errResp.Type)
 }
 
@@ -83,7 +85,7 @@ func TestACMHandler_CreateAcmeDomainValidation_InvalidDomainName_StillValidation
 		"AcmeEndpointArn":      epARN,
 		"DomainName":           "foo..bad.com",
 		"PrevalidationOptions": map[string]any{"DnsPrevalidation": map[string]any{}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
@@ -92,7 +94,7 @@ func TestACMHandler_CreateAcmeDomainValidation_InvalidDomainName_StillValidation
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errResp.Type)
 }
 

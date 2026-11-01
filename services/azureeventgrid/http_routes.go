@@ -1,7 +1,7 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -283,7 +285,12 @@ func (h *Handler) handlePull(c *echo.Context, rt route) error {
 		LockTokens []string `json:"lockTokens"`
 	}
 
-	if err = json.Unmarshal(body, &in); err != nil || len(in.LockTokens) == 0 || len(in.LockTokens) > maxLockTokens {
+	if err = json.Unmarshal(
+		body,
+		&in,
+		jsonx.V1(),
+	); err != nil || len(in.LockTokens) == 0 ||
+		len(in.LockTokens) > maxLockTokens {
 		return writeError(c, http.StatusBadRequest, outcomeBadRequest, "lockTokens must hold 1 to 100 tokens.")
 	}
 

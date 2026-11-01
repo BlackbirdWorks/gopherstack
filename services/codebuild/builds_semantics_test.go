@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_RetryBuild_InheritsFields verifies RetryBuild inherits environment/source/serviceRole
@@ -31,7 +34,7 @@ func TestHandler_RetryBuild_InheritsFields(t *testing.T) {
 	var startOut struct {
 		Build map[string]any `json:"build"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	buildID, _ := startOut.Build["id"].(string)
 	require.NotEmpty(t, buildID)
 
@@ -41,7 +44,7 @@ func TestHandler_RetryBuild_InheritsFields(t *testing.T) {
 	var retryOut struct {
 		Build map[string]any `json:"build"`
 	}
-	require.NoError(t, json.Unmarshal(retryRec.Body.Bytes(), &retryOut))
+	require.NoError(t, json.Unmarshal(retryRec.Body.Bytes(), &retryOut, jsonx.V1()))
 	b := retryOut.Build
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/my-role", b["serviceRole"],
@@ -64,7 +67,7 @@ func TestHandler_BatchGetBuilds_ARNLookup(t *testing.T) {
 	var startOut struct {
 		Build map[string]any `json:"build"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	buildArn, _ := startOut.Build["arn"].(string)
 	require.NotEmpty(t, buildArn)
 
@@ -75,7 +78,7 @@ func TestHandler_BatchGetBuilds_ARNLookup(t *testing.T) {
 		Builds         []any    `json:"builds"`
 		BuildsNotFound []string `json:"buildsNotFound"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Len(t, getOut.Builds, 1, "BatchGetBuilds must find build by ARN")
 	assert.Empty(t, getOut.BuildsNotFound, "ARN lookup must not produce buildsNotFound")
 }
@@ -108,7 +111,7 @@ func TestHandler_StartBuild_OverrideFields(t *testing.T) {
 	var out struct {
 		Build map[string]any `json:"build"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	b := out.Build
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/override-role", b["serviceRole"],
@@ -190,7 +193,7 @@ func TestHandler_StartBuild_InheritsProjectFields(t *testing.T) {
 					Phases []map[string]any `json:"phases"`
 				} `json:"build"`
 			}
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantServiceRole, out.Build.ServiceRole)
 			assert.Equal(t, "GITHUB", out.Build.Source.Type)
 			assert.Len(t, out.Build.Environment.EnvironmentVariables, 1)
@@ -233,7 +236,7 @@ func TestHandler_StartBuild_InitialPhase(t *testing.T) {
 					} `json:"phases"`
 				} `json:"build"`
 			}
-			require.NoError(t, json.NewDecoder(startRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(startRec.Body), &out, jsonx.V1()))
 			if tt.wantPhasesNonEmpty {
 				require.NotEmpty(t, out.Build.Phases)
 				assert.Equal(t, tt.wantInitialPhase, out.Build.Phases[0].PhaseType)
@@ -351,7 +354,7 @@ func TestHandler_StartBuild_EnvVarOverrideMerge(t *testing.T) {
 					} `json:"environment"`
 				} `json:"build"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 			envVars := out.Build.Environment.EnvironmentVariables
 			assert.Len(t, envVars, tt.wantEnvCount)

@@ -2,10 +2,11 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -109,7 +110,7 @@ func (h *Handler) handleCreateStream(
 	body []byte,
 ) (any, error) {
 	var req jsonCreateStreamReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -181,7 +182,7 @@ func (h *Handler) handleDeleteStream(
 	body []byte,
 ) (any, error) {
 	var req jsonDeleteStreamReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -224,7 +225,7 @@ func (h *Handler) handleDescribeStream(
 	body []byte,
 ) (any, error) {
 	var req jsonDescribeStreamReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -282,7 +283,7 @@ func (h *Handler) handleDescribeStreamSummary(
 	body []byte,
 ) (any, error) {
 	var req jsonDescribeStreamReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -343,7 +344,7 @@ func (h *Handler) handleListStreams(
 	body []byte,
 ) (any, error) {
 	var req jsonListStreamsReq
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	out, err := h.Backend.ListStreams(ctx, &ListStreamsInput{
 		Limit:                    req.Limit,

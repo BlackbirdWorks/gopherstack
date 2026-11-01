@@ -2,11 +2,13 @@ package codeartifact
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createPackageGroupBody's Pattern field is tagged json:"packageGroup" --
@@ -120,7 +122,7 @@ func (h *Handler) handleCreatePackageGroup(c *echo.Context, domainName string, b
 
 	var in createPackageGroupBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("ValidationException", "invalid request body"),
@@ -423,7 +425,7 @@ func (h *Handler) handleUpdatePackageGroup(c *echo.Context, domainName string, b
 
 	var in updatePackageGroupBody
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	pattern := c.Request().URL.Query().Get(keyPackageGroup)
@@ -496,7 +498,7 @@ func (h *Handler) handleUpdatePackageGroupOriginConfiguration(
 
 	var in updatePackageGroupOriginConfigurationBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("ValidationException", "invalid request body"),

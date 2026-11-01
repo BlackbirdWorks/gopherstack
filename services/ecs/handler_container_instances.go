@@ -2,9 +2,10 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -54,7 +55,7 @@ func ec2InstanceIDFromIdentityDocument(doc string) string {
 		InstanceID string `json:"instanceId"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(doc), &parsed, jsonx.V1()); err != nil {
 		return ""
 	}
 

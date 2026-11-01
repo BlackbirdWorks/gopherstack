@@ -1,12 +1,13 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -84,7 +85,7 @@ type associateIdentityProviderConfigBody struct {
 
 func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in associateIdentityProviderConfigBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -163,7 +164,7 @@ type describeIDPRequestBody struct {
 func (h *Handler) handleDescribeIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in describeIDPRequestBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}
@@ -233,7 +234,7 @@ type disassociateIDPBody struct {
 func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in disassociateIDPBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
@@ -284,7 +285,7 @@ func replayClosedDurableExecution(ex *DurableExecution, invType string) ([]byte,
 		msg = ptrconv.String(ex.Error.ErrorMessage)
 	}
 
-	payload, _ := json.Marshal(map[string]string{"errorMessage": msg})
+	payload, _ := json.Marshal(map[string]string{"errorMessage": msg}, jsonx.V1())
 
 	return payload, "Unhandled", http.StatusOK
 }
@@ -300,7 +301,7 @@ func (h *Handler) handleCheckpointDurableExecution(c *echo.Context, path string)
 
 	var body CheckpointDurableExecutionInput
 	if raw, err := httputils.ReadBody(c.Request()); err == nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, &body)
+		_ = json.Unmarshal(raw, &body, jsonx.V1())
 	}
 
 	return c.JSON(http.StatusOK, store.checkpoint(arn, body.Updates))
@@ -430,7 +431,7 @@ func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 	// struct here silently dropped every real client's Error every time.
 	var parsedErr ErrorObject
 	if raw, err := httputils.ReadBody(c.Request()); err == nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, &parsedErr)
+		_ = json.Unmarshal(raw, &parsedErr, jsonx.V1())
 	}
 
 	var errObj *ErrorObject
@@ -479,7 +480,7 @@ func (h *Handler) handleSendDurableExecutionCallbackFailure(c *echo.Context) err
 	// the request's top-level JSON body, not {"Error": {...}}.
 	var parsedErr ErrorObject
 	if raw, err := httputils.ReadBody(c.Request()); err == nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, &parsedErr)
+		_ = json.Unmarshal(raw, &parsedErr, jsonx.V1())
 	}
 
 	var errObj *ErrorObject

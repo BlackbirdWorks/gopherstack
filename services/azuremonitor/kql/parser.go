@@ -1,11 +1,13 @@
 package kql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type parser struct {
@@ -1385,9 +1387,9 @@ func dynamicLiteral(raw string) (node, error) {
 
 	var v any
 
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+	if err := json.Unmarshal([]byte(raw), &v, jsonx.V1()); err != nil {
 		alt := strings.ReplaceAll(raw, "'", `"`)
-		if err2 := json.Unmarshal([]byte(alt), &v); err2 != nil {
+		if err2 := json.Unmarshal([]byte(alt), &v, jsonx.V1()); err2 != nil {
 			return nil, syntaxErr("invalid dynamic literal")
 		}
 	}

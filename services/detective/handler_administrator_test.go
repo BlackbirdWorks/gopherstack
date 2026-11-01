@@ -1,12 +1,14 @@
 package detective_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -17,7 +19,7 @@ func TestDetective_StartMonitoringMember(t *testing.T) { //nolint:paralleltest /
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	// Add a member (status INVITED, not ACCEPTED_BUT_DISABLED).
@@ -98,7 +100,7 @@ func TestOrganizationAdminAccounts(t *testing.T) { //nolint:paralleltest // exis
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				admins, ok := resp["Administrators"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, admins)
@@ -134,7 +136,7 @@ func TestOrganizationAdminAccounts(t *testing.T) { //nolint:paralleltest // exis
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				admins, ok := resp["Administrators"].([]any)
 				require.True(t, ok)
 				require.Len(t, admins, 1)
@@ -158,7 +160,7 @@ func TestOrganizationAdminAccounts(t *testing.T) { //nolint:paralleltest // exis
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				admins, ok := resp["Administrators"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, admins)

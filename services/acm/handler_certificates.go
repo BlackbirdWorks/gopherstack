@@ -3,9 +3,11 @@ package acm
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type requestCertificateInput struct {
@@ -257,7 +259,7 @@ type updateCertificateOptionsOutput struct{}
 
 func (h *Handler) jsonRequestCertificate(ctx context.Context, body []byte) (any, error) {
 	var input requestCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrRequestCertInvalidParameter
 	}
 	certType := ""
@@ -400,7 +402,7 @@ func buildRenewalSummaryDetail(rs *RenewalSummary) *renewalSummaryDetail {
 
 func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	if err := validateCertArn(input.CertificateArn); err != nil {
@@ -459,7 +461,7 @@ func (h *Handler) jsonDescribeCertificate(ctx context.Context, body []byte) (any
 // jsonListCertificates handles the ListCertificates operation.
 func (h *Handler) jsonListCertificates(ctx context.Context, body []byte) (any, error) {
 	var input listCertificatesInput
-	_ = json.Unmarshal(body, &input)
+	_ = json.Unmarshal(body, &input, jsonx.V1())
 
 	if input.MaxItems < 0 || input.MaxItems > maxListItems {
 		return nil, fmt.Errorf("%w: MaxItems must be between 1 and %d", ErrInvalidArgs, maxListItems)
@@ -639,7 +641,7 @@ type listCertificateDomainValidationsOutput struct {
 // jsonListCertificateDomainValidations handles the ListCertificateDomainValidations operation.
 func (h *Handler) jsonListCertificateDomainValidations(ctx context.Context, body []byte) (any, error) {
 	var input listCertificateDomainValidationsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -668,7 +670,7 @@ func (h *Handler) jsonListCertificateDomainValidations(ctx context.Context, body
 
 func (h *Handler) jsonDeleteCertificate(ctx context.Context, body []byte) (any, error) {
 	var input deleteCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	if err := validateCertArn(input.CertificateArn); err != nil {
@@ -684,7 +686,7 @@ func (h *Handler) jsonDeleteCertificate(ctx context.Context, body []byte) (any, 
 
 func (h *Handler) jsonImportCertificate(ctx context.Context, body []byte) (any, error) {
 	var input importCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	if err := validateCertArn(input.CertificateArn); err != nil {
@@ -719,7 +721,7 @@ func (h *Handler) jsonImportCertificate(ctx context.Context, body []byte) (any, 
 
 func (h *Handler) jsonRenewCertificate(ctx context.Context, body []byte) (any, error) {
 	var input renewCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	if err := validateCertArn(input.CertificateArn); err != nil {
@@ -734,7 +736,7 @@ func (h *Handler) jsonRenewCertificate(ctx context.Context, body []byte) (any, e
 
 func (h *Handler) jsonExportCertificate(ctx context.Context, body []byte) (any, error) {
 	var input exportCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -769,7 +771,7 @@ func (h *Handler) jsonExportCertificate(ctx context.Context, body []byte) (any, 
 
 func (h *Handler) jsonGetCertificate(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 	if err := validateCertArn(input.CertificateArn); err != nil {
@@ -788,7 +790,7 @@ func (h *Handler) jsonGetCertificate(ctx context.Context, body []byte) (any, err
 
 func (h *Handler) jsonResendValidationEmail(ctx context.Context, body []byte) (any, error) {
 	var input resendValidationEmailInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -806,7 +808,7 @@ func (h *Handler) jsonResendValidationEmail(ctx context.Context, body []byte) (a
 
 func (h *Handler) jsonRevokeCertificate(ctx context.Context, body []byte) (any, error) {
 	var input revokeCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -823,7 +825,7 @@ func (h *Handler) jsonRevokeCertificate(ctx context.Context, body []byte) (any, 
 
 func (h *Handler) jsonUpdateCertificateOptions(ctx context.Context, body []byte) (any, error) {
 	var input updateCertificateOptionsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

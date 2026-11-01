@@ -2,13 +2,14 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -26,7 +27,7 @@ func benchRawOp(b *testing.B, h *dynamodb.DynamoDBHandler, action string, body [
 func benchMarshal(b *testing.B, v any) []byte {
 	b.Helper()
 
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -2,7 +2,8 @@ package kinesisanalyticsv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
@@ -127,7 +129,7 @@ func (f *fakeFlinkREST) Do(req *http.Request) (*http.Response, error) {
 	case strings.HasSuffix(p, "/run"):
 		var body map[string]any
 
-		_ = json.NewDecoder(req.Body).Decode(&body)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(req.Body), &body, jsonx.V1())
 		f.runs = append(f.runs, body)
 
 		return jsonResp(`{"jobid":"job1"}`), nil

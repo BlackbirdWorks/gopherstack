@@ -1,12 +1,14 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAnalysisTemplateHasIDKeys verifies AnalysisTemplate canonical ID keys.
@@ -22,14 +24,14 @@ func TestAnalysisTemplateHasIDKeys(t *testing.T) {
 	})
 	var colResp map[string]any
 	rec := doRequest(t, e, "GET", "/collaborations", nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp, jsonx.V1()))
 	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
 	rec2 := doRequest(t, e, "POST", "/memberships", map[string]any{
 		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
 	})
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1()))
 	mID := memResp["membership"].(map[string]any)["id"].(string)
 
 	// Create analysis template
@@ -41,7 +43,7 @@ func TestAnalysisTemplateHasIDKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code, rec3.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 	at := resp["analysisTemplate"].(map[string]any)
 
 	assert.Contains(t, at, "id", "analysisTemplate must have 'id' key")

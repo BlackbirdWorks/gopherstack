@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handlePutFunctionEventInvokeConfig handles PUT /2015-03-31/functions/{name}/event-invoke-config.
@@ -25,7 +26,7 @@ func (h *Handler) handlePutFunctionEventInvokeConfig(c *echo.Context, name strin
 
 	var input PutFunctionEventInvokeConfigInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}
@@ -67,7 +68,7 @@ func (h *Handler) handleUpdateFunctionEventInvokeConfig(c *echo.Context, name st
 
 	var input PutFunctionEventInvokeConfigInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}

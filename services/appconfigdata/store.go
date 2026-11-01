@@ -6,12 +6,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -64,8 +65,8 @@ func profileKey(app, env, profile string) string {
 func normalizedContentHash(content, contentType string) string {
 	if isJSONContentType(contentType) {
 		var v any
-		if err := json.Unmarshal([]byte(content), &v); err == nil {
-			if normalized, marshalErr := json.Marshal(v); marshalErr == nil {
+		if err := json.Unmarshal([]byte(content), &v, jsonx.V1()); err == nil {
+			if normalized, marshalErr := json.Marshal(v, jsonx.V1()); marshalErr == nil {
 				sum := sha256.Sum256(normalized)
 
 				return hex.EncodeToString(sum[:])

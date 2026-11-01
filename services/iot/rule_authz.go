@@ -2,12 +2,13 @@ package iot
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
@@ -122,7 +123,7 @@ func (h *ruleHook) runErrorAction(
 		"base64OriginalPayload": base64.StdEncoding.EncodeToString(msg.original),
 		"failedAction":          failedAction,
 		"failedActionReason":    "Failed to run action. Message: " + cause.Error(),
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return
 	}

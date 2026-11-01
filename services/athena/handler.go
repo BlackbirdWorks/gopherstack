@@ -2,7 +2,7 @@ package athena
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -266,7 +267,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var env resourceNameEnvelope
-	if uerr := json.Unmarshal(body, &env); uerr != nil {
+	if uerr := json.Unmarshal(body, &env, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -336,7 +337,7 @@ func (h *Handler) doDispatch(_ context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(response)
+	return json.Marshal(response, jsonx.V1())
 }
 
 // handleError writes a standardized error response back to the client.
@@ -387,7 +388,7 @@ func (h *Handler) handleError(
 		Message: stripExceptionPrefix(reqErr.Error()),
 	}
 
-	payload, _ := json.Marshal(errResp)
+	payload, _ := json.Marshal(errResp, jsonx.V1())
 
 	return c.JSONBlob(statusCode, payload)
 }

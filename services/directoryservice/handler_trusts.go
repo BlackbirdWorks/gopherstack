@@ -1,7 +1,7 @@
 package directoryservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateTrust(c *echo.Context) error {
@@ -29,7 +30,7 @@ func (h *Handler) handleCreateTrust(c *echo.Context) error {
 		ConditionalForwarderIPv6Addrs []string `json:"ConditionalForwarderIpv6Addrs"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -88,7 +89,7 @@ func (h *Handler) handleDeleteTrust(c *echo.Context) error {
 		DeleteAssociatedConditionalForwarder bool   `json:"DeleteAssociatedConditionalForwarder"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -120,7 +121,7 @@ func (h *Handler) handleDescribeTrusts(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}
@@ -179,7 +180,7 @@ func (h *Handler) handleUpdateTrust(c *echo.Context) error {
 		SelectiveAuth string `json:"SelectiveAuth"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -211,7 +212,7 @@ func (h *Handler) handleVerifyTrust(c *echo.Context) error {
 		TrustID string `json:"TrustId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 

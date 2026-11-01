@@ -1,7 +1,7 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -68,7 +69,7 @@ func TestWebhookBatching(t *testing.T) {
 			for i := range tt.events {
 				ev := egEvent("e"+string(rune('a'+i)), "/s")
 				ev.Fields["data"] = map[string]any{"pad": strings.Repeat("x", tt.padding)}
-				raw, _ := json.Marshal(ev.Fields)
+				raw, _ := json.Marshal(ev.Fields, jsonx.V1())
 				ev.Raw = raw
 				events = append(events, ev)
 			}
@@ -85,7 +86,7 @@ func TestWebhookBatching(t *testing.T) {
 			for _, body := range h.bodies {
 				var arr []map[string]any
 
-				require.NoError(t, json.Unmarshal(body, &arr))
+				require.NoError(t, json.Unmarshal(body, &arr, jsonx.V1()))
 				sizes = append(sizes, len(arr))
 				total += len(arr)
 			}
@@ -127,7 +128,7 @@ func TestWebhookBatchFailureRetriesWholeBatch(t *testing.T) {
 
 	var arr []map[string]any
 
-	require.NoError(t, json.Unmarshal(h.bodies[1], &arr))
+	require.NoError(t, json.Unmarshal(h.bodies[1], &arr, jsonx.V1()))
 	assert.Len(t, arr, 2)
 	assert.Equal(t, "1", h.requests[1].Header.Get("Aeg-Delivery-Count"))
 }
@@ -297,6 +298,6 @@ func TestCloudEventsBatchedDelivery(t *testing.T) {
 
 	var arr []map[string]any
 
-	require.NoError(t, json.Unmarshal(body, &arr))
+	require.NoError(t, json.Unmarshal(body, &arr, jsonx.V1()))
 	assert.Len(t, arr, 2)
 }

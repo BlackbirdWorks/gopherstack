@@ -3,7 +3,9 @@ package ecrpublic
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func sha256Digest(data []byte) string {
@@ -52,7 +54,7 @@ type manifestDoc struct {
 func parseManifest(manifest string) (manifestDoc, bool) {
 	var m manifestDoc
 
-	return m, json.Unmarshal([]byte(manifest), &m) == nil
+	return m, json.Unmarshal([]byte(manifest), &m, jsonx.V1()) == nil
 }
 
 // referencedDigests returns every layer/config digest an image manifest

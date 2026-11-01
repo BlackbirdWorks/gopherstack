@@ -1,11 +1,13 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // errSchemaViolation is the sentinel returned when a request body fails JSON Schema
@@ -31,7 +33,7 @@ func validateJSONAgainstSchema(body []byte, schema string) error {
 	}
 
 	var doc any
-	if err := json.Unmarshal(body, &doc); err != nil {
+	if err := json.Unmarshal(body, &doc, jsonx.V1()); err != nil {
 		return errSchemaViolation
 	}
 
@@ -44,7 +46,7 @@ func validateJSONAgainstSchema(body []byte, schema string) error {
 // when the schema is not a parseable JSON object.
 func parseSchemaObject(schema string) (map[string]any, bool) {
 	var root map[string]any
-	if err := json.Unmarshal([]byte(schema), &root); err != nil {
+	if err := json.Unmarshal([]byte(schema), &root, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -316,11 +318,11 @@ func toFloat(raw any) (float64, bool) {
 
 // jsonValuesEqual compares two decoded JSON values for equality (used by enum checks).
 func jsonValuesEqual(a, b any) bool {
-	ab, err := json.Marshal(a)
+	ab, err := json.Marshal(a, jsonx.V1())
 	if err != nil {
 		return false
 	}
-	bb, err := json.Marshal(b)
+	bb, err := json.Marshal(b, jsonx.V1())
 	if err != nil {
 		return false
 	}

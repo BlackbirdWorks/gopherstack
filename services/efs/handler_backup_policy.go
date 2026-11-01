@@ -1,10 +1,12 @@
 package efs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDescribeBackupPolicy(c *echo.Context, fileSystemID string) error {
@@ -28,7 +30,7 @@ type putBackupPolicyBody struct {
 
 func (h *Handler) handlePutBackupPolicy(c *echo.Context, fileSystemID string, body []byte) error {
 	var in putBackupPolicyBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 

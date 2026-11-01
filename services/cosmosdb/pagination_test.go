@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // pageIDs walks every page of a feed, returning each page's ids and asserting the continuation protocol.
@@ -149,7 +151,7 @@ func TestPagination_Feeds(t *testing.T) {
 				rec := doRequest(t, h, method, tt.path, headers, body)
 
 				var decoded map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &decoded)
+				_ = json.Unmarshal(rec.Body.Bytes(), &decoded, jsonx.V1())
 
 				return rec.Code, decoded, rec.Header()
 			}
@@ -221,7 +223,7 @@ func TestPagination_QueryContinuationIsStateless(t *testing.T) {
 		var body struct {
 			Documents []string `json:"Documents"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 		return append(body.Documents, "next="+rec.Header().Get("X-Ms-Continuation"))
 	}

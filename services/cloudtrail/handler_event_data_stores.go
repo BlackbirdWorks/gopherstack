@@ -1,11 +1,12 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -33,7 +34,7 @@ type createEventDataStoreBody struct {
 
 func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error {
 	var in createEventDataStoreBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -74,7 +75,7 @@ type deleteEventDataStoreBody struct {
 
 func (h *Handler) handleDeleteEventDataStore(c *echo.Context, body []byte) error {
 	var in deleteEventDataStoreBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -93,7 +94,7 @@ type getEventDataStoreBody struct {
 
 func (h *Handler) handleGetEventDataStore(c *echo.Context, body []byte) error {
 	var in getEventDataStoreBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -121,7 +122,7 @@ type updateEventDataStoreBody struct {
 
 func (h *Handler) handleUpdateEventDataStore(c *echo.Context, body []byte) error {
 	var in updateEventDataStoreBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -150,7 +151,7 @@ type listEventDataStoresBody struct {
 func (h *Handler) handleListEventDataStores(c *echo.Context, body []byte) error {
 	var in listEventDataStoresBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -186,7 +187,7 @@ type restoreEventDataStoreBody struct {
 
 func (h *Handler) handleRestoreEventDataStore(c *echo.Context, body []byte) error {
 	var in restoreEventDataStoreBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -206,7 +207,7 @@ type startEventDataStoreIngestionBody struct {
 
 func (h *Handler) handleStartEventDataStoreIngestion(c *echo.Context, body []byte) error {
 	var in startEventDataStoreIngestionBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -225,7 +226,7 @@ type stopEventDataStoreIngestionBody struct {
 
 func (h *Handler) handleStopEventDataStoreIngestion(c *echo.Context, body []byte) error {
 	var in stopEventDataStoreIngestionBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -244,7 +245,7 @@ type disableFederationBody struct {
 
 func (h *Handler) handleDisableFederation(c *echo.Context, body []byte) error {
 	var in disableFederationBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -275,7 +276,7 @@ type enableFederationBody struct {
 
 func (h *Handler) handleEnableFederation(c *echo.Context, body []byte) error {
 	var in enableFederationBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

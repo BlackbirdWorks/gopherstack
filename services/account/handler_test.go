@@ -1,7 +1,8 @@
 package account_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/internal/awstest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/account"
 )
 
@@ -247,6 +249,6 @@ func TestHandler_ErrorEnvelope(t *testing.T) {
 	assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", out["__type"])
 }

@@ -2,7 +2,7 @@ package elasticsearch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -96,7 +96,7 @@ func buildPersistenceDTORegistry() persistenceDTOTables {
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage     `json:"tables"`
+	Tables                    map[string]jsontext.Value      `json:"tables"`
 	PackagesByName            map[string]map[string]string   `json:"packagesByName"`
 	PackageAssociations       map[string]map[string][]string `json:"packageAssociations"`
 	PackageAssociationDetails packageAssociationDetails      `json:"packageAssociationDetails,omitempty"`
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) rebuildArnIndex() {
 // restoreResourceTables rebuilds every store.Table on b from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtos := buildPersistenceDTORegistry()
 
 	if err := dtos.registry.RestoreAll(tables); err != nil {

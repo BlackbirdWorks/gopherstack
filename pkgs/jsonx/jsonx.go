@@ -26,8 +26,8 @@
 //	json.Valid(b)                 jsontext.Value(b).IsValid(jsonx.V1())
 //	json.Compact / Indent         jsontext.Value.Compact / Indent
 //	json.Marshaler, Unmarshaler   same names in v2 (MarshalJSON / UnmarshalJSON still honored)
-//	*json.SyntaxError             *jsontext.SyntacticError
-//	*json.UnmarshalTypeError      *json.SemanticError
+//	*json.SyntaxError             jsonx.SyntaxError / IsSyntaxError
+//	*json.UnmarshalTypeError      jsonx.TypeError / IsTypeError
 //
 // Use UnmarshalRead instead of UnmarshalDecode only when trailing data after
 // the first value must be an error; v1 Decoder.Decode ignored it.
@@ -39,7 +39,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
+	"strings"
 )
 
 var (
@@ -50,6 +52,54 @@ var (
 // V1 is the full option set that reproduces encoding/json v1 behavior.
 func V1() json.Options {
 	return jsonv1.DefaultOptionsV1()
+}
+
+// SyntaxError reports whether err is a JSON syntax error and its byte offset.
+// With V1 options the v2 engine returns the v1 error types, so both are accepted.
+func SyntaxError(err error) (int64, bool) {
+	if se, ok := errors.AsType[*jsonv1.SyntaxError](err); ok {
+		return se.Offset, true
+	}
+
+	if se, ok := errors.AsType[*jsontext.SyntacticError](err); ok {
+		return se.ByteOffset, true
+	}
+
+	return 0, false
+}
+
+// IsSyntaxError reports whether err is a JSON syntax error.
+func IsSyntaxError(err error) bool {
+	_, ok := SyntaxError(err)
+
+	return ok
+}
+
+// TypeError reports whether err is a JSON value/type mismatch and the dotted
+// path of the offending member (the v1 UnmarshalTypeError.Field form).
+func TypeError(err error) (string, bool) {
+	if te, ok := errors.AsType[*jsonv1.UnmarshalTypeError](err); ok {
+		return te.Field, true
+	}
+
+	if se, ok := errors.AsType[*json.SemanticError](err); ok {
+		return strings.ReplaceAll(strings.TrimPrefix(string(se.JSONPointer), "/"), "/", "."), true
+	}
+
+	return "", false
+}
+
+// IsTypeError reports whether err is a JSON value/type mismatch.
+func IsTypeError(err error) bool {
+	_, ok := TypeError(err)
+
+	return ok
+}
+
+// SDKDecoder returns a v1 decoder for AWS SDK helpers that still take
+// *encoding/json.Decoder (e.g. restjson.GetErrorInfo).
+func SDKDecoder(r io.Reader) *jsonv1.Decoder {
+	return jsonv1.NewDecoder(r)
 }
 
 // Number is a JSON number kept in its textual form, the v2 stand-in for

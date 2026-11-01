@@ -6,7 +6,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -22,7 +23,7 @@ import (
 func invokeOpB(tb testing.TB, handler *dynamodb.DynamoDBHandler, action string, body any) (int, map[string]any) {
 	tb.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(tb, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
@@ -32,7 +33,7 @@ func invokeOpB(tb testing.TB, handler *dynamodb.DynamoDBHandler, action string, 
 
 	var resp map[string]any
 	if w.Body.Len() > 0 {
-		require.NoError(tb, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.NoError(tb, json.Unmarshal(w.Body.Bytes(), &resp, jsonx.V1()))
 	}
 
 	return w.Code, resp

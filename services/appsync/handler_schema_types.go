@@ -2,13 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleTypes handles /v1/apis/{apiId}/types[/{typeName}[/resolvers[/{fieldName}]]].
@@ -68,7 +69,7 @@ func (h *Handler) createTypeHandler(ctx context.Context, c *echo.Context, apiID 
 		Format     string `json:"format"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -149,7 +150,7 @@ func (h *Handler) updateType(ctx context.Context, c *echo.Context, apiID, typeNa
 		Format     string `json:"format"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

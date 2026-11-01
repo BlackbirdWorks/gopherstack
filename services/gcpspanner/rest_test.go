@@ -1,7 +1,7 @@
 package gcpspanner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -32,7 +33,7 @@ func restDo(t *testing.T, base, method, path, body string) (int, map[string]any)
 
 	out := map[string]any{}
 	if len(raw) > 0 {
-		require.NoError(t, json.Unmarshal(raw, &out), string(raw))
+		require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()), string(raw))
 	}
 
 	return resp.StatusCode, out

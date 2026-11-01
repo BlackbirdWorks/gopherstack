@@ -1,7 +1,7 @@
 package forecast
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -344,13 +345,13 @@ func cloneMap(data map[string]any) map[string]any {
 		return make(map[string]any)
 	}
 
-	encoded, err := json.Marshal(data)
+	encoded, err := json.Marshal(data, jsonx.V1())
 	if err != nil {
 		return make(map[string]any)
 	}
 
 	var result map[string]any
-	if unmarshalErr := json.Unmarshal(encoded, &result); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(encoded, &result, jsonx.V1()); unmarshalErr != nil {
 		return make(map[string]any)
 	}
 

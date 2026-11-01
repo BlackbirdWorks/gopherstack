@@ -2,10 +2,12 @@ package firehose
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // DataFormatConversionConfig controls record-format conversion (JSON → Parquet/ORC).
@@ -168,7 +170,7 @@ func convertRecords(
 // record is not a valid JSON object, which the caller treats as a conversion failure.
 func deserializeRecord(deser *Deserializer, rec []byte) ([]byte, bool) {
 	var obj map[string]any
-	if err := json.Unmarshal(bytes.TrimSpace(rec), &obj); err != nil {
+	if err := json.Unmarshal(bytes.TrimSpace(rec), &obj, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -225,13 +227,13 @@ func marshalCanonical(obj map[string]any) ([]byte, error) {
 		if i > 0 {
 			buf.WriteByte(',')
 		}
-		keyJSON, err := json.Marshal(k)
+		keyJSON, err := json.Marshal(k, jsonx.V1())
 		if err != nil {
 			return nil, err
 		}
 		buf.Write(keyJSON)
 		buf.WriteByte(':')
-		valJSON, err := json.Marshal(obj[k])
+		valJSON, err := json.Marshal(obj[k], jsonx.V1())
 		if err != nil {
 			return nil, err
 		}

@@ -2,7 +2,7 @@ package iot
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"strconv"
@@ -38,7 +38,7 @@ type republishWire struct {
 	Qos     int32  `json:"qos"`
 }
 
-func (h *ruleHook) runRepublish(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runRepublish(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w republishWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err

@@ -3,7 +3,8 @@ package gcpidentitytoolkit_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/gcpidentitytoolkit"
 )
@@ -106,7 +108,7 @@ func (e *env) do(t *testing.T, method, path, auth string, body any) result {
 	var rdr *bytes.Reader
 
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rdr = bytes.NewReader(data)
@@ -129,7 +131,7 @@ func (e *env) do(t *testing.T, method, path, auth string, body any) result {
 	defer resp.Body.Close()
 
 	out := result{status: resp.StatusCode}
-	_ = json.NewDecoder(resp.Body).Decode(&out.body)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out.body, jsonx.V1())
 
 	return out
 }

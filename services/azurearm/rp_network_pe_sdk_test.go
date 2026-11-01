@@ -1,7 +1,8 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/privatedns/armprivatedns"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (s *netStack) rawJSON(t *testing.T, method, path, body string) (int, map[string]any) {
@@ -18,7 +21,7 @@ func (s *netStack) rawJSON(t *testing.T, method, path, body string) (int, map[st
 
 	var out map[string]any
 
-	_ = json.NewDecoder(resp.Body).Decode(&out)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

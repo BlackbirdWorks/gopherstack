@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTableObjectsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -25,7 +27,7 @@ func (h *Handler) handleGetTableObjects(_ context.Context, c *echo.Context, body
 
 func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Context, body []byte) error {
 	var in listTableStorageOptimizersInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	opts, next := h.Backend.ListTableStorageOptimizers(
@@ -38,7 +40,7 @@ func (h *Handler) handleListTableStorageOptimizers(_ context.Context, c *echo.Co
 func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateTableObjectsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -53,7 +55,7 @@ func (h *Handler) handleUpdateTableObjects(_ context.Context, c *echo.Context, b
 
 func (h *Handler) handleUpdateTableStorageOptimizer(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateTableStorageOptimizerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	result := h.Backend.UpdateTableStorageOptimizer(

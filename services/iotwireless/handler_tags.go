@@ -1,12 +1,13 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -46,7 +47,7 @@ func (h *Handler) tagResource(c *echo.Context, resourceArn string, body []byte) 
 	}
 
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 

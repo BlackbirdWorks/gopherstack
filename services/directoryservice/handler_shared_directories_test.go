@@ -1,13 +1,15 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSharedDirectories(t *testing.T) {
@@ -34,7 +36,7 @@ func TestSharedDirectories(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			sharedDirID, _ := r1["SharedDirectoryId"].(string)
 			assert.NotEmpty(t, sharedDirID)
 
@@ -45,7 +47,7 @@ func TestSharedDirectories(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
 				var r2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 				sd, _ := r2["SharedDirectory"].(map[string]any)
 				require.NotNil(t, sd, "AcceptSharedDirectoryOutput.SharedDirectory must be present")
 				assert.Equal(t, sharedDirID, sd["SharedDirectoryId"])
@@ -63,7 +65,7 @@ func TestSharedDirectories(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec3.Code)
 				var r3 map[string]any
-				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 				dirs, _ := r3["SharedDirectories"].([]any)
 				assert.Len(t, dirs, 1)
 
@@ -80,7 +82,7 @@ func TestSharedDirectories(t *testing.T) {
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
 				var r2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 				assert.Equal(t, sharedDirID, r2["SharedDirectoryId"])
 			}
 		})
@@ -151,7 +153,7 @@ func TestShareDirectory_StatusLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, shareRec.Code)
 		var shareResp map[string]any
-		require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp))
+		require.NoError(t, json.Unmarshal(shareRec.Body.Bytes(), &shareResp, jsonx.V1()))
 		sharedID, _ := shareResp["SharedDirectoryId"].(string)
 		require.NotEmpty(t, sharedID)
 

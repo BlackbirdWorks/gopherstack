@@ -1,13 +1,14 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -62,7 +63,7 @@ func TestWire_NoInternalAPIID(t *testing.T) {
 			require.Equal(t, http.StatusOK, list.Code)
 
 			var out map[string][]map[string]any
-			require.NoError(t, json.Unmarshal(list.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(list.Body.Bytes(), &out, jsonx.V1()))
 			require.NotEmpty(t, out[tt.listKey])
 
 			for _, item := range out[tt.listKey] {

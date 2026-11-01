@@ -3,7 +3,7 @@ package elbv2_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -13,6 +13,8 @@ import (
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const testFnARN = "arn:aws:lambda:us-east-1:123456789012:function:web"
@@ -43,7 +45,7 @@ func (f *fakeInvoker) event(t *testing.T) map[string]any {
 
 	var ev map[string]any
 
-	require.NoError(t, json.Unmarshal(f.payload, &ev))
+	require.NoError(t, json.Unmarshal(f.payload, &ev, jsonx.V1()))
 
 	return ev
 }

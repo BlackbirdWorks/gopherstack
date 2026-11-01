@@ -1,8 +1,10 @@
 package dax
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createParameterGroupRequest struct {
@@ -81,7 +83,7 @@ func toParameterResponse(p *Parameter) parameterResponse {
 
 func (h *Handler) handleCreateParameterGroup(body []byte) (any, error) {
 	var req createParameterGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -101,7 +103,7 @@ func (h *Handler) handleCreateParameterGroup(body []byte) (any, error) {
 func (h *Handler) handleDescribeParameterGroups(body []byte) (any, error) {
 	var req describeParameterGroupsRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -136,7 +138,7 @@ func (h *Handler) handleDescribeParameterGroups(body []byte) (any, error) {
 
 func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
 	var req updateParameterGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -169,7 +171,7 @@ func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
 
 func (h *Handler) handleDeleteParameterGroup(body []byte) (any, error) {
 	var req deleteParameterGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -184,7 +186,7 @@ func (h *Handler) handleDeleteParameterGroup(body []byte) (any, error) {
 
 func (h *Handler) handleDescribeParameters(body []byte) (any, error) {
 	var req describeParametersRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -217,7 +219,7 @@ func (h *Handler) handleDescribeParameters(body []byte) (any, error) {
 func (h *Handler) handleDescribeDefaultParameters(body []byte) (any, error) {
 	var req describeDefaultParametersRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -245,7 +247,7 @@ func (h *Handler) handleDescribeDefaultParameters(body []byte) (any, error) {
 
 func (h *Handler) handleResetParameterGroup(body []byte) (any, error) {
 	var req resetParameterGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

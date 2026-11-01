@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -23,7 +25,7 @@ func TestAPIGW_APIKeys(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300, "expected 2xx for CreateAPIKey")
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	keyID, _ := createResp["id"].(string)
 	require.NotEmpty(t, keyID)
 
@@ -91,7 +93,7 @@ func TestGetApiKey_ValueHiddenByDefault(t *testing.T) {
 			require.True(t, createRec.Code >= 200 && createRec.Code < 300)
 
 			var createResp map[string]any
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 			keyID, _ := createResp["id"].(string)
 			require.NotEmpty(t, keyID)
 
@@ -99,7 +101,7 @@ func TestGetApiKey_ValueHiddenByDefault(t *testing.T) {
 			require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			if tt.wantValue {
 				assert.NotEmpty(t, resp["value"], "value must be present when includeValue=true")
@@ -154,7 +156,7 @@ func TestGetApiKeys_ValueHiddenByDefault(t *testing.T) {
 			require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, ok := resp["item"].([]any)
 			require.True(t, ok && len(items) > 0, "expected at least one key in response")
@@ -207,7 +209,7 @@ func TestPatchOps_UpdateApiKey(t *testing.T) {
 			require.True(t, createRec.Code >= 200 && createRec.Code < 300)
 
 			var createResp map[string]any
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 			keyID, _ := createResp["id"].(string)
 			require.NotEmpty(t, keyID)
 
@@ -239,7 +241,7 @@ func TestApiKey_CustomerID(t *testing.T) {
 	require.True(t, createRec.Code >= 200 && createRec.Code < 300)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 	keyID, _ := createResp["id"].(string)
 	require.NotEmpty(t, keyID)
 	assert.Equal(t, "mp-cust-123", createResp["customerId"],
@@ -308,7 +310,7 @@ func TestUpdateApiKey(t *testing.T) {
 			createRec := postWithHandler(t, handler, e, "CreateApiKey", `{"name":"orig-key","enabled":true}`)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			keyID := createResp["id"].(string)
 
 			lookupID := keyID

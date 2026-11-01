@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateWebhook(t *testing.T) {
@@ -107,7 +110,7 @@ func TestHandler_CreateWebhook_ResponseFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	webhook, ok := out["webhook"].(map[string]any)
 	require.True(t, ok, "response should contain 'webhook' object")
@@ -167,7 +170,7 @@ func TestCodeBuild_Webhooks(t *testing.T) {
 				BuildType    string `json:"buildType"`
 			} `json:"webhook"`
 		}
-		require.NoError(t, json.NewDecoder(updRec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &out, jsonx.V1()))
 		assert.Equal(t, "develop", out.Webhook.BranchFilter)
 		assert.Equal(t, "BUILD_BATCH", out.Webhook.BuildType)
 	})
@@ -215,7 +218,7 @@ func TestHandler_CreateWebhook_FilterGroups(t *testing.T) {
 	var out struct {
 		Webhook map[string]any `json:"webhook"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	w := out.Webhook
 
 	fgs, hasFGs := w["filterGroups"]
@@ -263,7 +266,7 @@ func TestHandler_CreateWebhook_ExtendedFields(t *testing.T) {
 			ManualCreation         bool           `json:"manualCreation"`
 		} `json:"webhook"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 	assert.Equal(t, "ACTIVE", out.Webhook.Status)
 	assert.NotEmpty(t, out.Webhook.Secret, "CreateWebhook must return a secret")
@@ -295,7 +298,7 @@ func TestHandler_UpdateWebhook_RotateSecret(t *testing.T) {
 			LastModifiedSecret float64 `json:"lastModifiedSecret"`
 		} `json:"webhook"`
 	}
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	originalSecret := createOut.Webhook.Secret
 	require.NotEmpty(t, originalSecret)
 
@@ -312,7 +315,7 @@ func TestHandler_UpdateWebhook_RotateSecret(t *testing.T) {
 			Secret string `json:"secret"`
 		} `json:"webhook"`
 	}
-	require.NoError(t, json.NewDecoder(noRotateRec.Body).Decode(&noRotateOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(noRotateRec.Body), &noRotateOut, jsonx.V1()))
 	assert.Equal(t, originalSecret, noRotateOut.Webhook.Secret, "secret must be unchanged without rotateSecret")
 
 	rotateRec := doRequest(t, h, "UpdateWebhook", map[string]any{
@@ -327,7 +330,7 @@ func TestHandler_UpdateWebhook_RotateSecret(t *testing.T) {
 			LastModifiedSecret float64 `json:"lastModifiedSecret"`
 		} `json:"webhook"`
 	}
-	require.NoError(t, json.NewDecoder(rotateRec.Body).Decode(&rotateOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rotateRec.Body), &rotateOut, jsonx.V1()))
 	assert.NotEqual(t, originalSecret, rotateOut.Webhook.Secret, "rotateSecret must regenerate the secret")
 	assert.GreaterOrEqual(t, rotateOut.Webhook.LastModifiedSecret, createOut.Webhook.LastModifiedSecret)
 }
@@ -348,7 +351,7 @@ func TestHandler_Webhook_MirroredOnProject(t *testing.T) {
 		var out struct {
 			Projects []map[string]any `json:"projects"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.Len(t, out.Projects, 1)
 
 		w, _ := out.Projects[0]["webhook"].(map[string]any)

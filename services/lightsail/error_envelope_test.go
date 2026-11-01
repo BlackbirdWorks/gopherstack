@@ -2,7 +2,7 @@ package lightsail_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/lightsail"
@@ -53,7 +54,7 @@ func TestErrorEnvelope_NotFoundDecodesToTypedError(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rawStatus)
 
 	var envelope map[string]any
-	require.NoError(t, json.Unmarshal(rawBody, &envelope))
+	require.NoError(t, json.Unmarshal(rawBody, &envelope, jsonx.V1()))
 	require.Equal(t, "NotFoundException", envelope["__type"],
 		"raw response must carry the JSON body key __type the SDK's getProtocolErrorInfo reads")
 	msg, ok := envelope["message"]

@@ -1,12 +1,15 @@
 package codebuild_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCodeBuild_SourceCredentials covers Import, List, Delete.
@@ -27,7 +30,7 @@ func TestCodeBuild_SourceCredentials(t *testing.T) {
 		var out struct {
 			Arn string `json:"arn"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		assert.Contains(t, out.Arn, "GITHUB")
 	})
 
@@ -58,7 +61,7 @@ func TestCodeBuild_SourceCredentials(t *testing.T) {
 		var out struct {
 			SourceCredentialsInfos []map[string]any `json:"sourceCredentialsInfos"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		require.Len(t, out.SourceCredentialsInfos, 1)
 		assert.Equal(t, "BITBUCKET", out.SourceCredentialsInfos[0]["serverType"])
 		assert.Equal(t, "PERSONAL_ACCESS_TOKEN", out.SourceCredentialsInfos[0]["authType"])
@@ -78,7 +81,7 @@ func TestCodeBuild_SourceCredentials(t *testing.T) {
 		var importOut struct {
 			Arn string `json:"arn"`
 		}
-		require.NoError(t, json.NewDecoder(importRec.Body).Decode(&importOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(importRec.Body), &importOut, jsonx.V1()))
 
 		delRec := doRequest(t, h, "DeleteSourceCredentials", map[string]any{"arn": importOut.Arn})
 		assert.Equal(t, http.StatusOK, delRec.Code)
@@ -88,7 +91,7 @@ func TestCodeBuild_SourceCredentials(t *testing.T) {
 		var listOut struct {
 			SourceCredentialsInfos []map[string]any `json:"sourceCredentialsInfos"`
 		}
-		require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 		assert.Empty(t, listOut.SourceCredentialsInfos)
 	})
 

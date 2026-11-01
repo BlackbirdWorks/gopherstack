@@ -2,7 +2,8 @@ package appmesh
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -12,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errSpecDSL = errors.New("appmesh spec dsl")
@@ -459,13 +461,13 @@ func mustSpecSchemas() *specSchemas {
 	return s
 }
 
-func (s *specSchemas) validate(shape string, spec json.RawMessage) error {
+func (s *specSchemas) validate(shape string, spec jsontext.Value) error {
 	if len(bytes.TrimSpace(spec)) == 0 {
 		return nil
 	}
 
 	var v any
-	if err := json.Unmarshal(spec, &v); err != nil {
+	if err := json.Unmarshal(spec, &v, jsonx.V1()); err != nil {
 		return awserr.Newf("spec: %s", awserr.ErrInvalidParameter, err)
 	}
 

@@ -2,7 +2,7 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -30,14 +32,14 @@ type subFilterSet [][]subFilter
 
 // plainJSON converts a VTL/JS value into plain JSON-shaped Go values.
 func plainJSON(v any) (any, error) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
 	var out any
 
-	err = json.Unmarshal(raw, &out)
+	err = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return out, err
 }

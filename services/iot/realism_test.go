@@ -1,13 +1,15 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func iotErr(t *testing.T, body []byte) (string, string) {
@@ -17,7 +19,7 @@ func iotErr(t *testing.T, body []byte) (string, string) {
 		Type    string `json:"__type"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out.Type, out.Message
 }

@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -23,7 +24,7 @@ func TestEMR_ListInstanceFleets(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "ListInstanceFleets", map[string]any{
 		"ClusterId": createOut.JobFlowID,
@@ -35,7 +36,7 @@ func TestEMR_ListInstanceFleets(t *testing.T) {
 		InstanceFleets []emr.InstanceFleet `json:"InstanceFleets"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.InstanceFleets)
 }
 
@@ -71,7 +72,7 @@ func TestEMR_AddInstanceFleet(t *testing.T) {
 			var createOut struct {
 				JobFlowID string `json:"JobFlowId"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 			clusterID := tt.clusterID
 			if clusterID == "" {
@@ -94,7 +95,7 @@ func TestEMR_AddInstanceFleet(t *testing.T) {
 					ClusterID       string `json:"ClusterId"`
 					InstanceFleetID string `json:"InstanceFleetId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.InstanceFleetID)
 				assert.Equal(t, clusterID, out.ClusterID)
 				assert.Contains(t, out.ClusterArn, "elasticmapreduce")
@@ -114,7 +115,7 @@ func TestEMR_AddInstanceFleet_ListInstanceFleets(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	// Add a fleet.
 	addRec := doEMRRequest(t, h, "AddInstanceFleet", map[string]any{
@@ -138,7 +139,7 @@ func TestEMR_AddInstanceFleet_ListInstanceFleets(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"InstanceFleets"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.InstanceFleets, 1)
 	assert.Equal(t, "task-fleet", listOut.InstanceFleets[0].Name)
 	assert.NotEmpty(t, listOut.InstanceFleets[0].ID)
@@ -165,7 +166,7 @@ func TestInstanceFleet_CapacityTargets(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	addRec := doEMRRequest(t, h, "AddInstanceFleet", map[string]any{
 		"ClusterId": create.JobFlowID,
@@ -193,7 +194,7 @@ func TestInstanceFleet_CapacityTargets(t *testing.T) {
 			ProvisionedSpotCapacity     int    `json:"ProvisionedSpotCapacity"`
 		} `json:"InstanceFleets"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.InstanceFleets, 1)
 	f := out.InstanceFleets[0]
 	assert.Equal(t, 5, f.TargetOnDemandCapacity)
@@ -234,7 +235,7 @@ func TestListInstanceFleetsTyped(t *testing.T) {
 	var createOut struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	addRec := doEMRRequest(t, h, "AddInstanceFleet", map[string]any{
 		"ClusterId":     createOut.JobFlowID,
@@ -250,7 +251,7 @@ func TestListInstanceFleetsTyped(t *testing.T) {
 	var out struct {
 		InstanceFleets []emr.InstanceFleet `json:"InstanceFleets"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.InstanceFleets, 1)
 	assert.Equal(t, "typed-fleet", out.InstanceFleets[0].Name)
 	assert.NotEmpty(t, out.InstanceFleets[0].ID)

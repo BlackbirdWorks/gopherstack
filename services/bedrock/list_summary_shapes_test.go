@@ -1,12 +1,15 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // listItems unmarshals a List response body and returns the array found
@@ -14,14 +17,14 @@ import (
 func listItems(t *testing.T, body []byte, key string) []map[string]any {
 	t.Helper()
 
-	var resp map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(body, &resp))
+	var resp map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	raw, ok := resp[key]
 	require.True(t, ok, "response missing key %q", key)
 
 	var items []map[string]any
-	require.NoError(t, json.Unmarshal(raw, &items))
+	require.NoError(t, json.Unmarshal(raw, &items, jsonx.V1()))
 
 	return items
 }

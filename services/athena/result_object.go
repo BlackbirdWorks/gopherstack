@@ -3,12 +3,14 @@ package athena
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	sdk_s3_types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -80,7 +82,7 @@ func resultMetadata(result *sqlResult) []byte {
 		cols[i] = col{Name: c.name, Type: c.typ}
 	}
 
-	out, _ := json.Marshal(map[string]any{"columns": cols})
+	out, _ := json.Marshal(map[string]any{"columns": cols}, jsonx.V1())
 
 	return out
 }

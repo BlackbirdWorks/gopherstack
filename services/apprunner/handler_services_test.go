@@ -1,13 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apprunner"
 )
 
@@ -35,7 +36,7 @@ func TestCreateService_ReturnsServiceArn(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				svc, ok := resp["Service"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, svc["ServiceArn"], "arn:aws:apprunner:us-east-1:000000000000:service/")
@@ -77,7 +78,7 @@ func TestServiceCRUD(t *testing.T) {
 	rec := doRequest(t, h, "DescribeService", map[string]any{"ServiceArn": svcArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	svc := descResp["Service"].(map[string]any)
 	assert.Equal(t, "test-service", svc["ServiceName"])
 	assert.Equal(t, "RUNNING", svc["Status"])
@@ -86,7 +87,7 @@ func TestServiceCRUD(t *testing.T) {
 	rec = doRequest(t, h, "ListServices", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["ServiceSummaryList"], 1)
 
 	// Delete
@@ -109,7 +110,7 @@ func TestPauseResume(t *testing.T) {
 	rec := doRequest(t, h, "PauseService", map[string]any{"ServiceArn": svcArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var pauseResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pauseResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pauseResp, jsonx.V1()))
 	svc := pauseResp["Service"].(map[string]any)
 	assert.Equal(t, "PAUSED", svc["Status"])
 
@@ -117,7 +118,7 @@ func TestPauseResume(t *testing.T) {
 	rec = doRequest(t, h, "ResumeService", map[string]any{"ServiceArn": svcArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resumeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resumeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resumeResp, jsonx.V1()))
 	svc = resumeResp["Service"].(map[string]any)
 	assert.Equal(t, "RUNNING", svc["Status"])
 }
@@ -131,7 +132,7 @@ func TestStartDeployment(t *testing.T) {
 	rec := doRequest(t, h, "StartDeployment", map[string]any{"ServiceArn": svcArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["OperationId"])
 }
 
@@ -150,7 +151,7 @@ func TestUpdateService(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["OperationId"])
 }
 
@@ -161,7 +162,7 @@ func TestListServices_Empty(t *testing.T) {
 	rec := doRequest(t, h, "ListServices", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	services, ok := resp["ServiceSummaryList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, services)
@@ -201,7 +202,7 @@ func TestPauseService_StateGuard(t *testing.T) { //nolint:paralleltest // existi
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantType != "" {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
 		})
@@ -242,7 +243,7 @@ func TestResumeService_StateGuard(t *testing.T) { //nolint:paralleltest // exist
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantType != "" {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
 		})
@@ -286,7 +287,7 @@ func TestUpdateService_StateGuard(t *testing.T) { //nolint:paralleltest // exist
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantType != "" {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
 		})
@@ -333,7 +334,7 @@ func TestStartDeployment_StateGuard(t *testing.T) { //nolint:paralleltest // exi
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantType != "" {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, tc.wantType, body["__type"])
 			}
 		})
@@ -363,14 +364,14 @@ func TestServiceOutputInstanceConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcArn := createResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DescribeService", map[string]any{"ServiceArn": svcArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	svc := descResp["Service"].(map[string]any)
 
 	ic, ok := svc["InstanceConfiguration"].(map[string]any)
@@ -398,14 +399,14 @@ func TestServiceOutputSourceConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcArn := createResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DescribeService", map[string]any{"ServiceArn": svcArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	svc := descResp["Service"].(map[string]any)
 
 	sc, ok := svc["SourceConfiguration"].(map[string]any)
@@ -436,14 +437,14 @@ func TestDefaultInstanceConfigurationPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcArn := createResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DescribeService", map[string]any{"ServiceArn": svcArn})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	svc := descResp["Service"].(map[string]any)
 
 	ic, ok := svc["InstanceConfiguration"].(map[string]any)
@@ -474,7 +475,7 @@ func TestCreateService_InstanceRoleArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ic := resp["Service"].(map[string]any)["InstanceConfiguration"].(map[string]any)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/my-role", ic["InstanceRoleArn"])
 }
@@ -499,7 +500,7 @@ func TestCreateService_EncryptionConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		enc, ok := resp["Service"].(map[string]any)["EncryptionConfiguration"].(map[string]any)
 		require.True(t, ok, "EncryptionConfiguration must be present when a KmsKey was provided")
 		assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/abc", enc["KmsKey"])
@@ -515,7 +516,7 @@ func TestCreateService_EncryptionConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		_, present := resp["Service"].(map[string]any)["EncryptionConfiguration"]
 		assert.False(t, present, "EncryptionConfiguration must be absent when no KmsKey was provided")
 	})
@@ -537,7 +538,7 @@ func TestCreateService_AutoScalingConfigurationAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var asgResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &asgResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &asgResp, jsonx.V1()))
 	asgArn := asgResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
 
 	rec = doRequest(t, h, "CreateService", map[string]any{
@@ -550,7 +551,7 @@ func TestCreateService_AutoScalingConfigurationAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	svc := createResp["Service"].(map[string]any)
 	svcArn := svc["ServiceArn"].(string)
 	summary := svc["AutoScalingConfigurationSummary"].(map[string]any)
@@ -563,7 +564,7 @@ func TestCreateService_AutoScalingConfigurationAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	arns := listResp["ServiceArnList"].([]any)
 	require.Len(t, arns, 1)
 	assert.Equal(t, svcArn, arns[0])
@@ -575,7 +576,7 @@ func TestCreateService_AutoScalingConfigurationAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	cfg := descResp["AutoScalingConfiguration"].(map[string]any)
 	assert.Equal(t, false, cfg["HasAssociatedService"])
 
@@ -583,7 +584,7 @@ func TestCreateService_AutoScalingConfigurationAssociation(t *testing.T) {
 		"AutoScalingConfigurationArn": asgArn,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp["ServiceArnList"])
 }
 
@@ -600,7 +601,7 @@ func TestCreateService_DefaultAutoScalingConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summary := resp["Service"].(map[string]any)["AutoScalingConfigurationSummary"].(map[string]any)
 	assert.Equal(t, "DefaultConfiguration", summary["AutoScalingConfigurationName"])
 	assert.Equal(t, true, summary["IsDefault"])
@@ -625,7 +626,7 @@ func TestCreateService_UnknownAutoScalingConfigurationArn(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", body["__type"])
 }
 
@@ -685,7 +686,7 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		nc := resp["Service"].(map[string]any)["NetworkConfiguration"].(map[string]any)
 		assert.Equal(t, "IPV4", nc["IpAddressType"])
 		assert.Equal(t, "DEFAULT", nc["EgressConfiguration"].(map[string]any)["EgressType"])
@@ -704,7 +705,7 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var vcResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vcResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vcResp, jsonx.V1()))
 		vcArn := vcResp["VpcConnector"].(map[string]any)["VpcConnectorArn"].(string)
 
 		rec = doRequest(t, h, "CreateService", map[string]any{
@@ -720,7 +721,7 @@ func TestCreateService_NetworkConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		nc := createResp["Service"].(map[string]any)["NetworkConfiguration"].(map[string]any)
 		assert.Equal(t, "VPC", nc["EgressConfiguration"].(map[string]any)["EgressType"])
 		assert.Equal(t, vcArn, nc["EgressConfiguration"].(map[string]any)["VpcConnectorArn"])
@@ -764,7 +765,7 @@ func TestCreateService_HealthCheckConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		hc := resp["Service"].(map[string]any)["HealthCheckConfiguration"].(map[string]any)
 		assert.Equal(t, "TCP", hc["Protocol"])
 		assert.Equal(t, "/", hc["Path"])
@@ -796,7 +797,7 @@ func TestCreateService_HealthCheckConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		hc := createResp["Service"].(map[string]any)["HealthCheckConfiguration"].(map[string]any)
 		assert.Equal(t, "HTTP", hc["Protocol"])
 		assert.Equal(t, "/healthz", hc["Path"])
@@ -822,7 +823,7 @@ func TestCreateService_ObservabilityConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var obsResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &obsResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &obsResp, jsonx.V1()))
 		obsArn := obsResp["ObservabilityConfiguration"].(map[string]any)["ObservabilityConfigurationArn"].(string)
 
 		rec = doRequest(t, h, "CreateService", map[string]any{
@@ -838,7 +839,7 @@ func TestCreateService_ObservabilityConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		oc := createResp["Service"].(map[string]any)["ObservabilityConfiguration"].(map[string]any)
 		assert.Equal(t, true, oc["ObservabilityEnabled"])
 		assert.Equal(t, obsArn, oc["ObservabilityConfigurationArn"])
@@ -884,7 +885,7 @@ func TestCreateService_CodeRepository(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var connResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &connResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &connResp, jsonx.V1()))
 		connArn := connResp["Connection"].(map[string]any)["ConnectionArn"].(string)
 
 		rec = doRequest(t, h, "CreateService", map[string]any{
@@ -908,7 +909,7 @@ func TestCreateService_CodeRepository(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		sc := createResp["Service"].(map[string]any)["SourceConfiguration"].(map[string]any)
 		cr := sc["CodeRepository"].(map[string]any)
 		assert.Equal(t, "https://github.com/example/repo", cr["RepositoryUrl"])
@@ -962,7 +963,7 @@ func TestUpdateService_CannotSwitchSourceType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", body["__type"])
 }
 
@@ -978,7 +979,7 @@ func TestListOperations_UpdatedAtPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ops := resp["OperationSummaryList"].([]any)
 	require.NotEmpty(t, ops)
 
@@ -1008,7 +1009,7 @@ func TestDeleteService_RejectsWhenActiveVpcIngressConnectionExists(t *testing.T)
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var vicResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vicResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vicResp, jsonx.V1()))
 	vicArn := vicResp["VpcIngressConnection"].(map[string]any)["VpcIngressConnectionArn"].(string)
 
 	rec = doRequest(t, h, "DeleteService", map[string]any{"ServiceArn": svcArn})
@@ -1017,7 +1018,7 @@ func TestDeleteService_RejectsWhenActiveVpcIngressConnectionExists(t *testing.T)
 	)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidStateException", body["__type"])
 
 	rec = doRequest(t, h, "DeleteVpcIngressConnection", map[string]any{"VpcIngressConnectionArn": vicArn})

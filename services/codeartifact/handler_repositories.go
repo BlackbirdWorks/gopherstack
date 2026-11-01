@@ -1,11 +1,13 @@
 package codeartifact
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type upstreamRepoEntry struct {
@@ -70,7 +72,7 @@ func (h *Handler) handleCreateRepository(c *echo.Context, domainName, repoName s
 
 	var in createRepositoryBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -316,7 +318,7 @@ func (h *Handler) handlePutRepositoryPermissionsPolicy(
 
 	var in putRepositoryPermissionsPolicyBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -408,7 +410,7 @@ func (h *Handler) handleUpdateRepository(c *echo.Context, domainName, repoName s
 
 	var in updateRepositoryBody
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	var upstreams []string

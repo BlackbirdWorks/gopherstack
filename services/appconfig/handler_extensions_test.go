@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -86,7 +87,7 @@ func TestHandler_Extension_CRUD(t *testing.T) {
 
 			if tt.wantField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantValue, resp[tt.wantField])
 			}
 		})
@@ -103,7 +104,7 @@ func TestHandler_Extension_GetDeleteByID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 	assert.NotEmpty(t, ext.ID)
 	assert.Equal(t, "ext-to-delete", ext.Name)
 
@@ -163,7 +164,7 @@ func TestHandler_Extension_ListPaginated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["Items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 2)
@@ -180,14 +181,14 @@ func TestHandler_ExtensionAssociation_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 
 	// Create an application to use as resource.
 	rec = doRequest(t, h, http.MethodPost, "/applications", []byte(`{"name":"assoc-app"}`))
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// List associations empty.
 	rec = doRequest(t, h, http.MethodGet, "/extensionassociations", nil)
@@ -202,7 +203,7 @@ func TestHandler_ExtensionAssociation_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var assoc appconfig.ExtensionAssociation
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc, jsonx.V1()))
 	assert.NotEmpty(t, assoc.ID)
 	assert.Equal(t, ext.Arn, assoc.ExtensionArn)
 
@@ -215,7 +216,7 @@ func TestHandler_ExtensionAssociation_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items, ok := listResp["Items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 1)
@@ -285,7 +286,7 @@ func TestHandler_UpdateExtension(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 	assert.Equal(t, int32(1), ext.VersionNumber)
 
 	// Update extension.
@@ -294,7 +295,7 @@ func TestHandler_UpdateExtension(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "updated", updated.Description)
 	assert.Equal(t, int32(2), updated.VersionNumber)
 }
@@ -313,7 +314,7 @@ func TestHandler_UpdateExtension_OmittedDescriptionPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 
 	// Update Actions only; Description is omitted.
 	rec = doRequest(t, h, http.MethodPatch, "/extensions/"+ext.ID,
@@ -321,7 +322,7 @@ func TestHandler_UpdateExtension_OmittedDescriptionPreserved(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must not be cleared")
 }
 
@@ -344,7 +345,7 @@ func TestHandler_UpdateExtensionAssociation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 
 	resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/abc"
 	assocBody := []byte(
@@ -354,7 +355,7 @@ func TestHandler_UpdateExtensionAssociation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var assoc appconfig.ExtensionAssociation
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc, jsonx.V1()))
 
 	// Update the association parameters.
 	rec = doRequest(t, h, http.MethodPatch, "/extensionassociations/"+assoc.ID,
@@ -362,7 +363,7 @@ func TestHandler_UpdateExtensionAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.ExtensionAssociation
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "value", updated.Parameters["key"])
 }
 
@@ -474,7 +475,7 @@ func TestHandler_Extension_VersionQueryParams(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var v1 appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v1, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPatch, "/extensions/"+v1.ID,
 		[]byte(`{"Description":"v2"}`))
@@ -485,7 +486,7 @@ func TestHandler_Extension_VersionQueryParams(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var gotV1 appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotV1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotV1, jsonx.V1()))
 	assert.Equal(t, "v1", gotV1.Description)
 	assert.Equal(t, int32(1), gotV1.VersionNumber)
 
@@ -494,7 +495,7 @@ func TestHandler_Extension_VersionQueryParams(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var gotLatest appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotLatest))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gotLatest, jsonx.V1()))
 	assert.Equal(t, int32(2), gotLatest.VersionNumber)
 
 	// Delete version 1 explicitly via the "version" query param; version 2
@@ -525,7 +526,7 @@ func TestHandler_DeleteExtension_ConflictWhenAssociated(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var ext appconfig.Extension
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 
 	assocBody := []byte(
 		`{"ExtensionIdentifier":"` + ext.ID +
@@ -555,7 +556,7 @@ func TestHandler_ListExtensions_NameFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok := resp["Items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, items, 1)
@@ -564,7 +565,7 @@ func TestHandler_ListExtensions_NameFilter(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/extensions?name=nonexistent", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, ok = resp["Items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, items)
@@ -601,14 +602,14 @@ func TestHandler_CreateExtension_TagsAppliedInline(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"Name": "tagged-ext-" + tt.name,
 				"Tags": tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/extensions", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var ext appconfig.Extension
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext, jsonx.V1()))
 			require.NotEmpty(t, ext.Arn)
 
 			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+ext.Arn, nil)
@@ -617,7 +618,7 @@ func TestHandler_CreateExtension_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)
@@ -662,21 +663,21 @@ func TestHandler_CreateExtensionAssociation_TagsAppliedInline(t *testing.T) {
 			require.Equal(t, http.StatusCreated, extRec.Code)
 
 			var ext appconfig.Extension
-			require.NoError(t, json.Unmarshal(extRec.Body.Bytes(), &ext))
+			require.NoError(t, json.Unmarshal(extRec.Body.Bytes(), &ext, jsonx.V1()))
 
 			resourceID := "arn:aws:appconfig:us-east-1:123456789012:application/tagged-assoc-" + tt.name
 			body, err := json.Marshal(map[string]any{
 				"ExtensionIdentifier": ext.ID,
 				"ResourceIdentifier":  resourceID,
 				"Tags":                tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/extensionassociations", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var assoc appconfig.ExtensionAssociation
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &assoc, jsonx.V1()))
 			require.NotEmpty(t, assoc.Arn)
 
 			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+assoc.Arn, nil)
@@ -685,7 +686,7 @@ func TestHandler_CreateExtensionAssociation_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)

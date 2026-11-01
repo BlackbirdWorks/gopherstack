@@ -2,7 +2,7 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -414,7 +414,7 @@ var dirtyTableNames = struct {
 // registerAllTables doc for the clean/dirty split), merged into one map so a
 // single Tables blob round-trips the whole backend.
 type backendSnapshot struct {
-	Tables         map[string]json.RawMessage  `json:"tables"`
+	Tables         map[string]jsontext.Value   `json:"tables"`
 	Account        *Account                    `json:"account,omitempty"`
 	UsageOverrides map[string]map[string]int64 `json:"usageOverrides,omitempty"`
 	Version        int                         `json:"version"`

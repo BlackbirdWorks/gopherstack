@@ -3,13 +3,14 @@ package kms_test
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -46,7 +47,7 @@ func TestImportKeyMaterial_RSAUnwrapFailure_IsInvalidCiphertext(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidCiphertextException", errResp.Type)
 	assert.NotEqual(t, "InvalidKeyUsageException", errResp.Type)
 
@@ -81,7 +82,7 @@ func TestImportKeyMaterial_AsymmetricKeySpec_IsUnsupportedOperation(t *testing.T
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "UnsupportedOperationException", errResp.Type)
 	assert.NotEqual(t, "InvalidKeyUsageException", errResp.Type)
 
@@ -111,7 +112,7 @@ func TestImportKeyMaterial_EmptyMaterial_IsIncorrectKeyMaterial(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "IncorrectKeyMaterialException", errResp.Type)
 	assert.NotEqual(t, "InvalidKeyUsageException", errResp.Type)
 	assert.NotEqual(t, "ValidationException", errResp.Type)
@@ -139,7 +140,7 @@ func TestImportKeyMaterial_WrongLength_IsIncorrectKeyMaterial(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "IncorrectKeyMaterialException", errResp.Type)
 	assert.NotEqual(t, "InvalidKeyUsageException", errResp.Type)
 
@@ -175,7 +176,7 @@ func TestDecrypt_WrongKeyUsage_StillInvalidKeyUsageException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidKeyUsageException", errResp.Type)
 }
 
@@ -198,6 +199,6 @@ func TestVerifyMac_WrongKeyUsage_StillInvalidKeyUsageException(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidKeyUsageException", errResp.Type)
 }

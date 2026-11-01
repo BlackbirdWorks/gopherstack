@@ -1,10 +1,12 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type aclBody struct {
@@ -96,7 +98,7 @@ func (h *Handler) aclWrite(c *echo.Context, rt route, t aclTarget, base string) 
 	}
 
 	var in aclBody
-	if jsonErr := json.Unmarshal(body, &in); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &in, jsonx.V1()); jsonErr != nil {
 		return errInvalid("Invalid JSON payload received.")
 	}
 

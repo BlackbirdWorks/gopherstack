@@ -1,7 +1,7 @@
 package eks_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -231,7 +232,7 @@ func TestVpcConfig_HandlerJSON_Fields(t *testing.T) {
 	rec := doREST(t, h, http.MethodGet, "/clusters/c1", nil)
 	body := rec.Body.Bytes()
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(body, &raw))
+	require.NoError(t, json.Unmarshal(body, &raw, jsonx.V1()))
 
 	cluster := raw["cluster"].(map[string]any)
 	vpc := cluster["resourcesVpcConfig"].(map[string]any)
@@ -748,11 +749,11 @@ func TestSortedListClusters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	raw, err := json.Marshal(resp["clusters"])
+	raw, err := json.Marshal(resp["clusters"], jsonx.V1())
 	require.NoError(t, err)
 
 	var names []string
-	require.NoError(t, json.Unmarshal(raw, &names))
+	require.NoError(t, json.Unmarshal(raw, &names, jsonx.V1()))
 
 	require.Equal(t, []string{"aaa", "bbb", "mmm", "zzz"}, names)
 }

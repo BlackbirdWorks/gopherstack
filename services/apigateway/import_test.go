@@ -1,13 +1,15 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -282,7 +284,7 @@ func TestImportRestAPI_RESTRouting(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		assert.Equal(t, "PetStore", resp["name"])
 		apiID, _ := resp["id"].(string)
 		require.NotEmpty(t, apiID)
@@ -302,7 +304,7 @@ func TestImportRestAPI_RESTRouting(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		assert.Equal(t, "plain", resp["name"])
 	})
 

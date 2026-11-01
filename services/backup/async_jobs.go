@@ -2,7 +2,7 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"time"
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) restoreResourceLocked(job *RestoreJob) (string, error)
 }
 
 // captureSnapshotLocked snapshots the backed-up resource when an engine is wired for its type.
-func (b *InMemoryBackend) captureSnapshotLocked(job *Job) (json.RawMessage, error) {
+func (b *InMemoryBackend) captureSnapshotLocked(job *Job) (jsontext.Value, error) {
 	engine := b.engines[job.ResourceType]
 	if engine == nil {
 		return nil, nil

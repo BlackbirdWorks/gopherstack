@@ -1,7 +1,7 @@
 package eks_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eks"
 )
 
@@ -975,11 +976,11 @@ func TestSortedListNodegroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResp(t, rec)
-	raw, err := json.Marshal(resp["nodegroups"])
+	raw, err := json.Marshal(resp["nodegroups"], jsonx.V1())
 	require.NoError(t, err)
 
 	var names []string
-	require.NoError(t, json.Unmarshal(raw, &names))
+	require.NoError(t, json.Unmarshal(raw, &names, jsonx.V1()))
 
 	require.Equal(t, []string{"aaa", "mmm", "zzz"}, names)
 }

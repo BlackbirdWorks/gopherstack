@@ -1,13 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -83,7 +84,7 @@ func TestFSx_CreateFileCache_RequiresLustreConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tc.wantType, out["__type"])
 		})
 	}
@@ -104,7 +105,7 @@ func TestFSx_CreateFileCache_RequiresLustreConfiguration(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		fc := out["FileCache"].(map[string]any)
 		lc, ok := fc["LustreConfiguration"].(map[string]any)
 		require.True(t, ok, "response must have a LustreConfiguration block")
@@ -188,7 +189,7 @@ func TestFSx_FileCache(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				c := out["FileCache"].(map[string]any)
 				assert.Contains(t, c["FileCacheId"].(string), "fc-")
 				assert.Equal(t, "AVAILABLE", c["Lifecycle"])
@@ -218,7 +219,7 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["FileCaches"].([]any), 1)
 
 		// update
@@ -234,7 +235,7 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur, jsonx.V1()))
 		lc := ur["FileCache"].(map[string]any)["LustreConfiguration"].(map[string]any)
 		assert.Equal(t, "3:04:05", lc["WeeklyMaintenanceStartTime"])
 
@@ -242,7 +243,7 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 		rec3 := doFSxRequest(t, h, "DeleteFileCache", map[string]any{"FileCacheId": fcID})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var del map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del, jsonx.V1()))
 		assert.Equal(t, fcID, del["FileCacheId"])
 		assert.Equal(t, "DELETING", del["Lifecycle"])
 		assert.Equal(t, 0, fsx.FileCacheCount(b))

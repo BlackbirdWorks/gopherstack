@@ -1,7 +1,8 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
@@ -39,10 +41,10 @@ func actionsModeTemplateBody() map[string]any {
 
 // pollExperimentUntilTerminal polls GET /experiments/{id} until the experiment
 // reaches a terminal status and returns the decoded response body.
-func pollExperimentUntilTerminal(t *testing.T, h *fis.Handler, expID string) map[string]json.RawMessage {
+func pollExperimentUntilTerminal(t *testing.T, h *fis.Handler, expID string) map[string]jsontext.Value {
 	t.Helper()
 
-	var result map[string]json.RawMessage
+	var result map[string]jsontext.Value
 
 	require.Eventually(t, func() bool {
 		r := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
@@ -51,10 +53,10 @@ func pollExperimentUntilTerminal(t *testing.T, h *fis.Handler, expID string) map
 		}
 
 		var full struct {
-			Experiment map[string]json.RawMessage `json:"experiment"`
+			Experiment map[string]jsontext.Value `json:"experiment"`
 		}
 
-		if err := json.Unmarshal(r.Body.Bytes(), &full); err != nil {
+		if err := json.Unmarshal(r.Body.Bytes(), &full, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -62,7 +64,7 @@ func pollExperimentUntilTerminal(t *testing.T, h *fis.Handler, expID string) map
 			Status string `json:"status"`
 		}
 
-		if err := json.Unmarshal(full.Experiment["status"], &status); err != nil {
+		if err := json.Unmarshal(full.Experiment["status"], &status, jsonx.V1()); err != nil {
 			return false
 		}
 
@@ -127,7 +129,7 @@ func TestStartExperiment_ActionsMode_SkipAll_SkipsActionsAndProvider(t *testing.
 			Status string `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(exp["status"], &status))
+		require.NoError(t, json.Unmarshal(exp["status"], &status, jsonx.V1()))
 		assert.Equal(t, "completed", status.Status)
 
 		var actions map[string]struct {
@@ -136,7 +138,7 @@ func TestStartExperiment_ActionsMode_SkipAll_SkipsActionsAndProvider(t *testing.
 			} `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(exp["actions"], &actions))
+		require.NoError(t, json.Unmarshal(exp["actions"], &actions, jsonx.V1()))
 		require.Contains(t, actions, "modeAction")
 		assert.Equal(t, "skipped", actions["modeAction"].Status.Status)
 
@@ -188,7 +190,7 @@ func TestStartExperiment_ActionsMode_RunAll_InvokesProvider(t *testing.T) {
 			Status string `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(exp["status"], &status))
+		require.NoError(t, json.Unmarshal(exp["status"], &status, jsonx.V1()))
 		assert.Equal(t, "completed", status.Status)
 		assert.Equal(t, 1, mock.Calls, "run-all must invoke the external action provider exactly once")
 	})

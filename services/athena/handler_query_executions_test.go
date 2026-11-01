@@ -1,7 +1,7 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -41,7 +42,7 @@ func TestHandler_StartQueryExecution(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["QueryExecutionId"])
 			}
 		})
@@ -81,7 +82,7 @@ func TestHandler_GetQueryExecution(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				execID = created["QueryExecutionId"]
 			}
 
@@ -90,7 +91,7 @@ func TestHandler_GetQueryExecution(t *testing.T) {
 
 			if tt.wantState != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				qe, ok := resp["QueryExecution"].(map[string]any)
 				require.True(t, ok)
 				status, ok := qe["Status"].(map[string]any)
@@ -118,7 +119,7 @@ func TestHandler_StopQueryExecution(t *testing.T) {
 				require.Equal(t, http.StatusOK, startRec.Code)
 
 				var cr map[string]string
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr, jsonx.V1()))
 
 				execID := cr["QueryExecutionId"]
 				// Override state to RUNNING so it can be stopped.
@@ -142,7 +143,7 @@ func TestHandler_StopQueryExecution(t *testing.T) {
 				require.Equal(t, http.StatusOK, startRec.Code)
 
 				var cr map[string]string
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr, jsonx.V1()))
 
 				return cr["QueryExecutionId"] // default state is SUCCEEDED
 			},
@@ -191,7 +192,7 @@ func TestHandler_ListQueryExecutions(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			ids, _ := resp["QueryExecutionIds"].([]any)
 			assert.Len(t, ids, tt.wantCount)
 		})
@@ -221,7 +222,7 @@ func TestHandler_BatchGetQueryExecution(t *testing.T) {
 			require.Equal(t, http.StatusOK, startRec.Code)
 
 			var cr map[string]string
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr, jsonx.V1()))
 			id := cr["QueryExecutionId"]
 
 			rec := doRequest(t, h, "BatchGetQueryExecution",
@@ -229,7 +230,7 @@ func TestHandler_BatchGetQueryExecution(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			found, _ := resp["QueryExecutions"].([]any)
 			assert.Len(t, found, 1)
 			unprocessed, _ := resp["UnprocessedQueryExecutionIds"].([]any)
@@ -272,7 +273,7 @@ func TestHandler_QueryExecution_EngineVersionAndStatementType(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			qe := resp["QueryExecution"].(map[string]any)
 
 			assert.Equal(t, tt.wantStatementType, qe["StatementType"])
@@ -302,7 +303,7 @@ func TestHandler_QueryExecution_ExecutionParameters(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	qe := resp["QueryExecution"].(map[string]any)
 
 	params, ok := qe["ExecutionParameters"].([]any)
@@ -334,7 +335,7 @@ func TestHandler_ResultConfiguration_AclAndOwner(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	qe := resp["QueryExecution"].(map[string]any)
 	rc := qe["ResultConfiguration"].(map[string]any)
 
@@ -522,7 +523,7 @@ func TestStartQueryExecution_EmptyQueryStringRejected(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Contains(t, errResp["__type"], "InvalidRequestException",
 					"empty QueryString must return InvalidRequestException")
 			}
@@ -560,7 +561,7 @@ func TestListQueryExecutions_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.LessOrEqual(t, len(resp.QueryExecutionIDs), 2, "page exceeds MaxResults")
 
 		for _, id := range resp.QueryExecutionIDs {
@@ -595,7 +596,7 @@ func TestListQueryExecutions_NextTokenOmittedOnLastPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasToken := resp["NextToken"]
 	assert.False(t, hasToken, "NextToken must be omitted on the last page")
 }
@@ -760,14 +761,14 @@ func TestBatchGetQueryExecution_UnprocessedShape(t *testing.T) {
 				}
 			}
 
-			body, err := json.Marshal(map[string]any{"QueryExecutionIds": tt.ids})
+			body, err := json.Marshal(map[string]any{"QueryExecutionIds": tt.ids}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "BatchGetQueryExecution", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			found, _ := resp["QueryExecutions"].([]any)
 			assert.Len(t, found, tt.wantFound)
@@ -822,7 +823,7 @@ func TestStartQueryExecution_WorkgroupValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Contains(t, errResp["__type"], "InvalidRequestException")
 			}
 		})

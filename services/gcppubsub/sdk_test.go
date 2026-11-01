@@ -3,7 +3,8 @@ package gcppubsub_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcppubsub"
 )
 
@@ -840,7 +842,7 @@ func TestSDKPushSubscription(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var env envelope
-		_ = json.NewDecoder(r.Body).Decode(&env)
+		_ = json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &env, jsonx.V1())
 
 		mu.Lock()
 		fail := first

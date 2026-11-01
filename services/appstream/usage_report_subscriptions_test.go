@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -31,7 +32,7 @@ func TestAppStream_UsageReports(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Equal(t, "DAILY", resp["Schedule"])
 				assert.NotEmpty(t, resp["S3BucketName"])
 			},
@@ -48,7 +49,7 @@ func TestAppStream_UsageReports(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				subs := resp["UsageReportSubscriptions"].([]any)
 				assert.Len(t, subs, 1)
 			},
@@ -103,7 +104,7 @@ func TestAppStream_UsageReportSubscriptionRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp, jsonx.V1()))
 	subs := resp["UsageReportSubscriptions"].([]any)
 	require.Len(t, subs, 1)
 	sub := subs[0].(map[string]any)

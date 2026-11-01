@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"slices"
@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
@@ -108,7 +109,7 @@ func decodeJSON(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out
 }

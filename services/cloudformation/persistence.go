@@ -2,7 +2,7 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -29,7 +29,7 @@ const cfnSnapshotVersion = 1
 // comment on registerAllTables) and are persisted exactly as before the
 // conversion.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage                      `json:"tables"`
+	Tables              map[string]jsontext.Value                       `json:"tables"`
 	Events              map[string][]StackEvent                         `json:"events"`
 	Resources           map[string]map[string]*StackResource            `json:"resources"`
 	ChangeSets          map[string]map[string]*ChangeSet                `json:"changeSets"`

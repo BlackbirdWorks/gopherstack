@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpdispatch"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -96,7 +98,11 @@ func (b *InMemoryBackend) servePush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var env pushedEnvelope
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPushBytes)).Decode(&env); err != nil {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(w, r.Body, maxPushBytes)),
+		&env,
+		jsonx.V1(),
+	); err != nil {
 		http.Error(w, "invalid push envelope: "+err.Error(), http.StatusBadRequest)
 
 		return
@@ -162,20 +168,20 @@ func (b *InMemoryBackend) deliverToWorkflow(
 }
 
 type structuredEvent struct {
-	SpecVersion     string          `json:"specversion"`
-	ID              string          `json:"id"`
-	Source          string          `json:"source"`
-	Type            string          `json:"type"`
-	DataContentType string          `json:"datacontenttype"`
-	Subject         string          `json:"subject,omitempty"`
-	Time            string          `json:"time,omitempty"`
-	Data            json.RawMessage `json:"data"`
+	SpecVersion     string         `json:"specversion"`
+	ID              string         `json:"id"`
+	Source          string         `json:"source"`
+	Type            string         `json:"type"`
+	DataContentType string         `json:"datacontenttype"`
+	Subject         string         `json:"subject,omitempty"`
+	Time            string         `json:"time,omitempty"`
+	Data            jsontext.Value `json:"data"`
 }
 
 func workflowArgument(ev cloudEvent) ([]byte, error) {
-	data := json.RawMessage(ev.body)
-	if !json.Valid(data) {
-		quoted, err := json.Marshal(string(ev.body))
+	data := jsontext.Value(ev.body)
+	if !jsontext.Value(data).IsValid(jsonx.V1()) {
+		quoted, err := json.Marshal(string(ev.body), jsonx.V1())
 		if err != nil {
 			return nil, err
 		}
@@ -186,12 +192,12 @@ func workflowArgument(ev cloudEvent) ([]byte, error) {
 	return json.Marshal(structuredEvent{
 		SpecVersion: "1.0", ID: ev.id, Source: ev.source, Type: ev.typ, Subject: ev.subject, Time: ev.time,
 		DataContentType: contentTypeJSON, Data: data,
-	})
+	}, jsonx.V1())
 }
 
 func buildEvent(t *eventarcpb.Trigger, env pushedEnvelope) (cloudEvent, bool) {
 	if eventType(t.GetEventFilters()) == typePubsubPublished {
-		body, err := json.Marshal(pushedEnvelope{Subscription: env.Subscription, Message: env.Message})
+		body, err := json.Marshal(pushedEnvelope{Subscription: env.Subscription, Message: env.Message}, jsonx.V1())
 		if err != nil {
 			return cloudEvent{}, false
 		}

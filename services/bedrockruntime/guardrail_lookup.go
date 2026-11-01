@@ -1,12 +1,14 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
@@ -94,7 +96,7 @@ func (b *InMemoryBackend) inheritGuardrailLookup(home *InMemoryBackend) {
 
 // converseGuardrailMissing writes ResourceNotFoundException when the request's guardrailConfig
 // references a guardrail that is not registered; the bool reports whether a response was written.
-func (h *Handler) converseGuardrailMissing(c *echo.Context, raw json.RawMessage) (bool, error) {
+func (h *Handler) converseGuardrailMissing(c *echo.Context, raw jsontext.Value) (bool, error) {
 	if len(raw) == 0 {
 		return false, nil
 	}
@@ -123,8 +125,8 @@ func (h *Handler) invokeGuardrailMissing(c *echo.Context) (bool, error) {
 	return true, writeGuardrailNotFound(c, id, version)
 }
 
-func parseGuardrailConfig(raw json.RawMessage) (guardrailConfigBody, bool) {
+func parseGuardrailConfig(raw jsontext.Value) (guardrailConfigBody, bool) {
 	var gc guardrailConfigBody
 
-	return gc, json.Unmarshal(raw, &gc) == nil
+	return gc, json.Unmarshal(raw, &gc, jsonx.V1()) == nil
 }

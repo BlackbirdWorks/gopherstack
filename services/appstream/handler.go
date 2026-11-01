@@ -2,7 +2,7 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -155,7 +156,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // errorCodeStatus maps a backend error to the AWS exception name and HTTP
@@ -657,7 +658,7 @@ type createStackInput struct {
 
 func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 	var req createStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -701,7 +702,7 @@ type describeStacksInput struct {
 func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) {
 	var req describeStacksInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -744,7 +745,7 @@ type updateStackInput struct {
 
 func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
 	var req updateStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -781,7 +782,7 @@ type deleteStackInput struct {
 
 func (h *Handler) opDeleteStack(_ context.Context, body []byte) (any, error) {
 	var req deleteStackInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -879,7 +880,7 @@ type createFleetInput struct {
 
 func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
 	var req createFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -928,7 +929,7 @@ type describeFleetsInput struct {
 func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) {
 	var req describeFleetsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -980,7 +981,7 @@ type updateFleetInput struct {
 
 func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
 	var req updateFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1030,7 +1031,7 @@ type deleteFleetInput struct {
 
 func (h *Handler) opDeleteFleet(_ context.Context, body []byte) (any, error) {
 	var req deleteFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1047,7 +1048,7 @@ type fleetNameInput struct {
 
 func (h *Handler) opStartFleet(_ context.Context, body []byte) (any, error) {
 	var req fleetNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1060,7 +1061,7 @@ func (h *Handler) opStartFleet(_ context.Context, body []byte) (any, error) {
 
 func (h *Handler) opStopFleet(_ context.Context, body []byte) (any, error) {
 	var req fleetNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1080,7 +1081,7 @@ type associateFleetInput struct {
 
 func (h *Handler) opAssociateFleet(_ context.Context, body []byte) (any, error) {
 	var req associateFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1093,7 +1094,7 @@ func (h *Handler) opAssociateFleet(_ context.Context, body []byte) (any, error) 
 
 func (h *Handler) opDisassociateFleet(_ context.Context, body []byte) (any, error) {
 	var req associateFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1111,7 +1112,7 @@ type listAssociatedFleetsInput struct {
 
 func (h *Handler) opListAssociatedFleets(_ context.Context, body []byte) (any, error) {
 	var req listAssociatedFleetsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1135,7 +1136,7 @@ type listAssociatedStacksInput struct {
 
 func (h *Handler) opListAssociatedStacks(_ context.Context, body []byte) (any, error) {
 	var req listAssociatedStacksInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1161,7 +1162,7 @@ type tagResourceInput struct {
 
 func (h *Handler) opTagResource(_ context.Context, body []byte) (any, error) {
 	var req tagResourceInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1180,7 +1181,7 @@ type untagResourceInput struct {
 
 func (h *Handler) opUntagResource(_ context.Context, body []byte) (any, error) {
 	var req untagResourceInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -1197,7 +1198,7 @@ type listTagsForResourceInput struct {
 
 func (h *Handler) opListTagsForResource(_ context.Context, body []byte) (any, error) {
 	var req listTagsForResourceInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 

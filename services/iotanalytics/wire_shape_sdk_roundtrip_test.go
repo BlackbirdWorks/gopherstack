@@ -1,7 +1,7 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
 
@@ -226,7 +227,7 @@ func TestListSummaries_NoFabricatedARN(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, ok := resp[tt.summariesK].([]any)
 			require.True(t, ok)
@@ -273,7 +274,7 @@ func TestDatastore_IotSiteWiseCustomerManagedS3Storage_NoRoleArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	datastore, ok := resp["datastore"].(map[string]any)
 	require.True(t, ok)

@@ -1,13 +1,14 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -100,7 +101,7 @@ type testWirelessDeviceResponse struct {
 
 func (h *Handler) createWirelessDevice(c *echo.Context, body []byte) error {
 	var req createWirelessDeviceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -194,7 +195,7 @@ func (h *Handler) deleteWirelessDevice(c *echo.Context, id string) error {
 
 func (h *Handler) associateWirelessDeviceWithThing(c *echo.Context, wirelessDeviceID string, body []byte) error {
 	var req associateWirelessDeviceWithThingRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -219,7 +220,7 @@ func (h *Handler) updateWirelessDevice(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateWirelessDevice(
 		h.AccountID, h.DefaultRegion, id,
@@ -283,7 +284,7 @@ func (h *Handler) sendDataToWirelessDevice(c *echo.Context, wirelessDeviceID str
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	messageID := uuid.NewString()
 

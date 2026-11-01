@@ -2,8 +2,10 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -211,14 +213,14 @@ func (in *updateCertificateAuthorityInput) UnmarshalJSON(data []byte) error {
 	type alias updateCertificateAuthorityInput
 
 	var a alias
-	if err := json.Unmarshal(data, &a); err != nil {
+	if err := json.Unmarshal(data, &a, jsonx.V1()); err != nil {
 		return err
 	}
 
 	*in = updateCertificateAuthorityInput(a)
 
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(data, &raw, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -262,7 +264,7 @@ type restoreCertificateAuthorityOutput struct{}
 
 func (h *Handler) jsonCreateCA(ctx context.Context, body []byte) (any, error) {
 	var input createCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgs
 	}
 
@@ -302,7 +304,7 @@ func (h *Handler) jsonCreateCA(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonDescribeCA(ctx context.Context, body []byte) (any, error) {
 	var input describeCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -316,7 +318,7 @@ func (h *Handler) jsonDescribeCA(ctx context.Context, body []byte) (any, error) 
 
 func (h *Handler) jsonListCAs(ctx context.Context, body []byte) (any, error) {
 	var input listCertificateAuthoritiesInput
-	_ = json.Unmarshal(body, &input)
+	_ = json.Unmarshal(body, &input, jsonx.V1())
 
 	p, err := h.Backend.ListCertificateAuthorities(ctx, input.NextToken, input.MaxResults, input.ResourceOwner)
 	if err != nil {
@@ -337,7 +339,7 @@ func (h *Handler) jsonListCAs(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonDeleteCA(ctx context.Context, body []byte) (any, error) {
 	var input deleteCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -356,7 +358,7 @@ func (h *Handler) jsonDeleteCA(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonUpdateCA(ctx context.Context, body []byte) (any, error) {
 	var input updateCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -376,7 +378,7 @@ func (h *Handler) jsonUpdateCA(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonGetCsr(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateAuthorityCsrInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -390,7 +392,7 @@ func (h *Handler) jsonGetCsr(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonImportCACert(ctx context.Context, body []byte) (any, error) {
 	var input importCertificateAuthorityCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -418,7 +420,7 @@ func (h *Handler) jsonImportCACert(ctx context.Context, body []byte) (any, error
 
 func (h *Handler) jsonGetCACert(ctx context.Context, body []byte) (any, error) {
 	var input getCertificateAuthorityCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -432,7 +434,7 @@ func (h *Handler) jsonGetCACert(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonRestoreCA(ctx context.Context, body []byte) (any, error) {
 	var input restoreCertificateAuthorityInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 

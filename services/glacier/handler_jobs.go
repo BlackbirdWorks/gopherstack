@@ -3,7 +3,7 @@ package glacier
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,11 +11,13 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleInitiateJob(c *echo.Context, vaultName string, body []byte) error {
 	var req initiateJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -265,7 +267,7 @@ func (h *Handler) writeInventoryJSON(c *echo.Context, j *Job, vaultName string, 
 		"VaultARN":      j.VaultARN,
 		"InventoryDate": j.CompletionDate,
 		"ArchiveList":   items,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return h.writeError(
 			c,

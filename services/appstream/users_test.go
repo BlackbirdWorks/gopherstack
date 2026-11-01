@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -56,7 +57,7 @@ func TestAppStream_Users(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				users := resp["Users"].([]any)
 				assert.Len(t, users, 2)
 			},
@@ -136,7 +137,7 @@ func TestAppStream_UserARNPartition(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	users := resp["Users"].([]any)
 	require.Len(t, users, 1)
 	assert.Equal(
@@ -161,7 +162,7 @@ func TestAppStream_UserARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp, jsonx.V1()))
 	users := resp["Users"].([]any)
 	require.Len(t, users, 1)
 	user := users[0].(map[string]any)
@@ -187,7 +188,7 @@ func TestAppStream_UserStatusEnabled(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	users := resp["Users"].([]any)
 	require.Len(t, users, 1)
 	user := users[0].(map[string]any)
@@ -226,7 +227,7 @@ func TestAppStream_UserStackAssociations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				errs := resp["errors"].([]any)
 				assert.Empty(t, errs)
 			},
@@ -247,7 +248,7 @@ func TestAppStream_UserStackAssociations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				errs := resp["errors"].([]any)
 				assert.Len(t, errs, 1)
 			},
@@ -274,7 +275,7 @@ func TestAppStream_UserStackAssociations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assocs := resp["UserStackAssociations"].([]any)
 				assert.Len(t, assocs, 1)
 			},
@@ -344,7 +345,7 @@ func TestAppStream_BatchAssociateUserStackErrors(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// errors field may be empty or present depending on implementation
 	// but response must be 200 with valid JSON
 	assert.NotNil(t, resp)
@@ -374,7 +375,7 @@ func TestAppStream_BatchAssociateUserStack_StackNotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	errs := resp["errors"].([]any)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "STACK_NOT_FOUND", errs[0].(map[string]any)["ErrorCode"])
@@ -383,7 +384,7 @@ func TestAppStream_BatchAssociateUserStack_StackNotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Empty(t, descResp["UserStackAssociations"])
 }
 
@@ -416,7 +417,7 @@ func TestAppStream_DescribeUserStackAssociations(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp, jsonx.V1()))
 	assocs := resp["UserStackAssociations"].([]any)
 	assert.Len(t, assocs, 1)
 	assoc := assocs[0].(map[string]any)
@@ -446,7 +447,7 @@ func TestAppStream_BatchDisassociateUserStack_StackNotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	errs := resp["errors"].([]any)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "STACK_NOT_FOUND", errs[0].(map[string]any)["ErrorCode"])

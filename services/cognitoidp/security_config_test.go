@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -60,7 +61,7 @@ func TestSetRiskConfiguration_PersistsRiskExceptionConfiguration(t *testing.T) {
 					} `json:"RiskExceptionConfiguration"`
 				} `json:"RiskConfiguration"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 			require.NotNil(t, setOut.RiskConfiguration)
 			require.NotNil(
 				t,
@@ -100,7 +101,7 @@ func TestSetRiskConfiguration_PersistsRiskExceptionConfiguration(t *testing.T) {
 					} `json:"RiskExceptionConfiguration"`
 				} `json:"RiskConfiguration"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 			require.NotNil(t, descOut.RiskConfiguration)
 			require.NotNil(
 				t,
@@ -138,7 +139,7 @@ func TestRiskConfiguration_CompromisedCredentials(t *testing.T) {
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 	require.NotNil(t, setOut.RiskConfiguration)
 	require.NotNil(t, setOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration)
 	assert.Contains(t, setOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration.EventFilter, "SIGN_IN")
@@ -160,7 +161,7 @@ func TestRiskConfiguration_CompromisedCredentials(t *testing.T) {
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.RiskConfiguration)
 	require.NotNil(t, descOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration)
 	assert.Equal(t, "BLOCK", descOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration.Actions.EventAction)
@@ -226,7 +227,7 @@ func TestRiskConfiguration_AccountTakeover(t *testing.T) {
 			} `json:"AccountTakeoverRiskConfiguration"`
 		} `json:"RiskConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotNil(t, out.RiskConfiguration)
 	require.NotNil(t, out.RiskConfiguration.AccountTakeoverRiskConfiguration)
 	require.NotNil(t, out.RiskConfiguration.AccountTakeoverRiskConfiguration.Actions)
@@ -274,7 +275,7 @@ func TestRiskConfiguration_PerClient(t *testing.T) {
 			CompromisedCredentialsRiskConfiguration *struct{} `json:"CompromisedCredentialsRiskConfiguration,omitempty"`
 		} `json:"RiskConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &poolOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &poolOut, jsonx.V1()))
 	assert.Nil(t, poolOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration)
 
 	// Client-level should be set.
@@ -293,7 +294,7 @@ func TestRiskConfiguration_PerClient(t *testing.T) {
 			} `json:"CompromisedCredentialsRiskConfiguration"`
 		} `json:"RiskConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &clientOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &clientOut, jsonx.V1()))
 	require.NotNil(t, clientOut.RiskConfiguration.CompromisedCredentialsRiskConfiguration)
 	assert.Equal(
 		t,
@@ -414,7 +415,7 @@ func TestSetLogDeliveryConfiguration_LogConfigurationsPersistAndEcho(t *testing.
 			LogConfigurations []map[string]any `json:"LogConfigurations,omitempty"`
 		} `json:"LogDeliveryConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(setRec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(setRec.Body.Bytes(), &setOut, jsonx.V1()))
 	require.Len(t, setOut.LogDeliveryConfiguration.LogConfigurations, 1,
 		"LogConfigurations is a required accepted field and must not be silently dropped",
 	)
@@ -428,7 +429,7 @@ func TestSetLogDeliveryConfiguration_LogConfigurationsPersistAndEcho(t *testing.
 			LogConfigurations []map[string]any `json:"LogConfigurations,omitempty"`
 		} `json:"LogDeliveryConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	require.Len(t,
 		getOut.LogDeliveryConfiguration.LogConfigurations, 1, "Set must actually persist for Get to read back",
 	)

@@ -1,11 +1,14 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -28,7 +31,7 @@ func isValidAnalyzerType(t AnalyzerType) bool {
 // validateCreateAnalyzer enforces the CreateAnalyzer name pattern (1-255,
 // [A-Za-z][A-Za-z0-9_.-]*), the Type enum, and that the configuration union
 // member matches the analyzer type.
-func validateCreateAnalyzer(name string, t AnalyzerType, config json.RawMessage) error {
+func validateCreateAnalyzer(name string, t AnalyzerType, config jsontext.Value) error {
 	if len(name) > maxAnalyzerNameLen || !analyzerNameRe.MatchString(name) {
 		return fmt.Errorf("%w: analyzerName must match [A-Za-z][A-Za-z0-9_.-]* (1-255 characters)", ErrValidation)
 	}
@@ -36,7 +39,7 @@ func validateCreateAnalyzer(name string, t AnalyzerType, config json.RawMessage)
 	return validateAnalyzerTypeAndConfig(t, config)
 }
 
-func validateAnalyzerTypeAndConfig(t AnalyzerType, config json.RawMessage) error {
+func validateAnalyzerTypeAndConfig(t AnalyzerType, config jsontext.Value) error {
 	if !isValidAnalyzerType(t) {
 		return fmt.Errorf("%w: unsupported analyzer type %q", ErrValidation, t)
 	}
@@ -45,8 +48,8 @@ func validateAnalyzerTypeAndConfig(t AnalyzerType, config json.RawMessage) error
 		return nil
 	}
 
-	var members map[string]json.RawMessage
-	if err := json.Unmarshal(config, &members); err != nil {
+	var members map[string]jsontext.Value
+	if err := json.Unmarshal(config, &members, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: malformed configuration", ErrValidation)
 	}
 
@@ -65,12 +68,12 @@ func validateAnalyzerTypeAndConfig(t AnalyzerType, config json.RawMessage) error
 	return nil
 }
 
-func validateUnusedAccessAge(raw json.RawMessage) error {
+func validateUnusedAccessAge(raw jsontext.Value) error {
 	var cfg struct {
 		UnusedAccessAge *int `json:"unusedAccessAge"`
 	}
 
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	if err := json.Unmarshal(raw, &cfg, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: malformed unusedAccess configuration", ErrValidation)
 	}
 

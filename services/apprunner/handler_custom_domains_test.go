@@ -1,13 +1,15 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCustomDomainAssociateDescribeDisassociate(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -32,7 +34,7 @@ func TestCustomDomainAssociateDescribeDisassociate(t *testing.T) { //nolint:para
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cd := resp["CustomDomain"].(map[string]any)
 				assert.Equal(t, "example.com", cd["DomainName"])
 				assert.Equal(t, "PENDING_CERTIFICATE_DNS_VALIDATION", cd["Status"])
@@ -107,7 +109,7 @@ func TestCustomDomainDescribeAndDisassociate(t *testing.T) { //nolint:parallelte
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				domains := resp["CustomDomains"].([]any)
 				assert.Len(t, domains, 2)
 				assert.NotEmpty(t, resp["ServiceArn"])
@@ -134,7 +136,7 @@ func TestCustomDomainDescribeAndDisassociate(t *testing.T) { //nolint:parallelte
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cd := resp["CustomDomain"].(map[string]any)
 				assert.Equal(t, "example.com", cd["DomainName"])
 			},
@@ -180,7 +182,7 @@ func TestAssociateCustomDomainDNSTargetIsServiceURL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dnsTarget, ok := resp["DNSTarget"].(string)
 	require.True(t, ok, "AssociateCustomDomain response must include DNSTarget string")
@@ -211,7 +213,7 @@ func TestDisassociateCustomDomainDNSTargetIsServiceURL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dnsTarget, ok := resp["DNSTarget"].(string)
 	require.True(t, ok, "DisassociateCustomDomain response must include DNSTarget string")

@@ -2,7 +2,7 @@ package arczonalshift_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -67,7 +67,7 @@ func (w *managedWorld) group(t *testing.T, name string, enabled bool) string {
 	return g.AutoScalingGroupARN
 }
 
-func (w *managedWorld) cluster(t *testing.T, name string, zonalShift json.RawMessage) string {
+func (w *managedWorld) cluster(t *testing.T, name string, zonalShift jsontext.Value) string {
 	t.Helper()
 
 	vpc, err := w.ec2.CreateVpc("10.0.0.0/16", "")
@@ -84,7 +84,7 @@ func (w *managedWorld) cluster(t *testing.T, name string, zonalShift json.RawMes
 
 	opts := eksbk.ClusterOptionalConfig{}
 	if zonalShift != nil {
-		opts.ConfigBlocks = map[string]json.RawMessage{"zonalShiftConfig": zonalShift}
+		opts.ConfigBlocks = map[string]jsontext.Value{"zonalShiftConfig": zonalShift}
 	}
 
 	c, err := w.eks.CreateCluster(name, "1.31", "arn:aws:iam::"+testAccount+":role/eks",
@@ -127,7 +127,7 @@ func TestManagedResourcesAutoScalingAndEKS(t *testing.T) {
 			create: func(t *testing.T, w *managedWorld) string {
 				t.Helper()
 
-				return w.cluster(t, "k8s", json.RawMessage(`{"enabled":true}`))
+				return w.cluster(t, "k8s", jsontext.Value(`{"enabled":true}`))
 			},
 		},
 		{
@@ -135,7 +135,7 @@ func TestManagedResourcesAutoScalingAndEKS(t *testing.T) {
 			create: func(t *testing.T, w *managedWorld) string {
 				t.Helper()
 
-				return w.cluster(t, "k8s", json.RawMessage(`{"enabled":false}`))
+				return w.cluster(t, "k8s", jsontext.Value(`{"enabled":false}`))
 			},
 		},
 		{

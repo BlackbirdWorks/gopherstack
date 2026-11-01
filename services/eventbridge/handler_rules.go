@@ -2,8 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -85,7 +86,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutRule": func(ctx context.Context, b []byte) (any, error) {
 			var input PutRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			rule, err := h.Backend.PutRule(ctx, input)
@@ -100,7 +101,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 		},
 		"DeleteRule": func(ctx context.Context, b []byte) (any, error) {
 			var input deleteRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			// Capture ARN before deletion so we can clean up tags.
@@ -116,7 +117,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 		},
 		"ListRules": func(ctx context.Context, b []byte) (any, error) {
 			var input listRulesInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			rules, next, err := h.Backend.ListRules(
@@ -139,7 +140,7 @@ func (h *Handler) ruleActions() map[string]actionFn {
 		},
 		"DescribeRule": func(ctx context.Context, b []byte) (any, error) {
 			var input describeRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -158,7 +159,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				TargetArn    string `json:"TargetArn"`
 				Limit        int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			names, next, err := h.Backend.ListRuleNamesByTarget(
@@ -182,7 +183,7 @@ func (h *Handler) ruleQueryActions() map[string]actionFn {
 				Event        string `json:"Event"`
 				EventPattern string `json:"EventPattern"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			result, err := h.Backend.TestEventPattern(ctx, input.EventPattern, input.Event)
@@ -201,7 +202,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 	return map[string]actionFn{
 		"EnableRule": func(ctx context.Context, b []byte) (any, error) {
 			var input enableRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.EnableRule(ctx, input.Name, input.EventBusName); err != nil {
@@ -212,7 +213,7 @@ func (h *Handler) ruleStateActions() map[string]actionFn {
 		},
 		"DisableRule": func(ctx context.Context, b []byte) (any, error) {
 			var input disableRuleInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			if err := h.Backend.DisableRule(ctx, input.Name, input.EventBusName); err != nil {

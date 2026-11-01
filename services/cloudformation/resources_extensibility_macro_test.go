@@ -2,12 +2,13 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -170,7 +171,7 @@ func TestMacroRegistry_InvokeMacro_WithMockLambda(t *testing.T) {
 
 			mockLambda := &mockLambdaStorageBackend{
 				invokeFunc: func(_ context.Context, _ string, _ lambdabackend.InvocationType, _ []byte) ([]byte, int, error) {
-					respBody, _ := json.Marshal(tt.lambdaResp)
+					respBody, _ := json.Marshal(tt.lambdaResp, jsonx.V1())
 
 					return respBody, 200, nil
 				},
@@ -183,14 +184,14 @@ func TestMacroRegistry_InvokeMacro_WithMockLambda(t *testing.T) {
 				"",
 			)
 
-			fragmentJSON, _ := json.Marshal(tt.fragment)
+			fragmentJSON, _ := json.Marshal(tt.fragment, jsonx.V1())
 			result, err := registry.InvokeMacro(
 				t.Context(), lambdabackend.NewHandler(mockLambda), tt.macroName, fragmentJSON, nil,
 			)
 			require.NoError(t, err)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(result, &got))
+			require.NoError(t, json.Unmarshal(result, &got, jsonx.V1()))
 			assert.Equal(t, tt.wantFragment, got)
 		})
 	}
@@ -205,7 +206,7 @@ func TestMacroRegistry_InvokeMacro_NoLambdaBackend(t *testing.T) {
 	registry.RegisterForTest("MyMacro", "arn:aws:lambda:us-east-1:000000000000:function:fn", "")
 
 	fragment := map[string]any{"unchanged": true}
-	fragmentJSON, _ := json.Marshal(fragment)
+	fragmentJSON, _ := json.Marshal(fragment, jsonx.V1())
 
 	// nil lambda backend → returns fragment unchanged.
 	result, err := registry.InvokeMacro(t.Context(), nil, "MyMacro", fragmentJSON, nil)
@@ -221,7 +222,7 @@ func TestMacroRegistry_InvokeMacro_UnknownMacro(t *testing.T) {
 	registry := cloudformation.NewMacroRegistry()
 
 	fragment := map[string]any{"pass": "through"}
-	fragmentJSON, _ := json.Marshal(fragment)
+	fragmentJSON, _ := json.Marshal(fragment, jsonx.V1())
 
 	mockLambda := &mockLambdaStorageBackend{}
 	result, err := registry.InvokeMacro(

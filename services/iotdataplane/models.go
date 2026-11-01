@@ -1,7 +1,7 @@
 package iotdataplane
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"time"
 )
@@ -57,10 +57,10 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // never JSON-marshaled directly; shadowEntrySnap (persistence.go) is its serialisable form.
 type shadowEntry struct {
 	updatedAt    time.Time
-	desired      map[string]json.RawMessage // nil = not set
-	reported     map[string]json.RawMessage // nil = not set
-	metaDesired  map[string]int64           // field → epoch seconds of last update
-	metaReported map[string]int64           // field → epoch seconds of last update
+	desired      map[string]jsontext.Value // nil = not set
+	reported     map[string]jsontext.Value // nil = not set
+	metaDesired  map[string]int64          // field → epoch seconds of last update
+	metaReported map[string]int64          // field → epoch seconds of last update
 	thingName    string
 	shadowName   string
 	version      int

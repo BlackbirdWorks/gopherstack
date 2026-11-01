@@ -1,10 +1,12 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -108,7 +110,7 @@ func (h *Handler) handleListFindings(body []byte) (any, int, error) {
 		MaxResults  int                        `json:"maxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -151,7 +153,7 @@ func (h *Handler) handleUpdateFindings(body []byte) (int, error) {
 		IDs         []string `json:"ids"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return 0, ErrValidation
 	}
 
@@ -212,7 +214,7 @@ func (h *Handler) handleListFindingsV2(body []byte) (any, int, error) {
 		MaxResults  int                        `json:"maxResults"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	findings, nextToken, err := h.Backend.ListFindingsV2(
 		req.AnalyzerArn, req.Status, req.Filter, req.Sort, req.MaxResults, req.NextToken,
@@ -273,7 +275,7 @@ func (h *Handler) handleGetFindingsStatistics(body []byte) (any, int, error) {
 		AnalyzerArn string `json:"analyzerArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

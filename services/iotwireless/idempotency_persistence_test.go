@@ -1,13 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
 )
 
@@ -42,7 +43,7 @@ func TestClientRequestTokenSurvivesRestore(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 			var first map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first, jsonx.V1()))
 
 			snap := h.Backend.(*iotwireless.InMemoryBackend).Snapshot(t.Context())
 			require.NotEmpty(t, snap)
@@ -55,7 +56,7 @@ func TestClientRequestTokenSurvivesRestore(t *testing.T) {
 
 			if tt.wantSameID {
 				var again map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again, jsonx.V1()))
 				assert.Equal(t, first["Id"], again["Id"])
 			}
 		})

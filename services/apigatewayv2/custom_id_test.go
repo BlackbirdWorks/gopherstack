@@ -1,13 +1,14 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -54,7 +55,7 @@ func TestCreateAPICustomIDTag(t *testing.T) {
 			}
 
 			var api apigatewayv2.API
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 			assert.Equal(t, tt.wantID, api.APIID)
 			assert.NotContains(t, api.Tags, "_custom_id_")
 			assert.NotContains(t, api.Tags, "gopherstack:id")

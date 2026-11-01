@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -47,7 +49,7 @@ func TestAnomalyFeedback_PreviousFeedbackOverwritten(t *testing.T) {
 			Feedback  string `json:"Feedback"`
 		} `json:"Anomalies"`
 	}
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 	require.Len(t, out.Anomalies, 1)
 	assert.Equal(t, "feedback-overwrite-1", out.Anomalies[0].AnomalyID)
 	assert.Equal(t, "NO", out.Anomalies[0].Feedback)
@@ -120,7 +122,7 @@ func TestProvideAnomalyFeedback_PersistsAndValidates(t *testing.T) {
 					Feedback  string `json:"Feedback"`
 				} `json:"Anomalies"`
 			}
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 			require.Len(t, out.Anomalies, 1)
 			assert.Equal(t, "feedback-test-1", out.Anomalies[0].AnomalyID)
 			assert.Equal(t, tt.wantFeedback, out.Anomalies[0].Feedback)
@@ -181,7 +183,7 @@ func TestGetAnomalies_ScoreAndImpactAreObjects(t *testing.T) {
 			} `json:"Impact"`
 		} `json:"Anomalies"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.Len(t, out.Anomalies, 1)
 
 	a := out.Anomalies[0]
@@ -223,7 +225,7 @@ func TestGetAnomalies_DateIntervalFilters(t *testing.T) {
 			AnomalyID string `json:"AnomalyId"`
 		} `json:"Anomalies"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Anomalies, 1)
 	assert.Equal(t, "recent-anomaly", out.Anomalies[0].AnomalyID)
 }
@@ -283,7 +285,7 @@ func TestGetAnomalies_DateIntervalMatchesOnAnomalyEndDateOnly(t *testing.T) {
 					AnomalyID string `json:"AnomalyId"`
 				} `json:"Anomalies"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tt.want {
 				require.Len(t, out.Anomalies, 1)
@@ -317,7 +319,7 @@ func TestGetAnomalies_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1 := out1["Anomalies"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["NextPageToken"].(string)
@@ -370,7 +372,7 @@ func TestHandler_GetAnomalies(t *testing.T) {
 			var out struct {
 				Anomalies []any `json:"Anomalies"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.NotNil(t, out.Anomalies)
 		})
 	}
@@ -452,7 +454,7 @@ func TestHandler_GetAnomalies_Filters(t *testing.T) {
 			var out struct {
 				Anomalies []map[string]any `json:"Anomalies"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Anomalies, tt.wantLen)
 		})
 	}
@@ -483,7 +485,7 @@ func TestHandler_SnapshotRestoreWithAnomalies(t *testing.T) {
 	var out struct {
 		Anomalies []map[string]any `json:"Anomalies"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.Anomalies, 1)
 	assert.Equal(t, "snap-anomaly-1", out.Anomalies[0]["AnomalyId"])
 }

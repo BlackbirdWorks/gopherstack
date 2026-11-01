@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_FsxWindows covers the FSx Windows location lifecycle.
@@ -27,7 +29,7 @@ func TestDataSync_FsxWindows(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -35,7 +37,7 @@ func TestDataSync_FsxWindows(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "smb://")
 	assert.Equal(t, "CORP", descResp["Domain"])
 	assert.Equal(t, "svcuser", descResp["User"])
@@ -56,7 +58,7 @@ func TestDataSync_FsxWindows(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeLocationFsxWindows", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "NEWDOMAIN", descResp["Domain"])
 
 	// Missing FsxFilesystemArn

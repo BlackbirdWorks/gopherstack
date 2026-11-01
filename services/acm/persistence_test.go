@@ -2,7 +2,7 @@ package acm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -271,10 +272,10 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 			require.NoError(t, err)
 
 			var snapMap map[string]any
-			require.NoError(t, json.Unmarshal(donor.Snapshot(t.Context()), &snapMap))
+			require.NoError(t, json.Unmarshal(donor.Snapshot(t.Context()), &snapMap, jsonx.V1()))
 			tt.mutate(snapMap)
 
-			mutatedSnap, err := json.Marshal(snapMap)
+			mutatedSnap, err := json.Marshal(snapMap, jsonx.V1())
 			require.NoError(t, err)
 
 			// The restore target starts with its own, different state so we
@@ -337,12 +338,12 @@ func TestACMHandler_Persistence_Tags(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	addBody, err := json.Marshal(map[string]any{
 		"CertificateArn": reqOut.CertificateArn,
 		"Tags":           []map[string]string{{"Key": "team", "Value": "platform"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	addRec := postACMJSON(t, h, "AddTagsToCertificate", string(addBody))
@@ -354,7 +355,7 @@ func TestACMHandler_Persistence_Tags(t *testing.T) {
 	freshH := newACMHandler()
 	require.NoError(t, freshH.Restore(t.Context(), snap))
 
-	listBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	listBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	require.NoError(t, err)
 
 	listRec := postACMJSON(t, freshH, "ListTagsForCertificate", string(listBody))
@@ -363,7 +364,7 @@ func TestACMHandler_Persistence_Tags(t *testing.T) {
 	var tagsOut struct {
 		Tags []map[string]string `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsOut, jsonx.V1()))
 
 	tagMap := make(map[string]string, len(tagsOut.Tags))
 	for _, kv := range tagsOut.Tags {

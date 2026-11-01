@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putEventsInput struct {
@@ -33,7 +35,7 @@ func (h *Handler) eventsActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putEventsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			entries, err := h.Backend.PutEvents(ctx, input.Entries)

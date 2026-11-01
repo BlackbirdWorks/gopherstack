@@ -2,13 +2,15 @@ package azurefunctions
 
 import (
 	"crypto/subtle"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -74,7 +76,7 @@ func toDeploymentJSON(r *http.Request, name string, d Deployment, active bool) d
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 

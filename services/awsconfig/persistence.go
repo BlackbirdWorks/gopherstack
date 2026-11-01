@@ -2,7 +2,7 @@ package awsconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -126,8 +126,8 @@ func fromRemediationExecutionSnapshot(v *remediationExecutionSnapshot) *Remediat
 // rather than closing it, per the mechanical-conversion (not parity-fix)
 // scope of that rollout.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // its "remediationExecutions" DTO entry in tables (gopherstack-ltj0d;
 // b.remediationExecutions is not on b.registry, see store_setup.go's package
 // doc and remediationExecutionSnapshot above).
-func (b *InMemoryBackend) restoreRemediationExecutionsFromDTO(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreRemediationExecutionsFromDTO(tables map[string]jsontext.Value) error {
 	remDTOReg := store.NewRegistry()
 	remDTOs := store.Register(remDTOReg, "remediationExecutions", store.New(remediationExecutionSnapshotKey))
 

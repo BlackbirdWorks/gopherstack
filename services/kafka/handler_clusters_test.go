@@ -3,7 +3,7 @@ package kafka_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -60,7 +61,7 @@ func TestKafka_CreateCluster(t *testing.T) {
 			var bodyBytes []byte
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -78,7 +79,7 @@ func TestKafka_CreateCluster(t *testing.T) {
 
 			if tt.wantFields != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				for k, v := range tt.wantFields {
 					assert.Equal(t, v, resp[k])
@@ -149,7 +150,7 @@ func TestKafka_ListClusters(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			list, ok := resp["clusterInfoList"].([]any)
 			require.True(t, ok)
@@ -211,7 +212,7 @@ func TestKafka_DescribeAndDeleteCluster(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			var clusterArn string
 			if tt.useRealArn {
@@ -276,7 +277,7 @@ func TestKafka_GetBootstrapBrokers(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			var clusterArn string
 			if tt.useRealArn {
@@ -293,7 +294,7 @@ func TestKafka_GetBootstrapBrokers(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Empty(t, resp["bootstrapBrokerString"], "default ClientBroker is TLS: no plaintext listener")
 				assert.Len(t, strings.Split(resp["bootstrapBrokerStringTls"].(string), ","), 3)
 			}
@@ -340,7 +341,7 @@ func TestKafka_CreateClusterV2(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "v2-cluster", resp["clusterName"])
 			assert.Equal(t, "PROVISIONED", resp["clusterType"])
 			assert.NotEmpty(t, resp["clusterArn"])
@@ -380,7 +381,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			var clusterArn string
 			if tt.useRealArn {
@@ -395,7 +396,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				clusterInfo, ok := resp["clusterInfo"].(map[string]any)
 				require.True(t, ok)
@@ -456,7 +457,7 @@ func TestKafka_ListClustersV2(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			clusters, ok := resp["clusterInfoList"].([]any)
 			require.True(t, ok)
@@ -582,7 +583,7 @@ func TestListClustersPagination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec1.Code)
 
 			var resp1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 			list1, ok := resp1["clusterInfoList"].([]any)
 			require.True(t, ok, "clusterInfoList must be an array")
@@ -601,7 +602,7 @@ func TestListClustersPagination(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 				list2, ok2 := resp2["clusterInfoList"].([]any)
 				require.True(t, ok2)
@@ -638,7 +639,7 @@ func TestListClusters_NegativeOffsetToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["clusterInfoList"].([]any)
 	require.True(t, ok, "clusterInfoList must be an array")
@@ -662,7 +663,7 @@ func TestListClustersV2Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	list1 := resp1["clusterInfoList"].([]any)
 	assert.Len(t, list1, 2)
@@ -675,7 +676,7 @@ func TestListClustersV2Pagination(t *testing.T) {
 	var tok struct {
 		O int `json:"o"`
 	}
-	require.NoError(t, json.Unmarshal(decoded, &tok))
+	require.NoError(t, json.Unmarshal(decoded, &tok, jsonx.V1()))
 	assert.Equal(t, 2, tok.O)
 
 	path2 := "/api/v2/clusters?maxResults=2&nextToken=" + url.QueryEscape(nextToken)
@@ -683,7 +684,7 @@ func TestListClustersV2Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	list2 := resp2["clusterInfoList"].([]any)
 	assert.Len(t, list2, 2)
 	assert.Empty(t, resp2["nextToken"])
@@ -727,7 +728,7 @@ func TestClusterCreatingToActive(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				clusterArn = createResp["clusterArn"].(string)
 			} else {
 				rec := doKafkaRequest(t, h, http.MethodPost, "/v1/clusters", map[string]any{
@@ -742,7 +743,7 @@ func TestClusterCreatingToActive(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				clusterArn = createResp["clusterArn"].(string)
 				assert.Equal(t, kafka.ClusterStateCreating, createResp["state"])
 			}
@@ -755,7 +756,7 @@ func TestClusterCreatingToActive(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			clusterInfo := descResp["clusterInfo"].(map[string]any)
 			assert.Equal(t, kafka.ClusterStateActive, clusterInfo["state"])
 		})
@@ -779,7 +780,7 @@ func TestInvalidNextTokenFallsBackToStart(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	list := resp["clusterInfoList"].([]any)
 	assert.Len(t, list, 3)
 }
@@ -803,7 +804,7 @@ func TestCreateClusterV2HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "v2-cluster", resp["clusterName"])
 	assert.Equal(t, "PROVISIONED", resp["clusterType"])
 }

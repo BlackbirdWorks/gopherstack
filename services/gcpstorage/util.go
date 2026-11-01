@@ -1,15 +1,18 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
-func marshalRaw(v any) json.RawMessage {
-	raw, _ := json.Marshal(v) //nolint:errchkjson // strings and string maps always marshal
+func marshalRaw(v any) jsontext.Value {
+	raw, _ := json.Marshal(v, jsonx.V1()) //nolint:errchkjson // strings and string maps always marshal
 
 	return raw
 }

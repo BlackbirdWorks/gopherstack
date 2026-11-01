@@ -1,9 +1,11 @@
 package kinesis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // shardRecords is a bounded ring buffer for Kinesis shard records.
@@ -82,7 +84,7 @@ func (r *shardRecords) MarshalJSON() ([]byte, error) {
 		out[i] = r.at(i)
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }
 
 // UnmarshalJSON restores the ring buffer from a JSON array.
@@ -90,7 +92,7 @@ func (r *shardRecords) MarshalJSON() ([]byte, error) {
 // Any previously held pointers are cleared to allow GC.
 func (r *shardRecords) UnmarshalJSON(data []byte) error {
 	var records []*Record
-	if err := json.Unmarshal(data, &records); err != nil {
+	if err := json.Unmarshal(data, &records, jsonx.V1()); err != nil {
 		return err
 	}
 

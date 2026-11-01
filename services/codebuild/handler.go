@@ -2,7 +2,7 @@ package codebuild
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -268,18 +269,16 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
 
 	respond := func(errType string) error {
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    errType,
 			Message: strings.TrimPrefix(err.Error(), errType+": "),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	}
@@ -298,7 +297,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	// (all but the parameterless ListCuratedEnvironmentImages, which never
 	// raises errInvalidRequest), so it is a safe blanket fallback here.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return respond("InvalidInputException")
 	default:
 		// codebuild@v1.72.4's types/errors.go declares no internal-server/

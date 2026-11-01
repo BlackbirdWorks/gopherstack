@@ -1,11 +1,13 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // twoHandlerCode defines both request and response handlers, used to exercise
@@ -168,6 +170,6 @@ func TestInMemoryBackend_EvaluateCode_ResultIsValidJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal([]byte(out), &decoded))
+	require.NoError(t, json.Unmarshal([]byte(out), &decoded, jsonx.V1()))
 	assert.Equal(t, "Scan", decoded["operation"])
 }

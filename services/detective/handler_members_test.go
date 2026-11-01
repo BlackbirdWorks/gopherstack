@@ -2,13 +2,15 @@ package detective_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -96,7 +98,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 	require.NotEmpty(t, graphArn)
 
@@ -111,7 +113,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createMembersResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createMembersResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createMembersResp, jsonx.V1()))
 	members := createMembersResp["Members"].([]any)
 	assert.Len(t, members, 2)
 
@@ -122,7 +124,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	memberDetails := listResp["MemberDetails"].([]any)
 	assert.Len(t, memberDetails, 2)
 
@@ -134,7 +136,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	gotMembers := getResp["MemberDetails"].([]any)
 	assert.Len(t, gotMembers, 1)
 	unprocessed := getResp["UnprocessedAccounts"].([]any)
@@ -148,7 +150,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp, jsonx.V1()))
 	deleted := deleteResp["AccountIds"].([]any)
 	assert.Len(t, deleted, 1)
 
@@ -158,7 +160,7 @@ func TestDetective_MembersLifecycle(t *testing.T) { //nolint:paralleltest // exi
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	memberDetails = listResp["MemberDetails"].([]any)
 	assert.Len(t, memberDetails, 1)
 }
@@ -284,7 +286,7 @@ func TestListMembers_Pagination_NextToken_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	accounts := make([]any, 3)
@@ -308,7 +310,7 @@ func TestListMembers_Pagination_NextToken_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page1, jsonx.V1()))
 	memberList1, _ := page1["MemberDetails"].([]any)
 	assert.Len(t, memberList1, 2, "MaxResults=2 must return exactly 2 members")
 	nextToken, hasToken := page1["NextToken"].(string)
@@ -321,7 +323,7 @@ func TestListMembers_Pagination_NextToken_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var all map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &all))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &all, jsonx.V1()))
 	_, hasAllToken := all["NextToken"]
 	assert.False(t, hasAllToken, "NextToken must be absent when all members fit")
 }
@@ -339,7 +341,7 @@ func TestMemberDetail_MasterId_Equals_AdministratorId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
@@ -351,7 +353,7 @@ func TestMemberDetail_MasterId_Equals_AdministratorId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var membersResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &membersResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &membersResp, jsonx.V1()))
 	members, _ := membersResp["Members"].([]any)
 	require.Len(t, members, 1)
 
@@ -376,7 +378,7 @@ func TestMemberDetail_AllRequiredFields_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
@@ -388,7 +390,7 @@ func TestMemberDetail_AllRequiredFields_Present(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var membersResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &membersResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &membersResp, jsonx.V1()))
 	members, _ := membersResp["Members"].([]any)
 	require.Len(t, members, 1)
 
@@ -424,7 +426,7 @@ func TestMemberDetail_DatasourcePackageIngestStates_MirrorsGraph(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
@@ -448,7 +450,7 @@ func TestMemberDetail_DatasourcePackageIngestStates_MirrorsGraph(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	details, _ := getResp["MemberDetails"].([]any)
 	require.Len(t, details, 1)
 
@@ -471,7 +473,7 @@ func TestDeleteMembers_AllUnprocessed_AccountIds_Empty_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/members/removal", map[string]any{
@@ -481,7 +483,7 @@ func TestDeleteMembers_AllUnprocessed_AccountIds_Empty_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	accountIDs, hasKey := resp["AccountIds"]
 	assert.True(t, hasKey, "DeleteMembers response must include AccountIds")
@@ -510,7 +512,7 @@ func TestCreateMembers_UnprocessedAccounts_Empty_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	graphArn := createResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
@@ -522,7 +524,7 @@ func TestCreateMembers_UnprocessedAccounts_Empty_Not_Null(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	unprocessed, hasKey := resp["UnprocessedAccounts"]
 	assert.True(t, hasKey, "CreateMembers must always include UnprocessedAccounts")
@@ -591,7 +593,7 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	// Invite account 000000000000 (the backend's own account) will fail; use another.
@@ -621,7 +623,7 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				invitations, ok := resp["Invitations"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, invitations)
@@ -700,7 +702,7 @@ func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	// Invite the backend's own account ID so it can accept/reject via the same backend.
@@ -724,7 +726,7 @@ func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // 
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &getResp, jsonx.V1()))
 	details := getResp["MemberDetails"].([]any)
 	require.Len(t, details, 1)
 	member := details[0].(map[string]any)

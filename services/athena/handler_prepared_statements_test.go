@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -52,7 +53,7 @@ func TestHandler_CreatePreparedStatement(t *testing.T) {
 
 			if tt.wantErr {
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.NotEmpty(t, errResp["__type"])
 			}
 		})
@@ -97,7 +98,7 @@ func TestHandler_BatchGetPreparedStatement(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			found, _ := resp["PreparedStatements"].([]any)
 			assert.Len(t, found, tt.wantFound)
 			unprocessed, _ := resp["UnprocessedPreparedStatementNames"].([]any)
@@ -225,7 +226,7 @@ func TestHandler_GetPreparedStatement(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				ps, _ := resp["PreparedStatement"].(map[string]any)
 				require.NotNil(t, ps, "PreparedStatement must be present")
 				assert.Equal(t, tt.wantName, ps["StatementName"])
@@ -277,7 +278,7 @@ func TestHandler_ListPreparedStatements(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string][]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["PreparedStatements"], tt.wantCount)
 		})
 	}
@@ -294,7 +295,7 @@ func TestHandler_ListPreparedStatements_ReturnsSummary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string][]map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp["PreparedStatements"], 1)
 
 	sum := resp["PreparedStatements"][0]

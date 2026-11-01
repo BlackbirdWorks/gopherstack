@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, error) {
@@ -13,7 +15,7 @@ func (h *Handler) handleBatchGetSchema(_ context.Context, body []byte) ([]byte, 
 		CollaborationIdentifier string   `json:"collaborationIdentifier"`
 		Names                   []string `json:"names"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, errs, err := h.Backend.BatchGetSchema(req.CollaborationIdentifier, req.Names)
 	if err != nil {
 		return nil, err
@@ -30,7 +32,7 @@ func (h *Handler) handleBatchGetSchemaAnalysisRule(_ context.Context, body []byt
 			Type string `json:"type"`
 		} `json:"schemaAnalysisRuleRequests"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	names := make([]string, 0, len(req.SchemaAnalysisRuleRequests))
 	var ruleType string
 	for _, r := range req.SchemaAnalysisRuleRequests {
@@ -56,7 +58,7 @@ func (h *Handler) handleGetSchema(_ context.Context, body []byte) ([]byte, error
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 		Name                    string `json:"name"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	s, err := h.Backend.GetSchema(req.CollaborationIdentifier, req.Name)
 	if err != nil {
 		return nil, err
@@ -73,7 +75,7 @@ func (h *Handler) handleListSchemas(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListSchemas(
 		req.CollaborationIdentifier,
 		qp(c, "schemaType"),
@@ -97,7 +99,7 @@ func (h *Handler) handleGetSchemaAnalysisRule(_ context.Context, body []byte) ([
 		Name                    string `json:"name"`
 		Type                    string `json:"type"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum("type", crtypes.AnalysisRuleType(req.Type)); err != nil {
 		return nil, err
 	}

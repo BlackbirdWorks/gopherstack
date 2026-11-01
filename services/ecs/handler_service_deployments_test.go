@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -32,7 +33,7 @@ func TestServiceDeployment_DescribeList_Roundtrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	briefs := listOut["serviceDeployments"].([]any)
 	require.NotEmpty(t, briefs)
 	firstArn := briefs[0].(map[string]any)["serviceDeploymentArn"].(string)
@@ -42,7 +43,7 @@ func TestServiceDeployment_DescribeList_Roundtrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	deps := descOut["serviceDeployments"].([]any)
 	assert.Len(t, deps, 1)
 	dep := deps[0].(map[string]any)
@@ -85,7 +86,7 @@ func TestECS_ListServiceDeployments_StableOrder(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		briefs := resp["serviceDeployments"].([]any)
 		require.Len(t, briefs, 3)
@@ -118,7 +119,7 @@ func TestStopServiceDeployment(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, stopResp.Code)
 	var stopOut map[string]any
-	require.NoError(t, json.Unmarshal(stopResp.Body.Bytes(), &stopOut))
+	require.NoError(t, json.Unmarshal(stopResp.Body.Bytes(), &stopOut, jsonx.V1()))
 	assert.Equal(t, depArn, stopOut["serviceDeploymentArn"])
 	assert.NotContains(t, stopOut, "serviceDeployment")
 
@@ -204,7 +205,7 @@ func TestECS_DescribeServiceDeployments(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			deployments := resp["serviceDeployments"].([]any)
 			failures := resp["failures"].([]any)
@@ -240,7 +241,7 @@ func TestECS_ListServiceDeployments(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			briefs, ok := resp["serviceDeployments"].([]any)
 			require.True(t, ok)
@@ -276,7 +277,7 @@ func TestECS_ListServiceDeployments_Shape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, hasOldShape := resp["serviceDeploymentArns"]
 	assert.False(t, hasOldShape, "response must not carry the bare serviceDeploymentArns shape")
@@ -355,7 +356,7 @@ func TestECS_StopServiceDeployment(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotEmpty(t, resp["serviceDeploymentArn"])
 			assert.NotContains(t, resp, "serviceDeployment")
@@ -427,7 +428,7 @@ func TestECS_ContinueServiceDeployment(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, tt.wantTypeIsIn, resp["__type"])
 		})
 	}

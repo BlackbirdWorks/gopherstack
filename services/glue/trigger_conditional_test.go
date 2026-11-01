@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -172,7 +173,7 @@ func TestConditionalTrigger_Fires(t *testing.T) {
 						PredecessorRuns []pred `json:"PredecessorRuns"`
 					} `json:"JobRun"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				var got []string
 				for _, p := range out.JobRun.PredecessorRuns {

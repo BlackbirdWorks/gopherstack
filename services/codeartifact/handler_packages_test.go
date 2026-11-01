@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -81,7 +82,7 @@ func TestHandler_DescribePackage(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pkg, _ := resp["package"].(map[string]any)
 				assert.Equal(t, "npm", pkg["format"])
 				assert.Equal(t, "my-pkg", pkg["name"])
@@ -110,7 +111,7 @@ func TestHandler_DeletePackage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["deletedPackage"])
 
 	// Confirm deletion: a second delete should return 404 since the package no longer exists.
@@ -144,7 +145,7 @@ func TestHandler_PackageMap(t *testing.T) {
 	// declare only format/name/namespace/originConfiguration); "format" and
 	// "name" are the ones actually on the real shape.
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pkg, _ := resp["package"].(map[string]any)
 	assert.Equal(t, "npm", pkg["format"])
 	assert.Equal(t, "mypkg", pkg["name"])
@@ -179,7 +180,7 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	allRec := doRequest(t, h, http.MethodPost, "/v1/packages?domain=fmt-multi-domain&repository=fmt-multi-repo", nil)
 	require.Equal(t, http.StatusOK, allRec.Code)
 	var allResp map[string]any
-	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp, jsonx.V1()))
 	allPkgs, _ := allResp["packages"].([]any)
 	assert.Len(t, allPkgs, 4)
 
@@ -193,7 +194,7 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, npmRec.Code)
 	var npmResp map[string]any
-	require.NoError(t, json.Unmarshal(npmRec.Body.Bytes(), &npmResp))
+	require.NoError(t, json.Unmarshal(npmRec.Body.Bytes(), &npmResp, jsonx.V1()))
 	npmPkgs, _ := npmResp["packages"].([]any)
 	assert.Len(t, npmPkgs, 2)
 
@@ -207,7 +208,7 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, pypiRec.Code)
 	var pypiResp map[string]any
-	require.NoError(t, json.Unmarshal(pypiRec.Body.Bytes(), &pypiResp))
+	require.NoError(t, json.Unmarshal(pypiRec.Body.Bytes(), &pypiResp, jsonx.V1()))
 	pypiPkgs, _ := pypiResp["packages"].([]any)
 	assert.Len(t, pypiPkgs, 1)
 }
@@ -311,7 +312,7 @@ func TestHandler_ListPackages(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pkgs, _ := resp["packages"].([]any)
 				assert.Len(t, pkgs, tt.wantCount)
 			}
@@ -383,7 +384,7 @@ func TestHandler_PutPackageOriginConfiguration(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				originConfig, _ := resp["originConfiguration"].(map[string]any)
 				require.NotNil(t, originConfig)
 				restrictions, _ := originConfig["restrictions"].(map[string]any)
@@ -410,7 +411,7 @@ func TestListPackages_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1, _ := out1["packages"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["nextToken"].(string)
@@ -421,7 +422,7 @@ func TestListPackages_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2, _ := out2["packages"].([]any)
 	assert.Len(t, page2, 2)
 }

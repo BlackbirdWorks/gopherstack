@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetMetricConfiguration(t *testing.T) {
@@ -19,7 +21,7 @@ func TestHandler_GetMetricConfiguration(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	summaryMetric, ok := getResp["SummaryMetric"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Enabled", summaryMetric["Status"])
@@ -31,7 +33,7 @@ func TestHandler_GetMetricConfiguration(t *testing.T) {
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/metric-configuration", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	summaryMetric, ok = getResp["SummaryMetric"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Disabled", summaryMetric["Status"])
@@ -52,7 +54,7 @@ func TestHandler_GetMetrics_MapsQueriesToResults(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results, ok := resp["SummaryMetricQueryResults"].([]any)
 	require.True(t, ok)
 	require.Len(t, results, 2)
@@ -71,7 +73,7 @@ func TestHandler_GetServiceEndpoint_ExactURLsAndValidation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "CUPS", resp["ServiceType"])
 	assert.Equal(t, "https://cups.lorawan.us-east-1.amazonaws.com", resp["ServiceEndpoint"])
 
@@ -80,7 +82,7 @@ func TestHandler_GetServiceEndpoint_ExactURLsAndValidation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var lnsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lnsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lnsResp, jsonx.V1()))
 	assert.Equal(t, "LNS", lnsResp["ServiceType"])
 	assert.Equal(t, "https://lns.lorawan.us-east-1.amazonaws.com", lnsResp["ServiceEndpoint"])
 
@@ -126,7 +128,7 @@ func TestHandler_GetMetrics_ReturnsEmptyResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["SummaryMetricQueryResults"].([]any)
 	require.True(t, ok)
@@ -168,7 +170,7 @@ func TestHandler_MetricConfiguration_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, ok := resp[tt.wantKV]
 			assert.True(t, ok, "expected key %q in response", tt.wantKV)
 		})
@@ -214,7 +216,7 @@ func TestHandler_GetServiceEndpoint_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantServiceType, resp["ServiceType"])
 			endpoint, _ := resp["ServiceEndpoint"].(string)
 			assert.Contains(t, endpoint, tt.wantSubstr)

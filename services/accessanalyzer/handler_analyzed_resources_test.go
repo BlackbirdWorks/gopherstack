@@ -1,13 +1,14 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -34,7 +35,7 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				resource := resp["resource"].(map[string]any)
 				assert.Equal(t, resourceArn, resource["resourceArn"])
 				// resourceOwnerAccount is a required AnalyzedResource member.
@@ -70,7 +71,7 @@ func TestAnalyzedResourceLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				resources := resp["analyzedResources"].([]any)
 				assert.Len(t, resources, 2)
 

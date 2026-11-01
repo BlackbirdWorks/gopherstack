@@ -1,9 +1,11 @@
 package iotdataplane
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+)
 
 // MergeStateFields exposes mergeStateFields for white-box testing.
-func MergeStateFields(base, patch map[string]json.RawMessage) map[string]json.RawMessage {
+func MergeStateFields(base, patch map[string]jsontext.Value) map[string]jsontext.Value {
 	return mergeStateFields(base, patch)
 }
 
@@ -80,7 +82,7 @@ func ForceSetShadowVersion(b *InMemoryBackend, thingName, shadowName string, ver
 }
 
 // GetShadowDesired returns the desired state map for white-box testing.
-func GetShadowDesired(b *InMemoryBackend, thingName, shadowName string) map[string]json.RawMessage {
+func GetShadowDesired(b *InMemoryBackend, thingName, shadowName string) map[string]jsontext.Value {
 	b.mu.RLock("GetShadowDesired")
 	defer b.mu.RUnlock()
 
@@ -93,7 +95,7 @@ func GetShadowDesired(b *InMemoryBackend, thingName, shadowName string) map[stri
 }
 
 // GetShadowReported returns the reported state map for white-box testing.
-func GetShadowReported(b *InMemoryBackend, thingName, shadowName string) map[string]json.RawMessage {
+func GetShadowReported(b *InMemoryBackend, thingName, shadowName string) map[string]jsontext.Value {
 	b.mu.RLock("GetShadowReported")
 	defer b.mu.RUnlock()
 

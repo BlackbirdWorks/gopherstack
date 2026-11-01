@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_Hdfs covers the HDFS location lifecycle.
@@ -35,7 +37,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -43,7 +45,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "hdfs://")
 	assert.Equal(t, "SIMPLE", descResp["AuthenticationType"])
 	assert.Equal(t, "hadoop", descResp["SimpleUser"])
@@ -62,7 +64,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeLocationHdfs", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "newuser", descResp["SimpleUser"])
 	nameNodes := descResp["NameNodes"].([]any)
 	require.Len(t, nameNodes, 1)

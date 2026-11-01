@@ -2,10 +2,12 @@ package fis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ----------------------------------------
@@ -18,7 +20,7 @@ func (h *Handler) handleCreateExperimentTemplate(
 	body []byte,
 ) error {
 	var input createExperimentTemplateRequest
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), "")
 	}
 
@@ -45,7 +47,7 @@ func (h *Handler) handleGetExperimentTemplate(c *echo.Context, id string) error 
 
 func (h *Handler) handleUpdateExperimentTemplate(c *echo.Context, id string, body []byte) error {
 	var input updateExperimentTemplateRequest
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), id)
 	}
 

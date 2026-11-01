@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetDataLakeSettings(_ context.Context, c *echo.Context, body []byte) error {
 	var in getDataLakeSettingsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -26,7 +28,7 @@ func (h *Handler) handleGetDataLakeSettings(_ context.Context, c *echo.Context, 
 
 func (h *Handler) handlePutDataLakeSettings(_ context.Context, c *echo.Context, body []byte) error {
 	var in putDataLakeSettingsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 

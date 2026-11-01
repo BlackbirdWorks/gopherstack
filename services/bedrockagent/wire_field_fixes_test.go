@@ -1,12 +1,14 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDeleteFlow_NoInventedStatusKey_RealClient guards against
@@ -28,7 +30,7 @@ func TestDeleteFlow_NoInventedStatusKey_RealClient(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	flowID, _ := created["id"].(string)
 	require.NotEmpty(t, flowID)
 
@@ -58,7 +60,7 @@ func TestDeleteFlowVersion_NoInventedStatusKey_RealClient(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code, createRec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	flowID, _ := created["id"].(string)
 	require.NotEmpty(t, flowID)
 
@@ -66,7 +68,7 @@ func TestDeleteFlowVersion_NoInventedStatusKey_RealClient(t *testing.T) {
 	require.Equal(t, http.StatusCreated, versionRec.Code, versionRec.Body.String())
 
 	var versionBody map[string]any
-	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &versionBody))
+	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &versionBody, jsonx.V1()))
 	version, _ := versionBody["version"].(string)
 	require.NotEmpty(t, version)
 

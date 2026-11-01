@@ -3,7 +3,7 @@ package kinesis_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -34,7 +35,7 @@ func subscribeAndCollect(t *testing.T, h *kinesis.Handler, consumerARN, shardID 
 		"StartingPosition": map[string]any{
 			"Type": "TRIM_HORIZON",
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -62,7 +63,7 @@ func getFirstShardID(t *testing.T, h *kinesis.Handler, streamName string) string
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp.StreamDescription.Shards)
 
 	return resp.StreamDescription.Shards[0].ShardID
@@ -82,7 +83,7 @@ func registerConsumerAndGetARN(t *testing.T, h *kinesis.Handler, streamARN, cons
 			ConsumerARN string `json:"ConsumerARN"`
 		} `json:"Consumer"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp.Consumer.ConsumerARN
 }
@@ -220,7 +221,7 @@ func TestRegisterStreamConsumer_InvalidName(t *testing.T) {
 			var resp struct {
 				Type string `json:"__type"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidArgumentException", resp.Type)
 		})
 	}
@@ -349,7 +350,7 @@ func TestListStreamConsumers_MaxResultsPagination(t *testing.T) {
 			ConsumerName string `json:"ConsumerName"`
 		} `json:"Consumers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	assert.Len(t, page1.Consumers, 2)
 	assert.NotEmpty(t, page1.NextToken)
 
@@ -367,7 +368,7 @@ func TestListStreamConsumers_MaxResultsPagination(t *testing.T) {
 			ConsumerName string `json:"ConsumerName"`
 		} `json:"Consumers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Consumers, 2)
 	assert.NotEmpty(t, page2.NextToken)
 
@@ -385,7 +386,7 @@ func TestListStreamConsumers_MaxResultsPagination(t *testing.T) {
 			ConsumerName string `json:"ConsumerName"`
 		} `json:"Consumers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page3))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page3, jsonx.V1()))
 	assert.Len(t, page3.Consumers, 1)
 	assert.Empty(t, page3.NextToken)
 
@@ -430,7 +431,7 @@ func TestListStreamConsumers_NoMaxResults_ReturnsAll(t *testing.T) {
 			ConsumerName string `json:"ConsumerName"`
 		} `json:"Consumers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Consumers, 3)
 	assert.Empty(t, resp.NextToken)
 }
@@ -741,7 +742,7 @@ func createStreamAndGetARN(t *testing.T, h *kinesis.Handler, streamName string) 
 			StreamARN string `json:"StreamARN"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	require.NotEmpty(t, descResp.StreamDescription.StreamARN)
 
 	return descResp.StreamDescription.StreamARN
@@ -785,7 +786,7 @@ func TestConsumerLifecycle(t *testing.T) {
 			// only types.ConsumerDescription (returned by DescribeStreamConsumer)
 			// does. A raw map catches a StreamARN key resurfacing on this response.
 			var regRespRaw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regRespRaw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regRespRaw, jsonx.V1()))
 			consumerRaw, ok := regRespRaw["Consumer"].(map[string]any)
 			require.True(t, ok)
 			_, hasStreamARN := consumerRaw["StreamARN"]
@@ -799,7 +800,7 @@ func TestConsumerLifecycle(t *testing.T) {
 					ConsumerStatus string `json:"ConsumerStatus"`
 				} `json:"Consumer"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 			assert.Equal(t, tt.consumerName, regResp.Consumer.ConsumerName)
 			assert.Equal(t, tt.expectedStatus, regResp.Consumer.ConsumerStatus)
 			assert.NotEmpty(t, regResp.Consumer.ConsumerARN)
@@ -819,7 +820,7 @@ func TestConsumerLifecycle(t *testing.T) {
 					ConsumerARN  string `json:"ConsumerARN"`
 				} `json:"ConsumerDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.consumerName, descResp.ConsumerDescription.ConsumerName)
 			assert.Equal(t, consumerARN, descResp.ConsumerDescription.ConsumerARN)
 
@@ -841,7 +842,7 @@ func TestConsumerLifecycle(t *testing.T) {
 					ConsumerName string `json:"ConsumerName"`
 				} `json:"Consumers"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			require.Len(t, listResp.Consumers, 1)
 			assert.Equal(t, tt.consumerName, listResp.Consumers[0].ConsumerName)
 
@@ -860,7 +861,7 @@ func TestConsumerLifecycle(t *testing.T) {
 			var listResp2 struct {
 				Consumers []any `json:"Consumers"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2, jsonx.V1()))
 			assert.Empty(t, listResp2.Consumers)
 		})
 	}
@@ -921,7 +922,7 @@ func TestConsumerErrors(t *testing.T) {
 				var errResp struct {
 					Type string `json:"__type"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, errResp.Type)
 			}
 		})
@@ -951,7 +952,7 @@ func TestRegisterConsumerDuplicate(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUseException", errResp.Type)
 }
 
@@ -975,7 +976,7 @@ func TestSubscribeToShard(t *testing.T) {
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	require.Len(t, descResp.StreamDescription.Shards, 1)
 	shardID := descResp.StreamDescription.Shards[0].ShardID
 
@@ -998,7 +999,7 @@ func TestSubscribeToShard(t *testing.T) {
 			ConsumerARN string `json:"ConsumerARN"`
 		} `json:"Consumer"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 	consumerARN := regResp.Consumer.ConsumerARN
 
 	// SubscribeToShard.
@@ -1009,7 +1010,7 @@ func TestSubscribeToShard(t *testing.T) {
 		"StartingPosition": map[string]any{
 			"Type": "TRIM_HORIZON",
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))

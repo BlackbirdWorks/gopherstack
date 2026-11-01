@@ -2,7 +2,8 @@ package elasticsearch_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elasticsearch"
 )
 
@@ -237,7 +239,7 @@ func TestElasticsearchHandler_ListDomainNames(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	names, ok := out["DomainNames"].([]any)
 	require.True(t, ok)
@@ -363,7 +365,7 @@ func TestElasticsearchHandler_DomainCollectionRouteMatrix(t *testing.T) {
 
 		var out map[string]any
 		if resp.Header.Get("Content-Type") != "" {
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 		}
 
 		resp.Body.Close()
@@ -442,7 +444,7 @@ func TestElasticsearchHandler_DescribeElasticsearchDomains(t *testing.T) {
 			assert.Equal(t, tt.wantCode, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			list, ok := out["DomainStatusList"].([]any)
 			require.True(t, ok)
@@ -611,7 +613,7 @@ func TestElasticsearchHandler_NonNilEmptyDomainList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	domainNames, ok := out["DomainNames"]
 	require.True(t, ok)

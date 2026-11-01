@@ -1,12 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_WebhookCRUD verifies create/get/list/update/delete webhook lifecycle.
@@ -34,7 +36,7 @@ func TestHandler_WebhookCRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			wh := createResp["webhook"].(map[string]any)
 			webhookID := wh["webhookId"].(string)
 			assert.NotEmpty(t, webhookID)
@@ -48,7 +50,7 @@ func TestHandler_WebhookCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp["webhooks"].([]any), 1)
 
 			// Update.
@@ -57,7 +59,7 @@ func TestHandler_WebhookCRUD(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var updateResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 			updated := updateResp["webhook"].(map[string]any)
 			assert.Equal(t, "updated", updated["description"])
 

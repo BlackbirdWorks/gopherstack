@@ -3,7 +3,7 @@ package lambda
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -275,7 +276,7 @@ func writeFunctionURLError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	body, _ := json.Marshal(map[string]string{"Message": message})
+	body, _ := json.Marshal(map[string]string{"Message": message}, jsonx.V1())
 	_, _ = w.Write(body)
 }
 
@@ -448,7 +449,7 @@ func (b *InMemoryBackend) buildURLEvent(r *http.Request, meta urlRequestMeta) ([
 
 	event.Body, event.IsBase64Encoded = encodeURLBody(bodyBytes, r.Header.Get("Content-Type"))
 
-	return json.Marshal(event)
+	return json.Marshal(event, jsonx.V1())
 }
 
 func urlIAMAuthorizer(r *http.Request, accountID string) *lambdaURLAuthorizer {
@@ -590,7 +591,7 @@ func writeFunctionURLResult(w http.ResponseWriter, result []byte, streaming bool
 
 	if streaming {
 		if prelude, rest, ok := bytes.Cut(result, []byte(functionURLStreamSep)); ok &&
-			json.Unmarshal(prelude, &resp) == nil {
+			json.Unmarshal(prelude, &resp, jsonx.V1()) == nil {
 			writeURLResponseHead(w, &resp)
 			writeFlushed(w, rest)
 
@@ -598,7 +599,7 @@ func writeFunctionURLResult(w http.ResponseWriter, result []byte, streaming bool
 		}
 	}
 
-	if json.Unmarshal(result, &resp) != nil || resp.StatusCode == 0 {
+	if json.Unmarshal(result, &resp, jsonx.V1()) != nil || resp.StatusCode == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(http.StatusOK)

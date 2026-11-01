@@ -1,12 +1,14 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateDeploymentConfig(t *testing.T) {
@@ -57,7 +59,7 @@ func TestHandler_CreateDeploymentConfig(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["deploymentConfigId"])
 			}
 		})
@@ -240,7 +242,7 @@ func TestDeploymentConfigs_SubStructs(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp map[string]map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				tt.checkFn(t, resp["deploymentConfigInfo"])
 			}
 		})
@@ -270,7 +272,7 @@ func TestDeploymentConfigs_DefaultsSeeded(t *testing.T) {
 	var resp struct {
 		DeploymentConfigsList []string `json:"deploymentConfigsList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, name := range expectedDefaults {
 		assert.Contains(t, resp.DeploymentConfigsList, name, "missing default config: %s", name)
@@ -324,7 +326,7 @@ func TestDeploymentConfigs_DefaultsReturnSubStructs(t *testing.T) {
 					ComputePlatform string `json:"computePlatform"`
 				} `json:"deploymentConfigInfo"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantPlatform, resp.DeploymentConfigInfo.ComputePlatform)
 			require.NotNil(t, resp.DeploymentConfigInfo.TrafficRoutingConfig)
 			assert.Equal(t, tt.wantRoutingType, resp.DeploymentConfigInfo.TrafficRoutingConfig.Type)
@@ -342,7 +344,7 @@ func TestDeploymentConfigs_DefaultsCannotDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// DeleteDeploymentConfig's own deserializer models InvalidOperationException
 	// for this case, not DeploymentConfigInUseException (verified against
 	// aws-sdk-go-v2/service/codedeploy deserializers.go).
@@ -382,7 +384,7 @@ func TestDeploymentConfigs_InUseCannotDelete(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, delRec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DeploymentConfigInUseException", resp["__type"])
 }
 
@@ -400,7 +402,7 @@ func TestDeploymentConfigs_ErrInvalidComputePlatformMapping(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidComputePlatformException", resp["__type"])
 }
 

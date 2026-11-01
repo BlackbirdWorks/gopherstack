@@ -2,7 +2,7 @@ package dynamodbstreams
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -99,7 +100,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -154,7 +155,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleError(ctx, c, operation, reqErr)
 		}
 
-		payload, err := json.Marshal(response)
+		payload, err := json.Marshal(response, jsonx.V1())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 
@@ -203,7 +204,7 @@ func dispatchGetShardIterator(
 ) (any, error) {
 	var input dynamodbstreams.GetShardIteratorInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
@@ -230,7 +231,7 @@ func dispatchListStreams(
 ) (any, error) {
 	var input dynamodbstreams.ListStreamsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
@@ -262,7 +263,7 @@ func dispatchGetRecords(
 ) (any, error) {
 	var input dynamodbstreams.GetRecordsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
@@ -286,7 +287,7 @@ func writeDynamoDBStreamsDispatchError(c *echo.Context, message string) error {
 	body, _ := json.Marshal(map[string]string{
 		keyErrType: "com.amazonaws.dynamodbstreams.v20120810#InternalServerError",
 		keyMessage: message,
-	})
+	}, jsonx.V1())
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	return c.JSONBlob(http.StatusInternalServerError, body)
@@ -339,7 +340,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, operation stri
 	body, _ := json.Marshal(map[string]string{
 		keyErrType: "com.amazonaws.dynamodbstreams.v20120810#" + operation + "Exception",
 		keyMessage: msg,
-	})
+	}, jsonx.V1())
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	return c.JSONBlob(http.StatusBadRequest, body)
@@ -352,7 +353,7 @@ func dispatchDescribeStream(
 ) (any, error) {
 	var input dynamodbstreams.DescribeStreamInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errSerialization, err)
 		}
 	}
@@ -370,7 +371,7 @@ func dispatchDescribeStream(
 }
 
 func writeJSONError(c *echo.Context, status int, errType, message string) error {
-	body, _ := json.Marshal(map[string]string{keyErrType: errType, keyMessage: message})
+	body, _ := json.Marshal(map[string]string{keyErrType: errType, keyMessage: message}, jsonx.V1())
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
 	return c.JSONBlob(status, body)

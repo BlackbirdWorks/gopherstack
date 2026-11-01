@@ -7,7 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +21,7 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
@@ -115,7 +116,7 @@ type transformEvent struct {
 // metadata.partitionKeys{"tenant": <text before the first dash>}.
 func contentTransform(payload []byte, _ int) ([]byte, error) {
 	var ev transformEvent
-	if err := json.Unmarshal(payload, &ev); err != nil {
+	if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -140,7 +141,7 @@ func contentTransform(payload []byte, _ int) ([]byte, error) {
 		}
 	}
 
-	return json.Marshal(map[string]any{"records": recs})
+	return json.Marshal(map[string]any{"records": recs}, jsonx.V1())
 }
 
 // denyAuthorizer denies the listed actions; role "untrusted" cannot be assumed.

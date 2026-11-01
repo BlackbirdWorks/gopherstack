@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -28,7 +29,7 @@ func BenchmarkExtractResource(b *testing.B) {
 		"TableName": "BenchTable",
 		"Item":      item,
 	}
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		b.Fatalf("marshal request body: %v", err)
 	}

@@ -1,16 +1,18 @@
 package iam
 
 import (
-	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed data/aws_managed_policies.json
@@ -23,13 +25,13 @@ type awsManagedFile struct {
 }
 
 type awsManagedEntry struct {
-	Name             string          `json:"name"`
-	Path             string          `json:"path"`
-	PolicyID         string          `json:"policyId"`
-	DefaultVersionID string          `json:"defaultVersionId"`
-	CreateDate       time.Time       `json:"createDate"`
-	UpdateDate       time.Time       `json:"updateDate"`
-	Document         json.RawMessage `json:"document"`
+	Name             string         `json:"name"`
+	Path             string         `json:"path"`
+	PolicyID         string         `json:"policyId"`
+	DefaultVersionID string         `json:"defaultVersionId"`
+	CreateDate       time.Time      `json:"createDate"`
+	UpdateDate       time.Time      `json:"updateDate"`
+	Document         jsontext.Value `json:"document"`
 }
 
 type awsManagedCatalog struct {
@@ -49,7 +51,7 @@ var loadAWSManagedCatalog = sync.OnceValue(func() *awsManagedCatalog {
 
 func parseAWSManagedCatalog(raw []byte) (*awsManagedCatalog, error) {
 	var file awsManagedFile
-	if err := json.Unmarshal(raw, &file); err != nil {
+	if err := json.Unmarshal(raw, &file, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("iam: parse AWS managed policy catalog: %w", err)
 	}
 
@@ -59,8 +61,8 @@ func parseAWSManagedCatalog(raw []byte) (*awsManagedCatalog, error) {
 	}
 
 	for _, e := range file.Policies {
-		var doc bytes.Buffer
-		if err := json.Compact(&doc, e.Document); err != nil {
+		doc := e.Document.Clone()
+		if err := doc.Compact(jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("iam: AWS managed policy %q document: %w", e.Name, err)
 		}
 
@@ -74,7 +76,7 @@ func parseAWSManagedCatalog(raw []byte) (*awsManagedCatalog, error) {
 			PolicyID:         e.PolicyID,
 			Arn:              arn,
 			Path:             e.Path,
-			PolicyDocument:   doc.String(),
+			PolicyDocument:   string(doc),
 			DefaultVersionID: e.DefaultVersionID,
 			CreateDate:       e.CreateDate.UTC(),
 			UpdateDate:       e.UpdateDate.UTC(),

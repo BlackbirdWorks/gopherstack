@@ -1,13 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -37,7 +38,7 @@ func TestClientAuthentication(t *testing.T) {
 			rec2 := doRequest(t, h, "DescribeClientAuthenticationSettings", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			settings, _ := r2["ClientAuthenticationSettingsInfo"].([]any)
 			require.Len(t, settings, 1)
 			setting := settings[0].(map[string]any)
@@ -125,7 +126,7 @@ func TestEnableClientAuthentication_Validation(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", body["__type"])
 		})
 	}

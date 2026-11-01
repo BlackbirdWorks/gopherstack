@@ -2,11 +2,14 @@ package codepipeline
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -285,7 +288,7 @@ func (b *InMemoryBackend) cfnPublishOutputs(
 		return
 	}
 
-	body, err := json.Marshal(st.Outputs)
+	body, err := json.Marshal(st.Outputs, jsonx.V1())
 	if err == nil {
 		err = b.putOutputFiles(ctx, p, execID, action, map[string][]byte{file: body})
 	}
@@ -431,12 +434,12 @@ func (b *InMemoryBackend) applyTemplateConfiguration(
 	}
 
 	var doc struct {
-		Parameters  map[string]any  `json:"Parameters"`
-		Tags        map[string]any  `json:"Tags"`
-		StackPolicy json.RawMessage `json:"StackPolicy"`
+		Parameters  map[string]any `json:"Parameters"`
+		Tags        map[string]any `json:"Tags"`
+		StackPolicy jsontext.Value `json:"StackPolicy"`
 	}
 
-	if err = json.Unmarshal(body, &doc); err != nil {
+	if err = json.Unmarshal(body, &doc, jsonx.V1()); err != nil {
 		return fmt.Errorf("template configuration %q is not valid JSON: %w", ref, err)
 	}
 
@@ -469,7 +472,7 @@ func (b *InMemoryBackend) applyParameterOverrides(
 	ctx context.Context, p *Pipeline, execID string, action Action, raw string, req *StackRequest,
 ) error {
 	var overrides map[string]any
-	if err := json.Unmarshal([]byte(raw), &overrides); err != nil {
+	if err := json.Unmarshal([]byte(raw), &overrides, jsonx.V1()); err != nil {
 		return fmt.Errorf("ParameterOverrides is not a valid JSON object: %w", err)
 	}
 
@@ -506,7 +509,7 @@ func (b *InMemoryBackend) resolveParameterFunction(
 		}
 
 		var doc map[string]any
-		if err = json.Unmarshal(body, &doc); err != nil {
+		if err = json.Unmarshal(body, &doc, jsonx.V1()); err != nil {
 			return "", fmt.Errorf("%s is not a JSON object: %w", scalarString(args[1]), err)
 		}
 

@@ -1,12 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestWebAuthn_CRUD(t *testing.T) {
@@ -24,7 +26,7 @@ func TestWebAuthn_CRUD(t *testing.T) {
 	var startResp struct {
 		CredentialCreationOptions map[string]any `json:"CredentialCreationOptions,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	require.NotEmpty(t, startResp.CredentialCreationOptions)
 	assert.NotEmpty(t, startResp.CredentialCreationOptions["challenge"])
 	rp, ok := startResp.CredentialCreationOptions["rp"].(map[string]any)
@@ -59,7 +61,7 @@ func TestWebAuthn_CRUD(t *testing.T) {
 			AuthenticatorTransports []string `json:"AuthenticatorTransports"`
 		} `json:"Credentials,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Credentials, 1)
 	assert.Equal(t, "cred-id-1", listResp.Credentials[0].CredentialID)
 	assert.Equal(t, "platform", listResp.Credentials[0].AuthenticatorAttachment)
@@ -88,7 +90,7 @@ func TestWebAuthn_CRUD(t *testing.T) {
 			CredentialID string `json:"CredentialId,omitempty"`
 		} `json:"Credentials,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2, jsonx.V1()))
 	assert.Empty(t, listResp2.Credentials)
 
 	// Delete again — not found.
@@ -139,7 +141,7 @@ func TestHandler_CompleteWebAuthnRegistration_Validation(t *testing.T) {
 			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp))
+	require.NoError(t, json.Unmarshal(initRec.Body.Bytes(), &initResp, jsonx.V1()))
 	require.NotNil(t, initResp.AuthenticationResult)
 	accessToken := initResp.AuthenticationResult.AccessToken
 	require.NotEmpty(t, accessToken)

@@ -2,11 +2,13 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // splitChannelResource splits the handler's internal "clusterArn|channelArn"
@@ -53,7 +55,7 @@ func (h *Handler) handleCreateChannel(
 	body []byte,
 ) error {
 	var in createChannelInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -219,7 +221,7 @@ func (h *Handler) handleUpdateChannel(
 	}
 
 	var in updateChannelInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequestException", "invalid request body: "+err.Error())
 	}
 

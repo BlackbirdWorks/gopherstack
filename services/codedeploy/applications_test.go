@@ -1,7 +1,7 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -71,7 +72,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 
 			if tt.wantAppID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["applicationId"])
 			}
 		})
@@ -118,7 +119,7 @@ func TestHandler_CreateApplication_ComputePlatformValidation(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
@@ -175,7 +176,7 @@ func TestHandler_ListApplications(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	apps, ok := resp["applications"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, apps)
@@ -184,7 +185,7 @@ func TestHandler_ListApplications(t *testing.T) {
 	doRequest(t, h, "CreateApplication", map[string]any{"applicationName": "app2"})
 
 	rec = doRequest(t, h, "ListApplications", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	apps, ok = resp["applications"].([]any)
 	require.True(t, ok)
 	assert.Len(t, apps, 2)
@@ -206,7 +207,7 @@ func TestApplications_SortedList(t *testing.T) {
 		Applications []string `json:"applications"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, []string{"apple", "mango", "zebra"}, resp.Applications)
 }
 
@@ -329,7 +330,7 @@ func TestHandler_BatchGetApplications(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				infos, ok := resp["applicationsInfo"].([]any)
 				require.True(t, ok)
 				assert.Len(t, infos, tt.wantCount)

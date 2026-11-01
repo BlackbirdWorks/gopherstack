@@ -1,7 +1,7 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -31,7 +32,7 @@ func Test_ListNamedShadows_ExcludesClassicShadow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["results"].([]any)
 	require.True(t, ok, "results must be an array")
@@ -85,7 +86,7 @@ func Test_ListNamedShadows_ResponseShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			for _, field := range tt.wantFields {
 				_, ok := resp[field]
@@ -119,7 +120,7 @@ func Test_ListNamedShadows_SortedAlphabetically(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["results"].([]any)
 	require.True(t, ok)
@@ -144,7 +145,7 @@ func Test_ListNamedShadows_IncludesTimestamp(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "results")
 	assert.Contains(t, resp, "timestamp")
 }
@@ -171,7 +172,7 @@ func Test_ListThingsWithShadows_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	things := resp["things"].([]any)
 	assert.Empty(t, things)
 }
@@ -188,7 +189,7 @@ func Test_ListThingsWithShadows_Multiple(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	things := resp["things"].([]any)
 	assert.Len(t, things, 3)
 	// Must be sorted.
@@ -231,7 +232,7 @@ func Test_ListThingsWithShadows_PageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	things := resp["things"].([]any)
 	assert.Len(t, things, 10)
 	assert.Contains(t, resp, "nextToken")
@@ -251,7 +252,7 @@ func Test_ListNamedShadows_PageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results := resp["results"].([]any)
 	assert.Len(t, results, 10)
 	assert.Contains(t, resp, "nextToken")
@@ -270,7 +271,7 @@ func Test_ListThingsWithShadows_PaginationOffByOneFixed(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet,
 		"/api/things/shadow/ListThingsWithShadows?pageSize=2", nil)
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	things1 := page1["things"].([]any)
 	require.Len(t, things1, 2)
@@ -287,7 +288,7 @@ func Test_ListThingsWithShadows_PaginationOffByOneFixed(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet,
 		"/api/things/shadow/ListThingsWithShadows?pageSize=2&nextToken="+nextToken, nil)
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	things2 := page2["things"].([]any)
 	require.Len(t, things2, 2)
@@ -305,7 +306,7 @@ func Test_ListThingsWithShadows_IncludesTimestamp(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "things")
 	assert.Contains(t, resp, "timestamp")
 
@@ -329,7 +330,7 @@ func Test_ListThingsWithShadows_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	things1 := page1["things"].([]any)
 	assert.Len(t, things1, 2)
 	nextToken := page1["nextToken"].(string)
@@ -339,7 +340,7 @@ func Test_ListThingsWithShadows_Pagination(t *testing.T) {
 	paginatedURL := "/api/things/shadow/ListThingsWithShadows?pageSize=2&nextToken=" + nextToken
 	rec2 := doRequest(t, h, http.MethodGet, paginatedURL, nil)
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	things2 := page2["things"].([]any)
 	assert.Len(t, things2, 2)
 

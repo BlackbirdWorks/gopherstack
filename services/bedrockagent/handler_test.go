@@ -3,13 +3,14 @@ package bedrockagent_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
 
@@ -36,7 +37,7 @@ func doRequest(
 	if body != nil {
 		var err error
 
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		if err != nil {
 			t.Fatalf("marshal body: %v", err)
 		}

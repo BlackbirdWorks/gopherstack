@@ -2,7 +2,7 @@ package iotanalytics_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
 
@@ -47,7 +48,7 @@ func doRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -321,7 +322,7 @@ func TestHandler_AlreadyExistsErrorType(t *testing.T) {
 			require.Equal(t, http.StatusConflict, rec2.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "ResourceAlreadyExistsException", resp["__type"])
 		})
 	}
@@ -387,7 +388,7 @@ func TestHandler_ErrorResponseFormat(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, resp["__type"], "error response must have __type field")
 			assert.NotEmpty(t, resp["message"], "error response must have message field")
 		})
@@ -626,7 +627,7 @@ func TestHandler_Pagination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			summaries, ok := resp[summaryKey].([]any)
 			require.True(t, ok)
 			assert.Len(t, summaries, tt.wantLen)
@@ -658,7 +659,7 @@ func TestHandler_PaginationNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	summaries1, ok := resp1["channelSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries1, 2)
@@ -671,7 +672,7 @@ func TestHandler_PaginationNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	summaries2, ok := resp2["channelSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries2, 1, "page 2 should have the remaining 1 channel")

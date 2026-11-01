@@ -2,7 +2,7 @@ package iotdataplane
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"maps"
@@ -32,14 +32,14 @@ const iotdataplaneSnapshotVersion = 1
 // unexported identity fields (see store_setup.go) -- shadowEntry itself
 // carries no exported fields.
 type shadowEntrySnap struct {
-	UpdatedAt    time.Time                  `json:"updatedAt"`
-	Desired      map[string]json.RawMessage `json:"desired,omitempty"`
-	Reported     map[string]json.RawMessage `json:"reported,omitempty"`
-	MetaDesired  map[string]int64           `json:"metaDesired,omitempty"`
-	MetaReported map[string]int64           `json:"metaReported,omitempty"`
-	ThingName    string                     `json:"thingName"`
-	ShadowName   string                     `json:"shadowName"`
-	Version      int                        `json:"version"`
+	UpdatedAt    time.Time                 `json:"updatedAt"`
+	Desired      map[string]jsontext.Value `json:"desired,omitempty"`
+	Reported     map[string]jsontext.Value `json:"reported,omitempty"`
+	MetaDesired  map[string]int64          `json:"metaDesired,omitempty"`
+	MetaReported map[string]int64          `json:"metaReported,omitempty"`
+	ThingName    string                    `json:"thingName"`
+	ShadowName   string                    `json:"shadowName"`
+	Version      int                       `json:"version"`
 	// Deleted round-trips the tombstone flag (see shadowEntry.deleted) so a
 	// restored snapshot preserves delete-then-recreate version continuity.
 	// Omitted (defaults to false) for pre-existing snapshots, which is the
@@ -80,14 +80,14 @@ func newDirtyDTORegistry() (
 }
 
 // copyRawMessages returns a deep copy of a map[string]json.RawMessage.
-func copyRawMessages(src map[string]json.RawMessage) map[string]json.RawMessage {
+func copyRawMessages(src map[string]jsontext.Value) map[string]jsontext.Value {
 	if src == nil {
 		return nil
 	}
 
-	dst := make(map[string]json.RawMessage, len(src))
+	dst := make(map[string]jsontext.Value, len(src))
 	for k, v := range src {
-		cp := make(json.RawMessage, len(v))
+		cp := make(jsontext.Value, len(v))
 		copy(cp, v)
 		dst[k] = cp
 	}
@@ -147,8 +147,8 @@ func snapToEntry(es *shadowEntrySnap) *shadowEntry {
 // guards against decoding a snapshot from an incompatible (older or newer)
 // build of this backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serialises backend state to JSON.
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreDirtyTablesLocked restores the "dirty" tables (shadows,
 // connections) from tables via the ephemeral DTO registry, converting each
 // DTO back to its live type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, shadowDTOs, connDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

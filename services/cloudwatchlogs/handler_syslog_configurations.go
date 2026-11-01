@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putSyslogConfigurationInput struct {
@@ -13,7 +15,7 @@ type putSyslogConfigurationInput struct {
 
 func (h *Handler) handlePutSyslogConfiguration(ctx context.Context, body []byte) (any, error) {
 	var in putSyslogConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -39,7 +41,7 @@ func (h *Handler) handleDeleteSyslogConfiguration(
 	body []byte,
 ) (any, error) {
 	var in deleteSyslogConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -64,7 +66,7 @@ func (h *Handler) handleListSyslogConfigurations(
 	body []byte,
 ) (any, error) {
 	var in listSyslogConfigurationsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

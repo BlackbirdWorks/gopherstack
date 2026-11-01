@@ -3,11 +3,13 @@ package appsync
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"reflect"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -234,7 +236,7 @@ func intOf(v any) int {
 		return int(n)
 	case int:
 		return n
-	case json.Number:
+	case jsonx.Number:
 		i, _ := n.Int64()
 
 		return int(i)
@@ -305,7 +307,7 @@ func ddbQueryScan(
 }
 
 func encodeNextToken(key map[string]any) string {
-	b, _ := json.Marshal(key)
+	b, _ := json.Marshal(key, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(b)
 }
@@ -317,7 +319,7 @@ func decodeNextToken(tok string) (map[string]any, error) {
 	}
 
 	var key map[string]any
-	if err = json.Unmarshal(raw, &key); err != nil || len(key) == 0 {
+	if err = json.Unmarshal(raw, &key, jsonx.V1()); err != nil || len(key) == 0 {
 		return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 

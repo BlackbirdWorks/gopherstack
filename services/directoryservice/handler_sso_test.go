@@ -1,12 +1,13 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -18,7 +19,7 @@ func TestDirectoryService_SSO(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var resp map[string]any
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 		return resp["DirectoryId"].(string)
 	}

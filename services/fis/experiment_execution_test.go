@@ -1,7 +1,7 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -75,7 +76,7 @@ func TestFISHandler_ExperimentCompletesAfterDuration(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 		require.Equal(t, "completed", resp.Experiment.Status.Status)
 	})
 }
@@ -156,7 +157,7 @@ func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
 			} `json:"experiment"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 		require.Equal(t, "completed", resp.Experiment.Status.Status)
 	})
 }

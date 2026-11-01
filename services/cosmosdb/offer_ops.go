@@ -1,7 +1,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -79,7 +80,7 @@ func specFromHeaders(r *http.Request) (ThroughputSpec, bool, error) {
 	}
 
 	var raw autopilotRaw
-	if jsonErr := json.Unmarshal([]byte(auto), &raw); jsonErr != nil {
+	if jsonErr := json.Unmarshal([]byte(auto), &raw, jsonx.V1()); jsonErr != nil {
 		return ThroughputSpec{}, true, fmt.Errorf("%w: %w", ErrInvalidThroughput, jsonErr)
 	}
 
@@ -232,7 +233,7 @@ func (h *Handler) replaceOffer(c *echo.Context, tb ThroughputBackend, rid string
 	}
 
 	var wire offerWire
-	if jsonErr := json.Unmarshal(body, &wire); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &wire, jsonx.V1()); jsonErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 

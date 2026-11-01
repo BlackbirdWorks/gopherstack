@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -558,7 +559,7 @@ func TestCustomKeyStore_StateGuards_WireErrorType(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createOut kms.CreateCustomKeyStoreOutput
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 		connectBody := `{"CustomKeyStoreId":"` + createOut.CustomKeyStoreID + `"}`
 		require.Equal(t, http.StatusOK, doKMSRequest(t, h, "ConnectCustomKeyStore", connectBody).Code)
@@ -567,7 +568,7 @@ func TestCustomKeyStore_StateGuards_WireErrorType(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp kms.ErrorResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "CustomKeyStoreInvalidStateException", errResp.Type)
 	})
 
@@ -580,14 +581,14 @@ func TestCustomKeyStore_StateGuards_WireErrorType(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createOut kms.CreateCustomKeyStoreOutput
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 		disconnectBody := `{"CustomKeyStoreId":"` + createOut.CustomKeyStoreID + `"}`
 		rec := doKMSRequest(t, h, "DisconnectCustomKeyStore", disconnectBody)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp kms.ErrorResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "CustomKeyStoreInvalidStateException", errResp.Type)
 	})
 
@@ -600,7 +601,7 @@ func TestCustomKeyStore_StateGuards_WireErrorType(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createOut kms.CreateCustomKeyStoreOutput
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 		idBody := `{"CustomKeyStoreId":"` + createOut.CustomKeyStoreID + `"}`
 		require.Equal(t, http.StatusOK, doKMSRequest(t, h, "ConnectCustomKeyStore", idBody).Code)
@@ -609,7 +610,7 @@ func TestCustomKeyStore_StateGuards_WireErrorType(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp kms.ErrorResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "CustomKeyStoreInvalidStateException", errResp.Type)
 	})
 }
@@ -629,7 +630,7 @@ func TestDeleteCustomKeyStore_HasKeys_WireErrorType(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut kms.CreateCustomKeyStoreOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	idBody := `{"CustomKeyStoreId":"` + createOut.CustomKeyStoreID + `"}`
 	require.Equal(t, http.StatusOK, doKMSRequest(t, h, "ConnectCustomKeyStore", idBody).Code)
@@ -643,7 +644,7 @@ func TestDeleteCustomKeyStore_HasKeys_WireErrorType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "CustomKeyStoreHasCMKsException", errResp.Type)
 }
 
@@ -662,7 +663,7 @@ func TestEncrypt_DisconnectedCustomKeyStore_WireErrorType(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut kms.CreateCustomKeyStoreOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	idBody := `{"CustomKeyStoreId":"` + createOut.CustomKeyStoreID + `"}`
 	require.Equal(t, http.StatusOK, doKMSRequest(t, h, "ConnectCustomKeyStore", idBody).Code)
@@ -672,7 +673,7 @@ func TestEncrypt_DisconnectedCustomKeyStore_WireErrorType(t *testing.T) {
 	require.Equal(t, http.StatusOK, createKeyRec.Code)
 
 	var createKeyOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createKeyRec.Body.Bytes(), &createKeyOut))
+	require.NoError(t, json.Unmarshal(createKeyRec.Body.Bytes(), &createKeyOut, jsonx.V1()))
 
 	require.Equal(t, http.StatusOK, doKMSRequest(t, h, "DisconnectCustomKeyStore", idBody).Code)
 
@@ -681,6 +682,6 @@ func TestEncrypt_DisconnectedCustomKeyStore_WireErrorType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 }

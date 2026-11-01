@@ -3,7 +3,8 @@ package athena
 import (
 	"bytes"
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	sqlitedriver "modernc.org/sqlite"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // containerMark prefixes the JSON text of an ARRAY/MAP value so results render
@@ -54,11 +57,10 @@ func complexTypeOf(glueType string) (string, bool) {
 }
 
 func decodeComplex(s string) (any, bool) {
-	dec := json.NewDecoder(strings.NewReader(strings.TrimPrefix(s, containerMark)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(strings.TrimPrefix(s, containerMark)))
 
 	var out any
-	if err := dec.Decode(&out); err != nil {
+	if err := json.UnmarshalDecode(dec, &out, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, false
 	}
 
@@ -79,7 +81,7 @@ func trinoString(v any) string {
 		return t
 	case bool:
 		return strconv.FormatBool(t)
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	case []any:
 		parts := make([]string, len(t))

@@ -1,11 +1,13 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AuthInfo describes one action/resources pair to evaluate authorization for.
@@ -237,14 +239,14 @@ type flexStringList []string
 
 func (f *flexStringList) UnmarshalJSON(data []byte) error {
 	var single string
-	if err := json.Unmarshal(data, &single); err == nil {
+	if err := json.Unmarshal(data, &single, jsonx.V1()); err == nil {
 		*f = []string{single}
 
 		return nil
 	}
 
 	var list []string
-	if err := json.Unmarshal(data, &list); err != nil {
+	if err := json.Unmarshal(data, &list, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -264,7 +266,7 @@ func parseIoTPolicyDocument(doc string) ([]iamStatement, error) {
 		} `json:"Statement"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &raw); err != nil {
+	if err := json.Unmarshal([]byte(doc), &raw, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,12 +1,13 @@
 package batch_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
 
@@ -26,11 +27,11 @@ func TestNodeRangeProperty_JSONKeys(t *testing.T) {
 			t.Parallel()
 
 			var r batch.NodeRangeProperty
-			require.NoError(t, json.Unmarshal([]byte(tt.in), &r))
+			require.NoError(t, json.Unmarshal([]byte(tt.in), &r, jsonx.V1()))
 			require.NotNil(t, r.ContainerProperties)
 			assert.Equal(t, "busybox", r.ContainerProperties.Image)
 
-			out, err := json.Marshal(r)
+			out, err := json.Marshal(r, jsonx.V1())
 			require.NoError(t, err)
 			assert.Contains(t, string(out), `"container":`)
 			assert.NotContains(t, string(out), `"containerProperties"`)

@@ -1,13 +1,14 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createDatabaseBody is the request body shape for POST /dbs.
@@ -58,7 +59,7 @@ func (h *Handler) createDatabase(c *echo.Context) error {
 	}
 
 	var req createDatabaseBody
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 	}
 

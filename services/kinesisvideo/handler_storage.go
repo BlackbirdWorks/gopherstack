@@ -1,10 +1,12 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildStorageOps() map[string]handlerFunc {
@@ -19,7 +21,7 @@ func (h *Handler) buildStorageOps() map[string]handlerFunc {
 
 func (h *Handler) handleDescribeStreamStorageConfiguration(c *echo.Context, body []byte) error {
 	var req streamStorageConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -37,7 +39,7 @@ func (h *Handler) handleDescribeStreamStorageConfiguration(c *echo.Context, body
 
 func (h *Handler) handleUpdateStreamStorageConfiguration(c *echo.Context, body []byte) error {
 	var req streamStorageConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.StreamStorageConfiguration == nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil || req.StreamStorageConfiguration == nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -52,7 +54,7 @@ func (h *Handler) handleUpdateStreamStorageConfiguration(c *echo.Context, body [
 
 func (h *Handler) handleDescribeMediaStorageConfiguration(c *echo.Context, body []byte) error {
 	var req mediaStorageConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -71,7 +73,12 @@ func (h *Handler) handleDescribeMediaStorageConfiguration(c *echo.Context, body 
 
 func (h *Handler) handleUpdateMediaStorageConfiguration(c *echo.Context, body []byte) error {
 	var req mediaStorageConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.MediaStorageConfiguration == nil || req.ChannelARN == "" {
+	if err := json.Unmarshal(
+		body,
+		&req,
+		jsonx.V1(),
+	); err != nil || req.MediaStorageConfiguration == nil ||
+		req.ChannelARN == "" {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -89,7 +96,7 @@ func (h *Handler) handleUpdateMediaStorageConfiguration(c *echo.Context, body []
 
 func (h *Handler) handleGetSignalingChannelEndpoint(c *echo.Context, body []byte) error {
 	var req getSignalingChannelEndpointRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

@@ -19,13 +19,15 @@ package guardduty_test
 //     scanStartedAt/scanCompletedAt epoch fields.
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -113,8 +115,8 @@ func TestWireShape_DescribePublishingDestination_UsesRealKeysAndTags(t *testing.
 	rec := doRequest(t, h, http.MethodGet, "/detector/"+detID+"/publishingDestination/"+destID, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasWrongKey := raw["publishingFailureStartedAt"]
 	assert.False(t, hasWrongKey, "must not use the made-up publishingFailureStartedAt wire key")
@@ -123,7 +125,7 @@ func TestWireShape_DescribePublishingDestination_UsesRealKeysAndTags(t *testing.
 	assert.True(t, hasRightKey, "must use the real publishingFailureStartTimestamp wire key")
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	tags, _ := got["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"], "tags supplied at creation must be returned by DescribePublishingDestination")
 }
@@ -149,8 +151,8 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/malware-scan/"+scanID, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	for _, badKey := range []string{"accountId", "resourceDetails", "findings", "scanStartTime", "scanEndTime"} {
 		_, present := raw[badKey]
@@ -171,7 +173,7 @@ func TestWireShape_GetMalwareScan_UsesRealFieldNames(t *testing.T) {
 	}
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, detID, got["detectorId"], "detectorId must resolve to the account's own detector")
 	assert.Equal(t, "EC2_INSTANCE", got["resourceType"], "resourceType must be inferred from the resource ARN")
 
@@ -267,14 +269,14 @@ func TestWireShape_Investigation_NoFabricatedAnalysis(t *testing.T) {
 	getRec := doRequest(t, h, http.MethodGet, "/detector/"+detID+"/investigation/"+invID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 
-	var getRaw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+	var getRaw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw, jsonx.V1()))
 
 	invRaw, ok := getRaw["investigation"]
 	require.True(t, ok, "GetInvestigationOutput must have an investigation member")
 
-	var inv map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(invRaw, &inv))
+	var inv map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(invRaw, &inv, jsonx.V1()))
 
 	for _, fabricatable := range []string{
 		"cloud", "confidence", "endTime", "error", "metadata", "risk", "riskLevel", "summary", "title",
@@ -285,18 +287,18 @@ func TestWireShape_Investigation_NoFabricatedAnalysis(t *testing.T) {
 	}
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(invRaw, &got))
+	require.NoError(t, json.Unmarshal(invRaw, &got, jsonx.V1()))
 	assert.Equal(t, "RUNNING", got["status"], "an investigation this backend cannot analyze must stay RUNNING")
 	assert.Equal(t, "Investigate finding in this account", got["triggerPrompt"])
 
 	listRec := doRequest(t, h, http.MethodPost, "/detector/"+detID+"/investigation/list", nil)
 	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
-	var listRaw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listRaw))
+	var listRaw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listRaw, jsonx.V1()))
 
-	var summaries []map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(listRaw["investigations"], &summaries))
+	var summaries []map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(listRaw["investigations"], &summaries, jsonx.V1()))
 	require.Len(t, summaries, 1)
 
 	for _, fabricatable := range []string{"confidence", "endTime", "riskLevel", "title"} {
@@ -305,7 +307,7 @@ func TestWireShape_Investigation_NoFabricatedAnalysis(t *testing.T) {
 	}
 
 	var summary map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &summary))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &summary, jsonx.V1()))
 	invList, ok := summary["investigations"].([]any)
 	require.True(t, ok)
 	require.Len(t, invList, 1)

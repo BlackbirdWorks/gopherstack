@@ -1,13 +1,14 @@
 package kinesis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -78,7 +79,7 @@ func TestResourcePolicyLifecycle(t *testing.T) {
 				Policy string `json:"Policy"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp, jsonx.V1()))
 			assert.Equal(t, tt.policy, policyResp.Policy)
 
 			// DeleteResourcePolicy.
@@ -110,6 +111,6 @@ func TestDeleteResourcePolicy_NotFound(t *testing.T) {
 		Type string `json:"__type"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp.Type)
 }

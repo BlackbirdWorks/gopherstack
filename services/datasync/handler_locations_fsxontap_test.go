@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_FsxOntap covers the FSx ONTAP location lifecycle.
@@ -29,7 +31,7 @@ func TestDataSync_FsxOntap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -37,7 +39,7 @@ func TestDataSync_FsxOntap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	// NFS protocol -> "nfs://" scheme (ONTAP has no distinct "ontap://" or
 	// "fsxn://" scheme; DataSync reuses the underlying access protocol's own
 	// scheme, matching how FSx Windows reuses "smb://" -- see
@@ -57,7 +59,7 @@ func TestDataSync_FsxOntap(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "DescribeLocationFsxOntap", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "smb://")
 
 	// Missing StorageVirtualMachineArn

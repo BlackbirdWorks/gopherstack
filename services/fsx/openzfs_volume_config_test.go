@@ -1,7 +1,7 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -70,7 +71,7 @@ func (f zfsFixture) describe(t *testing.T, volID string) map[string]any {
 		} `json:"Volumes"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Volumes, 1)
 
 	return out.Volumes[0].OpenZFSConfiguration
@@ -200,7 +201,7 @@ func TestOpenZFSVolume_CopyTagsToSnapshots(t *testing.T) {
 				} `json:"Snapshot"`
 			}
 
-			require.NoError(t, json.Unmarshal(snap.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(snap.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Snapshot.Tags, tt.want)
 		})
 	}

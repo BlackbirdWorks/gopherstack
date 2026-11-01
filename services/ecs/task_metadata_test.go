@@ -2,7 +2,8 @@ package ecs_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
@@ -45,8 +47,8 @@ func (m *metaIssuer) IssueTaskCredentials(roleArn, session string) (ecs.RoleCred
 
 type statsRunner struct{ ecs.TaskRunner }
 
-func (statsRunner) ContainerStatsJSON(_ context.Context, id string) (json.RawMessage, error) {
-	return json.RawMessage(`{"id":"` + id + `","cpu_stats":{"online_cpus":2},"memory_stats":{"usage":1024}}`), nil
+func (statsRunner) ContainerStatsJSON(_ context.Context, id string) (jsontext.Value, error) {
+	return jsontext.Value(`{"id":"` + id + `","cpu_stats":{"online_cpus":2},"memory_stats":{"usage":1024}}`), nil
 }
 
 type metaFixture struct {
@@ -111,7 +113,7 @@ func (f *metaFixture) get(t *testing.T, path string) (int, map[string]any) {
 	defer resp.Body.Close()
 
 	var out map[string]any
-	_ = json.NewDecoder(resp.Body).Decode(&out)
+	_ = json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

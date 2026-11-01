@@ -1,10 +1,12 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getAPIKeyInput struct {
@@ -56,7 +58,7 @@ func parseAPIGWAPIKeysPath(method string, segs []string, n int, query url.Values
 
 func (h *Handler) getAPIKeyAction(b []byte) (int, any, error) {
 	var input getAPIKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	key, err := h.Backend.GetAPIKey(input.APIKeyID)
@@ -72,7 +74,7 @@ func (h *Handler) getAPIKeyAction(b []byte) (int, any, error) {
 
 func (h *Handler) getAPIKeysAction(b []byte) (int, any, error) {
 	var input getAPIKeysPageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	keys, position, err := h.fetchAPIKeys(input)
@@ -135,7 +137,7 @@ func filterAPIKeys(keys []APIKey, customerID, nameQuery string) []APIKey {
 
 func (h *Handler) deleteAPIKeyAction(b []byte) (int, any, error) {
 	var input deleteAPIKeyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteAPIKey(input.APIKeyID); err != nil {
@@ -150,7 +152,7 @@ func (h *Handler) apiKeyActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateAPIKey: func(b []byte) (int, any, error) {
 			var input CreateAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -166,7 +168,7 @@ func (h *Handler) apiKeyActions() map[string]actionFn {
 		opDeleteAPIKey: h.deleteAPIKeyAction,
 		opUpdateAPIKey: func(b []byte) (int, any, error) {
 			var input updateAPIKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			key, err := h.Backend.UpdateAPIKey(input.APIKeyID, input.UpdateAPIKeyInput)

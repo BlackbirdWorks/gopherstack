@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -31,7 +32,7 @@ func TestAppStream_Images(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				img := resp["Image"].(map[string]any)
 				assert.Equal(t, "my-img", img["Name"])
 				assert.Equal(t, "AVAILABLE", img["State"])
@@ -49,7 +50,7 @@ func TestAppStream_Images(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				imgs := resp["Images"].([]any)
 				assert.Len(t, imgs, 2)
 			},
@@ -69,7 +70,7 @@ func TestAppStream_Images(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Equal(t, "dst-img", resp["DestinationImageName"])
 			},
 		},
@@ -125,7 +126,7 @@ func TestAppStream_Images(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				perms := resp["SharedImagePermissionsList"].([]any)
 				assert.Len(t, perms, 1)
 			},
@@ -185,7 +186,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ib := resp["ImageBuilder"].(map[string]any)
 				// Real CreateImageBuilder launches the build instance
 				// immediately -- terraform-provider-aws's resource waits
@@ -208,7 +209,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ib := resp["ImageBuilder"].(map[string]any)
 				assert.Equal(t, "RUNNING", ib["State"])
 				// Real StartImageBuilderOutput carries only ImageBuilder --
@@ -229,7 +230,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ib := resp["ImageBuilder"].(map[string]any)
 				assert.Equal(t, "STOPPED", ib["State"])
 			},
@@ -245,7 +246,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ib := resp["ImageBuilder"].(map[string]any)
 				assert.Equal(t, "STOPPED", ib["State"])
 			},
@@ -261,7 +262,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["StreamingURL"])
 				assert.NotEmpty(t, resp["Expires"])
 			},
@@ -294,7 +295,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Equal(t, "list-sw-ib", resp["AssociatedResource"])
 				assocs := resp["SoftwareAssociations"].([]any)
 				assert.Len(t, assocs, 1)
@@ -311,7 +312,7 @@ func TestAppStream_ImageBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Equal(t, "sw-assoc-image", resp["AssociatedResource"])
 				assocs := resp["SoftwareAssociations"].([]any)
 				assert.Empty(t, assocs)
@@ -397,7 +398,7 @@ func TestAppStream_ExportImageTasks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				task := resp["ExportImageTask"].(map[string]any)
 				assert.NotEmpty(t, task["TaskId"])
 				assert.Equal(t, "exported-ami", task["AmiName"])
@@ -423,7 +424,7 @@ func TestAppStream_ExportImageTasks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				tasks := resp["ExportImageTasks"].([]any)
 				assert.Len(t, tasks, 1)
 			},
@@ -459,7 +460,7 @@ func TestAppStream_GetExportImageTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	task := createResp["ExportImageTask"].(map[string]any)
 	taskID := task["TaskId"].(string)
 
@@ -467,7 +468,7 @@ func TestAppStream_GetExportImageTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 	gotTask := getResp["ExportImageTask"].(map[string]any)
 	assert.Equal(t, taskID, gotTask["TaskId"])
 }
@@ -484,7 +485,7 @@ func TestAppStream_ImageBuilderARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	builder := resp["ImageBuilder"].(map[string]any)
 	assert.Regexp(t, `^arn:aws:appstream:[a-z0-9-]+:\d+:image-builder/arn-builder$`, builder["Arn"])
 }

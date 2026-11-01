@@ -1,13 +1,14 @@
 package azuretable
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 )
 
@@ -102,7 +103,7 @@ func (h *Handler) batchSuccessPart(
 
 	level := odataLevelFromAccept(o.Headers.Get("Accept"))
 
-	payload, err := json.Marshal(h.encodeEntity(info, o.Table, level, ""))
+	payload, err := json.Marshal(h.encodeEntity(info, o.Table, level, ""), jsonx.V1())
 	if err != nil {
 		return part, err
 	}

@@ -1,13 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -29,7 +30,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		fs := resp["FileSystem"].(map[string]any)
 		assert.Contains(t, fs["FileSystemId"].(string), "fs-")
 		assert.Contains(t, fs["ResourceARN"].(string), "arn:aws:fsx:")
@@ -52,7 +53,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		rec := doFSxRequest(t, h, "DescribeFileSystems", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		fss := resp["FileSystems"].([]any)
 		assert.Len(t, fss, 2)
 	})
@@ -65,7 +66,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		rec := doFSxRequest(t, h, "DescribeFileSystems", map[string]any{"FileSystemIds": []string{id}})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		fss := resp["FileSystems"].([]any)
 		require.Len(t, fss, 1)
 		assert.Equal(t, id, fss[0].(map[string]any)["FileSystemId"])
@@ -101,7 +102,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		rec := doFSxRequest(t, h, "UpdateFileSystem", map[string]any{"FileSystemId": id, "StorageCapacity": 64})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		fs := resp["FileSystem"].(map[string]any)
 		assert.Equal(t, id, fs["FileSystemId"])
 	})
@@ -131,13 +132,13 @@ func TestFSx_FileSystem(t *testing.T) {
 		rec1 := doFSxRequest(t, h, "CreateFileSystem", body)
 		require.Equal(t, http.StatusOK, rec1.Code)
 		var resp1 map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 		fs1 := resp1["FileSystem"].(map[string]any)
 
 		rec2 := doFSxRequest(t, h, "CreateFileSystem", body)
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var resp2 map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 		fs2 := resp2["FileSystem"].(map[string]any)
 
 		// Prove it's the SAME resource, not just a second success: identical
@@ -169,7 +170,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		})
 		require.Equal(t, http.StatusBadRequest, rec2.Code)
 		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "IncompatibleParameterError", errResp["__type"])
 		assert.Equal(t, 1, fsx.FileSystemCount(fsx.GetBackend(h)), "mismatched retry must not create a resource")
 	})
@@ -189,8 +190,8 @@ func TestFSx_FileSystem(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 
 		var resp1, resp2 map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 		assert.NotEqual(
 			t,
 			resp1["FileSystem"].(map[string]any)["FileSystemId"],
@@ -213,7 +214,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "InvalidNetworkSettings", errResp["__type"])
 	})
 
@@ -228,7 +229,7 @@ func TestFSx_FileSystem(t *testing.T) {
 		})
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "InvalidNetworkSettings", errResp["__type"])
 	})
 
@@ -404,7 +405,7 @@ func TestFSx_DeleteFileSystem_Response(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantID {
 				assert.Equal(t, id, resp["FileSystemId"])
@@ -458,7 +459,7 @@ func TestFSx_Aliases(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			aliases := out["Aliases"].([]any)
 			assert.Len(t, aliases, tc.wantCount)
 			assert.Equal(t, tc.lifecycle, aliases[0].(map[string]any)["Lifecycle"])
@@ -482,7 +483,7 @@ func TestFSx_AliasesLifecycle(t *testing.T) {
 		rec := doFSxRequest(t, h, "DescribeFileSystemAliases", map[string]any{"FileSystemId": fsID})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out["Aliases"].([]any), 1)
 	})
 
@@ -502,14 +503,14 @@ func TestFSx_AliasesLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		aliases := out["Aliases"].([]any)
 		assert.Len(t, aliases, 1)
 		assert.Equal(t, "DELETING", aliases[0].(map[string]any)["Lifecycle"])
 
 		rec2 := doFSxRequest(t, h, "DescribeFileSystemAliases", map[string]any{"FileSystemId": fsID})
 		var out2 map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 		assert.Empty(t, out2["Aliases"].([]any))
 	})
 }
@@ -558,7 +559,7 @@ func TestFSx_ReleaseFileSystemNfsV3Locks(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotNil(t, out["FileSystem"])
 			}
 		})
@@ -605,7 +606,7 @@ func TestFSx_StartMisconfiguredStateRecovery(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotNil(t, out["FileSystem"])
 			}
 		})

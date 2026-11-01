@@ -1,13 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -166,7 +168,7 @@ func TestLayer_Policy_AddAndGet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, addRec.Code)
 
 	var addOut lambda.AddLayerVersionPermissionOutput
-	require.NoError(t, json.NewDecoder(addRec.Body).Decode(&addOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(addRec.Body), &addOut, jsonx.V1()))
 	assert.NotEmpty(t, addOut.Statement)
 	assert.NotEmpty(t, addOut.RevisionID)
 
@@ -175,7 +177,7 @@ func TestLayer_Policy_AddAndGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var pol lambda.LayerVersionPolicy
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &pol, jsonx.V1()))
 	assert.NotEmpty(t, pol.Policy)
 }
 
@@ -222,7 +224,7 @@ func TestLayerVersionPermission_RevisionId(t *testing.T) {
 	require.Equal(t, http.StatusCreated, addRec.Code)
 
 	var addOut lambda.AddLayerVersionPermissionOutput
-	require.NoError(t, json.NewDecoder(addRec.Body).Decode(&addOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(addRec.Body), &addOut, jsonx.V1()))
 	rev1 := addOut.RevisionID
 	require.NotEmpty(t, rev1)
 
@@ -234,7 +236,7 @@ func TestLayerVersionPermission_RevisionId(t *testing.T) {
 
 	getRec := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
 	var pol lambda.LayerVersionPolicy
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&pol))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &pol, jsonx.V1()))
 	assert.NotContains(t, pol.Policy, "s2")
 
 	// Stale RevisionId on Remove is rejected and leaves the statement in place.
@@ -244,7 +246,7 @@ func TestLayerVersionPermission_RevisionId(t *testing.T) {
 
 	getRec2 := callInMemoryHandler(t, h, http.MethodGet, policyPath, "")
 	var pol2 lambda.LayerVersionPolicy
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&pol2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &pol2, jsonx.V1()))
 	assert.Contains(t, pol2.Policy, "s1")
 
 	// The correct RevisionId succeeds.

@@ -2,15 +2,17 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateLFTag(_ context.Context, c *echo.Context, body []byte) error {
 	var in createLFTagInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -23,7 +25,7 @@ func (h *Handler) handleCreateLFTag(_ context.Context, c *echo.Context, body []b
 
 func (h *Handler) handleDeleteLFTag(_ context.Context, c *echo.Context, body []byte) error {
 	var in deleteLFTagInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -36,7 +38,7 @@ func (h *Handler) handleDeleteLFTag(_ context.Context, c *echo.Context, body []b
 
 func (h *Handler) handleGetLFTag(_ context.Context, c *echo.Context, body []byte) error {
 	var in getLFTagInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -54,7 +56,7 @@ func (h *Handler) handleGetLFTag(_ context.Context, c *echo.Context, body []byte
 
 func (h *Handler) handleUpdateLFTag(_ context.Context, c *echo.Context, body []byte) error {
 	var in updateLFTagInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -68,7 +70,7 @@ func (h *Handler) handleUpdateLFTag(_ context.Context, c *echo.Context, body []b
 func (h *Handler) handleListLFTags(_ context.Context, c *echo.Context, body []byte) error {
 	var in listLFTagsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -104,7 +106,7 @@ func (h *Handler) checkAddRemoveLFTagsInput(c *echo.Context, resource *Resource,
 
 func (h *Handler) handleAddLFTagsToResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in addLFTagsToResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -122,7 +124,7 @@ func (h *Handler) handleAddLFTagsToResource(_ context.Context, c *echo.Context, 
 
 func (h *Handler) handleRemoveLFTagsFromResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in removeLFTagsFromResourceInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -140,7 +142,7 @@ func (h *Handler) handleRemoveLFTagsFromResource(_ context.Context, c *echo.Cont
 
 func (h *Handler) handleGetResourceLFTags(_ context.Context, c *echo.Context, body []byte) error {
 	var in getResourceLFTagsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -174,7 +176,7 @@ func (h *Handler) handleGetResourceLFTags(_ context.Context, c *echo.Context, bo
 func (h *Handler) handleSearchDatabasesByLFTags(_ context.Context, c *echo.Context, body []byte) error {
 	var in searchDatabasesByLFTagsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -190,7 +192,7 @@ func (h *Handler) handleSearchDatabasesByLFTags(_ context.Context, c *echo.Conte
 func (h *Handler) handleSearchTablesByLFTags(_ context.Context, c *echo.Context, body []byte) error {
 	var in searchTablesByLFTagsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}

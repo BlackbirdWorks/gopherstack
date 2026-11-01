@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -33,7 +34,7 @@ func TestAPIGateway_UpdateGatewayResponse_RESTRoute(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "404", resp["statusCode"])
 }
 
@@ -111,7 +112,7 @@ func TestGatewayResponses(t *testing.T) {
 
 				if tt.wantDefaultResp {
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 					assert.Equal(t, true, resp["defaultResponse"])
 				}
 			}
@@ -132,7 +133,7 @@ func TestGatewayResponses(t *testing.T) {
 						fmt.Sprintf(`{"restApiId":%q,"responseType":%q}`, apiID, tt.responseType))
 					assert.Equal(t, http.StatusOK, getRec.Code)
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 					// After delete, should revert to default
 					assert.Equal(t, true, resp["defaultResponse"])
 				}
@@ -166,7 +167,7 @@ func TestDeleteRestAPI_ClearsGatewayResponses(t *testing.T) {
 			} `json:"gatewayResponses"`
 		} `json:"tables"`
 	}
-	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded))
+	require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &decoded, jsonx.V1()))
 	for _, gr := range decoded.Tables.GatewayResponses {
 		assert.NotEqual(t, api.ID, gr.RestAPIID,
 			"a deleted REST API's gateway responses must not survive in the persisted snapshot")

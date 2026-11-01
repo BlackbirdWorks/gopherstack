@@ -4,7 +4,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validatePutLogEventsBatch checks the batch size constraints for PutLogEvents.
@@ -954,8 +956,8 @@ func jsonMessageFields(message string) []string {
 		return nil
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(trimmed), &obj, jsonx.V1()); err != nil {
 		return nil
 	}
 

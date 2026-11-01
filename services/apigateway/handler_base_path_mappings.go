@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getBasePathMappingInput struct {
@@ -50,7 +52,7 @@ func (h *Handler) basePathMappingActions() map[string]actionFn {
 
 func (h *Handler) createBasePathMappingAction(b []byte) (int, any, error) {
 	var input CreateBasePathMappingInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -64,7 +66,7 @@ func (h *Handler) createBasePathMappingAction(b []byte) (int, any, error) {
 
 func (h *Handler) getBasePathMappingAction(b []byte) (int, any, error) {
 	var input getBasePathMappingInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	bpm, err := h.Backend.GetBasePathMapping(input.DomainName, input.BasePath)
@@ -77,7 +79,7 @@ func (h *Handler) getBasePathMappingAction(b []byte) (int, any, error) {
 
 func (h *Handler) getBasePathMappingsAction(b []byte) (int, any, error) {
 	var input getBasePathMappingsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	bpms, err := h.Backend.GetBasePathMappings(input.DomainName)
@@ -98,7 +100,7 @@ func (h *Handler) getBasePathMappingsAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteBasePathMappingAction(b []byte) (int, any, error) {
 	var input deleteBasePathMappingInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteBasePathMapping(input.DomainName, input.BasePath); err != nil {
@@ -110,7 +112,7 @@ func (h *Handler) deleteBasePathMappingAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateBasePathMappingAction(b []byte) (int, any, error) {
 	var input UpdateBasePathMappingInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateBasePathMapping(input)

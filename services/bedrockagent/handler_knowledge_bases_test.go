@@ -1,7 +1,7 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
 
@@ -35,7 +36,7 @@ func TestHandlerKnowledgeBaseCRUD(t *testing.T) {
 	}
 
 	var createResp map[string]map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
+	_ = json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1())
 	kbID := createResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 	t.Run("get kb", func(t *testing.T) {
@@ -45,7 +46,7 @@ func TestHandlerKnowledgeBaseCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPut, "/knowledgebases", createBody)
 
 		var resp map[string]map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 		rec2 := doRequest(t, h2, e2, http.MethodGet, "/knowledgebases/"+id, nil)
@@ -70,7 +71,7 @@ func TestHandlerKnowledgeBaseCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPut, "/knowledgebases", createBody)
 
 		var resp map[string]map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 		rec2 := doRequest(t, h2, e2, http.MethodDelete, "/knowledgebases/"+id, nil)
@@ -98,7 +99,7 @@ func createKBForResourcePolicyTest(t *testing.T, h *bedrockagent.Handler, e *ech
 	}
 
 	var resp map[string]map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal create kb response: %v", err)
 	}
 
@@ -123,7 +124,7 @@ func putKBResourcePolicy(
 	}
 
 	var resp map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal put resource policy response: %v", err)
 	}
 
@@ -215,7 +216,7 @@ func TestHandlerResourcePolicyPut(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]string
-				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 					t.Fatalf("unmarshal: %v", err)
 				}
 
@@ -369,7 +370,7 @@ func TestHandlerResourcePolicyGet(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]string
-				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 					t.Fatalf("unmarshal: %v", err)
 				}
 
@@ -420,7 +421,7 @@ func TestHandlerResourcePolicyDelete(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]string
-				if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 					t.Fatalf("unmarshal: %v", err)
 				}
 
@@ -528,7 +529,7 @@ func listKBDocsForIdentifierTest(t *testing.T, f ingestionFixture) []map[string]
 	var resp struct {
 		DocumentDetails []map[string]any `json:"documentDetails"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp.DocumentDetails
 }
@@ -554,7 +555,7 @@ func TestHandlerGetKBDocuments_RealWireIdentifier(t *testing.T) {
 			var resp struct {
 				DocumentDetails []map[string]any `json:"documentDetails"`
 			}
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.DocumentDetails, 1)
 
 			assert.Equal(t, "INDEXED", resp.DocumentDetails[0]["status"])
@@ -588,7 +589,7 @@ func TestHandlerDeleteKBDocuments_RealWireIdentifier(t *testing.T) {
 			var deleteResp struct {
 				DocumentDetails []map[string]any `json:"documentDetails"`
 			}
-			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp))
+			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp, jsonx.V1()))
 			require.Len(t, deleteResp.DocumentDetails, 1)
 			assert.Equal(t, "DELETING", deleteResp.DocumentDetails[0]["status"])
 

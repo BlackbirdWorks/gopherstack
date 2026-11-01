@@ -3,7 +3,7 @@ package azuremonitor_test
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 )
 
@@ -111,7 +112,7 @@ func TestIngestThenQuery(t *testing.T) {
 
 			assert.Equal(t, tt.wantCols, cols)
 
-			raw, err := json.Marshal(res.Tables[0].Rows)
+			raw, err := json.Marshal(res.Tables[0].Rows, jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.wantRows, string(raw))
 		})
@@ -461,7 +462,7 @@ func TestSnapshotRestoreKeepsRows(t *testing.T) {
 	require.NoError(t, e2.handler.Restore(t.Context(), snap))
 
 	res := e2.run(t, s, "AppEvents_CL | order by Count asc | project Count, Value, Ok, Extra")
-	raw, err := json.Marshal(res.Tables[0].Rows)
+	raw, err := json.Marshal(res.Tables[0].Rows, jsonx.V1())
 	require.NoError(t, err)
 	assert.JSONEq(t, `[[1,1.5,true,"{\"a\":1}"],[2,4,false,"[1,2]"],[3,2.5,true,null]]`, string(raw))
 	assert.Equal(t, queryazlogs.ColumnTypeLong, *res.Tables[0].Columns[0].Type)

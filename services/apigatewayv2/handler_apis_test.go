@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -59,7 +60,7 @@ func TestHandler_CreateAPI(t *testing.T) {
 
 			if tt.wantName != "" {
 				var api apigatewayv2.API
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 				assert.Equal(t, tt.wantName, api.Name)
 				assert.NotEmpty(t, api.APIID)
 			}
@@ -106,7 +107,7 @@ func TestHandler_GetAPI(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var api apigatewayv2.API
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 				assert.Equal(t, apiID, api.APIID)
 			}
 		})
@@ -151,7 +152,7 @@ func TestHandler_GetAPIs(t *testing.T) {
 			}
 
 			var resp listResp
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Items, tt.apiCount)
 		})
 	}
@@ -238,7 +239,7 @@ func TestHandler_UpdateAPI(t *testing.T) {
 
 			if tt.wantName != "" {
 				var api apigatewayv2.API
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 				assert.Equal(t, tt.wantName, api.Name)
 			}
 		})
@@ -301,7 +302,7 @@ func TestExportAPI_ReturnsRawSpec(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var spec map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec, jsonx.V1()))
 
 	// Raw OpenAPI doc — not the old {"body":...,"specification":...} wrapper.
 	assert.Equal(t, "3.0.1", spec["openapi"])
@@ -355,7 +356,7 @@ func TestExportAPI_OutputType(t *testing.T) {
 				var asJSON map[string]any
 				require.Error(
 					t,
-					json.Unmarshal(rr.Body.Bytes(), &asJSON),
+					json.Unmarshal(rr.Body.Bytes(), &asJSON, jsonx.V1()),
 					"YAML output must not also be valid strict JSON object syntax expected by this assertion",
 				)
 				assert.Contains(t, rr.Body.String(), "openapi:")
@@ -364,7 +365,7 @@ func TestExportAPI_OutputType(t *testing.T) {
 			}
 
 			var spec map[string]any
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec, jsonx.V1()))
 			assert.Equal(t, "3.0.1", spec["openapi"])
 		})
 	}
@@ -400,7 +401,7 @@ func TestExportAPI_JWTSecurityScheme(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var auth apigatewayv2.Authorizer
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &auth, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/routes", map[string]any{
 		"routeKey":          "GET /jwt",
@@ -413,7 +414,7 @@ func TestExportAPI_JWTSecurityScheme(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var spec map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &spec, jsonx.V1()))
 
 	components, ok := spec["components"].(map[string]any)
 	require.True(t, ok, "expected components block")
@@ -494,7 +495,7 @@ func TestGetAPIs_Pagination(t *testing.T) {
 					NextToken string             `json:"nextToken"`
 					Items     []apigatewayv2.API `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Items), tc.maxResults, "page must not exceed maxResults")
 
 				for _, api := range resp.Items {
@@ -540,7 +541,7 @@ func TestGetAPIs_NoMaxResults_ReturnsAll(t *testing.T) {
 		NextToken string             `json:"nextToken"`
 		Items     []apigatewayv2.API `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Items, 5)
 	assert.Empty(t, resp.NextToken)
 }
@@ -563,7 +564,7 @@ func TestGetAPIs_EmptyLastPage(t *testing.T) {
 		NextToken string             `json:"nextToken"`
 		Items     []apigatewayv2.API `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Items, 2)
 	assert.Empty(t, resp.NextToken, "no nextToken when all items fit")
 }
@@ -583,7 +584,7 @@ func TestCreateAPI_HTTP_DefaultAPIKeySelectionExpression(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "$request.header.x-api-key", resp["apiKeySelectionExpression"])
 }
@@ -602,7 +603,7 @@ func TestCreateAPI_WebSocket_DefaultAPIKeySelectionExpression(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "$context.authorizer.usageIdentifierKey", resp["apiKeySelectionExpression"])
 }
@@ -623,7 +624,7 @@ func TestCreateAPI_ExplicitAPIKeySelectionExpressionPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, custom, resp["apiKeySelectionExpression"])
 }
@@ -675,7 +676,7 @@ func TestImportAPI_Basepath_Prepend(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -683,7 +684,7 @@ func TestImportAPI_Basepath_Prepend(t *testing.T) {
 	var routes struct {
 		Items []apigatewayv2.Route `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes, jsonx.V1()))
 	require.Len(t, routes.Items, 1)
 	assert.Equal(t, "GET /v1/items", routes.Items[0].RouteKey)
 }
@@ -707,7 +708,7 @@ func TestImportAPI_Basepath_DefaultIgnoresSpecBasePath(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -715,7 +716,7 @@ func TestImportAPI_Basepath_DefaultIgnoresSpecBasePath(t *testing.T) {
 	var routes struct {
 		Items []apigatewayv2.Route `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes, jsonx.V1()))
 	require.Len(t, routes.Items, 1)
 	assert.Equal(t, "GET /items", routes.Items[0].RouteKey)
 }
@@ -791,7 +792,7 @@ func TestImportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var api apigatewayv2.API
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
 			require.Equal(t, http.StatusOK, rr.Code)
@@ -799,7 +800,7 @@ func TestImportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 			var routes struct {
 				Items []apigatewayv2.Route `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes, jsonx.V1()))
 			require.Len(t, routes.Items, 1)
 			assert.Equal(t, tt.wantRouteKey, routes.Items[0].RouteKey)
 		})
@@ -846,7 +847,7 @@ func TestReimportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
 			var routes struct {
 				Items []apigatewayv2.Route `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes, jsonx.V1()))
 			require.Len(t, routes.Items, 1)
 			assert.Equal(t, tt.wantRouteKey, routes.Items[0].RouteKey)
 		})
@@ -899,7 +900,7 @@ func TestImportAPI_FailOnWarnings(t *testing.T) {
 			var apis struct {
 				Items []apigatewayv2.API `json:"items"`
 			}
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &apis))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &apis, jsonx.V1()))
 			assert.Len(t, apis.Items, tt.wantAPIs)
 		})
 	}

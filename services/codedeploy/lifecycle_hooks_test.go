@@ -1,12 +1,14 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestLifecycleHooks_PutExecutionStatus_DeploymentNotFound verifies that
@@ -26,7 +28,7 @@ func TestLifecycleHooks_PutExecutionStatus_DeploymentNotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "DeploymentDoesNotExistException", resp["__type"])
 }
 
@@ -46,7 +48,7 @@ func TestLifecycleHooks_PutExecutionStatus_DeploymentFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	deployID := createOut["deploymentId"]
 
 	hookRec := doRequest(t, h, "PutLifecycleEventHookExecutionStatus", map[string]any{
@@ -59,6 +61,6 @@ func TestLifecycleHooks_PutExecutionStatus_DeploymentFound(t *testing.T) {
 	var hookOut struct {
 		LifecycleEventHookExecutionID string `json:"lifecycleEventHookExecutionId"`
 	}
-	require.NoError(t, json.Unmarshal(hookRec.Body.Bytes(), &hookOut))
+	require.NoError(t, json.Unmarshal(hookRec.Body.Bytes(), &hookOut, jsonx.V1()))
 	assert.Equal(t, "hook-1", hookOut.LifecycleEventHookExecutionID)
 }

@@ -2,9 +2,10 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -65,7 +66,7 @@ type createAcmeEndpointOutput struct {
 
 func (h *Handler) jsonCreateAcmeEndpoint(ctx context.Context, body []byte) (any, error) {
 	var input createAcmeEndpointInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -111,7 +112,7 @@ type describeAcmeEndpointOutput struct {
 
 func (h *Handler) jsonDescribeAcmeEndpoint(ctx context.Context, body []byte) (any, error) {
 	var input describeAcmeEndpointInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -141,7 +142,7 @@ type deleteAcmeEndpointOutput struct{}
 
 func (h *Handler) jsonDeleteAcmeEndpoint(ctx context.Context, body []byte) (any, error) {
 	var input deleteAcmeEndpointInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -170,7 +171,7 @@ type listAcmeEndpointsOutput struct {
 
 func (h *Handler) jsonListAcmeEndpoints(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeEndpointsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -198,7 +199,7 @@ type updateAcmeEndpointOutput struct{}
 
 func (h *Handler) jsonUpdateAcmeEndpoint(ctx context.Context, body []byte) (any, error) {
 	var input updateAcmeEndpointInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

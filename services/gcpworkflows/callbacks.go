@@ -2,7 +2,8 @@ package gcpworkflows
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/wfinterp"
 )
 
@@ -74,8 +76,10 @@ func IsCallbackPath(path string) bool {
 func writeJSONError(w http.ResponseWriter, code int, status, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).
-		Encode(map[string]any{"error": map[string]any{"code": code, "message": msg, "status": status}})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]any{"error": map[string]any{"code": code, "message": msg, "status": status}},
+	)
 }
 
 func (b *InMemoryBackend) serveCallback(w http.ResponseWriter, r *http.Request) {

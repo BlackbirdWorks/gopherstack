@@ -3,7 +3,8 @@ package apigateway
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -410,7 +412,7 @@ func writeThrottleResponse(w http.ResponseWriter, errorType, message string) {
 	w.Header().Set(headerContentType, "application/json")
 	w.Header().Set("X-Amzn-Errortype", errorType)
 	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: message})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{jsonMessageKey: message})
 }
 
 // writeMissingAuthenticationTokenResponse writes AWS API Gateway's real response for a
@@ -423,7 +425,10 @@ func writeMissingAuthenticationTokenResponse(w http.ResponseWriter) {
 	w.Header().Set(headerContentType, "application/json")
 	w.Header().Set("X-Amzn-Errortype", "MissingAuthenticationTokenException")
 	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]string{jsonMessageKey: "Missing Authentication Token"})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]string{jsonMessageKey: "Missing Authentication Token"},
+	)
 }
 
 // dispatchIntegration routes the request to the appropriate integration handler.

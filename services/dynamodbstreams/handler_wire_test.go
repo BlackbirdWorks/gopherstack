@@ -1,7 +1,7 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 
@@ -127,7 +128,7 @@ func TestHandler_WireFormat_NoResultMetadataLeak(t *testing.T) {
 				} `json:"Shards"`
 			} `json:"StreamDescription"`
 		}
-		require.NoError(t, json.Unmarshal(descW.Body.Bytes(), &desc))
+		require.NoError(t, json.Unmarshal(descW.Body.Bytes(), &desc, jsonx.V1()))
 		require.NotEmpty(t, desc.StreamDescription.Shards)
 
 		body := `{"StreamArn":"` + streamARN + `","ShardId":"` +

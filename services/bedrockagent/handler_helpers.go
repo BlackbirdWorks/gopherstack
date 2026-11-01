@@ -2,7 +2,7 @@ package bedrockagent
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,12 +15,12 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var wireCodePrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
 
 func handleErr(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
 
 	var code string
 	var status int
@@ -35,7 +35,7 @@ func handleErr(c *echo.Context, err error) error {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		status = http.StatusBadRequest
 		code = "ValidationException"
-	case errors.As(err, &syntaxErr):
+	case jsonx.IsSyntaxError(err):
 		status = http.StatusBadRequest
 		code = "ValidationException"
 	default:
@@ -76,7 +76,7 @@ func bodyPageParams(body []byte) (int, string) {
 	}
 
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	maxResults := maxPageDefault
@@ -199,7 +199,7 @@ func validatePageRequest(query url.Values, body []byte) error {
 	}
 
 	var fromBody pageFields
-	if len(body) > 0 && json.Unmarshal(body, &fromBody) == nil {
+	if len(body) > 0 && json.Unmarshal(body, &fromBody, jsonx.V1()) == nil {
 		req.overlay(fromBody)
 	}
 

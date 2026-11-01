@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestManagedScalingPolicy(t *testing.T) {
@@ -19,7 +21,7 @@ func TestManagedScalingPolicy(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	clusterID := create.JobFlowID
 
 	putRec := doEMRRequest(t, h, "PutManagedScalingPolicy", map[string]any{
@@ -45,7 +47,7 @@ func TestManagedScalingPolicy(t *testing.T) {
 			} `json:"ComputeLimits"`
 		} `json:"ManagedScalingPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "InstanceFleetUnits", getOut.ManagedScalingPolicy.ComputeLimits.UnitType)
 	assert.Equal(t, 10, getOut.ManagedScalingPolicy.ComputeLimits.MaximumCapacityUnits)
 
@@ -63,7 +65,7 @@ func TestAutoTerminationPolicy(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	clusterID := create.JobFlowID
 
 	putRec := doEMRRequest(t, h, "PutAutoTerminationPolicy", map[string]any{
@@ -80,7 +82,7 @@ func TestAutoTerminationPolicy(t *testing.T) {
 			IdleTimeout int64 `json:"IdleTimeout"`
 		} `json:"AutoTerminationPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, int64(3600), getOut.AutoTerminationPolicy.IdleTimeout)
 }
 
@@ -94,7 +96,7 @@ func TestAutoTerminationPolicy_InvalidTimeout(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	putRec := doEMRRequest(t, h, "PutAutoTerminationPolicy", map[string]any{
 		"ClusterId":             create.JobFlowID,
@@ -116,7 +118,7 @@ func TestBlockPublicAccessConfiguration(t *testing.T) {
 			BlockPublicSecurityGroupRules bool `json:"BlockPublicSecurityGroupRules"`
 		} `json:"BlockPublicAccessConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.True(t, getOut.BlockPublicAccessConfiguration.BlockPublicSecurityGroupRules)
 
 	putRec := doEMRRequest(t, h, "PutBlockPublicAccessConfiguration", map[string]any{
@@ -128,7 +130,7 @@ func TestBlockPublicAccessConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	getRec2 := doEMRRequest(t, h, "GetBlockPublicAccessConfiguration", map[string]any{})
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.False(t, getOut.BlockPublicAccessConfiguration.BlockPublicSecurityGroupRules)
 }
 
@@ -149,7 +151,7 @@ func TestAutoScalingPolicy(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{"ClusterId": create.JobFlowID})
 	var listOut struct {
@@ -157,7 +159,7 @@ func TestAutoScalingPolicy(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"InstanceGroups"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.InstanceGroups)
 	groupID := listOut.InstanceGroups[0].ID
 
@@ -177,7 +179,7 @@ func TestAutoScalingPolicy(t *testing.T) {
 			} `json:"Constraints"`
 		} `json:"AutoScalingPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	require.NotNil(t, putOut.AutoScalingPolicy)
 	assert.Equal(t, 10, putOut.AutoScalingPolicy.Constraints.MaxCapacity)
 

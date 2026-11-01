@@ -1,8 +1,10 @@
 package athena
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createNotebookInput has no Tags: the real CreateNotebookInput carries only Name/WorkGroup/ClientRequestToken.
@@ -88,7 +90,7 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"CreateNotebook": func(b []byte) (any, error) {
 			var input createNotebookInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -105,7 +107,7 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 		},
 		"CreatePresignedNotebookUrl": func(b []byte) (any, error) {
 			var input createPresignedNotebookURLInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -129,7 +131,7 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 		},
 		"DeleteNotebook": func(b []byte) (any, error) {
 			var input deleteNotebookInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -137,7 +139,7 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 		},
 		"ExportNotebook": func(b []byte) (any, error) {
 			var input exportNotebookInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -158,7 +160,7 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"GetNotebookMetadata": func(b []byte) (any, error) {
 			var input notebookIDInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -171,7 +173,7 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 		},
 		"ListNotebookMetadata": func(b []byte) (any, error) {
 			var input listNotebookMetadataInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -195,7 +197,7 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 		},
 		"ImportNotebook": func(b []byte) (any, error) {
 			var input importNotebookInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -218,7 +220,7 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 		},
 		"UpdateNotebook": func(b []byte) (any, error) {
 			var input updateNotebookInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -226,7 +228,7 @@ func (h *Handler) notebookExtraOps() map[string]athenaActionFn {
 		},
 		"UpdateNotebookMetadata": func(b []byte) (any, error) {
 			var input updateNotebookMetadataInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

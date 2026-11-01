@@ -2,7 +2,7 @@ package firehose //nolint:testpackage // existing issue.
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestFirehoseRegionIsolation(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -25,7 +26,7 @@ func TestFirehoseRegionIsolation(t *testing.T) { //nolint:paralleltest // existi
 			DeliveryStreamName: name,
 			DeliveryStreamType: "DirectPut",
 		}
-		body, _ := json.Marshal(input)
+		body, _ := json.Marshal(input, jsonx.V1())
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", firehoseTargetPrefix+"CreateDeliveryStream")
 		req.Header.Set(
@@ -43,7 +44,7 @@ func TestFirehoseRegionIsolation(t *testing.T) { //nolint:paralleltest // existi
 
 	listStreams := func(region string) []string {
 		input := listDeliveryStreamsInput{}
-		body, _ := json.Marshal(input)
+		body, _ := json.Marshal(input, jsonx.V1())
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 		req.Header.Set("X-Amz-Target", firehoseTargetPrefix+"ListDeliveryStreams")
 		req.Header.Set(
@@ -59,7 +60,7 @@ func TestFirehoseRegionIsolation(t *testing.T) { //nolint:paralleltest // existi
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var output listDeliveryStreamsOutput
-		err = json.Unmarshal(rec.Body.Bytes(), &output)
+		err = json.Unmarshal(rec.Body.Bytes(), &output, jsonx.V1())
 		require.NoError(t, err)
 
 		return output.DeliveryStreamNames

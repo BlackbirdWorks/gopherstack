@@ -2,7 +2,7 @@ package kinesis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
@@ -72,7 +73,7 @@ func TestCreateStream_ShardCount_Validation(t *testing.T) {
 				var resp struct {
 					Type string `json:"__type"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp.Type)
 			}
 		})
@@ -160,7 +161,7 @@ func TestCreateStream_OnDemand_ShardCountZero(t *testing.T) {
 						} `json:"Shards"`
 					} `json:"StreamDescription"`
 				}
-				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 				require.NotNil(t, resp.StreamDescription.StreamModeDetails)
 				assert.Equal(t, tt.wantMode, resp.StreamDescription.StreamModeDetails.StreamMode)
 
@@ -423,7 +424,7 @@ func TestCreateStream_DefaultsToProvisioned(t *testing.T) {
 					} `json:"StreamModeDetails"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotNil(t, resp.StreamDescription.StreamModeDetails)
 			assert.Equal(t, tt.wantMode, resp.StreamDescription.StreamModeDetails.StreamMode)
 		})
@@ -476,7 +477,7 @@ func TestCreateStream_WithOnDemand(t *testing.T) {
 					} `json:"StreamModeDetails"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotNil(t, resp.StreamDescription.StreamModeDetails)
 			assert.Equal(t, tt.wantMode, resp.StreamDescription.StreamModeDetails.StreamMode)
 		})
@@ -524,7 +525,7 @@ func TestCreateStream_WithTags(t *testing.T) {
 					StreamARN string `json:"StreamARN"`
 				} `json:"StreamDescription"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 
 			rec3 := doRequest(t, h, "ListTagsForResource", map[string]any{
 				"ResourceARN": descResp.StreamDescription.StreamARN,
@@ -537,7 +538,7 @@ func TestCreateStream_WithTags(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			found := false
 			for _, kv := range tagsResp.Tags {
@@ -572,7 +573,7 @@ func TestStreamLifecycle(t *testing.T) {
 	var listResp struct {
 		StreamNames []string `json:"StreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Contains(t, listResp.StreamNames, "my-stream")
 
 	// DescribeStream
@@ -590,7 +591,7 @@ func TestStreamLifecycle(t *testing.T) {
 			} `json:"Shards"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "my-stream", descResp.StreamDescription.StreamName)
 	assert.Equal(t, "ACTIVE", descResp.StreamDescription.StreamStatus)
 	assert.Len(t, descResp.StreamDescription.Shards, 2)
@@ -607,7 +608,7 @@ func TestStreamLifecycle(t *testing.T) {
 			OpenShardCount int    `json:"OpenShardCount"`
 		} `json:"StreamDescriptionSummary"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sumResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sumResp, jsonx.V1()))
 	assert.Equal(t, "my-stream", sumResp.StreamDescriptionSummary.StreamName)
 	assert.Equal(t, 2, sumResp.StreamDescriptionSummary.OpenShardCount)
 
@@ -645,7 +646,7 @@ func TestCreateStreamAlreadyExists(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUseException", errResp.Type)
 }
 
@@ -673,7 +674,7 @@ func TestHandleListStreamsEmpty(t *testing.T) {
 	var resp struct {
 		StreamNames []string `json:"StreamNames"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp.StreamNames)
 	assert.Empty(t, resp.StreamNames)
 }
@@ -730,7 +731,7 @@ func TestCreateStream_OnDemandLimit_ViaHandler(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", errResp.Type)
 }
 

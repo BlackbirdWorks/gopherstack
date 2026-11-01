@@ -1,12 +1,13 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -74,7 +75,7 @@ type createDashboardBody struct {
 
 func (h *Handler) handleCreateDashboard(c *echo.Context, body []byte) error {
 	var in createDashboardBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -104,7 +105,7 @@ type deleteDashboardBody struct {
 
 func (h *Handler) handleDeleteDashboard(c *echo.Context, body []byte) error {
 	var in deleteDashboardBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -123,7 +124,7 @@ type getDashboardBody struct {
 
 func (h *Handler) handleGetDashboard(c *echo.Context, body []byte) error {
 	var in getDashboardBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -151,7 +152,7 @@ type updateDashboardBody struct {
 
 func (h *Handler) handleUpdateDashboard(c *echo.Context, body []byte) error {
 	var in updateDashboardBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -180,7 +181,7 @@ type listDashboardsBody struct {
 func (h *Handler) handleListDashboards(c *echo.Context, body []byte) error {
 	var in listDashboardsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -232,7 +233,7 @@ type startDashboardRefreshBody struct {
 
 func (h *Handler) handleStartDashboardRefresh(c *echo.Context, body []byte) error {
 	var in startDashboardRefreshBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

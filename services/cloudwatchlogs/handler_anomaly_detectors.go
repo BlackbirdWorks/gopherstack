@@ -2,7 +2,9 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createLogAnomalyDetectorInput struct {
@@ -111,7 +113,7 @@ func (h *Handler) handleCreateLogAnomalyDetector(
 	b []byte,
 ) (any, error) {
 	var input createLogAnomalyDetectorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleDeleteLogAnomalyDetector(
 	b []byte,
 ) (any, error) {
 	var input deleteLogAnomalyDetectorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.DeleteLogAnomalyDetector(input.AnomalyDetectorArn); err != nil {
@@ -150,7 +152,7 @@ func (h *Handler) handleListLogAnomalyDetectors(
 	b []byte,
 ) (any, error) {
 	var input listLogAnomalyDetectorsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	var filter []string
@@ -171,7 +173,7 @@ func (h *Handler) handleUpdateLogAnomalyDetector(
 	b []byte,
 ) (any, error) {
 	var input updateLogAnomalyDetectorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if err := h.Backend.UpdateLogAnomalyDetector(
@@ -192,7 +194,7 @@ func (h *Handler) handleGetLogAnomalyDetector(
 	b []byte,
 ) (any, error) {
 	var input getLogAnomalyDetectorInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	d, err := h.Backend.GetLogAnomalyDetector(input.AnomalyDetectorArn)
@@ -215,7 +217,7 @@ func (h *Handler) handleGetLogAnomalyDetector(
 
 func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input listAnomaliesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	anomalies, next, err := h.Backend.ListAnomalies(input.AnomalyDetectorArn, input.Limit, input.NextToken)
@@ -228,7 +230,7 @@ func (h *Handler) handleListAnomalies(ctx context.Context, b []byte) (any, error
 
 func (h *Handler) handleUpdateAnomaly(ctx context.Context, b []byte) (any, error) { //nolint:revive // existing issue.
 	var input updateAnomalyInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -2,11 +2,12 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- AppBlock handlers ---
@@ -54,7 +55,7 @@ type createAppBlockInput struct {
 
 func (h *Handler) opCreateAppBlock(_ context.Context, body []byte) (any, error) {
 	var req createAppBlockInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -79,7 +80,7 @@ type deleteAppBlockInput struct {
 
 func (h *Handler) opDeleteAppBlock(_ context.Context, body []byte) (any, error) {
 	var req deleteAppBlockInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -98,7 +99,7 @@ type describeAppBlocksInput struct {
 func (h *Handler) opDescribeAppBlocks(_ context.Context, body []byte) (any, error) {
 	var req describeAppBlocksInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -144,7 +145,7 @@ type createAppBlockBuilderInput struct {
 
 func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
 	var req createAppBlockBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -177,7 +178,7 @@ type deleteAppBlockBuilderInput struct {
 
 func (h *Handler) opDeleteAppBlockBuilder(_ context.Context, body []byte) (any, error) {
 	var req deleteAppBlockBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -196,7 +197,7 @@ type describeAppBlockBuildersInput struct {
 func (h *Handler) opDescribeAppBlockBuilders(_ context.Context, body []byte) (any, error) {
 	var req describeAppBlockBuildersInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -225,7 +226,7 @@ type appBlockBuilderNameInput struct {
 
 func (h *Handler) opStartAppBlockBuilder(_ context.Context, body []byte) (any, error) {
 	var req appBlockBuilderNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -243,7 +244,7 @@ func (h *Handler) opStartAppBlockBuilder(_ context.Context, body []byte) (any, e
 
 func (h *Handler) opStopAppBlockBuilder(_ context.Context, body []byte) (any, error) {
 	var req appBlockBuilderNameInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -275,7 +276,7 @@ type updateAppBlockBuilderInput struct {
 
 func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
 	var req updateAppBlockBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -317,7 +318,7 @@ type createAppBlockBuilderStreamingURLInput struct {
 
 func (h *Handler) opCreateAppBlockBuilderStreamingURL(_ context.Context, body []byte) (any, error) {
 	var req createAppBlockBuilderStreamingURLInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -341,7 +342,7 @@ type appBlockBuilderAppBlockInput struct {
 
 func (h *Handler) opAssociateAppBlockBuilderAppBlock(_ context.Context, body []byte) (any, error) {
 	var req appBlockBuilderAppBlockInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -358,7 +359,7 @@ func (h *Handler) opAssociateAppBlockBuilderAppBlock(_ context.Context, body []b
 
 func (h *Handler) opDisassociateAppBlockBuilderAppBlock(_ context.Context, body []byte) (any, error) {
 	var req appBlockBuilderAppBlockInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -378,7 +379,7 @@ type describeAppBlockBuilderAppBlockAssociationsInput struct {
 func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Context, body []byte) (any, error) {
 	var req describeAppBlockBuilderAppBlockAssociationsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}

@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -132,7 +133,7 @@ func TestHandler_Destination(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -155,7 +156,7 @@ func TestHandler_Destination_WireShapeIncludesCreationTimeAndAccessPolicy(t *tes
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	putDest, ok := putOut["destination"].(map[string]any)
 	require.True(t, ok)
 	ct, hasCreationTime := putDest["creationTime"]
@@ -172,7 +173,7 @@ func TestHandler_Destination_WireShapeIncludesCreationTimeAndAccessPolicy(t *tes
 	require.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeOut map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeOut, jsonx.V1()))
 	dests, ok := describeOut["destinations"].([]any)
 	require.True(t, ok)
 	require.Len(t, dests, 1)
@@ -225,13 +226,13 @@ func TestHandler_DestinationResponseShape(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "response should contain field %q", field)
 			}

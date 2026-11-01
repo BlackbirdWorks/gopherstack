@@ -2,7 +2,8 @@ package bqsql
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -10,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Canonical stored encodings of temporal values.
@@ -168,7 +171,7 @@ func storedString(v any) (string, error) {
 		return t, nil
 	case []byte:
 		return string(t), nil
-	case json.Number:
+	case jsonx.Number:
 		return t.String(), nil
 	case bool:
 		return strconv.FormatBool(t), nil
@@ -183,14 +186,14 @@ func storedString(v any) (string, error) {
 
 func storedJSON(v any) (string, error) {
 	if s, ok := v.(string); ok {
-		if !json.Valid([]byte(s)) {
+		if !jsontext.Value([]byte(s)).IsValid(jsonx.V1()) {
 			return "", valueErr("invalid JSON text")
 		}
 
 		return s, nil
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return "", valueErr("cannot encode JSON: %v", err)
 	}
@@ -204,7 +207,7 @@ func numberText(v any) (string, bool) {
 		return strings.TrimSpace(t), true
 	case []byte:
 		return strings.TrimSpace(string(t)), true
-	case json.Number:
+	case jsonx.Number:
 		return t.String(), true
 	case int64:
 		return strconv.FormatInt(t, decimalBase), true
@@ -293,7 +296,7 @@ func storedBool(v any) (string, error) {
 		return strconv.FormatBool(t), nil
 	case int64:
 		return strconv.FormatBool(t != 0), nil
-	case json.Number:
+	case jsonx.Number:
 		return strconv.FormatBool(t.String() != "0"), nil
 	case string:
 		switch strings.ToLower(strings.TrimSpace(t)) {
@@ -449,7 +452,7 @@ func epochTime(v any) (time.Time, bool) {
 	var f float64
 
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		g, err := t.Float64()
 		if err != nil {
 			return time.Time{}, false

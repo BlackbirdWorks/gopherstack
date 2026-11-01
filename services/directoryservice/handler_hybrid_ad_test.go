@@ -1,13 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -20,7 +21,7 @@ func mustStartAssessment(t *testing.T, h *directoryservice.Handler, dirID string
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assessmentID, _ := out["AssessmentId"].(string)
 	require.NotEmpty(t, assessmentID)
@@ -44,7 +45,7 @@ func TestHybridAD_CreateUpdateDescribeCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	hybridDirID, _ := createOut["DirectoryId"].(string)
 	require.NotEmpty(t, hybridDirID)
 	assert.NotContains(t, createOut, "RequestId", "CreateHybridADOutput has no RequestId member")
@@ -60,7 +61,7 @@ func TestHybridAD_CreateUpdateDescribeCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	updateAssessmentID, _ := updateOut["AssessmentId"].(string)
 	assert.NotEmpty(t, updateAssessmentID)
 	assert.Equal(t, hybridDirID, updateOut["DirectoryId"])
@@ -73,7 +74,7 @@ func TestHybridAD_CreateUpdateDescribeCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	activities, ok := descOut["UpdateActivities"].(map[string]any)
 	require.True(t, ok, "UpdateActivities must be an object")
 
@@ -102,7 +103,7 @@ func TestHybridAD_CreateUpdateDescribeCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeDirRec.Code)
 
 	var dirOut map[string]any
-	require.NoError(t, json.Unmarshal(describeDirRec.Body.Bytes(), &dirOut))
+	require.NoError(t, json.Unmarshal(describeDirRec.Body.Bytes(), &dirOut, jsonx.V1()))
 	dirs, ok := dirOut["DirectoryDescriptions"].([]any)
 	require.True(t, ok)
 	require.Len(t, dirs, 1)
@@ -218,7 +219,7 @@ func TestHybridAD_UpdateHybridAD_Errors(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 				hybridDirID, _ := createOut["DirectoryId"].(string)
 
 				return map[string]any{"DirectoryId": hybridDirID}

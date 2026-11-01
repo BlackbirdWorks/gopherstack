@@ -27,11 +27,12 @@ package glacier
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -155,7 +156,7 @@ func writeSelectS3Output(
 // the (unreachable in practice, since callers pass only structs/maps of strings)
 // marshal error -- a malformed manifest object is still safer than a panic.
 func marshalSelectOutputJSON(v any) []byte {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}

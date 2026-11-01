@@ -2,7 +2,7 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 
 	"github.com/google/uuid"
@@ -18,13 +18,13 @@ type CreateSecurityProfileInput struct {
 	instPath
 	AllowedAccessControlHierarchyGroupID string `json:"AllowedAccessControlHierarchyGroupId"`
 	Description                          string
-	AllowedAIAgents                      json.RawMessage
-	Applications                         json.RawMessage
-	AllowedFlowModules                   json.RawMessage
+	AllowedAIAgents                      jsontext.Value
+	Applications                         jsontext.Value
+	AllowedFlowModules                   jsontext.Value
 	HierarchyRestrictedResources         []string
 	Permissions                          []string
 	TagRestrictedResources               []string
-	GranularAccessControlConfiguration   json.RawMessage
+	GranularAccessControlConfiguration   jsontext.Value
 }
 
 // UpdateSecurityProfileInput is the UpdateSecurityProfile request.
@@ -34,10 +34,10 @@ type UpdateSecurityProfileInput struct {
 	AllowedAccessControlHierarchyGroupID *string `json:"AllowedAccessControlHierarchyGroupId"`
 	ProfileID                            string  `json:"-"                                    path:"SecurityProfileId"`
 	instPath
-	GranularAccessControlConfiguration json.RawMessage
-	AllowedAIAgents                    json.RawMessage
-	AllowedFlowModules                 json.RawMessage
-	Applications                       json.RawMessage
+	GranularAccessControlConfiguration jsontext.Value
+	AllowedAIAgents                    jsontext.Value
+	AllowedFlowModules                 jsontext.Value
+	Applications                       jsontext.Value
 	HierarchyRestrictedResources       []string
 	Permissions                        []string
 	TagRestrictedResources             []string

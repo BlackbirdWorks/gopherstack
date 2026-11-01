@@ -4,7 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -616,7 +617,7 @@ func TestProxy_StageVariables_InterpolatedInURI(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	// The invoker receives the payload; check the captured function name via the event.
 	var event map[string]any
-	require.NoError(t, json.Unmarshal(capturedPayload, &event))
+	require.NoError(t, json.Unmarshal(capturedPayload, &event, jsonx.V1()))
 	// Response comes from captureInvoker which echoes the payload back, so status is 200.
 	// The important check is that the handler resolved the stage variable without panicking.
 }
@@ -902,7 +903,7 @@ func TestProxy_AuthorizerCacheKey_IdentityValidationExpression(t *testing.T) {
 	authRec := postWithHandler(t, h, e, "CreateAuthorizer", authBody)
 	require.Equal(t, http.StatusCreated, authRec.Code)
 	var auth map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &auth))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &auth, jsonx.V1()))
 	authID := auth["id"].(string)
 
 	_, _ = backend.PutMethod(apigateway.PutMethodInput{

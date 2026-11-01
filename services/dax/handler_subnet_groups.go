@@ -1,8 +1,10 @@
 package dax
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createSubnetGroupRequest struct {
@@ -66,7 +68,7 @@ func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
 
 func (h *Handler) handleCreateSubnetGroup(body []byte) (any, error) {
 	var req createSubnetGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -83,7 +85,7 @@ func (h *Handler) handleCreateSubnetGroup(body []byte) (any, error) {
 func (h *Handler) handleDescribeSubnetGroups(body []byte) (any, error) {
 	var req describeSubnetGroupsRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -115,7 +117,7 @@ func (h *Handler) handleDescribeSubnetGroups(body []byte) (any, error) {
 
 func (h *Handler) handleUpdateSubnetGroup(body []byte) (any, error) {
 	var req updateSubnetGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -131,7 +133,7 @@ func (h *Handler) handleUpdateSubnetGroup(body []byte) (any, error) {
 
 func (h *Handler) handleDeleteSubnetGroup(body []byte) (any, error) {
 	var req deleteSubnetGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

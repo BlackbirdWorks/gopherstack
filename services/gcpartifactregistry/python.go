@@ -4,13 +4,15 @@ import (
 	"crypto/md5" //nolint:gosec // twine sends md5_digest by protocol
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"html"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -100,7 +102,12 @@ func (b *InMemoryBackend) uploadPython(w http.ResponseWriter, r *http.Request, r
 
 	norm := pyNormalize(name)
 	doc, _ := json.Marshal(
-		pyDoc{Name: name, RequiresPython: r.FormValue("requires_python"), SHA256: hex.EncodeToString(sum[:])},
+		pyDoc{
+			Name:           name,
+			RequiresPython: r.FormValue("requires_python"),
+			SHA256:         hex.EncodeToString(sum[:]),
+		},
+		jsonx.V1(),
 	)
 
 	err = b.putPackageFile(rc.ref, pkgFile{
@@ -194,7 +201,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 	for _, v := range versions {
 		for _, nf := range v.files {
 			var d pyDoc
-			_ = json.Unmarshal(nf.file.Doc, &d)
+			_ = json.Unmarshal(nf.file.Doc, &d, jsonx.V1())
 
 			filename := nf.id[strings.LastIndex(nf.id, ":")+1:]
 			href := "/python/" + rc.ref.project + "/" + rc.ref.id + "/packages/" + url.PathEscape(norm) + "/" +

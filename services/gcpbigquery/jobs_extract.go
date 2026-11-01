@@ -3,13 +3,15 @@ package gcpbigquery
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -214,30 +216,30 @@ func encodeCSV(ec extractConfig, t *Table) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func jsonCell(f bqsql.Field, v any) json.RawMessage {
+func jsonCell(f bqsql.Field, v any) jsontext.Value {
 	if v == nil && f.Mode != bqsql.ModeRepeated {
-		return json.RawMessage("null")
+		return jsontext.Value("null")
 	}
 
 	k, _ := bqsql.KindOf(f.Type)
 	if k == bqsql.KindStruct || f.Mode == bqsql.ModeRepeated {
 		text, _ := bqsql.ToSQLite(f, v).(string)
 
-		return json.RawMessage(text)
+		return jsontext.Value(text)
 	}
 
 	s, _ := v.(string)
 
 	switch k {
 	case bqsql.KindInt, bqsql.KindBool, bqsql.KindNumeric, bqsql.KindBigNumeric:
-		return json.RawMessage(s)
+		return jsontext.Value(s)
 	case bqsql.KindFloat:
 		if f, err := strconv.ParseFloat(
 			s,
 			64,
 		); err == nil && !math.IsNaN(f) &&
 			!math.IsInf(f, 0) {
-			return json.RawMessage(strconv.FormatFloat(f, 'g', -1, 64))
+			return jsontext.Value(strconv.FormatFloat(f, 'g', -1, 64))
 		}
 	case bqsql.KindTimestamp:
 		if t, err := time.Parse(bqsql.TimestampLayout, s); err == nil {
@@ -249,7 +251,7 @@ func jsonCell(f bqsql.Field, v any) json.RawMessage {
 		bqsql.KindStruct, bqsql.KindArray:
 	}
 
-	q, _ := json.Marshal(s)
+	q, _ := json.Marshal(s, jsonx.V1())
 
 	return q
 }
@@ -265,7 +267,7 @@ func encodeNDJSON(t *Table) []byte {
 				buf.WriteByte(',')
 			}
 
-			name, _ := json.Marshal(f.Name)
+			name, _ := json.Marshal(f.Name, jsonx.V1())
 			buf.Write(name)
 			buf.WriteByte(':')
 			buf.Write(jsonCell(f, row[i]))

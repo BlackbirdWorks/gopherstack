@@ -1,13 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
 
@@ -33,7 +34,7 @@ func TestDataSync_Agent(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["AgentArn"], "arn:aws:datasync:us-east-1:000000000000:agent/")
 			},
 		},
@@ -54,7 +55,7 @@ func TestDataSync_Agent(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ONLINE", resp["Status"])
 			},
 		},
@@ -93,7 +94,7 @@ func TestDataSync_Agent(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				agents, ok := resp["Agents"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, agents)
@@ -138,7 +139,7 @@ func TestDataSync_AgentCRUD(t *testing.T) {
 	rec := doRequest(t, h, "DescribeAgent", map[string]any{"AgentArn": agentArn})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-agent", descResp["Name"])
 
 	// Update
@@ -147,14 +148,14 @@ func TestDataSync_AgentCRUD(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeAgent", map[string]any{"AgentArn": agentArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "updated-agent", descResp["Name"])
 
 	// List
 	rec = doRequest(t, h, "ListAgents", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Agents"], 1)
 
 	// Delete

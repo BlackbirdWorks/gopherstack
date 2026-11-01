@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleAssumeDecoratedRoleWithSAML(_ context.Context, c *echo.Context, body []byte) error {
 	var in assumeDecoratedRoleWithSAMLInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -40,7 +42,7 @@ func (h *Handler) handleGetDataLakePrincipal(ctx context.Context, c *echo.Contex
 
 func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTemporaryDataLocationCredentialsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	// GetTemporaryDataLocationCredentialsInput (lakeformation@v1.50.4
@@ -60,7 +62,7 @@ func (h *Handler) handleGetTemporaryDataLocationCredentials(_ context.Context, c
 
 func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTemporaryGluePartitionCredentialsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	if strings.TrimSpace(in.TableArn) == "" {
@@ -78,7 +80,7 @@ func (h *Handler) handleGetTemporaryGluePartitionCredentials(_ context.Context, 
 
 func (h *Handler) handleGetTemporaryGlueTableCredentials(_ context.Context, c *echo.Context, body []byte) error {
 	var in getTemporaryGlueTableCredentialsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 	if strings.TrimSpace(in.TableArn) == "" {

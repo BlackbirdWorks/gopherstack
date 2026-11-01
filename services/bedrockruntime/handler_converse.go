@@ -1,10 +1,13 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // converseMessage represents a single message in a Converse request.
@@ -25,9 +28,9 @@ type converseRequest struct {
 	PerformanceConfig *performanceConfigBody `json:"performanceConfig,omitempty"`
 	Messages          []converseMessage      `json:"messages"`
 	System            []converseContent      `json:"system,omitempty"`
-	ToolConfig        json.RawMessage        `json:"toolConfig,omitempty"`
-	GuardrailConfig   json.RawMessage        `json:"guardrailConfig,omitempty"`
-	InferenceConfig   json.RawMessage        `json:"inferenceConfig,omitempty"`
+	ToolConfig        jsontext.Value         `json:"toolConfig,omitempty"`
+	GuardrailConfig   jsontext.Value         `json:"guardrailConfig,omitempty"`
+	InferenceConfig   jsontext.Value         `json:"inferenceConfig,omitempty"`
 }
 
 type serviceTierBody struct {
@@ -133,7 +136,7 @@ func (h *Handler) handleConverse(
 ) error {
 	var req converseRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if msg := validateConverseConfig(&req); msg != "" {
@@ -151,7 +154,7 @@ func (h *Handler) handleConverse(
 	resp := buildConverseResponse(&req)
 	echoConverseConfig(resp, &req)
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -173,7 +176,7 @@ func (h *Handler) handleConverseStream(
 ) error {
 	var req converseRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if msg := validateConverseConfig(&req); msg != "" {
@@ -191,7 +194,7 @@ func (h *Handler) handleConverseStream(
 	inputTokens := estimateTokensFromMessages(req.Messages, req.System)
 
 	respSummary := buildConverseResponse(&req)
-	out, err := json.Marshal(respSummary)
+	out, err := json.Marshal(respSummary, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}
@@ -202,7 +205,7 @@ func (h *Handler) handleConverseStream(
 	c.Response().WriteHeader(http.StatusOK)
 
 	writeStreamEvent := func(eventType string, payload any) {
-		data, merr := json.Marshal(payload)
+		data, merr := json.Marshal(payload, jsonx.V1())
 		if merr != nil {
 			return
 		}

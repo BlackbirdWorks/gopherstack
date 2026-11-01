@@ -1,7 +1,8 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -102,7 +104,7 @@ func TestGetTopicRule_RuleWrapper(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "ruleArn")
 			assert.Contains(t, resp, "rule")
 		})
@@ -169,7 +171,7 @@ func TestCreateAndGetTopicRule_Handler(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "ruleArn")
 			assert.Contains(t, resp, "rule")
 		})
@@ -356,7 +358,7 @@ func TestHandler_ListTopicRules_ResponseFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	rules, ok := out["rules"]
 	require.True(t, ok, "response must have 'rules' key")
@@ -411,7 +413,7 @@ func TestHandler_GetTopicRule_IncludesAWSSQLVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	rule, ok := out["rule"].(map[string]any)
 	require.True(t, ok)

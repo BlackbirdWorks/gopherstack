@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path"
 	"slices"
@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -172,12 +173,12 @@ func outputFiles(job *Job) map[string][]byte {
 	case jobTypeClassification:
 		line, _ := json.Marshal(map[string]any{
 			"File": input, "Classes": []map[string]any{{"Name": "DEFAULT", "Score": defaultScore}},
-		})
+		}, jsonx.V1())
 
 		return map[string][]byte{"predictions.jsonl": append(line, '\n')}
 	}
 
-	line, _ := json.Marshal(jobResultLine(job, input))
+	line, _ := json.Marshal(jobResultLine(job, input), jsonx.V1())
 
 	return map[string][]byte{"output": append(line, '\n')}
 }

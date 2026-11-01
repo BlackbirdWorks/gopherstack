@@ -7,7 +7,7 @@ package bedrock
 // [github.com/blackbirdworks/gopherstack/pkgs/persistence.Persistable].
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -75,7 +75,7 @@ const bedrockSnapshotVersion = 3
 // CreateGuardrailVersion call reissues -- a real data-corruption risk, not
 // just a cosmetic gap.
 type backendSnapshot struct {
-	Tables                         map[string]json.RawMessage           `json:"tables"`
+	Tables                         map[string]jsontext.Value            `json:"tables"`
 	LoggingConfig                  *ModelInvocationLoggingConfiguration `json:"loggingConfig,omitempty"`
 	GuardrailsByName               map[string]string                    `json:"guardrailsByName"`
 	GuardrailsByARN                map[string]string                    `json:"guardrailsByARN"`

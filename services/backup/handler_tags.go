@@ -1,12 +1,14 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"slices"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type tagResourceBody struct {
@@ -15,7 +17,7 @@ type tagResourceBody struct {
 
 func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []byte) error {
 	var in tagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -61,7 +63,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, body 
 
 	var in untagResourceBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),

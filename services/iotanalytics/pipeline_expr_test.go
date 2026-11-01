@@ -1,12 +1,13 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
 )
 
@@ -246,7 +247,7 @@ func TestInMemoryBackend_RunPipelineActivity_Math(t *testing.T) {
 			}
 
 			var decoded map[string]any
-			require.NoError(t, json.Unmarshal(out[0], &decoded))
+			require.NoError(t, json.Unmarshal(out[0], &decoded, jsonx.V1()))
 			assert.InDelta(t, tt.wantValue, decoded[tt.attribute], 1e-9)
 		})
 	}

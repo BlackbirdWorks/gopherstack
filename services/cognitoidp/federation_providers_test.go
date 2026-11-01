@@ -5,7 +5,8 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -48,7 +50,10 @@ func newOAuth2OnlyIDP(t *testing.T, profile map[string]any) *oauth2OnlyIDP {
 				return
 			}
 
-			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "opaque-token", "token_type": "bearer"})
+			_ = json.MarshalEncode(
+				jsontext.NewEncoder(w, jsonx.V1()),
+				map[string]string{"access_token": "opaque-token", "token_type": "bearer"},
+			)
 		case "/me":
 			if r.Header.Get("Authorization") != "Bearer opaque-token" {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -56,7 +61,7 @@ func newOAuth2OnlyIDP(t *testing.T, profile map[string]any) *oauth2OnlyIDP {
 				return
 			}
 
-			_ = json.NewEncoder(w).Encode(idp.profile)
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), idp.profile)
 		default:
 			http.NotFound(w, r)
 		}

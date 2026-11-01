@@ -1,21 +1,22 @@
 package dax
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type describeEventsRequest struct {
-	SourceName string      `json:"SourceName"`
-	SourceType string      `json:"SourceType"`
-	StartTime  json.Number `json:"StartTime"`
-	EndTime    json.Number `json:"EndTime"`
-	NextToken  string      `json:"NextToken"`
-	MaxResults int         `json:"MaxResults"`
-	Duration   int         `json:"Duration"` // minutes to look back; applied when StartTime is absent
+	SourceName string       `json:"SourceName"`
+	SourceType string       `json:"SourceType"`
+	StartTime  jsonx.Number `json:"StartTime"`
+	EndTime    jsonx.Number `json:"EndTime"`
+	NextToken  string       `json:"NextToken"`
+	MaxResults int          `json:"MaxResults"`
+	Duration   int          `json:"Duration"` // minutes to look back; applied when StartTime is absent
 }
 
 type eventResponse struct {
@@ -30,7 +31,7 @@ type eventResponse struct {
 // awsjson1.1 Timestamp wire format DAX uses -- see smithytime.ParseEpochSeconds
 // in the real SDK deserializer) into a time.Time, preserving sub-second
 // precision carried in the fractional part.
-func parseEpochSeconds(n json.Number) (time.Time, error) {
+func parseEpochSeconds(n jsonx.Number) (time.Time, error) {
 	f, err := n.Float64()
 	if err != nil {
 		return time.Time{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -45,7 +46,7 @@ func parseEpochSeconds(n json.Number) (time.Time, error) {
 func (h *Handler) handleDescribeEvents(body []byte) (any, error) {
 	var req describeEventsRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}

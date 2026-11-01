@@ -2,11 +2,12 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Application handlers ---
@@ -46,7 +47,7 @@ type createApplicationInput struct {
 
 func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, error) {
 	var req createApplicationInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -68,7 +69,7 @@ type deleteApplicationInput struct {
 
 func (h *Handler) opDeleteApplication(_ context.Context, body []byte) (any, error) {
 	var req deleteApplicationInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -87,7 +88,7 @@ type describeApplicationsInput struct {
 func (h *Handler) opDescribeApplications(_ context.Context, body []byte) (any, error) {
 	var req describeApplicationsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -124,7 +125,7 @@ type updateApplicationInput struct {
 
 func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, error) {
 	var req updateApplicationInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -153,7 +154,7 @@ func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, erro
 func (h *Handler) opDescribeAppLicenseUsage(_ context.Context, body []byte) (any, error) {
 	var req pageReq
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -186,7 +187,7 @@ type applicationFleetInput struct {
 
 func (h *Handler) opAssociateApplicationFleet(_ context.Context, body []byte) (any, error) {
 	var req applicationFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -203,7 +204,7 @@ func (h *Handler) opAssociateApplicationFleet(_ context.Context, body []byte) (a
 
 func (h *Handler) opDisassociateApplicationFleet(_ context.Context, body []byte) (any, error) {
 	var req applicationFleetInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -223,7 +224,7 @@ type describeApplicationFleetAssociationsInput struct {
 func (h *Handler) opDescribeApplicationFleetAssociations(_ context.Context, body []byte) (any, error) {
 	var req describeApplicationFleetAssociationsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -273,7 +274,7 @@ func toEntitlementAttributes(attrs []entitlementAttributeJSON) []EntitlementAttr
 
 func (h *Handler) opCreateEntitlement(_ context.Context, body []byte) (any, error) {
 	var req createEntitlementInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -295,7 +296,7 @@ type deleteEntitlementInput struct {
 
 func (h *Handler) opDeleteEntitlement(_ context.Context, body []byte) (any, error) {
 	var req deleteEntitlementInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -315,7 +316,7 @@ type describeEntitlementsInput struct {
 func (h *Handler) opDescribeEntitlements(_ context.Context, body []byte) (any, error) {
 	var req describeEntitlementsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -353,7 +354,7 @@ type updateEntitlementInput struct {
 
 func (h *Handler) opUpdateEntitlement(_ context.Context, body []byte) (any, error) {
 	var req updateEntitlementInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -376,7 +377,7 @@ type associateApplicationToEntitlementInput struct {
 
 func (h *Handler) opAssociateApplicationToEntitlement(_ context.Context, body []byte) (any, error) {
 	var req associateApplicationToEntitlementInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -397,7 +398,7 @@ type disassociateApplicationFromEntitlementInput struct {
 
 func (h *Handler) opDisassociateApplicationFromEntitlement(_ context.Context, body []byte) (any, error) {
 	var req disassociateApplicationFromEntitlementInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -418,7 +419,7 @@ type listEntitledApplicationsInput struct {
 
 func (h *Handler) opListEntitledApplications(_ context.Context, body []byte) (any, error) {
 	var req listEntitledApplicationsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -486,7 +487,7 @@ type createDirectoryConfigInput struct {
 
 func (h *Handler) opCreateDirectoryConfig(_ context.Context, body []byte) (any, error) {
 	var req createDirectoryConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -507,7 +508,7 @@ type deleteDirectoryConfigInput struct {
 
 func (h *Handler) opDeleteDirectoryConfig(_ context.Context, body []byte) (any, error) {
 	var req deleteDirectoryConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -526,7 +527,7 @@ type describeDirectoryConfigsInput struct {
 func (h *Handler) opDescribeDirectoryConfigs(_ context.Context, body []byte) (any, error) {
 	var req describeDirectoryConfigsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -563,7 +564,7 @@ type updateDirectoryConfigInput struct {
 
 func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, error) {
 	var req updateDirectoryConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 

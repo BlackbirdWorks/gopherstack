@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -80,7 +82,7 @@ func TestUpdateConfig_EnvVars(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.Environment)
 	assert.Equal(t, "val", fn.Environment.Variables["KEY"])
 	assert.Equal(t, "bar", fn.Environment.Variables["FOO"])
@@ -98,7 +100,7 @@ func TestUpdateConfig_TimeoutAndMemory(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, 30, fn.Timeout)
 	assert.Equal(t, 512, fn.MemorySize)
 }
@@ -115,7 +117,7 @@ func TestUpdateConfig_VPC(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.VpcConfig)
 	assert.Equal(t, []string{"subnet-abc"}, fn.VpcConfig.SubnetIDs)
 	assert.Equal(t, []string{"sg-xyz"}, fn.VpcConfig.SecurityGroupIDs)
@@ -133,7 +135,7 @@ func TestUpdateConfig_DLQ(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.DeadLetterConfig)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:dlq", fn.DeadLetterConfig.TargetArn)
 }
@@ -150,7 +152,7 @@ func TestUpdateConfig_Tracing(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.TracingConfig)
 	assert.Equal(t, "Active", fn.TracingConfig.Mode)
 }
@@ -168,7 +170,7 @@ func TestUpdateConfig_FileSystem(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.Len(t, fn.FileSystemConfigs, 1)
 	assert.Equal(t, "/mnt/data", fn.FileSystemConfigs[0].LocalMountPath)
 }
@@ -186,7 +188,7 @@ func TestUpdateConfig_Layers(t *testing.T) {
 	require.Equal(t, http.StatusCreated, pubRec.Code)
 
 	var layerOut lambda.PublishLayerVersionOutput
-	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&layerOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pubRec.Body), &layerOut, jsonx.V1()))
 	layerARN := layerOut.LayerVersionArn
 
 	// Update function to use layer
@@ -196,7 +198,7 @@ func TestUpdateConfig_Layers(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(updRec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(updRec.Body), &fn, jsonx.V1()))
 	require.Len(t, fn.Layers, 1)
 	assert.Contains(t, fn.Layers[0].Arn, "my-layer")
 }
@@ -239,7 +241,7 @@ func TestGetFunctionConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, 15, fn.Timeout)
 	assert.Equal(t, 256, fn.MemorySize)
 }
@@ -259,7 +261,7 @@ func TestArchitectures_CreateArm64(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.Equal(t, []string{"arm64"}, fn.Architectures)
 }
 
@@ -274,7 +276,7 @@ func TestArchitectures_CreateX86(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, []string{"x86_64"}, fn.Architectures)
 }
 
@@ -290,7 +292,7 @@ func TestArchitectures_UpdateCode(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, []string{"arm64"}, fn.Architectures)
 }
 
@@ -305,7 +307,7 @@ func TestArchitectures_DefaultIsX86(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetFunctionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	// may be empty or x86_64 — just confirm it doesn't return arm64
 	for _, arch := range out.Configuration.Architectures {
 		assert.NotEqual(t, "arm64", arch)
@@ -328,7 +330,7 @@ func TestSnapStart_CreateWithPublishedVersions(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.SnapStart)
 	assert.Equal(t, "PublishedVersions", fn.SnapStart.ApplyOn)
 	assert.Equal(t, "On", fn.SnapStart.OptimizationStatus)
@@ -345,7 +347,7 @@ func TestSnapStart_CreateWithNone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.SnapStart)
 	assert.Equal(t, "None", fn.SnapStart.ApplyOn)
 	assert.Equal(t, "Off", fn.SnapStart.OptimizationStatus)
@@ -363,7 +365,7 @@ func TestSnapStart_UpdateFunctionConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.SnapStart)
 	assert.Equal(t, "PublishedVersions", fn.SnapStart.ApplyOn)
 	assert.Equal(t, "On", fn.SnapStart.OptimizationStatus)
@@ -384,7 +386,7 @@ func TestSnapStart_DisableViaUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	require.NotNil(t, fn.SnapStart)
 	assert.Equal(t, "None", fn.SnapStart.ApplyOn)
 	assert.Equal(t, "Off", fn.SnapStart.OptimizationStatus)
@@ -403,7 +405,7 @@ func TestSnapStart_GetFunctionReflectsState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetFunctionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotNil(t, out.Configuration.SnapStart)
 	assert.Equal(t, "PublishedVersions", out.Configuration.SnapStart.ApplyOn)
 }
@@ -423,7 +425,7 @@ func TestFunctionState_ActiveOnCreate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.GetFunctionOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.Equal(t, lambda.FunctionStateActive, out.Configuration.State)
 }
 
@@ -445,7 +447,7 @@ func TestFunctionState_ListedFunctionsHaveState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out lambda.ListFunctionsOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	for _, fn := range out.Functions {
 		assert.NotEmpty(t, string(fn.State), "function %s has empty State", fn.FunctionName)
 	}
@@ -462,7 +464,7 @@ func TestFunctionState_VersionHasState(t *testing.T) {
 	require.Equal(t, http.StatusCreated, pubRec.Code)
 
 	var v lambda.FunctionVersion
-	require.NoError(t, json.NewDecoder(pubRec.Body).Decode(&v))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(pubRec.Body), &v, jsonx.V1()))
 	assert.NotEmpty(t, string(v.State))
 }
 
@@ -488,7 +490,7 @@ func TestCreateFunction_AllFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	assert.Equal(t, "full-fn", fn.FunctionName)
 	assert.Equal(t, 1024, fn.MemorySize)
 	assert.Equal(t, 60, fn.Timeout)
@@ -590,7 +592,7 @@ func TestUpdateFunctionCode_Publish(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 
 			assert.Equal(t, tt.wantVersion, fn.Version,
 				"UpdateFunctionCode Publish=%v: Version must be %q", tt.publish, tt.wantVersion)
@@ -647,7 +649,7 @@ func TestCreateFunction_Tags(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var out lambda.GetFunctionOutput
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 
 			for k, v := range tt.wantTags {
 				assert.Equal(t, v, out.Tags[k],
@@ -706,7 +708,7 @@ func TestCreateFunction_MemorySizeNotDivisibleBy64(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]string
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterValueException", errResp["__type"],
 					"error type must be InvalidParameterValueException, not ServiceException")
 			}
@@ -737,7 +739,7 @@ func TestSnapStart_GetConfiguration_OptimizationStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, cfgRec.Code)
 
 	var cfg map[string]any
-	require.NoError(t, json.NewDecoder(cfgRec.Body).Decode(&cfg))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(cfgRec.Body), &cfg, jsonx.V1()))
 	snap, _ := cfg["SnapStart"].(map[string]any)
 	require.NotNil(t, snap)
 	assert.Equal(t, "PublishedVersions", snap["ApplyOn"])
@@ -834,7 +836,7 @@ func TestListFunctions_FunctionVersionAll(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			fns, _ := out["Functions"].([]any)
 			assert.GreaterOrEqual(t, len(fns), tc.wantMinCount,
 				"FunctionVersion=ALL must include $LATEST and all published versions")
@@ -876,7 +878,7 @@ func TestUpdateFunctionCodeArchitectures(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 	require.Equal(t, []string{"arm64"}, fn.Architectures)
 
 	// GetFunctionConfiguration returns the stored architectures.
@@ -885,7 +887,7 @@ func TestUpdateFunctionCodeArchitectures(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fn2 lambda.FunctionConfiguration
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn2, jsonx.V1()))
 	assert.Equal(t, []string{"arm64"}, fn2.Architectures)
 }
 

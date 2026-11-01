@@ -1,12 +1,15 @@
 package elasticsearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestElasticsearchHandler_ListElasticsearchVersions verifies all 22 valid
@@ -33,7 +36,7 @@ func TestElasticsearchHandler_ListElasticsearchVersions(t *testing.T) {
 	var out struct {
 		ElasticsearchVersions []string `json:"ElasticsearchVersions"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	require.Len(t, out.ElasticsearchVersions, 22, "expected all 22 versions")
 
 	versionSet := make(map[string]bool)
@@ -100,7 +103,7 @@ func TestElasticsearchHandler_CompatibleVersionsDomain(t *testing.T) {
 					TargetVersions []string `json:"TargetVersions"`
 				} `json:"CompatibleElasticsearchVersions"`
 			}
-			require.NoError(t, json.NewDecoder(compatResp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(compatResp.Body), &out, jsonx.V1()))
 			require.Len(t, out.CompatibleElasticsearchVersions, 1)
 			assert.Equal(t, tc.wantSourceVersion, out.CompatibleElasticsearchVersions[0].SourceVersion)
 		})

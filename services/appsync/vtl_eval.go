@@ -1,12 +1,14 @@
 package appsync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -23,7 +25,7 @@ func (l *vlist) MarshalJSON() ([]byte, error) {
 		return []byte("[]"), nil
 	}
 
-	return json.Marshal(l.items)
+	return json.Marshal(l.items, jsonx.V1())
 }
 
 // vns is a utility namespace reference ($util, $util.time, ...).
@@ -763,7 +765,7 @@ func toNum(v any) (float64, bool, bool) {
 		return float64(t), true, true
 	case float64:
 		return t, false, true
-	case json.Number:
+	case jsonx.Number:
 		if i, err := t.Int64(); err == nil {
 			return float64(i), true, true
 		}
@@ -805,7 +807,7 @@ func vrender(v any) string {
 		return strconv.Itoa(t)
 	case float64:
 		return renderFloat(t)
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	case *vlist:
 		parts := make([]string, len(t.items))
@@ -867,7 +869,7 @@ func vnorm(v any) any {
 		}
 
 		return t
-	case json.Number:
+	case jsonx.Number:
 		if i, err := t.Int64(); err == nil {
 			return i
 		}

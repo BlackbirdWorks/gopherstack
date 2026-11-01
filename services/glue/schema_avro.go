@@ -1,10 +1,12 @@
 package glue
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errAvroSchema = errors.New("invalid AVRO schema")
@@ -64,7 +66,7 @@ func avroIsPrimitive(t string) bool {
 
 func parseAvro(def string) (*avroNode, error) {
 	var v any
-	if err := json.Unmarshal([]byte(def), &v); err != nil {
+	if err := json.Unmarshal([]byte(def), &v, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("schema is not valid JSON: %w", err)
 	}
 

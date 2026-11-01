@@ -1,12 +1,13 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildStreamOps() map[string]handlerFunc {
@@ -23,7 +24,7 @@ func (h *Handler) buildStreamOps() map[string]handlerFunc {
 
 func (h *Handler) handleCreateStream(c *echo.Context, body []byte) error {
 	var req createStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -49,7 +50,7 @@ func (h *Handler) handleCreateStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDescribeStream(c *echo.Context, body []byte) error {
 	var req describeStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -63,7 +64,7 @@ func (h *Handler) handleDescribeStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListStreams(c *echo.Context, body []byte) error {
 	var req listStreamsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -90,7 +91,7 @@ func (h *Handler) handleListStreams(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUpdateStream(c *echo.Context, body []byte) error {
 	var req updateStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -113,7 +114,7 @@ func (h *Handler) handleUpdateStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDeleteStream(c *echo.Context, body []byte) error {
 	var req deleteStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -130,7 +131,7 @@ func (h *Handler) handleDeleteStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUpdateDataRetention(c *echo.Context, body []byte) error {
 	var req updateDataRetentionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -154,7 +155,7 @@ func (h *Handler) handleUpdateDataRetention(c *echo.Context, body []byte) error 
 
 func (h *Handler) handleGetDataEndpoint(c *echo.Context, body []byte) error {
 	var req getDataEndpointRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

@@ -2,7 +2,8 @@ package firehose_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -219,7 +221,7 @@ func TestS3Delivery_LambdaProcessorResults(t *testing.T) {
 
 	var ev transformEvent
 	require.Equal(t, 1, fn.callCount())
-	require.NoError(t, json.Unmarshal(fn.payloads[0], &ev))
+	require.NoError(t, json.Unmarshal(fn.payloads[0], &ev, jsonx.V1()))
 	assert.NotEmpty(t, ev.InvocationID)
 	assert.Equal(t, rtTestRegion, ev.Region)
 	assert.Regexp(t, `^arn:aws:firehose:us-east-1:000000000000:deliverystream/proc$`, ev.DeliveryStreamARN)
@@ -234,7 +236,7 @@ func TestS3Delivery_LambdaProcessorResults(t *testing.T) {
 	require.Len(t, failed, 1)
 
 	var envlp map[string]string
-	require.NoError(t, json.Unmarshal(failed[0].body, &envlp))
+	require.NoError(t, json.Unmarshal(failed[0].body, &envlp, jsonx.V1()))
 	assert.Equal(t, testLambdaARN, envlp["lambdaARN"])
 	assert.Equal(t, "ProcessingFailed", envlp["errorCode"])
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("fail-three")), envlp["rawData"])
@@ -422,7 +424,10 @@ func (e *endpoint) serve(t *testing.T) *httptest.Server {
 
 func replyOK(w http.ResponseWriter, requestID string) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"requestId": requestID, "timestamp": time.Now().UnixMilli()})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]any{"requestId": requestID, "timestamp": time.Now().UnixMilli()},
+	)
 }
 
 func TestHTTPEndpoint_RequestContract(t *testing.T) {
@@ -468,7 +473,7 @@ func TestHTTPEndpoint_RequestContract(t *testing.T) {
 		} `json:"records"`
 		Timestamp int64 `json:"timestamp"`
 	}
-	require.NoError(t, json.Unmarshal(call.body, &body))
+	require.NoError(t, json.Unmarshal(call.body, &body, jsonx.V1()))
 	assert.Equal(t, call.headers.Get("X-Amz-Firehose-Request-Id"), body.RequestID)
 	assert.Positive(t, body.Timestamp)
 	require.Len(t, body.Records, 2)

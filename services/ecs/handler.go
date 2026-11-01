@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -194,7 +195,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		TaskSet           string `json:"taskSet"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	switch {
 	case req.ClusterName != "":
@@ -355,7 +356,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // Reset clears the backend state.
@@ -368,8 +369,6 @@ func (h *Handler) Reset() {
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
@@ -395,8 +394,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			},
 		)
 	case errors.Is(err, awserr.ErrInvalidParameter),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err),
+		jsonx.IsTypeError(err):
 		code := errorCode(err)
 
 		return c.JSON(

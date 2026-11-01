@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -34,7 +35,7 @@ func TestAppStream_Fleets(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				fleet := resp["Fleet"].(map[string]any)
 				assert.Equal(t, "my-fleet", fleet["Name"])
 				assert.Equal(t, "STOPPED", fleet["State"])
@@ -64,7 +65,7 @@ func TestAppStream_Fleets(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				fleets := resp["Fleets"].([]any)
 				assert.Len(t, fleets, 1)
 			},
@@ -124,7 +125,7 @@ func TestAppStream_Fleets(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				fleet := resp["Fleet"].(map[string]any)
 				assert.Equal(t, "stream.compute.large", fleet["InstanceType"])
 			},
@@ -190,7 +191,7 @@ func TestAppStream_Associations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				names := resp["Names"].([]any)
 				assert.Len(t, names, 1)
 				assert.Equal(t, "fleet-2", names[0])
@@ -209,7 +210,7 @@ func TestAppStream_Associations(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				names := resp["Names"].([]any)
 				assert.Len(t, names, 1)
 				assert.Equal(t, "stack-3", names[0])
@@ -377,7 +378,7 @@ func TestAppStream_FleetErrorCodes(t *testing.T) {
 
 			if tc.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tc.wantType, resp["__type"], "wrong __type in error response")
 			}
 		})
@@ -400,7 +401,7 @@ func TestAppStream_FleetComputeCapacityStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 
 	ccs, ok := fleet["ComputeCapacityStatus"].(map[string]any)
@@ -426,7 +427,7 @@ func TestAppStream_FleetComputeCapacityStatus(t *testing.T) {
 		require.Equal(t, http.StatusOK, recD.Code)
 
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(recD.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(recD.Body.Bytes(), &dr, jsonx.V1()))
 		fleets := dr["Fleets"].([]any)
 		require.Len(t, fleets, 1)
 		f := fleets[0].(map[string]any)
@@ -449,7 +450,7 @@ func TestAppStream_FleetComputeCapacityStatusDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 
 	ccs, ok := fleet["ComputeCapacityStatus"].(map[string]any)
@@ -473,7 +474,7 @@ func TestAppStream_FleetImageNameRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Equal(t, "AppStream-WinServer2019-05-01-2023", fleet["ImageName"])
 }
@@ -493,7 +494,7 @@ func TestAppStream_FleetImageArnRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Equal(t, imageArn, fleet["ImageArn"])
 }
@@ -512,7 +513,7 @@ func TestAppStream_FleetIdleDisconnectTimeout(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.EqualValues(t, 600, fleet["IdleDisconnectTimeoutInSeconds"])
 }
@@ -531,7 +532,7 @@ func TestAppStream_FleetEnableDefaultInternetAccess(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Equal(t, true, fleet["EnableDefaultInternetAccess"])
 }
@@ -554,7 +555,7 @@ func TestAppStream_FleetUpdateImageName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Equal(t, "new-image", fleet["ImageName"])
 }
@@ -578,7 +579,7 @@ func TestAppStream_FleetUpdateComputeCapacity(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	ccs := fleet["ComputeCapacityStatus"].(map[string]any)
 	assert.EqualValues(t, 5, ccs["Desired"])
@@ -597,7 +598,7 @@ func TestAppStream_FleetARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Regexp(t, `^arn:aws:appstream:[a-z0-9-]+:\d+:fleet/arn-fleet$`, fleet["Arn"])
 }
@@ -617,7 +618,7 @@ func TestAppStream_FleetDefaultsMatchAWS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleet"].(map[string]any)
 	assert.Equal(t, "ON_DEMAND", fleet["FleetType"])
 	assert.EqualValues(t, 57600, fleet["MaxUserDurationInSeconds"])
@@ -639,7 +640,7 @@ func TestAppStream_FleetStartedStateRunning(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	fleet := resp["Fleets"].([]any)[0].(map[string]any)
 	assert.Equal(t, "RUNNING", fleet["State"])
 }
@@ -669,6 +670,6 @@ func TestAppStream_DeleteFleet_ClearsAssociations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Names"], "re-created fleet must not inherit the deleted fleet's stack associations")
 }

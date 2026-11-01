@@ -1,7 +1,7 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -87,7 +88,7 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 				FailedEntries    []eventbridge.FailedEntry `json:"FailedEntries"`
 				FailedEntryCount int                       `json:"FailedEntryCount"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.Equal(t, 0, putResp.FailedEntryCount)
 
 			rec = makeRequestWithHandler(t, handler, e, "ListTargetsByRule", `{"Rule":"`+tt.ruleName+`"}`)
@@ -96,7 +97,7 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 			var listResp struct {
 				Targets []eventbridge.Target `json:"Targets"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.Targets, tt.wantInitialCount)
 
 			rec = makeRequestWithHandler(t, handler, e, "RemoveTargets",
@@ -104,7 +105,7 @@ func TestHandler_PutTargetsListAndRemove(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			rec = makeRequestWithHandler(t, handler, e, "ListTargetsByRule", `{"Rule":"`+tt.ruleName+`"}`)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.Targets, tt.wantRemainingCount)
 			assert.Equal(t, tt.wantRemainingID, listResp.Targets[0].ID)
 		})

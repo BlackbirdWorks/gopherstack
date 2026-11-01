@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -52,7 +53,7 @@ func TestHandler_TestEventPattern(t *testing.T) {
 	var resp struct {
 		Result bool `json:"Result"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.True(t, resp.Result)
 }
 
@@ -124,7 +125,7 @@ func TestPutRule_TagsPersisted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var putResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			ruleArn := putResp["RuleArn"]
 			require.NotEmpty(t, ruleArn)
 
@@ -137,7 +138,7 @@ func TestPutRule_TagsPersisted(t *testing.T) {
 					Value string `json:"Value"`
 				} `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			got := make(map[string]string, len(tagsResp.Tags))
 			for _, kv := range tagsResp.Tags {
@@ -187,7 +188,7 @@ func TestDeleteRule_CleansUpTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut, jsonx.V1()))
 	ruleARN := putOut["RuleArn"]
 	require.NotEmpty(t, ruleARN)
 
@@ -248,7 +249,7 @@ func TestHandler_PutRuleAndListRules(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var putResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.Contains(t, putResp["RuleArn"], tt.wantArnPart)
 
 			rec = makeRequestWithHandler(t, handler, e, "ListRules", `{}`)
@@ -257,7 +258,7 @@ func TestHandler_PutRuleAndListRules(t *testing.T) {
 			var listResp struct {
 				Rules []eventbridge.Rule `json:"Rules"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.Rules, tt.wantRuleLen)
 			assert.Equal(t, tt.wantRuleName, listResp.Rules[0].Name)
 		})
@@ -300,7 +301,7 @@ func TestHandler_DescribeRule(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var rule eventbridge.Rule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule, jsonx.V1()))
 			assert.Equal(t, tt.wantRuleName, rule.Name)
 			assert.Equal(t, tt.wantDescription, rule.Description)
 			assert.Equal(t, tt.wantState, rule.State)
@@ -346,13 +347,13 @@ func TestHandler_EnableDisableRule(t *testing.T) {
 
 			rec = makeRequestWithHandler(t, handler, e, "DescribeRule", `{"Name":"`+tt.ruleName+`"}`)
 			var rule eventbridge.Rule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule, jsonx.V1()))
 			assert.Equal(t, tt.wantDisabledState, rule.State)
 
 			makeRequestWithHandler(t, handler, e, "EnableRule", `{"Name":"`+tt.ruleName+`"}`)
 
 			rec = makeRequestWithHandler(t, handler, e, "DescribeRule", `{"Name":"`+tt.ruleName+`"}`)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rule, jsonx.V1()))
 			assert.Equal(t, tt.wantEnabledState, rule.State)
 		})
 	}

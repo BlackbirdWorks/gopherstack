@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -112,7 +113,7 @@ func TestHandler_Transformer(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)

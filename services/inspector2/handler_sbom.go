@@ -1,12 +1,13 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -36,7 +37,7 @@ func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -62,7 +63,7 @@ func (h *Handler) handleCancelSbomExport(c *echo.Context) error {
 		ReportID string `json:"reportId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) handleGetSbomExport(c *echo.Context) error {
 		ReportID string `json:"reportId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

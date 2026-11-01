@@ -1,7 +1,7 @@
 package bcmdataexports
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Sentinels, one per exception in the pinned SDK's error set.
@@ -120,7 +121,7 @@ func writeErrorBody(c *echo.Context, e awserr.APIError, d detail) error {
 	body, _ := json.Marshal(errorBody{
 		Type: e.Code, Message: e.Message, ResourceID: d.resourceID,
 		ResourceType: d.resourceType, Reason: d.reason, Fields: d.fields,
-	})
+	}, jsonx.V1())
 
 	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(crc32.ChecksumIEEE(body)), 10))
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")

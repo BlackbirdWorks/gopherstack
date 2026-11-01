@@ -1,8 +1,10 @@
 package azurekeyvault
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const backupPrefix = "gopherstack-keyvault-backup:"
@@ -25,7 +27,7 @@ type RestoreRequest struct {
 }
 
 func encodeBackup(bl *backupBlob) (BackupResult, error) {
-	raw, err := json.Marshal(bl)
+	raw, err := json.Marshal(bl, jsonx.V1())
 	if err != nil {
 		return BackupResult{}, err
 	}
@@ -40,7 +42,7 @@ func decodeBackup(value, kind string) (*backupBlob, error) {
 	}
 
 	var bl backupBlob
-	if err = json.Unmarshal(raw[len(backupPrefix):], &bl); err != nil || bl.Kind != kind {
+	if err = json.Unmarshal(raw[len(backupPrefix):], &bl, jsonx.V1()); err != nil || bl.Kind != kind {
 		return nil, errBadParameter("The backup blob is not a %s backup.", lowerKind(kind))
 	}
 

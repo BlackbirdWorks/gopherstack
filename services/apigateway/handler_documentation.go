@@ -1,9 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getDocumentationPartInput struct {
@@ -120,7 +122,7 @@ func (h *Handler) documentationActions() map[string]actionFn {
 
 func (h *Handler) createDocumentationPartAction(b []byte) (int, any, error) {
 	var input CreateDocumentationPartInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -134,7 +136,7 @@ func (h *Handler) createDocumentationPartAction(b []byte) (int, any, error) {
 
 func (h *Handler) createDocumentationVersionAction(b []byte) (int, any, error) {
 	var input CreateDocumentationVersionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -148,7 +150,7 @@ func (h *Handler) createDocumentationVersionAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDocumentationPartAction(b []byte) (int, any, error) {
 	var input getDocumentationPartInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	p, err := h.Backend.GetDocumentationPart(input.RestAPIID, input.DocPartID)
@@ -161,7 +163,7 @@ func (h *Handler) getDocumentationPartAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDocumentationPartsAction(b []byte) (int, any, error) {
 	var input getDocumentationPartsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	ps, err := h.Backend.GetDocumentationParts(input.RestAPIID)
@@ -231,7 +233,7 @@ func filterDocumentationPartsByStatus(parts []DocumentationPart, status string) 
 
 func (h *Handler) updateDocumentationPartAction(b []byte) (int, any, error) {
 	var input UpdateDocumentationPartInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateDocumentationPart(input)
@@ -244,7 +246,7 @@ func (h *Handler) updateDocumentationPartAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateDocumentationVersionAction(b []byte) (int, any, error) {
 	var input UpdateDocumentationVersionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateDocumentationVersion(input)
@@ -257,7 +259,7 @@ func (h *Handler) updateDocumentationVersionAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteDocumentationPartAction(b []byte) (int, any, error) {
 	var input deleteDocumentationPartInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteDocumentationPart(input.RestAPIID, input.DocPartID); err != nil {
@@ -269,7 +271,7 @@ func (h *Handler) deleteDocumentationPartAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDocumentationVersionAction(b []byte) (int, any, error) {
 	var input getDocumentationVersionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	v, err := h.Backend.GetDocumentationVersion(input.RestAPIID, input.DocVersion)
@@ -282,7 +284,7 @@ func (h *Handler) getDocumentationVersionAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDocumentationVersionsAction(b []byte) (int, any, error) {
 	var input getDocumentationVersionsInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	vs, err := h.Backend.GetDocumentationVersions(input.RestAPIID)
@@ -303,7 +305,7 @@ func (h *Handler) getDocumentationVersionsAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteDocumentationVersionAction(b []byte) (int, any, error) {
 	var input deleteDocumentationVersionInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteDocumentationVersion(input.RestAPIID, input.DocVersion); err != nil {

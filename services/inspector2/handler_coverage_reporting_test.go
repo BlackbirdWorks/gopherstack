@@ -1,7 +1,7 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -20,7 +21,7 @@ func TestListCoverageEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	resources, ok := resp["coveredResources"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, resources)
@@ -53,7 +54,7 @@ func TestListCoverageSeeded(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	resources, ok := resp["coveredResources"].([]any)
 	require.True(t, ok)
 	require.Len(t, resources, 2)
@@ -71,7 +72,7 @@ func TestListCoverageSeeded(t *testing.T) {
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	resources, ok = resp["coveredResources"].([]any)
 	require.True(t, ok)
 	require.Len(t, resources, 1)
@@ -106,7 +107,7 @@ func TestListCoverageStatistics(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.InDelta(t, float64(3), resp["totalCounts"], 0)
 	groups, ok := resp["countsByGroup"].([]any)
 	require.True(t, ok)
@@ -117,7 +118,7 @@ func TestListCoverageStatistics(t *testing.T) {
 		"groupBy": "RESOURCE_TYPE",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.InDelta(t, float64(3), resp["totalCounts"], 0)
 
 	groups, ok = resp["countsByGroup"].([]any)
@@ -231,7 +232,7 @@ func TestListCoverage_FilterCriteriaFacets(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			resources, ok := resp["coveredResources"].([]any)
 			require.True(t, ok)
 			require.Len(t, resources, 1)

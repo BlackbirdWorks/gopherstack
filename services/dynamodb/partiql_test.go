@@ -3,7 +3,7 @@ package dynamodb_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
@@ -92,7 +93,7 @@ func partiqlItemsFrom(t *testing.T, rec *httptest.ResponseRecorder) []any {
 	require.Equal(t, http.StatusOK, rec.Code, "response body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, ok := resp["Items"].([]any)
 	require.True(t, ok, "Items field missing or wrong type")
@@ -335,7 +336,7 @@ func TestPartiQL_Insert(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			item, ok := getResp["Item"].(map[string]any)
 			require.True(t, ok, "item not found for pk=%q", tc.lookupPK)
 			assert.Equal(t, tc.wantVal, item[tc.wantAttr], "attribute %q mismatch", tc.wantAttr)
@@ -415,7 +416,7 @@ func TestPartiQL_Update(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			item := getResp["Item"].(map[string]any)
 			assert.Equal(t, tc.wantVal, item[tc.wantAttr])
 		})
@@ -490,7 +491,7 @@ func TestPartiQL_Delete(t *testing.T) {
 			getRec := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Nil(t, getResp["Item"], "deleted item should not be present")
 
 			// Surviving item must still be there.
@@ -501,7 +502,7 @@ func TestPartiQL_Delete(t *testing.T) {
 			getRec2 := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody2)
 
 			var getResp2 map[string]any
-			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2, jsonx.V1()))
 			assert.NotNil(t, getResp2["Item"], "surviving item should still be present")
 		})
 	}
@@ -582,7 +583,7 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 			getRec := doRequest(t, handler, "DynamoDB_20120810.GetItem", getBody)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			if tc.wantGone {
 				assert.Nil(t, getResp["Item"])
@@ -670,7 +671,7 @@ func TestPartiQL_Batch(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			responses, ok := resp["Responses"].([]any)
 			require.True(t, ok)
 			require.Len(t, responses, tc.wantLen)
@@ -1071,7 +1072,7 @@ func TestBatchExecuteStatement_ParameterConversionFailure_ErrorCode(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	responses, ok := resp["Responses"].([]any)
 	require.True(t, ok)
 	require.Len(t, responses, 1)

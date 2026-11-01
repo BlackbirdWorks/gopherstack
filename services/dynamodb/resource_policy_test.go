@@ -1,7 +1,7 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -77,7 +78,7 @@ func TestResourcePolicy(t *testing.T) {
 		handler := dynamodb.NewHandler(backend)
 		code, resp := invokeOp(t, handler, "GetResourcePolicy", map[string]any{"ResourceArn": ""})
 		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
+		bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 		assert.Contains(t, string(bodyBytes), "ValidationException")
 	})
 
@@ -100,7 +101,7 @@ func TestResourcePolicy(t *testing.T) {
 			map[string]any{"ResourceArn": tableARN},
 		)
 		assert.Equal(t, http.StatusOK, code2)
-		bodyBytes, _ := json.Marshal(resp2)
+		bodyBytes, _ := json.Marshal(resp2, jsonx.V1())
 		assert.Contains(t, string(bodyBytes), "2012-10-17")
 	})
 
@@ -116,7 +117,7 @@ func TestResourcePolicy(t *testing.T) {
 			map[string]any{"ResourceArn": tableARN},
 		)
 		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
+		bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 		assert.Contains(t, string(bodyBytes), "ValidationException")
 	})
 
@@ -145,7 +146,7 @@ func TestResourcePolicy(t *testing.T) {
 			map[string]any{"ResourceArn": ""},
 		)
 		assert.Equal(t, http.StatusBadRequest, code)
-		bodyBytes, _ := json.Marshal(resp)
+		bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 		assert.Contains(t, string(bodyBytes), "ValidationException")
 	})
 }

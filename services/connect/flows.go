@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -57,7 +60,7 @@ func validateFlowContent(code, content string) error {
 	}
 
 	var doc flowDoc
-	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+	if err := json.Unmarshal([]byte(content), &doc, jsonx.V1()); err != nil {
 		return invalidFlowErr(code, "content is not valid flow language JSON: "+err.Error())
 	}
 
@@ -402,7 +405,7 @@ type CreateContactFlowModuleInput struct {
 	Settings    string
 	ClientToken string
 	instPath
-	ExternalInvocationConfiguration json.RawMessage
+	ExternalInvocationConfiguration jsontext.Value
 }
 
 func validateModule(content, settings string) error {
@@ -410,7 +413,7 @@ func validateModule(content, settings string) error {
 		return err
 	}
 
-	if settings != "" && !json.Valid([]byte(settings)) {
+	if settings != "" && !jsontext.Value([]byte(settings)).IsValid(jsonx.V1()) {
 		return invalidFlowErr("InvalidContactFlowModuleException", "Settings is not valid JSON")
 	}
 

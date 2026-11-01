@@ -2,7 +2,7 @@ package codeartifact_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -44,7 +45,7 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	versions, _ := resp["versions"].([]any)
 	assert.Len(t, versions, 2)
 }
@@ -206,7 +207,7 @@ func TestHandler_GetPackageVersionReadme(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				_, ok := resp["readme"]
 				assert.True(t, ok)
 			}
@@ -240,7 +241,7 @@ func TestHandler_GetPackageVersionReadme_FromPublishedPackageJSON(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "# My Package\n\nUsage instructions.", resp["readme"])
 	assert.Equal(t, "npm", resp["format"])
 	assert.Equal(t, "mypkg", resp["package"])
@@ -273,7 +274,7 @@ func TestHandler_GetPackageVersionReadme_NoPackageJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["readme"])
 }
 
@@ -310,7 +311,7 @@ func TestHandler_ListPackageVersionDependencies_FromPublishedPackageJSON(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	deps, _ := resp["dependencies"].([]any)
 	require.Len(t, deps, 4)
 
@@ -394,7 +395,7 @@ func TestHandler_ListPackageVersionAssets(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assets, _ := resp["assets"].([]any)
 				assert.NotNil(t, assets)
 			}
@@ -470,7 +471,7 @@ func TestHandler_ListPackageVersionDependencies(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				deps, _ := resp["dependencies"].([]any)
 				assert.NotNil(t, deps)
 			}
@@ -551,7 +552,7 @@ func TestHandler_ListPackageVersions(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				versions, _ := resp["versions"].([]any)
 				assert.Len(t, versions, tt.wantCount)
 			}
@@ -646,7 +647,7 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["version"])
 				assert.NotEmpty(t, resp["status"])
 				assert.NotEmpty(t, resp["asset"])

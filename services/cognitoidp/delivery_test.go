@@ -2,7 +2,7 @@ package cognitoidp_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -76,7 +77,7 @@ func newDeliveryEnv(t *testing.T, poolExtra map[string]any) *deliveryEnv {
 		} `json:"UserPool"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pool))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pool, jsonx.V1()))
 
 	rec = doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
 		"UserPoolId": pool.UserPool.ID, "ClientName": "app",
@@ -89,7 +90,7 @@ func newDeliveryEnv(t *testing.T, poolExtra map[string]any) *deliveryEnv {
 		} `json:"UserPoolClient"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &client))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &client, jsonx.V1()))
 
 	return &deliveryEnv{h: h, snd: snd, poolID: pool.UserPool.ID, clientID: client.UserPoolClient.ClientID}
 }
@@ -102,7 +103,7 @@ func (e *deliveryEnv) call(t *testing.T, action string, body map[string]any) map
 
 	var out map[string]any
 	if rec.Body.Len() > 0 {
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	}
 
 	return out

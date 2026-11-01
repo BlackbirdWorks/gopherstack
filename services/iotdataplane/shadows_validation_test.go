@@ -1,7 +1,7 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -50,7 +51,7 @@ func TestBackend_ShadowUpdate_ObjectDocumentSucceeds(t *testing.T) {
 	require.NoError(t, err)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(resp, &result), "response must be valid JSON")
+	require.NoError(t, json.Unmarshal(resp, &result, jsonx.V1()), "response must be valid JSON")
 	assert.Contains(t, result, "version", "response must contain version")
 	assert.Contains(t, result, "timestamp", "response must contain timestamp")
 }
@@ -102,7 +103,7 @@ func Test_UpdateThingShadow_StateRequired(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidRequestException", resp["error"],
 					"error type must be InvalidRequestException")
 			}
@@ -157,7 +158,7 @@ func Test_VersionConflict_RejectedWithCorrectError(t *testing.T) {
 
 			if tt.wantErrorType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrorType, resp["error"],
 					"error type must be ConflictException")
 			}
@@ -421,7 +422,7 @@ func Test_ThingName_ValidationOnDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "error")
 }
 func Test_ThingName_ValidationOnListNamedShadows(t *testing.T) {
@@ -493,7 +494,7 @@ func Test_ClientToken_TooLong_ViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", resp["error"])
 }
 func Test_ClientToken_Exactly64Chars_Accepted(t *testing.T) {
@@ -507,7 +508,7 @@ func Test_ClientToken_Exactly64Chars_Accepted(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, exact, resp["clientToken"])
 }
 func Test_ShadowUpdate_StateRequired(t *testing.T) {
@@ -584,7 +585,7 @@ func Test_ShadowUpdate_StateRequired_ErrorShape(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", resp["error"])
 	assert.Contains(t, resp["message"], "state")
 }

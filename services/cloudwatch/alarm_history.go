@@ -1,10 +1,11 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -182,7 +183,7 @@ func stateChangeHistoryData(oldState, newState, reason, reasonData string) strin
 	}
 	if reasonData != "" {
 		var parsed any
-		if json.Unmarshal([]byte(reasonData), &parsed) == nil {
+		if json.Unmarshal([]byte(reasonData), &parsed, jsonx.V1()) == nil {
 			next["stateReasonData"] = parsed
 		}
 	}
@@ -191,7 +192,7 @@ func stateChangeHistoryData(oldState, newState, reason, reasonData string) strin
 		"version":  "1.0",
 		"oldState": map[string]any{"stateValue": oldState},
 		"newState": next,
-	})
+	}, jsonx.V1())
 
 	return string(bs)
 }

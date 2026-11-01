@@ -2,11 +2,13 @@ package iotwireless
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -229,7 +231,7 @@ func newDirtyDTORegistry() (
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables                     map[string]json.RawMessage   `json:"tables"`
+	Tables                     map[string]jsontext.Value    `json:"tables"`
 	ResourceTags               map[string]map[string]string `json:"resourceTags,omitempty"`
 	PartnerAccounts            map[string]string            `json:"partnerAccounts,omitempty"`
 	FuotaTaskMulticast         map[string]map[string]bool   `json:"fuotaTaskMulticast,omitempty"`
@@ -296,7 +298,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Idempotency:                idemEntries,
 	}
 
-	data, err := json.Marshal(snap) //nolint:musttag // nested types lack tags
+	data, err := json.Marshal(snap, jsonx.V1()) //nolint:musttag // nested types lack tags
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "iotwireless: failed to marshal snapshot", "error", err)
 
@@ -309,7 +311,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // snapshotDirtyTablesLocked builds the ephemeral DTO registry from the 8
 // account/region-scoped tables and returns its SnapshotAll() output. Must be
 // called with b.mu held for reading.
-func (b *InMemoryBackend) snapshotDirtyTablesLocked() (map[string]json.RawMessage, error) {
+func (b *InMemoryBackend) snapshotDirtyTablesLocked() (map[string]jsontext.Value, error) {
 	dtoReg, deviceDTOs, gatewayDTOs, serviceProfileDTOs, destinationDTOs,
 		deviceProfileDTOs, fuotaTaskDTOs, multicastGroupDTOs, networkAnalyzerConfigDTOs := newDirtyDTORegistry()
 
@@ -473,7 +475,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // ephemeral DTO registry, converting each DTO back to its live type by
 // re-populating the AccountID/Region fields the live type excludes from
 // JSON. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, deviceDTOs, gatewayDTOs, serviceProfileDTOs, destinationDTOs,
 		deviceProfileDTOs, fuotaTaskDTOs, multicastGroupDTOs, networkAnalyzerConfigDTOs := newDirtyDTORegistry()
 

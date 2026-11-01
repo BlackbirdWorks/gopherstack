@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -44,7 +45,7 @@ func TestKafka_DescribeClusterOperation(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 
 			op := backend.AddClusterOperationInternal(clusterArn, "UPDATE_BROKER_COUNT")
@@ -63,7 +64,7 @@ func TestKafka_DescribeClusterOperation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				opInfo, ok := resp["clusterOperationInfo"].(map[string]any)
 				require.True(t, ok)
@@ -145,7 +146,7 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	opList, ok := listResp["clusterOperationInfoList"].([]any)
 	require.True(t, ok)
 	assert.GreaterOrEqual(t, len(opList), 2, "should have at least 2 operations")
@@ -167,7 +168,7 @@ func TestClusterOperationTracking_V1(t *testing.T) {
 		require.Equal(t, http.StatusOK, descRec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		opInfo, infoOK := descResp["clusterOperationInfo"].(map[string]any)
 		require.True(t, infoOK)
 		assert.Equal(t, opArn, opInfo["operationArn"])
@@ -195,7 +196,7 @@ func TestClusterOperationTracking_V2(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	opList, ok := listResp["clusterOperationInfoList"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, opList)
@@ -205,7 +206,7 @@ func TestClusterOperationTracking_V2(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	opInfo, ok := descResp["clusterOperationInfo"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, opArn, opInfo["operationArn"])
@@ -242,7 +243,7 @@ func TestListClusterOperationsV2_OmitsDescribeOnlyFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	opList, ok := listResp["clusterOperationInfoList"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, opList)

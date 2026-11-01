@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"time"
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) routeARN(meshName, vrName, routeName string) string {
 
 //nolint:dupl // create pattern (incl. spec validation call) is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualRouter(
-	meshName, name string, spec json.RawMessage, tags map[string]string,
+	meshName, name string, spec jsontext.Value, tags map[string]string,
 ) (*VirtualRouter, error) {
 	b.mu.Lock("CreateVirtualRouter")
 	defer b.mu.Unlock()
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) DescribeVirtualRouter(meshName, name string) (*Virtual
 	return vr, nil
 }
 
-func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec json.RawMessage) (*VirtualRouter, error) {
+func (b *InMemoryBackend) UpdateVirtualRouter(meshName, name string, spec jsontext.Value) (*VirtualRouter, error) {
 	b.mu.Lock("UpdateVirtualRouter")
 	defer b.mu.Unlock()
 	if err := validateVirtualRouterSpec(spec); err != nil {
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) ListVirtualRouters(
 // ─── Route ───
 
 func (b *InMemoryBackend) CreateRoute(
-	meshName, virtualRouterName, routeName string, spec json.RawMessage, tags map[string]string,
+	meshName, virtualRouterName, routeName string, spec jsontext.Value, tags map[string]string,
 ) (*Route, error) {
 	if err := b.schemas.validate("routeSpec", spec); err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) DescribeRoute(meshName, virtualRouterName, routeName s
 
 func (b *InMemoryBackend) UpdateRoute(
 	meshName, virtualRouterName, routeName string,
-	spec json.RawMessage,
+	spec jsontext.Value,
 ) (*Route, error) {
 	if err := b.schemas.validate("routeSpec", spec); err != nil {
 		return nil, err

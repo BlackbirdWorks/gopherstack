@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func Test_PutResourcePolicy_ExistsConditions(t *testing.T) {
@@ -58,7 +60,7 @@ func Test_PutResourcePolicy_HashCondition(t *testing.T) {
 	var out struct {
 		PolicyHash string `json:"PolicyHash"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.PolicyHash)
 
 	// Stale hash -> ConditionCheckFailureException, and the policy is untouched.
@@ -90,7 +92,7 @@ func Test_DeleteResourcePolicy_HashCondition(t *testing.T) {
 	var out struct {
 		PolicyHash string `json:"PolicyHash"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Wrong hash -> rejected, policy stays.
 	rec = doGlueRequest(t, h, "DeleteResourcePolicy", map[string]any{
@@ -126,7 +128,7 @@ func TestGetResourcePolicies_ReturnsStoredPolicies(t *testing.T) {
 	var empty struct {
 		GetResourcePoliciesResponseList []map[string]any `json:"GetResourcePoliciesResponseList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty, jsonx.V1()))
 	assert.Empty(t, empty.GetResourcePoliciesResponseList)
 
 	doGlueRequest(t, h, "PutResourcePolicy", map[string]any{
@@ -143,7 +145,7 @@ func TestGetResourcePolicies_ReturnsStoredPolicies(t *testing.T) {
 	var out struct {
 		GetResourcePoliciesResponseList []map[string]any `json:"GetResourcePoliciesResponseList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.GetResourcePoliciesResponseList, 2)
 
 	for _, p := range out.GetResourcePoliciesResponseList {

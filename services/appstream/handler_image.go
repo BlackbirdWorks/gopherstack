@@ -2,11 +2,12 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Image handlers ---
@@ -20,7 +21,7 @@ type copyImageInput struct {
 
 func (h *Handler) opCopyImage(_ context.Context, body []byte) (any, error) {
 	var req copyImageInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -46,7 +47,7 @@ type createImportedImageInput struct {
 
 func (h *Handler) opCreateImportedImage(_ context.Context, body []byte) (any, error) {
 	var req createImportedImageInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -84,7 +85,7 @@ type createUpdatedImageInput struct {
 
 func (h *Handler) opCreateUpdatedImage(_ context.Context, body []byte) (any, error) {
 	var req createUpdatedImageInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -112,7 +113,7 @@ type deleteImageInput struct {
 
 func (h *Handler) opDeleteImage(_ context.Context, body []byte) (any, error) {
 	var req deleteImageInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -134,7 +135,7 @@ type describeImagesInput struct {
 func (h *Handler) opDescribeImages(_ context.Context, body []byte) (any, error) {
 	var req describeImagesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -173,7 +174,7 @@ type imagePermissionsInput struct {
 
 func (h *Handler) opUpdateImagePermissions(_ context.Context, body []byte) (any, error) {
 	var req imagePermissionsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -197,7 +198,7 @@ type deleteImagePermissionsInput struct {
 
 func (h *Handler) opDeleteImagePermissions(_ context.Context, body []byte) (any, error) {
 	var req deleteImagePermissionsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -216,7 +217,7 @@ type describeImagePermissionsInput struct {
 
 func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (any, error) {
 	var req describeImagePermissionsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -280,7 +281,7 @@ type createImageBuilderInput struct {
 
 func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req createImageBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -315,7 +316,7 @@ type deleteImageBuilderInput struct {
 
 func (h *Handler) opDeleteImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req deleteImageBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -335,7 +336,7 @@ type describeImageBuildersInput struct {
 func (h *Handler) opDescribeImageBuilders(_ context.Context, body []byte) (any, error) {
 	var req describeImageBuildersInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}
@@ -368,7 +369,7 @@ type startImageBuilderInput struct {
 // this handler invented one, which real SDK clients would never receive.
 func (h *Handler) opStartImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req startImageBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -392,7 +393,7 @@ type stopImageBuilderInput struct {
 
 func (h *Handler) opStopImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req stopImageBuilderInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -411,7 +412,7 @@ type createImageBuilderStreamingURLInput struct {
 
 func (h *Handler) opCreateImageBuilderStreamingURL(_ context.Context, body []byte) (any, error) {
 	var req createImageBuilderStreamingURLInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -435,7 +436,7 @@ type associateSoftwareInput struct {
 
 func (h *Handler) opAssociateSoftwareToImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req associateSoftwareInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -448,7 +449,7 @@ func (h *Handler) opAssociateSoftwareToImageBuilder(_ context.Context, body []by
 
 func (h *Handler) opDisassociateSoftwareFromImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req associateSoftwareInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -466,7 +467,7 @@ type describeSoftwareAssociationsInput struct {
 
 func (h *Handler) opDescribeSoftwareAssociations(_ context.Context, body []byte) (any, error) {
 	var req describeSoftwareAssociationsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -505,7 +506,7 @@ type startSoftwareDeploymentInput struct {
 
 func (h *Handler) opStartSoftwareDeploymentToImageBuilder(_ context.Context, body []byte) (any, error) {
 	var req startSoftwareDeploymentInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -533,7 +534,7 @@ type createExportImageTaskInput struct {
 
 func (h *Handler) opCreateExportImageTask(_ context.Context, body []byte) (any, error) {
 	var req createExportImageTaskInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -553,7 +554,7 @@ type getExportImageTaskInput struct {
 
 func (h *Handler) opGetExportImageTask(_ context.Context, body []byte) (any, error) {
 	var req getExportImageTaskInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
@@ -594,7 +595,7 @@ func stateFilterValues(filters []filterInput) []string {
 func (h *Handler) opListExportImageTasks(_ context.Context, body []byte) (any, error) {
 	var req listExportImageTasksInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 		}
 	}

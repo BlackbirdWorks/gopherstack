@@ -1,10 +1,12 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // restoreTestingRecoveryPointSelectionJSON is the wire shape of
@@ -71,7 +73,7 @@ type createRestoreTestingPlanBody struct {
 
 func (h *Handler) handleCreateRestoreTestingPlan(c *echo.Context, body []byte) error {
 	var in createRestoreTestingPlanBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -229,7 +231,7 @@ func (h *Handler) handleCreateRestoreTestingSelection(
 	}
 
 	var in createRestoreTestingSelectionBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterValueException", "invalid request body"))
 	}
 
@@ -331,7 +333,7 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 
 	var in updateRestoreTestingPlanBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),
@@ -445,7 +447,7 @@ func (h *Handler) handleUpdateRestoreTestingSelection(
 
 	var in updateRestoreTestingSelectionBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),

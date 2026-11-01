@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -129,7 +130,7 @@ func TestPutMethod_RequestParametersRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
 
 	var method map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &method))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &method, jsonx.V1()))
 
 	params, _ := method["requestParameters"].(map[string]any)
 	require.NotNil(t, params, "requestParameters must be present in response")
@@ -234,7 +235,7 @@ func TestTestInvokeMethod(t *testing.T) {
 
 			if tt.wantStatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.EqualValues(t, http.StatusOK, resp["status"])
 			}
 		})

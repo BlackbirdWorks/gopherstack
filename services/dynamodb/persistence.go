@@ -2,10 +2,12 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"log/slog"
 	"strconv"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -35,7 +37,7 @@ type dbSnapshot struct {
 type dbSnapshotWire struct {
 	DefaultRegion string               `json:"defaultRegion"`
 	AccountID     string               `json:"accountID"`
-	Tables        json.RawMessage      `json:"tables"`
+	Tables        jsontext.Value       `json:"tables"`
 	Backups       []*Backup            `json:"backups,omitempty"`
 	GlobalTables  []*StoredGlobalTable `json:"globalTables,omitempty"`
 	Version       int                  `json:"version"`
@@ -67,7 +69,7 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 		AccountID:     db.accountID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx,
 			"DynamoDB: failed to serialise snapshot; state will not be persisted",
@@ -82,16 +84,16 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 
 // marshalTablesRLocked marshals each table under its own table.mu.RLock, then reassembles the JSON array.
 // Reassembling per-table bytes, rather than marshaling the slice directly, keeps the wire format byte-identical.
-func marshalTablesRLocked(tables []*Table) (json.RawMessage, error) {
+func marshalTablesRLocked(tables []*Table) (jsontext.Value, error) {
 	if len(tables) == 0 {
-		return json.RawMessage("null"), nil
+		return jsontext.Value("null"), nil
 	}
 
-	parts := make([]json.RawMessage, len(tables))
+	parts := make([]jsontext.Value, len(tables))
 
 	for i, t := range tables {
 		t.mu.RLock("Snapshot")
-		data, err := json.Marshal(t)
+		data, err := json.Marshal(t, jsonx.V1())
 		t.mu.RUnlock()
 
 		if err != nil {
@@ -101,7 +103,7 @@ func marshalTablesRLocked(tables []*Table) (json.RawMessage, error) {
 		parts[i] = data
 	}
 
-	return json.Marshal(parts)
+	return json.Marshal(parts, jsonx.V1())
 }
 
 // Restore loads backend state from a JSON snapshot.

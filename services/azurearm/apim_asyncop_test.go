@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -16,6 +16,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const apimSvcBody = `{"location":"westus","sku":{"name":"Developer","capacity":1},` +
@@ -53,7 +55,7 @@ func statusDoc(t *testing.T, body string) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &m))
+	require.NoError(t, json.Unmarshal([]byte(body), &m, jsonx.V1()))
 
 	return m
 }

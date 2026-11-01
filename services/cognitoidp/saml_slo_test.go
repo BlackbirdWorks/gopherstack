@@ -8,7 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -53,7 +54,7 @@ func (e *samlEnv) loginSAML(t *testing.T) string {
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 
 	var tok map[string]any
-	require.NoError(t, json.Unmarshal(body, &tok))
+	require.NoError(t, json.Unmarshal(body, &tok, jsonx.V1()))
 
 	return tok["access_token"].(string)
 }

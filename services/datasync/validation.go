@@ -1,7 +1,7 @@
 package datasync
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
@@ -9,6 +9,7 @@ import (
 
 	dstypes "github.com/aws/aws-sdk-go-v2/service/datasync/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -115,7 +116,7 @@ func describeNotFound(err error, body []byte) error {
 	}
 
 	var fields map[string]any
-	if json.Unmarshal(body, &fields) != nil {
+	if json.Unmarshal(body, &fields, jsonx.V1()) != nil {
 		return err
 	}
 

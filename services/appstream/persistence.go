@@ -2,7 +2,7 @@ package appstream
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -38,7 +38,7 @@ const appstreamSnapshotVersion = 2
 // subscription exists at a time), so it is also persisted directly rather
 // than through a table.
 type backendSnapshot struct {
-	Tables               map[string]json.RawMessage     `json:"tables"`
+	Tables               map[string]jsontext.Value      `json:"tables"`
 	Associations         map[string]map[string]bool     `json:"associations"`
 	Tags                 map[string]map[string]string   `json:"tags"`
 	AppBlockBuilderAssoc map[string]map[string]bool     `json:"appBlockBuilderAssoc"`

@@ -1,13 +1,14 @@
 package efs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/efs"
 )
 
@@ -114,7 +115,7 @@ func TestBackupPolicy_EnabledRoundTrip(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	putRec := doREST(t, h, http.MethodPut,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/backup-policy",
@@ -130,7 +131,7 @@ func TestBackupPolicy_EnabledRoundTrip(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"BackupPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.Equal(t, "ENABLED", descOut.BackupPolicy.Status)
 }
@@ -150,7 +151,7 @@ func TestBackupPolicy_InvalidStatusRejected(t *testing.T) {
 	var fsOut struct {
 		FileSystemID string `json:"FileSystemId"`
 	}
-	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut))
+	require.NoError(t, json.Unmarshal(fsRec.Body.Bytes(), &fsOut, jsonx.V1()))
 
 	rec := doREST(t, h, http.MethodPut,
 		"/2015-02-01/file-systems/"+fsOut.FileSystemID+"/backup-policy",

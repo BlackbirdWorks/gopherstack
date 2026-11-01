@@ -1,7 +1,7 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -66,7 +67,7 @@ func TestConformancePackARN(t *testing.T) {
 			DeliveryS3Bucket   string `json:"DeliveryS3Bucket"`
 		} `json:"ConformancePackDetails"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConformancePackDetails, 1)
 	assert.Contains(t, out.ConformancePackDetails[0].ConformancePackArn, "arn:aws:config:")
 	assert.NotEmpty(t, out.ConformancePackDetails[0].ConformancePackID)
@@ -195,7 +196,7 @@ func TestAWSConfigHandler_PutConformancePack_TemplateBodyDeploysRules(t *testing
 			ComplianceType string `json:"ComplianceType"`
 		} `json:"ConformancePackRuleComplianceList"`
 	}
-	require.NoError(t, json.Unmarshal(complianceRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(complianceRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConformancePackRuleComplianceList, 1)
 	assert.Equal(t, "rule-a", out.ConformancePackRuleComplianceList[0].ConfigRuleName)
 	assert.Equal(t, "INSUFFICIENT_DATA", out.ConformancePackRuleComplianceList[0].ComplianceType)
@@ -233,7 +234,7 @@ func TestAWSConfigHandler_ListConformancePackComplianceScores(t *testing.T) {
 			Score               string `json:"Score"`
 		} `json:"ConformancePackComplianceScores"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConformancePackComplianceScores, 1)
 	assert.Equal(t, "pack1", out.ConformancePackComplianceScores[0].ConformancePackName)
 	assert.Equal(t, "INSUFFICIENT_DATA", out.ConformancePackComplianceScores[0].Score)

@@ -1,13 +1,15 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"sync/atomic"
 
 	"github.com/google/uuid"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -41,7 +43,7 @@ func lifecycleEligible(clientID string) bool {
 }
 
 func (b *Broker) publishLifecycle(topic string, payload map[string]any) {
-	raw, err := json.Marshal(payload)
+	raw, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		return
 	}

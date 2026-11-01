@@ -1,13 +1,15 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSingleImportTaskRoundTrip(t *testing.T) {
@@ -44,7 +46,7 @@ func TestSingleImportTaskRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var start map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 			id, _ := start["Id"].(string)
 			arn, _ := start["Arn"].(string)
@@ -53,7 +55,7 @@ func TestSingleImportTaskRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, "d1", got["DestinationName"])
 			assert.Equal(t, tt.wantPositioning, orEmpty(got["Positioning"]))
 
@@ -71,7 +73,7 @@ func TestSingleImportTaskRoundTrip(t *testing.T) {
 				} `json:"Tags"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp, jsonx.V1()))
 
 			if tt.wantTagValue == "" {
 				assert.Empty(t, tagResp.Tags)

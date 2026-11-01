@@ -1,10 +1,13 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -63,13 +66,13 @@ func (h *Handler) dispatchAnalyzerOps(op, path, query string, body []byte) (any,
 func (h *Handler) handleCreateAnalyzer(body []byte) (any, int, error) {
 	var req struct {
 		Tags          map[string]string   `json:"tags"`
-		Configuration json.RawMessage     `json:"configuration"`
+		Configuration jsontext.Value      `json:"configuration"`
 		AnalyzerName  string              `json:"analyzerName"`
 		Type          string              `json:"type"`
 		ArchiveRules  []inlineArchiveRule `json:"archiveRules"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -186,10 +189,10 @@ func (h *Handler) handleUpdateAnalyzer(path string, body []byte) (any, int, erro
 	name := extractAnalyzerName(path)
 
 	var req struct {
-		Configuration json.RawMessage `json:"configuration"`
+		Configuration jsontext.Value `json:"configuration"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -208,12 +211,12 @@ func (h *Handler) handleUpdateAnalyzer(path string, body []byte) (any, int, erro
 
 func (h *Handler) handleCreateServiceLinkedAnalyzer(body []byte) (any, int, error) {
 	var req struct {
-		Configuration json.RawMessage     `json:"configuration"`
+		Configuration jsontext.Value      `json:"configuration"`
 		Type          string              `json:"type"`
 		ArchiveRules  []inlineArchiveRule `json:"archiveRules"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

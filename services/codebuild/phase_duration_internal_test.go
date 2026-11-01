@@ -1,12 +1,14 @@
 package codebuild
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRecordSuccessfulPhasesDurationsAreWholeSeconds(t *testing.T) {
@@ -31,7 +33,7 @@ func TestRecordSuccessfulPhasesDurationsAreWholeSeconds(t *testing.T) {
 			recordSuccessfulPhases(build, build.StartTime+tt.elapsed)
 
 			for _, p := range build.Phases {
-				raw, err := json.Marshal(p)
+				raw, err := json.Marshal(p, jsonx.V1())
 				require.NoError(t, err)
 				assert.NotRegexp(t, `"durationInSeconds":\d*\.`, string(raw))
 

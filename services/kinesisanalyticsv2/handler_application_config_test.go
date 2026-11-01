@@ -1,13 +1,14 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
@@ -73,7 +74,7 @@ func TestKAV2_AddApplicationCloudWatchLoggingOption(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				descriptions, ok := out["CloudWatchLoggingOptionDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, descriptions, tt.wantCWLLen)
@@ -146,7 +147,7 @@ func TestKAV2_AddApplicationInput(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				inputs, ok := out["InputDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, inputs, tt.wantInputs)
@@ -196,7 +197,7 @@ func TestKAV2_AddApplicationInputProcessingConfiguration(t *testing.T) {
 		})
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		inputs := out["InputDescriptions"].([]any)
 		input := inputs[0].(map[string]any)
 
@@ -328,7 +329,7 @@ func TestKAV2_AddApplicationOutput(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				outputs, ok := out["OutputDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, outputs, tt.wantOutputs)
@@ -422,7 +423,7 @@ func TestKAV2_AddApplicationReferenceDataSource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				refs, ok := out["ReferenceDataSourceDescriptions"].([]any)
 				require.True(t, ok)
 				assert.Len(t, refs, tt.wantRefs)
@@ -512,7 +513,7 @@ func TestKAV2_AddApplicationVpcConfiguration(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotNil(t, out["VpcConfigurationDescription"])
 				vpcDesc, ok := out["VpcConfigurationDescription"].(map[string]any)
 				require.True(t, ok)
@@ -545,7 +546,7 @@ func TestKAV2_VpcConfiguration_NonNilSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	vpcDesc, ok := out["VpcConfigurationDescription"].(map[string]any)
 	require.True(t, ok)
@@ -612,7 +613,7 @@ func TestKAV2_AddOps_VersionBump(t *testing.T) {
 			respBody := tt.setupAdd(h, appName)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(respBody, &out))
+			require.NoError(t, json.Unmarshal(respBody, &out, jsonx.V1()))
 			versionID, ok := out["ApplicationVersionId"].(float64)
 			require.True(t, ok)
 			assert.InEpsilon(t, 2.0, versionID, 1e-9)

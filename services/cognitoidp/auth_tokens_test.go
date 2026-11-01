@@ -2,7 +2,7 @@ package cognitoidp_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -121,7 +122,7 @@ func initiateAuth(t *testing.T, h *cognitoidp.Handler, clientID, username string
 	require.Equal(t, http.StatusOK, rec.Code, "InitiateAuth: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -137,7 +138,7 @@ func jwtClaims(t *testing.T, token string) map[string]any {
 	require.NoError(t, err, "base64 decode JWT payload")
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(payload, &claims))
+	require.NoError(t, json.Unmarshal(payload, &claims, jsonx.V1()))
 
 	return claims
 }
@@ -217,7 +218,7 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			assert.Equal(t, tt.accessTokenValidity, createResp.UserPoolClient.AccessTokenValidity)
 			assert.Equal(t, tt.idTokenValidity, createResp.UserPoolClient.IDTokenValidity)
 			assert.Equal(t, wantRefresh, createResp.UserPoolClient.RefreshTokenValidity)
@@ -242,7 +243,7 @@ func TestTokenValidity_StoredAndReturned(t *testing.T) {
 					RefreshTokenValidity int32          `json:"RefreshTokenValidity"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.accessTokenValidity, descResp.UserPoolClient.AccessTokenValidity)
 			assert.Equal(t, tt.idTokenValidity, descResp.UserPoolClient.IDTokenValidity)
 			assert.Equal(t, wantRefresh, descResp.UserPoolClient.RefreshTokenValidity)
@@ -268,7 +269,7 @@ func TestTokenValidity_UpdateClient(t *testing.T) {
 			ClientID string `json:"ClientId"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	clientID := createResp.UserPoolClient.ClientID
 
 	// Update with validity settings.
@@ -291,7 +292,7 @@ func TestTokenValidity_UpdateClient(t *testing.T) {
 			IDTokenValidity     int32          `json:"IdTokenValidity"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 	assert.Equal(t, int32(5), updResp.UserPoolClient.AccessTokenValidity)
 	assert.Equal(t, int32(5), updResp.UserPoolClient.IDTokenValidity)
 	assert.Equal(t, "minutes", updResp.UserPoolClient.TokenValidityUnits["AccessToken"])
@@ -349,7 +350,7 @@ func TestTokenValidity_HonoredInJWT(t *testing.T) {
 					ClientID string `json:"ClientId"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			clientID := createResp.UserPoolClient.ClientID
 
 			// Create and confirm a user, then authenticate.
@@ -374,7 +375,7 @@ func TestTokenValidity_HonoredInJWT(t *testing.T) {
 					ClientID string `json:"ClientId"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &cr, jsonx.V1()))
 			validClientID := cr.UserPoolClient.ClientID
 
 			// Sign up user with the validity client.
@@ -409,7 +410,7 @@ func TestTokenValidity_HonoredInJWT(t *testing.T) {
 					ExpiresIn   float64 `json:"ExpiresIn"`
 				} `json:"AuthenticationResult"`
 			}
-			require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+			require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 
 			assert.InDelta(t, tt.wantExpiresIn, authResp.AuthenticationResult.ExpiresIn, 1, "ExpiresIn mismatch")
 
@@ -464,7 +465,7 @@ func TestAuthFlow_RefreshTokenAuth(t *testing.T) {
 	require.Equal(t, http.StatusOK, refreshRec.Code, refreshRec.Body.String())
 
 	var refreshResp map[string]any
-	require.NoError(t, json.Unmarshal(refreshRec.Body.Bytes(), &refreshResp))
+	require.NoError(t, json.Unmarshal(refreshRec.Body.Bytes(), &refreshResp, jsonx.V1()))
 	result, ok := refreshResp["AuthenticationResult"].(map[string]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, result["AccessToken"])
@@ -587,7 +588,7 @@ func TestGetTokensFromRefreshToken(t *testing.T) {
 			RefreshToken string `json:"RefreshToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 	refreshToken := authResp.AuthenticationResult.RefreshToken
 	require.NotEmpty(t, refreshToken)
 
@@ -603,7 +604,7 @@ func TestGetTokensFromRefreshToken(t *testing.T) {
 			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tokenResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tokenResp, jsonx.V1()))
 	assert.NotEmpty(t, tokenResp.AuthenticationResult.AccessToken)
 }
 
@@ -702,7 +703,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -710,7 +711,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				// Admin-create a confirmed user.
@@ -737,7 +738,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 					},
 				})
 				var authResp map[string]map[string]any
-				_ = json.Unmarshal(authRec.Body.Bytes(), &authResp)
+				_ = json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1())
 				rt := authResp["AuthenticationResult"]["RefreshToken"].(string)
 
 				return clientID, rt
@@ -749,7 +750,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p2"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -757,7 +758,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 					"ClientName": "c2",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				return clientID, "totally-invalid-refresh-token"
@@ -784,7 +785,7 @@ func TestHandler_RefreshTokenAuth(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["AuthenticationResult"]["AccessToken"])
 				assert.NotEmpty(t, resp["AuthenticationResult"]["IdToken"])
 				// After rotation the old token is gone; new one must differ.

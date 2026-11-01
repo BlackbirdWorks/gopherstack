@@ -1,7 +1,7 @@
 package dms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
@@ -125,7 +126,7 @@ func TestDeleteDataProvider_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundFault", body["__type"])
 }
 

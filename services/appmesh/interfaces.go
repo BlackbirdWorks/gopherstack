@@ -2,7 +2,7 @@ package appmesh
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -15,59 +15,59 @@ type StorageBackend interface {
 	Restore(ctx context.Context, data []byte) error
 
 	// Mesh operations
-	CreateMesh(name string, spec json.RawMessage, tags map[string]string) (*Mesh, error)
+	CreateMesh(name string, spec jsontext.Value, tags map[string]string) (*Mesh, error)
 	DescribeMesh(name string) (*Mesh, error)
-	UpdateMesh(name string, spec json.RawMessage) (*Mesh, error)
+	UpdateMesh(name string, spec jsontext.Value) (*Mesh, error)
 	DeleteMesh(name string) (*Mesh, error)
 	ListMeshes(maxResults int32, nextToken string) ([]*MeshSummary, string, error)
 
 	// VirtualNode operations
-	CreateVirtualNode(meshName, name string, spec json.RawMessage, tags map[string]string) (*VirtualNode, error)
+	CreateVirtualNode(meshName, name string, spec jsontext.Value, tags map[string]string) (*VirtualNode, error)
 	DescribeVirtualNode(meshName, name string) (*VirtualNode, error)
-	UpdateVirtualNode(meshName, name string, spec json.RawMessage) (*VirtualNode, error)
+	UpdateVirtualNode(meshName, name string, spec jsontext.Value) (*VirtualNode, error)
 	DeleteVirtualNode(meshName, name string) (*VirtualNode, error)
 	ListVirtualNodes(meshName string, maxResults int32, nextToken string) ([]*VirtualNodeSummary, string, error)
 
 	// VirtualRouter operations
-	CreateVirtualRouter(meshName, name string, spec json.RawMessage, tags map[string]string) (*VirtualRouter, error)
+	CreateVirtualRouter(meshName, name string, spec jsontext.Value, tags map[string]string) (*VirtualRouter, error)
 	DescribeVirtualRouter(meshName, name string) (*VirtualRouter, error)
-	UpdateVirtualRouter(meshName, name string, spec json.RawMessage) (*VirtualRouter, error)
+	UpdateVirtualRouter(meshName, name string, spec jsontext.Value) (*VirtualRouter, error)
 	DeleteVirtualRouter(meshName, name string) (*VirtualRouter, error)
 	ListVirtualRouters(meshName string, maxResults int32, nextToken string) ([]*VirtualRouterSummary, string, error)
 
 	// Route operations (nested under virtual router)
 	CreateRoute(
 		meshName, virtualRouterName, routeName string,
-		spec json.RawMessage,
+		spec jsontext.Value,
 		tags map[string]string,
 	) (*Route, error)
 	DescribeRoute(meshName, virtualRouterName, routeName string) (*Route, error)
-	UpdateRoute(meshName, virtualRouterName, routeName string, spec json.RawMessage) (*Route, error)
+	UpdateRoute(meshName, virtualRouterName, routeName string, spec jsontext.Value) (*Route, error)
 	DeleteRoute(meshName, virtualRouterName, routeName string) (*Route, error)
 	ListRoutes(meshName, virtualRouterName string, maxResults int32, nextToken string) ([]*RouteSummary, string, error)
 
 	// VirtualService operations
-	CreateVirtualService(meshName, name string, spec json.RawMessage, tags map[string]string) (*VirtualService, error)
+	CreateVirtualService(meshName, name string, spec jsontext.Value, tags map[string]string) (*VirtualService, error)
 	DescribeVirtualService(meshName, name string) (*VirtualService, error)
-	UpdateVirtualService(meshName, name string, spec json.RawMessage) (*VirtualService, error)
+	UpdateVirtualService(meshName, name string, spec jsontext.Value) (*VirtualService, error)
 	DeleteVirtualService(meshName, name string) (*VirtualService, error)
 	ListVirtualServices(meshName string, maxResults int32, nextToken string) ([]*VirtualServiceSummary, string, error)
 
 	// VirtualGateway operations
-	CreateVirtualGateway(meshName, name string, spec json.RawMessage, tags map[string]string) (*VirtualGateway, error)
+	CreateVirtualGateway(meshName, name string, spec jsontext.Value, tags map[string]string) (*VirtualGateway, error)
 	DescribeVirtualGateway(meshName, name string) (*VirtualGateway, error)
-	UpdateVirtualGateway(meshName, name string, spec json.RawMessage) (*VirtualGateway, error)
+	UpdateVirtualGateway(meshName, name string, spec jsontext.Value) (*VirtualGateway, error)
 	DeleteVirtualGateway(meshName, name string) (*VirtualGateway, error)
 	ListVirtualGateways(meshName string, maxResults int32, nextToken string) ([]*VirtualGatewaySummary, string, error)
 
 	// GatewayRoute operations (nested under virtual gateway)
 	CreateGatewayRoute(
 		meshName, virtualGatewayName, routeName string,
-		spec json.RawMessage,
+		spec jsontext.Value,
 		tags map[string]string,
 	) (*GatewayRoute, error)
 	DescribeGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error)
-	UpdateGatewayRoute(meshName, virtualGatewayName, routeName string, spec json.RawMessage) (*GatewayRoute, error)
+	UpdateGatewayRoute(meshName, virtualGatewayName, routeName string, spec jsontext.Value) (*GatewayRoute, error)
 	DeleteGatewayRoute(meshName, virtualGatewayName, routeName string) (*GatewayRoute, error)
 	ListGatewayRoutes(
 		meshName, virtualGatewayName string,
@@ -102,7 +102,7 @@ type Mesh struct {
 	Name   string
 	Status string
 	Meta   ResourceMeta
-	Spec   json.RawMessage
+	Spec   jsontext.Value
 }
 
 // MeshSummary is a mesh entry in a list response.
@@ -122,7 +122,7 @@ type VirtualNode struct {
 	VirtualNodeName string
 	Status          string
 	Meta            ResourceMeta
-	Spec            json.RawMessage
+	Spec            jsontext.Value
 }
 
 // VirtualNodeSummary is a virtual node entry in a list response.
@@ -143,7 +143,7 @@ type VirtualRouter struct {
 	VirtualRouterName string
 	Status            string
 	Meta              ResourceMeta
-	Spec              json.RawMessage
+	Spec              jsontext.Value
 }
 
 // VirtualRouterSummary is a virtual router entry in a list response.
@@ -165,7 +165,7 @@ type Route struct {
 	RouteName         string
 	Status            string
 	Meta              ResourceMeta
-	Spec              json.RawMessage
+	Spec              jsontext.Value
 }
 
 // RouteSummary is a route entry in a list response.
@@ -187,7 +187,7 @@ type VirtualService struct {
 	VirtualServiceName string
 	Status             string
 	Meta               ResourceMeta
-	Spec               json.RawMessage
+	Spec               jsontext.Value
 }
 
 // VirtualServiceSummary is a virtual service entry in a list response.
@@ -208,7 +208,7 @@ type VirtualGateway struct {
 	VirtualGatewayName string
 	Status             string
 	Meta               ResourceMeta
-	Spec               json.RawMessage
+	Spec               jsontext.Value
 }
 
 // VirtualGatewaySummary is a virtual gateway entry in a list response.
@@ -230,7 +230,7 @@ type GatewayRoute struct {
 	GatewayRouteName   string
 	Status             string
 	Meta               ResourceMeta
-	Spec               json.RawMessage
+	Spec               jsontext.Value
 }
 
 // GatewayRouteSummary is a gateway route entry in a list response.

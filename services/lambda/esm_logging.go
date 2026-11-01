@@ -2,11 +2,12 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"strconv"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -97,7 +98,7 @@ func (l esmLogger) emit(ctx context.Context, at, eventType string, extra map[str
 
 	maps.Copy(rec, extra)
 
-	body, err := json.Marshal(rec)
+	body, err := json.Marshal(rec, jsonx.V1())
 	if err != nil {
 		return
 	}

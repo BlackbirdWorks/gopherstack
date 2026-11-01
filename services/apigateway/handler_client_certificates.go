@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const opUpdateClientCertificate = "UpdateClientCertificate"
@@ -48,7 +50,7 @@ func (h *Handler) clientCertificateActions() map[string]actionFn {
 
 func (h *Handler) generateClientCertificateAction(b []byte) (int, any, error) {
 	var input GenerateClientCertificateInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GenerateClientCertificate(input)
@@ -63,7 +65,7 @@ func (h *Handler) getClientCertificateAction(b []byte) (int, any, error) {
 	var params struct {
 		ClientCertificateID string `json:"clientCertificateId"`
 	}
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GetClientCertificate(params.ClientCertificateID)
@@ -76,7 +78,7 @@ func (h *Handler) getClientCertificateAction(b []byte) (int, any, error) {
 
 func (h *Handler) getClientCertificatesAction(b []byte) (int, any, error) {
 	var input getClientCertificatesInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.GetClientCertificates()
@@ -99,7 +101,7 @@ func (h *Handler) deleteClientCertificateAction(b []byte) (int, any, error) {
 	var params struct {
 		ClientCertificateID string `json:"clientCertificateId"`
 	}
-	if err := json.Unmarshal(b, &params); err != nil {
+	if err := json.Unmarshal(b, &params, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteClientCertificate(params.ClientCertificateID); err != nil {
@@ -111,7 +113,7 @@ func (h *Handler) deleteClientCertificateAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateClientCertificateAction(b []byte) (int, any, error) {
 	var input UpdateClientCertificateInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 

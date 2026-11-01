@@ -21,7 +21,7 @@ package kms_test
 // regional endpoint would.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -74,7 +75,7 @@ func Test_ReplicateKey_InlinePolicy(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 			var createOut kms.CreateKeyOutput
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 			primaryID := createOut.KeyMetadata.KeyID
 
 			replicateBody := `{"KeyId":"` + primaryID + `","ReplicaRegion":"us-west-2","Policy":` +
@@ -89,7 +90,7 @@ func Test_ReplicateKey_InlinePolicy(t *testing.T) {
 			require.Equal(t, http.StatusOK, replicateRec.Code, replicateRec.Body.String())
 
 			var replicateOut kms.ReplicateKeyOutput
-			require.NoError(t, json.Unmarshal(replicateRec.Body.Bytes(), &replicateOut))
+			require.NoError(t, json.Unmarshal(replicateRec.Body.Bytes(), &replicateOut, jsonx.V1()))
 			replicaID := replicateOut.ReplicaKeyMetadata.KeyID
 			require.NotEmpty(t, replicaID)
 
@@ -99,7 +100,7 @@ func Test_ReplicateKey_InlinePolicy(t *testing.T) {
 			require.Equal(t, http.StatusOK, polRec.Code, polRec.Body.String())
 
 			var polOut kms.GetKeyPolicyOutput
-			require.NoError(t, json.Unmarshal(polRec.Body.Bytes(), &polOut))
+			require.NoError(t, json.Unmarshal(polRec.Body.Bytes(), &polOut, jsonx.V1()))
 			assert.Equal(t, "default", polOut.PolicyName)
 
 			if tc.wantPolicy != "" {
@@ -116,7 +117,7 @@ func Test_ReplicateKey_InlinePolicy(t *testing.T) {
 			require.Equal(t, http.StatusOK, primaryPolRec.Code)
 
 			var primaryPolOut kms.GetKeyPolicyOutput
-			require.NoError(t, json.Unmarshal(primaryPolRec.Body.Bytes(), &primaryPolOut))
+			require.NoError(t, json.Unmarshal(primaryPolRec.Body.Bytes(), &primaryPolOut, jsonx.V1()))
 			assert.NotEqual(t, customPolicy, primaryPolOut.Policy)
 		})
 	}

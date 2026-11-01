@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseAPIGWAccountPath handles /account paths.
@@ -32,7 +34,7 @@ func (h *Handler) accountActions() map[string]actionFn {
 		},
 		opUpdateAccount: func(b []byte) (int, any, error) {
 			var input UpdateAccountInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			out, err := h.Backend.UpdateAccount(input)

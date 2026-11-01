@@ -2,12 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -197,7 +199,7 @@ func (e *execEnv) invokeBatch(
 		payloads[i] = ent.payload
 	}
 
-	body, err := json.Marshal(payloads)
+	body, err := json.Marshal(payloads, jsonx.V1())
 	if err != nil {
 		fail(err)
 
@@ -217,7 +219,7 @@ func (e *execEnv) invokeBatch(
 
 	if invType == lambdaInvokeEvent {
 		results = make([]any, len(chunk))
-	} else if err = json.Unmarshal(raw, &results); err != nil || len(results) != len(chunk) {
+	} else if err = json.Unmarshal(raw, &results, jsonx.V1()); err != nil || len(results) != len(chunk) {
 		fail(fmt.Errorf("%w: BatchInvoke response must be a list of %d items", ErrValidation, len(chunk)))
 
 		return

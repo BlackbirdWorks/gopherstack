@@ -3,12 +3,14 @@ package firehose
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -120,7 +122,7 @@ func inferType(v any) string {
 	switch t := v.(type) {
 	case bool:
 		return colBoolean
-	case json.Number:
+	case jsonx.Number:
 		if _, err := t.Int64(); err == nil {
 			return colBigint
 		}
@@ -132,11 +134,10 @@ func inferType(v any) string {
 }
 
 func decodeObject(rec []byte) (map[string]any, bool) {
-	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(rec)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(bytes.TrimSpace(rec)))
 
 	var obj map[string]any
-	if err := dec.Decode(&obj); err != nil || obj == nil {
+	if err := json.UnmarshalDecode(dec, &obj, jsonx.V1(), jsonx.UseNumber()); err != nil || obj == nil {
 		return nil, false
 	}
 
@@ -162,10 +163,10 @@ func cellFor(obj map[string]any, col string) any {
 		return t
 	case bool:
 		return t
-	case json.Number:
+	case jsonx.Number:
 		return t.String()
 	default:
-		b, err := json.Marshal(t)
+		b, err := json.Marshal(t, jsonx.V1())
 		if err != nil {
 			return nil
 		}

@@ -1,13 +1,15 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const authorizerCtxKey = "apigwv2.authorizer"
@@ -51,7 +53,7 @@ func stringifyClaim(v any) string {
 
 		return "[" + strings.Join(parts, " ") + "]"
 	default:
-		b, _ := json.Marshal(t)
+		b, _ := json.Marshal(t, jsonx.V1())
 
 		return string(b)
 	}
@@ -97,7 +99,7 @@ func lambdaAuthorizerContext(respBytes []byte) map[string]any {
 	var resp struct {
 		Context map[string]any `json:"context"`
 	}
-	if err := json.Unmarshal(respBytes, &resp); err != nil || len(resp.Context) == 0 {
+	if err := json.Unmarshal(respBytes, &resp, jsonx.V1()); err != nil || len(resp.Context) == 0 {
 		return nil
 	}
 

@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -147,7 +148,7 @@ func buildHTTPRequest(ctx context.Context, endpoint string, req map[string]any) 
 	case string:
 		payload = strings.NewReader(b)
 	default:
-		raw, mErr := json.Marshal(b)
+		raw, mErr := json.Marshal(b, jsonx.V1())
 		if mErr != nil {
 			return nil, fmt.Errorf("%w: request body is not JSON-serializable", ErrValidation)
 		}

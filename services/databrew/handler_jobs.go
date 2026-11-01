@@ -2,10 +2,12 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseProfileJobOp(method, name string) string {
@@ -143,7 +145,7 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 		MaxRetries               int                       `json:"MaxRetries"`
 		Timeout                  int                       `json:"Timeout"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	j, err := h.Backend.CreateJob(
@@ -172,7 +174,7 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: j.Name})
+	return json.Marshal(map[string]string{keyName: j.Name}, jsonx.V1())
 }
 
 // outputLocationToOutputs converts a CreateProfileJobInput/UpdateProfileJobInput
@@ -204,7 +206,7 @@ func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byt
 		MaxRetries         int                 `json:"MaxRetries"`
 		Timeout            int                 `json:"Timeout"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	recipeName, recipeVersion := "", ""
@@ -238,14 +240,14 @@ func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: j.Name})
+	return json.Marshal(map[string]string{keyName: j.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	j, err := h.Backend.DescribeJob(ctx, req.Name)
@@ -256,7 +258,7 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 	cp := *j
 	cp.AccountID = ""
 
-	return json.Marshal(cp)
+	return json.Marshal(cp, jsonx.V1())
 }
 
 func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {
@@ -266,7 +268,7 @@ func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, erro
 		DatasetName string `json:"DatasetName"`
 		ProjectName string `json:"ProjectName"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
 	if err != nil {
 		return nil, err
@@ -295,7 +297,7 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 		MaxRetries               int                       `json:"MaxRetries"`
 		Timeout                  int                       `json:"Timeout"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateJob(
@@ -313,7 +315,7 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 // handleUpdateRecipeJob handles UpdateRecipeJob, whose wire field for the
@@ -332,7 +334,7 @@ func (h *Handler) handleUpdateRecipeJob(ctx context.Context, body []byte) ([]byt
 		MaxRetries         int                 `json:"MaxRetries"`
 		Timeout            int                 `json:"Timeout"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.UpdateJob(
@@ -348,28 +350,28 @@ func (h *Handler) handleUpdateRecipeJob(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if err := h.Backend.DeleteJob(ctx, req.Name); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{keyName: req.Name}, jsonx.V1())
 }
 
 func (h *Handler) handleStartJobRun(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	run, err := h.Backend.StartJobRun(ctx, req.Name)
@@ -377,7 +379,7 @@ func (h *Handler) handleStartJobRun(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"RunId": run.RunID})
+	return json.Marshal(map[string]string{"RunId": run.RunID}, jsonx.V1())
 }
 
 func (h *Handler) handleListJobRuns(ctx context.Context, body []byte) ([]byte, error) {
@@ -386,7 +388,7 @@ func (h *Handler) handleListJobRuns(ctx context.Context, body []byte) ([]byte, e
 		MaxResults string `json:"MaxResults"`
 		NextToken  string `json:"NextToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	maxResults, token, err := listParams(req.MaxResults, req.NextToken)
@@ -407,7 +409,7 @@ func (h *Handler) handleDescribeJobRun(ctx context.Context, body []byte) ([]byte
 		Name  string `json:"Name"`
 		RunID string `json:"RunId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	run, err := h.Backend.DescribeJobRun(ctx, req.Name, req.RunID)
@@ -415,7 +417,7 @@ func (h *Handler) handleDescribeJobRun(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(run)
+	return json.Marshal(run, jsonx.V1())
 }
 
 func (h *Handler) handleStopJobRun(ctx context.Context, body []byte) ([]byte, error) {
@@ -423,7 +425,7 @@ func (h *Handler) handleStopJobRun(ctx context.Context, body []byte) ([]byte, er
 		Name  string `json:"Name"`
 		RunID string `json:"RunId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	run, err := h.Backend.StopJobRun(ctx, req.Name, req.RunID)
@@ -431,5 +433,5 @@ func (h *Handler) handleStopJobRun(ctx context.Context, body []byte) ([]byte, er
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"RunId": run.RunID})
+	return json.Marshal(map[string]string{"RunId": run.RunID}, jsonx.V1())
 }

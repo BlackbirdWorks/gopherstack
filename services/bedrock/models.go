@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -252,7 +252,7 @@ type EvaluationDatasetMetricConfig struct {
 type AutomatedEvaluationConfig struct {
 	EvaluatorModelConfig *EvaluatorModelConfig           `json:"evaluatorModelConfig,omitempty"`
 	DatasetMetricConfigs []EvaluationDatasetMetricConfig `json:"datasetMetricConfigs,omitempty"`
-	CustomMetricConfig   json.RawMessage                 `json:"customMetricConfig,omitempty"`
+	CustomMetricConfig   jsontext.Value                  `json:"customMetricConfig,omitempty"`
 }
 
 // HumanEvaluationCustomMetric mirrors types.HumanEvaluationCustomMetric
@@ -366,8 +366,8 @@ func (c *EvaluationConfig) EvaluatorModelIdentifiers() []string {
 // than partially modeled, same rationale as AutomatedEvaluationConfig.
 // CustomMetricConfig above.
 type RAGConfig struct {
-	KnowledgeBaseConfig        json.RawMessage `json:"knowledgeBaseConfig,omitempty"`
-	PrecomputedRagSourceConfig json.RawMessage `json:"precomputedRagSourceConfig,omitempty"`
+	KnowledgeBaseConfig        jsontext.Value `json:"knowledgeBaseConfig,omitempty"`
+	PrecomputedRagSourceConfig jsontext.Value `json:"precomputedRagSourceConfig,omitempty"`
 }
 
 // EvaluationInferenceConfig models bedrock's inferenceConfig union
@@ -408,13 +408,13 @@ type AutomatedReasoningPolicy struct {
 	// api_op_UpdateAutomatedReasoningPolicy.go:37-63). Kept as raw JSON rather
 	// than the real nested rules/types/variables union -- inert, never
 	// interpreted, but genuinely the caller's own content, not fabricated.
-	PolicyDefinition json.RawMessage `json:"policyDefinition,omitempty"`
-	Description      string          `json:"description,omitempty"`
-	Status           string          `json:"status"`
-	DefinitionHash   string          `json:"definitionHash,omitempty"`
-	Version          string          `json:"version,omitempty"`
-	KmsKeyArn        string          `json:"kmsKeyArn,omitempty"`
-	Tags             []Tag           `json:"tags,omitempty"`
+	PolicyDefinition jsontext.Value `json:"policyDefinition,omitempty"`
+	Description      string         `json:"description,omitempty"`
+	Status           string         `json:"status"`
+	DefinitionHash   string         `json:"definitionHash,omitempty"`
+	Version          string         `json:"version,omitempty"`
+	KmsKeyArn        string         `json:"kmsKeyArn,omitempty"`
+	Tags             []Tag          `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
@@ -430,8 +430,8 @@ type AutomatedReasoningPolicyBuildWorkflow struct {
 	// label, sourceContent is the entire JSON payload). SourceContent is
 	// stored verbatim and never interpreted -- same rationale as
 	// AutomatedReasoningPolicy.PolicyDefinition above.
-	BuildWorkflowType string          `json:"buildWorkflowType,omitempty"`
-	SourceContent     json.RawMessage `json:"sourceContent,omitempty"`
+	BuildWorkflowType string         `json:"buildWorkflowType,omitempty"`
+	SourceContent     jsontext.Value `json:"sourceContent,omitempty"`
 }
 
 // AutomatedReasoningPolicyTestCase represents a test case for a policy.

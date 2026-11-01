@@ -3,7 +3,7 @@ package kms_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"strings"
@@ -47,7 +48,7 @@ func TestHandler_GetParametersForImport_ViaHTTP(t *testing.T) {
 		KeyID             string  `json:"KeyId"`
 		ParametersValidTo float64 `json:"ParametersValidTo"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, keyID, resp.KeyID)
 	assert.Greater(t, resp.ParametersValidTo, float64(0))
 }
@@ -98,7 +99,7 @@ func TestHandler_ImportKeyMaterial_WireFieldName_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut kms.DescribeKeyOutput
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, kms.KeyStateEnabled, descOut.KeyMetadata.KeyState)
 }
 
@@ -110,7 +111,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	h := kms.NewHandler(kms.NewInMemoryBackend())
 
 	// Create EXTERNAL-origin key.
-	createBody, err := json.Marshal(kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+	createBody, err := json.Marshal(kms.CreateKeyInput{Origin: kms.KeyOriginExternal}, jsonx.V1())
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(createBody))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -123,7 +124,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingImport, createOut.KeyMetadata.KeyState)
 
 	// Import key material.
@@ -135,7 +136,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	importBody, err := json.Marshal(kms.ImportKeyMaterialInput{
 		KeyID:       createOut.KeyMetadata.KeyID,
 		KeyMaterial: mat,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	importReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(importBody))
 	importReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -147,7 +148,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	assert.Equal(t, http.StatusOK, importRec.Code)
 
 	// Describe should show Enabled.
-	descBody, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	descBody, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID}, jsonx.V1())
 	require.NoError(t, err)
 	descReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(descBody))
 	descReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -159,11 +160,11 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut kms.DescribeKeyOutput
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, kms.KeyStateEnabled, descOut.KeyMetadata.KeyState)
 
 	// DeleteImportedKeyMaterial.
-	delBody, err := json.Marshal(kms.DeleteImportedKeyMaterialInput{KeyID: createOut.KeyMetadata.KeyID})
+	delBody, err := json.Marshal(kms.DeleteImportedKeyMaterialInput{KeyID: createOut.KeyMetadata.KeyID}, jsonx.V1())
 	require.NoError(t, err)
 	delReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(delBody))
 	delReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -175,7 +176,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delRec.Code)
 
 	// Key should be back to PendingImport.
-	descBody2, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	descBody2, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID}, jsonx.V1())
 	require.NoError(t, err)
 	descReq2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(descBody2))
 	descReq2.Header.Set("Content-Type", "application/x-amz-json-1.1")
@@ -187,7 +188,7 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec2.Code)
 
 	var descOut2 kms.DescribeKeyOutput
-	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(descRec2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.Equal(t, kms.KeyStatePendingImport, descOut2.KeyMetadata.KeyState)
 }
 
@@ -270,7 +271,7 @@ func TestKMSHandlerNewMaintenanceOps(t *testing.T) {
 			}
 
 			var payload map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload, jsonx.V1()))
 			_, ok := payload[tt.wantField]
 			assert.True(t, ok)
 		})
@@ -316,7 +317,7 @@ func TestKMS_ErrorClassification_MissingTableEntries(t *testing.T) {
 			ValidTo:     pastTS,
 		}))
 
-		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")}, jsonx.V1())
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
@@ -327,7 +328,7 @@ func TestKMS_ErrorClassification_MissingTableEntries(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var errResp kms.ErrorResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 	})
 
@@ -349,7 +350,7 @@ func TestKMS_ErrorClassification_MissingTableEntries(t *testing.T) {
 		e := echo.New()
 		h := kms.NewHandler(restored)
 
-		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")})
+		body, err := json.Marshal(kms.EncryptInput{KeyID: keyID, Plaintext: []byte("test")}, jsonx.V1())
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
@@ -360,7 +361,7 @@ func TestKMS_ErrorClassification_MissingTableEntries(t *testing.T) {
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
 		var errResp kms.ErrorResponse
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "KeyUnavailableException", errResp.Type)
 	})
 }
@@ -376,7 +377,7 @@ func TestHandlerReplicateKeyRequiresMultiRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	rec := sendKMSOp(t, h, "ReplicateKey", `{"KeyId":"`+keyID+`","ReplicaRegion":"us-west-2"}`)
@@ -393,7 +394,7 @@ func TestHandlerReplicateKeyCopiesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	tagRec := sendKMSOp(t, h, "TagResource", `{"KeyId":"`+keyID+`","Tags":[{"TagKey":"env","TagValue":"prod"}]}`)
@@ -403,14 +404,14 @@ func TestHandlerReplicateKeyCopiesTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, repRec.Code)
 
 	var repOut map[string]any
-	require.NoError(t, json.Unmarshal(repRec.Body.Bytes(), &repOut))
+	require.NoError(t, json.Unmarshal(repRec.Body.Bytes(), &repOut, jsonx.V1()))
 	replicaID := repOut["ReplicaKeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	tagListRec := sendKMSOp(t, h, "ListResourceTags", `{"KeyId":"`+replicaID+`"}`)
 	require.Equal(t, http.StatusOK, tagListRec.Code)
 
 	var tagListOut map[string]any
-	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut))
+	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut, jsonx.V1()))
 	tags := tagListOut["Tags"].([]any)
 	require.NotEmpty(t, tags)
 
@@ -435,7 +436,7 @@ func TestHandlerUpdatePrimaryRegionViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	// Replicate to eu-central-1 first — UpdatePrimaryRegion requires an actual replica.
@@ -456,7 +457,7 @@ func TestHandlerReplicateKeyWithInputTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, keyRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	// Replicate with explicit tags that should overlay the source tags.
@@ -465,14 +466,14 @@ func TestHandlerReplicateKeyWithInputTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, repRec.Code)
 
 	var repOut map[string]any
-	require.NoError(t, json.Unmarshal(repRec.Body.Bytes(), &repOut))
+	require.NoError(t, json.Unmarshal(repRec.Body.Bytes(), &repOut, jsonx.V1()))
 	replicaID := repOut["ReplicaKeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	tagListRec := sendKMSOp(t, h, "ListResourceTags", `{"KeyId":"`+replicaID+`"}`)
 	require.Equal(t, http.StatusOK, tagListRec.Code)
 
 	var tagListOut map[string]any
-	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut))
+	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut, jsonx.V1()))
 	tags := tagListOut["Tags"].([]any)
 
 	keys := make(map[string]string)

@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/crc32"
 	"log/slog"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -386,7 +387,7 @@ func TestHandler_CRC32Header(t *testing.T) {
 
 func mustMarshal(t *testing.T, v any) string {
 	t.Helper()
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(data)
@@ -423,7 +424,7 @@ func TestHandler_TransactOps_AllActions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			bodyBytes, _ := json.Marshal(tt.body)
+			bodyBytes, _ := json.Marshal(tt.body, jsonx.V1())
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 			req.Header.Set("X-Amz-Target", "DynamoDB_20120810."+tt.action)
 			w := httptest.NewRecorder()

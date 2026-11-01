@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -34,7 +35,7 @@ func TestHandler_LogAnomalyDetector_Create(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	arn, ok := out["anomalyDetectorArn"].(string)
 	require.True(t, ok)
 	assert.Contains(t, arn, "log-anomaly-detector")
@@ -193,7 +194,7 @@ func TestHandler_CreateLogAnomalyDetectorOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -201,7 +202,7 @@ func TestHandler_CreateLogAnomalyDetectorOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {

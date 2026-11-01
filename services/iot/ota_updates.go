@@ -1,12 +1,13 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // OTAUpdate represents an AWS IoT OTA update.
@@ -74,7 +75,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	now := float64(time.Now().Unix())
 	jobID := "AFR_OTA-" + id
 
-	doc, docErr := json.Marshal(map[string]any{"afr_ota": map[string]any{"files": files}})
+	doc, docErr := json.Marshal(map[string]any{"afr_ota": map[string]any{"files": files}}, jsonx.V1())
 	if docErr != nil {
 		return nil, fmt.Errorf("building OTA job document: %w", docErr)
 	}

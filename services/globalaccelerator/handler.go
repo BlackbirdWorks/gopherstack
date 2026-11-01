@@ -2,7 +2,7 @@ package globalaccelerator
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -41,7 +42,7 @@ func bind[I, O any](fn func(*Handler, context.Context, *I) (*O, error)) opFunc {
 		var in I
 
 		if len(body) > 0 {
-			if err := json.Unmarshal(body, &in); err != nil {
+			if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 				return nil, fail(ErrInvalidArgument, "malformed request body: %v", err)
 			}
 		}

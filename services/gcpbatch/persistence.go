@@ -2,7 +2,7 @@ package gcpbatch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -17,8 +17,8 @@ import (
 const snapshotVersion = 1
 
 type jobSnap struct {
-	Rec *jobRec         `json:"rec"`
-	Job json.RawMessage `json:"job"`
+	Rec *jobRec        `json:"rec"`
+	Job jsontext.Value `json:"job"`
 }
 
 type backendSnapshot struct {

@@ -1,7 +1,7 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -65,7 +66,7 @@ func (in startImportBody) toBackendImportSource() *ImportSource {
 
 func (h *Handler) handleStartImport(c *echo.Context, body []byte) error {
 	var in startImportBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -101,7 +102,7 @@ type getImportBody struct {
 
 func (h *Handler) handleGetImport(c *echo.Context, body []byte) error {
 	var in getImportBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -125,7 +126,7 @@ type listImportsBody struct {
 func (h *Handler) handleListImports(c *echo.Context, body []byte) error {
 	var in listImportsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),
@@ -182,7 +183,7 @@ type stopImportBody struct {
 
 func (h *Handler) handleStopImport(c *echo.Context, body []byte) error {
 	var in stopImportBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -233,7 +234,7 @@ type listImportFailuresBody struct {
 
 func (h *Handler) handleListImportFailures(c *echo.Context, body []byte) error {
 	var in listImportFailuresBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 

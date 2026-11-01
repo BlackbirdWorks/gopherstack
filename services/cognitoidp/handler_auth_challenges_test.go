@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -153,7 +154,7 @@ func TestHandler_AdminRespondToAuthChallenge(t *testing.T) {
 				var authResp struct {
 					Session string `json:"Session,omitempty"`
 				}
-				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 				session = authResp.Session
 			}
 
@@ -234,7 +235,7 @@ func TestHandler_RespondToAuthChallenge_NewPassword(t *testing.T) {
 					Session string `json:"Session,omitempty"`
 				}
 
-				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+				require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 				session = authResp.Session
 			}
 
@@ -259,7 +260,7 @@ func TestHandler_ForgotPasswordConfirmForgotPassword(t *testing.T) {
 
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "fp-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -267,7 +268,7 @@ func TestHandler_ForgotPasswordConfirmForgotPassword(t *testing.T) {
 		"ClientName": "fp-client",
 	})
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 
 	doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -288,7 +289,7 @@ func TestHandler_ForgotPasswordConfirmForgotPassword(t *testing.T) {
 	assert.Equal(t, http.StatusOK, fpRec.Code)
 
 	var fpResp map[string]any
-	require.NoError(t, json.Unmarshal(fpRec.Body.Bytes(), &fpResp))
+	require.NoError(t, json.Unmarshal(fpRec.Body.Bytes(), &fpResp, jsonx.V1()))
 	details := fpResp["CodeDeliveryDetails"].(map[string]any)
 	code := details["ConfirmationCode"].(string)
 	require.NotEmpty(t, code)
@@ -330,7 +331,7 @@ func TestHandler_GetUser_ChangePassword(t *testing.T) {
 
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "gu-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -338,7 +339,7 @@ func TestHandler_GetUser_ChangePassword(t *testing.T) {
 		"ClientName": "gu-client",
 	})
 	var clientResp map[string]any
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
 
 	doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -366,7 +367,7 @@ func TestHandler_GetUser_ChangePassword(t *testing.T) {
 	assert.Equal(t, http.StatusOK, authRec.Code)
 
 	var authResp map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 	authResult := authResp["AuthenticationResult"].(map[string]any)
 	accessToken := authResult["AccessToken"].(string)
 
@@ -377,7 +378,7 @@ func TestHandler_GetUser_ChangePassword(t *testing.T) {
 	assert.Equal(t, http.StatusOK, guRec.Code)
 
 	var guResp map[string]any
-	require.NoError(t, json.Unmarshal(guRec.Body.Bytes(), &guResp))
+	require.NoError(t, json.Unmarshal(guRec.Body.Bytes(), &guResp, jsonx.V1()))
 	assert.Equal(t, "guuser", guResp["Username"])
 
 	// ChangePassword with wrong old password must fail.
@@ -497,7 +498,7 @@ func TestForgotPassword_UserStateValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, errResp["__type"])
 			}
 		})
@@ -558,7 +559,7 @@ func TestResendConfirmationCodeAlreadyConfirmed(t *testing.T) {
 
 			if tt.wantType != "" {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, errResp["__type"])
 			}
 		})
@@ -607,7 +608,7 @@ func TestConfirmForgotPasswordExpiryCheckedFirst(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var fpResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fpResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fpResp, jsonx.V1()))
 
 			code := tt.useCode
 			if code == "" {
@@ -626,7 +627,7 @@ func TestConfirmForgotPasswordExpiryCheckedFirst(t *testing.T) {
 
 			if tt.wantType != "" {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(confirmRec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(confirmRec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, errResp["__type"])
 			}
 		})

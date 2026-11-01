@@ -1,10 +1,11 @@
 package batch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -40,7 +41,7 @@ func checkNextToken(body []byte) error {
 		NextToken *string `json:"nextToken"`
 	}
 
-	if json.Unmarshal(body, &in) == nil && in.NextToken != nil && *in.NextToken != "" &&
+	if json.Unmarshal(body, &in, jsonx.V1()) == nil && in.NextToken != nil && *in.NextToken != "" &&
 		page.DecodeHMACToken(*in.NextToken, paginationSecret) <= 0 {
 		return fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}

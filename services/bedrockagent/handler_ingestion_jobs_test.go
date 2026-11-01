@@ -1,12 +1,13 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrockagent"
 )
 
@@ -39,7 +40,7 @@ func newIngestionFixture(t *testing.T) ingestionFixture {
 
 	var kbResp map[string]map[string]any
 
-	_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp)
+	_ = json.Unmarshal(kbRec.Body.Bytes(), &kbResp, jsonx.V1())
 	kbID, _ := kbResp["knowledgeBase"]["knowledgeBaseId"].(string)
 
 	dsBody := map[string]any{
@@ -54,7 +55,7 @@ func newIngestionFixture(t *testing.T) ingestionFixture {
 
 	var dsResp map[string]map[string]any
 
-	_ = json.Unmarshal(dsRec.Body.Bytes(), &dsResp)
+	_ = json.Unmarshal(dsRec.Body.Bytes(), &dsResp, jsonx.V1())
 	dsID, _ := dsResp["dataSource"]["dataSourceId"].(string)
 
 	return ingestionFixture{h: h, e: e, kbID: kbID, dsID: dsID}
@@ -95,7 +96,7 @@ func (f ingestionFixture) startJob(t *testing.T) map[string]any {
 
 	var resp map[string]map[string]any
 
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -199,7 +200,7 @@ func checkGetIngestionJobReturnsPersistedStats(t *testing.T) {
 
 	var resp map[string]map[string]any
 
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -232,7 +233,7 @@ func checkListIngestionJobsSummariesIncludeStats(t *testing.T) {
 		IngestionJobSummaries []map[string]any `json:"ingestionJobSummaries"`
 	}
 
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -284,7 +285,7 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 
 	var ingestResp map[string]any
 
-	if err := json.Unmarshal(putRec.Body.Bytes(), &ingestResp); err != nil {
+	if err := json.Unmarshal(putRec.Body.Bytes(), &ingestResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal PUT response: %v", err)
 	}
 
@@ -308,7 +309,7 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 		DocumentDetails []map[string]any `json:"documentDetails"`
 	}
 
-	if err := json.Unmarshal(postRec.Body.Bytes(), &listResp); err != nil {
+	if err := json.Unmarshal(postRec.Body.Bytes(), &listResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal POST response: %v", err)
 	}
 
@@ -335,7 +336,7 @@ func TestStopIngestionJob(t *testing.T) {
 
 	var resp map[string]map[string]any
 
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 

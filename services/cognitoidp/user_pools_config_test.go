@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -172,7 +173,7 @@ func TestHandler_ListUserPools(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			pools, ok := resp["UserPools"].([]any)
 			require.True(t, ok)
@@ -194,7 +195,7 @@ func TestHandler_DescribeUserPool(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -266,7 +267,7 @@ func TestHandler_DeleteUserPool(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "del-pool"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -307,7 +308,7 @@ func TestHandler_GetUserPoolMfaConfig(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				rec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "mfa-pool"})
 				var resp map[string]map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 				return resp["UserPool"]["Id"].(string)
 			},
@@ -351,7 +352,7 @@ func TestSortedListUserPools(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	pools := resp["UserPools"].([]any)
 	require.Len(t, pools, 3)
@@ -366,7 +367,7 @@ func TestDescribeUserPool_IncludesSchemaAttributes(t *testing.T) {
 	h := newTestHandler(t)
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "schema-pool"})
 	var poolResp map[string]any
-	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 	doCognitoRequest(t, h, "AddCustomAttributes", map[string]any{
@@ -380,7 +381,7 @@ func TestDescribeUserPool_IncludesSchemaAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	schema := resp["UserPool"].(map[string]any)["SchemaAttributes"]
 	assert.NotNil(t, schema)
 	schemaList := schema.([]any)
@@ -396,7 +397,7 @@ func TestListUserPools_NonNilWhenEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	pools, ok := listResp["UserPools"].([]any)
 	assert.True(t, ok, "UserPools should be an array, not nil")
 	assert.Empty(t, pools)
@@ -436,7 +437,7 @@ func TestPasswordPolicyDefaults(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			pool := resp["UserPool"].(map[string]any)
 			policies := pool["Policies"].(map[string]any)
@@ -457,7 +458,7 @@ func TestUserPoolLastModifiedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	pool := createResp["UserPool"].(map[string]any)
 	poolID := pool["Id"].(string)
 	createDate := pool["CreationDate"].(float64)
@@ -478,7 +479,7 @@ func TestUserPoolLastModifiedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	lastModAfter := descResp["UserPool"].(map[string]any)["LastModifiedDate"].(float64)
 	assert.GreaterOrEqual(t, lastModAfter, createDate, "LastModifiedDate must be >= CreationDate after update")
 }
@@ -493,7 +494,7 @@ func TestUpdateUserPoolLambdaConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	poolID := createResp["UserPool"].(map[string]any)["Id"].(string)
 
 	lambdaConfig := map[string]any{
@@ -510,7 +511,7 @@ func TestUpdateUserPoolLambdaConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	returnedPool := descResp["UserPool"].(map[string]any)
 	returnedLambda := returnedPool["LambdaConfig"].(map[string]any)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:pre-signup", returnedLambda["PreSignUp"])
@@ -545,7 +546,7 @@ func TestListUserPools_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.LessOrEqual(t, len(resp.UserPools), 2, "page must not exceed MaxResults")
 
 		for _, p := range resp.UserPools {

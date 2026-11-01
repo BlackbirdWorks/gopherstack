@@ -2,13 +2,14 @@ package gcpbigquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
 
@@ -38,7 +39,7 @@ type datasetRef struct {
 
 func intOf(v any) (int, bool) {
 	switch t := v.(type) {
-	case json.Number:
+	case jsonx.Number:
 		n, err := t.Int64()
 
 		return int(n), err == nil
@@ -56,12 +57,12 @@ func intOf(v any) (int, bool) {
 func decodeQueryConfig(raw any) (queryConfig, error) {
 	var qc queryConfig
 
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return qc, errInvalid("Invalid query configuration")
 	}
 
-	if err = json.Unmarshal(b, &qc); err != nil {
+	if err = json.Unmarshal(b, &qc, jsonx.V1()); err != nil {
 		return qc, errInvalid("Invalid query configuration: %v", err)
 	}
 

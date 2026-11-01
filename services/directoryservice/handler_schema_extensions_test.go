@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSchemaExtensions_StateLifecycle(t *testing.T) {
@@ -155,7 +157,7 @@ func TestSchemaExtensions(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			extID, _ := r1["SchemaExtensionId"].(string)
 			assert.NotEmpty(t, extID)
 
@@ -163,7 +165,7 @@ func TestSchemaExtensions(t *testing.T) {
 			rec2 := doRequest(t, h, "ListSchemaExtensions", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			exts, _ := r2["SchemaExtensionsInfo"].([]any)
 			assert.Len(t, exts, 1)
 

@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -39,7 +40,7 @@ func TestHandler_CreateNamedQuery(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["NamedQueryId"])
 			}
 		})
@@ -80,7 +81,7 @@ func TestHandler_GetNamedQuery(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var created map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 				queryID = created["NamedQueryId"]
 			}
 
@@ -89,7 +90,7 @@ func TestHandler_GetNamedQuery(t *testing.T) {
 
 			if tt.wantQuery {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				nq, _ := resp["NamedQuery"].(map[string]any)
 				require.NotNil(t, nq)
 				assert.Equal(t, "q", nq["Name"])
@@ -127,7 +128,7 @@ func TestHandler_ListNamedQueries(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string][]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["NamedQueryIds"], tt.wantCount)
 		})
 	}
@@ -157,7 +158,7 @@ func TestHandler_BatchGetNamedQuery(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var created map[string]string
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			id := created["NamedQueryId"]
 
 			rec := doRequest(t, h, "BatchGetNamedQuery",
@@ -165,7 +166,7 @@ func TestHandler_BatchGetNamedQuery(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			found, _ := resp["NamedQueries"].([]any)
 			assert.Len(t, found, 1)
 			unprocessed, _ := resp["UnprocessedNamedQueryIds"].([]any)
@@ -203,7 +204,7 @@ func TestHandler_DeleteNamedQuery(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var cr map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 
 				rec := doRequest(t, h, "DeleteNamedQuery", `{"NamedQueryId":"`+cr["NamedQueryId"]+`"}`)
 				assert.Equal(t, tt.wantStatus, rec.Code)
@@ -430,14 +431,14 @@ func TestBatchGetNamedQuery_UnprocessedShape(t *testing.T) {
 				}
 			}
 
-			body, err := json.Marshal(map[string]any{"NamedQueryIds": tt.ids})
+			body, err := json.Marshal(map[string]any{"NamedQueryIds": tt.ids}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, "BatchGetNamedQuery", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			found, _ := resp["NamedQueries"].([]any)
 			assert.Len(t, found, tt.wantFound)
@@ -492,7 +493,7 @@ func TestCreateNamedQuery_WorkgroupValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Contains(t, errResp["__type"], "InvalidRequestException")
 			}
 		})

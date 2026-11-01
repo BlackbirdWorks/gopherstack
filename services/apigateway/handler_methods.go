@@ -2,10 +2,12 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type testInvokeMethodHandlerInput struct {
@@ -295,7 +297,7 @@ func (h *Handler) invokeLambdaTestMethod(
 
 	event.StageVariables = input.StageVariables
 
-	payload, _ := json.Marshal(event)
+	payload, _ := json.Marshal(event, jsonx.V1())
 
 	lambdaFn := ExtractLambdaFunctionName(interpolateStageVars(integration.URI, input.StageVariables))
 	respBytes, _, invokeErr := h.lambda.InvokeFunction(context.Background(), lambdaFn, "RequestResponse", payload)
@@ -321,7 +323,7 @@ func lambdaTestOutput(respBytes []byte, invokeErr error) *TestInvokeMethodOutput
 	}
 
 	var lambdaResp LambdaProxyResponse
-	if json.Unmarshal(respBytes, &lambdaResp) == nil {
+	if json.Unmarshal(respBytes, &lambdaResp, jsonx.V1()) == nil {
 		sc := lambdaResp.StatusCode
 		if sc == 0 {
 			sc = http.StatusOK
@@ -366,7 +368,7 @@ func (h *Handler) methodActions() map[string]actionFn {
 
 func (h *Handler) putMethodAction(b []byte) (int, any, error) {
 	var input putMethodInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	switch input.AuthorizationType {
@@ -394,7 +396,7 @@ func (h *Handler) putMethodAction(b []byte) (int, any, error) {
 
 func (h *Handler) getMethodAction(b []byte) (int, any, error) {
 	var input getMethodInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	m, err := h.Backend.GetMethod(input.RestAPIID, input.ResourceID, input.HTTPMethod)
@@ -407,7 +409,7 @@ func (h *Handler) getMethodAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteMethodAction(b []byte) (int, any, error) {
 	var input deleteMethodInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteMethod(input.RestAPIID, input.ResourceID, input.HTTPMethod); err != nil {
@@ -419,7 +421,7 @@ func (h *Handler) deleteMethodAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateMethodAction(b []byte) (int, any, error) {
 	var input UpdateMethodInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateMethod(input)
@@ -432,7 +434,7 @@ func (h *Handler) updateMethodAction(b []byte) (int, any, error) {
 
 func (h *Handler) testInvokeMethodAction(b []byte) (int, any, error) {
 	var input testInvokeMethodHandlerInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.testInvokeMethod(input.TestInvokeMethodInput)
@@ -448,7 +450,7 @@ func (h *Handler) methodResponseActions() map[string]actionFn {
 	return map[string]actionFn{
 		opPutMethodResponse: func(b []byte) (int, any, error) {
 			var input putMethodResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			mr, err := h.Backend.PutMethodResponse(
@@ -466,7 +468,7 @@ func (h *Handler) methodResponseActions() map[string]actionFn {
 		},
 		opGetMethodResponse: func(b []byte) (int, any, error) {
 			var input getMethodResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			mr, err := h.Backend.GetMethodResponse(
@@ -483,7 +485,7 @@ func (h *Handler) methodResponseActions() map[string]actionFn {
 		},
 		opDeleteMethodResponse: func(b []byte) (int, any, error) {
 			var input deleteMethodResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			if err := h.Backend.DeleteMethodResponse(
@@ -499,7 +501,7 @@ func (h *Handler) methodResponseActions() map[string]actionFn {
 		},
 		opUpdateMethodResponse: func(b []byte) (int, any, error) {
 			var input UpdateMethodResponseInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			out, err := h.Backend.UpdateMethodResponse(input)

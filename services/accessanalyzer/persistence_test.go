@@ -1,7 +1,7 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 	"time"
 
@@ -88,7 +88,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	analyzer, err := original.CreateAnalyzer(
 		"analyzer-1", accessanalyzer.AnalyzerTypeAccount, map[string]string{"env": "test"},
-		json.RawMessage(`{"unusedAccess":{"unusedAccessAge":90}}`),
+		jsontext.Value(`{"unusedAccess":{"unusedAccessAge":90}}`),
 	)
 	require.NoError(t, err)
 
@@ -119,8 +119,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	ap, err := original.CreateAccessPreview(analyzer.Arn, map[string]json.RawMessage{
-		"arn:aws:s3:::bucket-2": json.RawMessage(`{"s3Bucket":{"bucketPolicy":"{}"}}`),
+	ap, err := original.CreateAccessPreview(analyzer.Arn, map[string]jsontext.Value{
+		"arn:aws:s3:::bucket-2": jsontext.Value(`{"s3Bucket":{"bucketPolicy":"{}"}}`),
 	})
 	require.NoError(t, err)
 

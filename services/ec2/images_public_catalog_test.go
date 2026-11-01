@@ -1,7 +1,7 @@
 package ec2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
@@ -28,7 +29,7 @@ func TestSSMPublicParameterAMIsResolve(t *testing.T) {
 		} `json:"parameters"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &catalog))
+	require.NoError(t, json.Unmarshal(raw, &catalog, jsonx.V1()))
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 	client := newTestEC2Client(t, ec2.NewHandler(b))

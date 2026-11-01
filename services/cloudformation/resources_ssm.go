@@ -2,9 +2,10 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -209,5 +210,5 @@ func (rc *ResourceCreator) deleteSSMDocument(ctx context.Context, name string) e
 
 // marshalJSON serializes a value to compact JSON bytes.
 func marshalJSON(v any) ([]byte, error) {
-	return json.Marshal(v)
+	return json.Marshal(v, jsonx.V1())
 }

@@ -2,7 +2,7 @@ package appconfigdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -44,8 +44,8 @@ const appconfigdataSnapshotVersion = 1
 // material to disk was judged not worth the added attack surface for a
 // session-token integrity check.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements

@@ -1,7 +1,7 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -68,7 +69,7 @@ func TestHandler_CreateDeploymentGroup(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["deploymentGroupId"])
 			}
 		})
@@ -169,7 +170,7 @@ func TestDeploymentGroups_RichFieldsRoundTrip(t *testing.T) {
 			TerminationHookEnabled bool `json:"terminationHookEnabled"`
 		} `json:"deploymentGroupInfo"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	info := resp.DeploymentGroupInfo
 	assert.Equal(t, "arn:aws:iam::123:role/role", info.ServiceRoleArn)
@@ -310,7 +311,7 @@ func TestDeploymentGroups_SortedList(t *testing.T) {
 		DeploymentGroups []string `json:"deploymentGroups"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, []string{"a-group", "m-group", "z-group"}, resp.DeploymentGroups)
 }
 
@@ -483,7 +484,7 @@ func TestDeploymentGroups_Update(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantHooksClean {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				hooksNotCleanedUp, _ := resp["hooksNotCleanedUp"].(bool)
 				assert.True(t, hooksNotCleanedUp, "expected hooksNotCleanedUp=true when alarms were removed")
 			}
@@ -551,7 +552,7 @@ func TestDeploymentGroups_InheritsComputePlatform(t *testing.T) {
 					ComputePlatform string `json:"computePlatform"`
 				} `json:"deploymentGroupInfo"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.platform, resp.DeploymentGroupInfo.ComputePlatform)
 		})
 	}
@@ -598,7 +599,7 @@ func TestDeploymentGroups_ComputePlatformInheritedViaHandler(t *testing.T) {
 					ComputePlatform string `json:"computePlatform"`
 				} `json:"deploymentGroupInfo"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.platform, out.DeploymentGroupInfo.ComputePlatform,
 				"deployment group must inherit computePlatform from application")
 		})
@@ -655,7 +656,7 @@ func TestHandler_BatchGetDeploymentGroups(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				infos, ok := resp["deploymentGroupsInfo"].([]any)
 				require.True(t, ok)
 				assert.Len(t, infos, tt.wantCount)
@@ -681,7 +682,7 @@ func TestDeploymentGroups_BatchGetEmptySlice(t *testing.T) {
 		DeploymentGroupsInfo []any `json:"deploymentGroupsInfo"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// Should be an empty array not null
 	assert.NotNil(t, resp.DeploymentGroupsInfo)
 	assert.Empty(t, resp.DeploymentGroupsInfo)
@@ -717,7 +718,7 @@ func TestDeploymentGroups_BatchGetRichFields(t *testing.T) {
 			} `json:"ecsServices"`
 		} `json:"deploymentGroupsInfo"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.DeploymentGroupsInfo, 1)
 
 	info := resp.DeploymentGroupsInfo[0]

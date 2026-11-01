@@ -1,10 +1,12 @@
 package efs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createAccessPointBody struct {
@@ -17,7 +19,7 @@ type createAccessPointBody struct {
 
 func (h *Handler) handleCreateAccessPoint(c *echo.Context, body []byte) error {
 	var in createAccessPointBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 

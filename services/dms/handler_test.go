@@ -2,7 +2,7 @@ package dms_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dms"
 )
 
@@ -24,7 +25,7 @@ func newTestDMSHandler() *dms.Handler {
 func doDMS(t *testing.T, h *dms.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -45,7 +46,7 @@ func parseJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }
@@ -266,7 +267,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 			t.Parallel()
 
 			h := newTestDMSHandler()
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			e := echo.New()
@@ -733,7 +734,7 @@ func TestValidationException_NotInvalidResourceStateFault(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 			errType, ok := body["__type"].(string)
 			require.True(t, ok, "response must have __type field")
@@ -800,7 +801,7 @@ func TestInvalidResourceStateFault_ForStateErrors(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, startAgainRec.Code)
 
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(startAgainRec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(startAgainRec.Body.Bytes(), &body, jsonx.V1()))
 
 		errType, ok := body["__type"].(string)
 		require.True(t, ok, "response must have __type field")

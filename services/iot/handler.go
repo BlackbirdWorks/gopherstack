@@ -2,7 +2,8 @@ package iot
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -322,7 +324,7 @@ func (h *Handler) handleCreateThing(c *echo.Context) error {
 		BillingGroupName string            `json:"billingGroupName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -549,7 +551,7 @@ func (h *Handler) handleUpdateThing(c *echo.Context) error {
 
 	var body UpdateThingInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}

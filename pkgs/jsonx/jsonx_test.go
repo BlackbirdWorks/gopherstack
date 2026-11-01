@@ -108,3 +108,52 @@ func TestDecoderStreamTolerantOfTrailingData(t *testing.T) {
 	require.NoError(t, json.UnmarshalDecode(dec, &v, jsonx.V1()))
 	assert.Equal(t, map[string]int{"a": 1}, v)
 }
+
+func TestErrorClassifiers(t *testing.T) {
+	t.Parallel()
+
+	type doc struct {
+		A struct{ B int } `json:"a"`
+	}
+
+	tests := []struct {
+		name      string
+		body      string
+		field     string
+		wantSyn   bool
+		wantType  bool
+		wantNoErr bool
+	}{
+		{name: "garbage", body: `not json`, wantSyn: true},
+		{name: "truncated", body: `{"a":`, wantSyn: true},
+		{name: "type_mismatch", body: `{"a":{"B":"x"}}`, wantType: true, field: "a.B"},
+		{name: "ok", body: `{"a":{"B":1}}`, wantNoErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var d doc
+
+			err := json.Unmarshal([]byte(tt.body), &d, jsonx.V1())
+			if tt.wantNoErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, tt.wantSyn, jsonx.IsSyntaxError(err))
+			assert.Equal(t, tt.wantType, jsonx.IsTypeError(err))
+
+			if tt.wantType {
+				field, _ := jsonx.TypeError(err)
+				assert.Equal(t, tt.field, field)
+			}
+		})
+	}
+
+	_, ok := jsonx.SyntaxError(json.Unmarshal([]byte(`{"a":1}x`), new(doc), jsonx.V1()))
+	assert.True(t, ok)
+}

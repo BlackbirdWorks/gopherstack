@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_CreateGetWirelessDevice_LoRaWANSidewalkWireShape drives a real
@@ -35,7 +37,7 @@ func TestHandler_CreateGetWirelessDevice_LoRaWANSidewalkWireShape(t *testing.T) 
 	var createResp struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+createResp.ID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -57,7 +59,7 @@ func TestHandler_CreateGetWirelessDevice_LoRaWANSidewalkWireShape(t *testing.T) 
 			} `json:"AbpV1_0_x"`
 		} `json:"LoRaWAN"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 
 	assert.Equal(t, "dp-1", got.LoRaWAN.DeviceProfileID)
 	assert.Equal(t, "addr-1", got.LoRaWAN.AbpV1_0X.DevAddr)
@@ -94,7 +96,7 @@ func TestHandler_NetworkAnalyzerConfig_TraceContentWireShape(t *testing.T) {
 	var got struct {
 		TraceContent traceContent `json:"TraceContent"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "INFO", got.TraceContent.LogLevel)
 	assert.Equal(t, "ENABLED", got.TraceContent.MulticastFrameInfo)
 	assert.Empty(t, got.TraceContent.WirelessDeviceFrameInfo)
@@ -109,7 +111,7 @@ func TestHandler_NetworkAnalyzerConfig_TraceContentWireShape(t *testing.T) {
 	var got2 struct {
 		TraceContent traceContent `json:"TraceContent"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got2, jsonx.V1()))
 	assert.Empty(t, got2.TraceContent.LogLevel, "update replaces TraceContent wholesale")
 	assert.Equal(t, "ENABLED", got2.TraceContent.WirelessDeviceFrameInfo)
 }
@@ -137,7 +139,7 @@ func TestHandler_ListWirelessDevices_EntryShape(t *testing.T) {
 	var got struct {
 		WirelessDeviceList []map[string]any `json:"WirelessDeviceList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	require.Len(t, got.WirelessDeviceList, 1)
 
 	entry := got.WirelessDeviceList[0]

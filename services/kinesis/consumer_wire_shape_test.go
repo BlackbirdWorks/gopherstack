@@ -1,12 +1,14 @@
 package kinesis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestConsumerWireShape_StreamARN locks in that StreamARN only appears on
@@ -36,7 +38,7 @@ func TestConsumerWireShape_StreamARN(t *testing.T) {
 			StreamARN string `json:"StreamARN"`
 		} `json:"StreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(setupRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(setupRec.Body.Bytes(), &descResp, jsonx.V1()))
 	streamARN := descResp.StreamDescription.StreamARN
 	require.NotEmpty(t, streamARN)
 
@@ -82,7 +84,7 @@ func TestConsumerWireShape_StreamARN(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			consumerObj := raw[tc.wrapperKey]
 			var obj map[string]any

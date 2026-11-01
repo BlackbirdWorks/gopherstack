@@ -1,11 +1,13 @@
 package fis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ----------------------------------------
@@ -17,7 +19,7 @@ func (h *Handler) handleTagResource(c *echo.Context, arnStr string, body []byte)
 		Tags map[string]string `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), arnStr)
 	}
 

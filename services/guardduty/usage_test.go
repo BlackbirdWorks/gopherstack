@@ -1,12 +1,14 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestGetUsageStatistics_WireShape locks the GetUsageStatistics fix: the
@@ -24,7 +26,7 @@ func TestGetUsageStatistics_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	us, ok := resp["usageStatistics"].(map[string]any)
 	require.True(t, ok, "response must be wrapped under usageStatistics")
@@ -66,7 +68,7 @@ func TestGetUsageStatistics_UsageStatisticType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	us := resp["usageStatistics"].(map[string]any)
 
 	assert.Contains(t, us, "sumByAccount")
@@ -93,7 +95,7 @@ func TestGetUsageStatistics_SumByFeature_ReflectsEnabledFeatures(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	detID := createResp["detectorId"].(string)
 
 	rec = doRequest(t, h, http.MethodPost, "/detector/"+detID+"/usage/statistics", map[string]any{
@@ -102,7 +104,7 @@ func TestGetUsageStatistics_SumByFeature_ReflectsEnabledFeatures(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	us := resp["usageStatistics"].(map[string]any)
 
 	features, ok := us["sumByFeature"].([]any)
@@ -140,7 +142,7 @@ func TestGetRemainingFreeTrialDays_HonorsAccountIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	accounts, ok := resp["accounts"].([]any)
 	require.True(t, ok)

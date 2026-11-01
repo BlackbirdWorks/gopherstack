@@ -1,13 +1,15 @@
 package awsconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/awsconfig"
 )
 
@@ -84,7 +86,7 @@ func TestRecorderRecordingGroupRoundtrip(t *testing.T) {
 			} `json:"recordingGroup"`
 		} `json:"ConfigurationRecorders"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConfigurationRecorders, 1)
 	require.NotNil(t, out.ConfigurationRecorders[0].RecordingGroup)
 	assert.True(t, out.ConfigurationRecorders[0].RecordingGroup.AllSupported)
@@ -130,7 +132,7 @@ func TestListConfigurationRecordersSummaries(t *testing.T) {
 			RecordingScope string `json:"recordingScope"`
 		} `json:"ConfigurationRecorderSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ConfigurationRecorderSummaries, 1)
 	assert.Equal(t, "default", out.ConfigurationRecorderSummaries[0].Name)
 	assert.Contains(t, out.ConfigurationRecorderSummaries[0].Arn, "arn:aws:config:")
@@ -330,7 +332,7 @@ func TestAWSConfigHandler_DescribeConfigurationRecorderStatus(t *testing.T) {
 				} `json:"ConfigurationRecordersStatus"`
 			}
 
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.ConfigurationRecordersStatus, tt.wantRecordingLen)
 
 			if tt.wantRecordingLen > 0 {
@@ -529,11 +531,11 @@ func TestAWSConfigHandler_DescribeConfigurationRecorders_NameFilter(t *testing.T
 				return
 			}
 
-			var out map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			var out map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			var recorders []any
-			require.NoError(t, json.Unmarshal(out["ConfigurationRecorders"], &recorders))
+			require.NoError(t, json.Unmarshal(out["ConfigurationRecorders"], &recorders, jsonx.V1()))
 			assert.Len(t, recorders, tt.wantCount)
 		})
 	}
@@ -565,7 +567,7 @@ func TestAWSConfigHandler_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		Arn  string `json:"Arn"`
 		Name string `json:"Name"`
 	}
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	assert.Equal(t, "AWSConfigurationRecorderForGuardduty", putOut.Name)
 	assert.NotEmpty(t, putOut.Arn)
 
@@ -578,7 +580,7 @@ func TestAWSConfigHandler_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		Arn  string `json:"Arn"`
 		Name string `json:"Name"`
 	}
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delOut, jsonx.V1()))
 	assert.Equal(t, putOut.Name, delOut.Name)
 
 	// A second delete now 404s (NoSuchConfigurationRecorderException).
@@ -682,7 +684,7 @@ func TestAWSConfigHandler_ConnectorsRoundtrip(t *testing.T) {
 	var putOut struct {
 		Arn string `json:"Arn"`
 	}
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	require.NotEmpty(t, putOut.Arn)
 
 	getRec := doAWSConfigRequest(t, h, "GetConnector", map[string]any{"Arn": putOut.Arn})
@@ -698,7 +700,7 @@ func TestAWSConfigHandler_ConnectorsRoundtrip(t *testing.T) {
 			} `json:"connectorConfiguration"`
 		} `json:"Connector"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, putOut.Arn, getOut.Connector.Arn)
 	assert.Equal(t, "client-1", getOut.Connector.ConnectorConfiguration.Azure.ClientIdentifier)
 
@@ -711,7 +713,7 @@ func TestAWSConfigHandler_ConnectorsRoundtrip(t *testing.T) {
 			Provider string `json:"provider"`
 		} `json:"ConnectorSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.ConnectorSummaries, 1)
 	assert.Equal(t, putOut.Arn, listOut.ConnectorSummaries[0].Arn)
 	assert.Equal(t, "AZURE", listOut.ConnectorSummaries[0].Provider)
@@ -735,7 +737,7 @@ func TestAWSConfigHandler_PutThirdPartyServiceLinkedConfigurationRecorder(t *tes
 	var connOut struct {
 		Arn string `json:"Arn"`
 	}
-	require.NoError(t, json.Unmarshal(putConnRec.Body.Bytes(), &connOut))
+	require.NoError(t, json.Unmarshal(putConnRec.Body.Bytes(), &connOut, jsonx.V1()))
 
 	body := map[string]any{
 		"ServicePrincipal": "thirdparty.amazonaws.com",
@@ -753,7 +755,7 @@ func TestAWSConfigHandler_PutThirdPartyServiceLinkedConfigurationRecorder(t *tes
 		Arn  string `json:"Arn"`
 		Name string `json:"Name"`
 	}
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putOut, jsonx.V1()))
 	assert.NotEmpty(t, putOut.Name)
 	assert.NotEmpty(t, putOut.Arn)
 
@@ -773,7 +775,7 @@ func TestAWSConfigHandler_PutThirdPartyServiceLinkedConfigurationRecorder(t *tes
 	var connOut2 struct {
 		Arn string `json:"Arn"`
 	}
-	require.NoError(t, json.Unmarshal(putConnRec2.Body.Bytes(), &connOut2))
+	require.NoError(t, json.Unmarshal(putConnRec2.Body.Bytes(), &connOut2, jsonx.V1()))
 
 	conflictBody := map[string]any{
 		"ServicePrincipal": "thirdparty.amazonaws.com",

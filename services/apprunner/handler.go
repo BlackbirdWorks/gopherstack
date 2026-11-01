@@ -2,7 +2,7 @@ package apprunner
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -192,12 +193,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
@@ -218,8 +217,8 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, awserr.ErrInvalidParameter),
 		errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr),
-		errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err),
+		jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyType:    invalidRequestType,
 			keyMessage: errMessage(err),

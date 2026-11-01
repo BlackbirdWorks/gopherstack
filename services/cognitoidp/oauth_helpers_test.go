@@ -4,7 +4,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"math/big"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -259,7 +260,7 @@ func jsonMap(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(body, &m), string(body))
+	require.NoError(t, json.Unmarshal(body, &m, jsonx.V1()), string(body))
 
 	return m
 }
@@ -277,7 +278,7 @@ func (e *oauthEnv) verifyAgainstJWKS(t *testing.T, tok string) jwt.MapClaims {
 			E   string `json:"e"`
 		} `json:"keys"`
 	}
-	require.NoError(t, json.Unmarshal(body, &set))
+	require.NoError(t, json.Unmarshal(body, &set, jsonx.V1()))
 	require.NotEmpty(t, set.Keys)
 
 	parsed, err := jwt.Parse(tok, func(tk *jwt.Token) (any, error) {

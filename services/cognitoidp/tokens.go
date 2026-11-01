@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -19,6 +19,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // rsaKeyBits is the size of the RSA key generated for JWT signing.
@@ -373,7 +375,7 @@ func (t *tokenIssuer) signIDToken(p TokenParams, now time.Time, idExpiry time.Du
 
 	if raw := p.Attributes[attrIdentities]; raw != "" {
 		var identities []any
-		if json.Unmarshal([]byte(raw), &identities) == nil {
+		if json.Unmarshal([]byte(raw), &identities, jsonx.V1()) == nil {
 			idClaims[attrIdentities] = identities
 		}
 	}
@@ -547,5 +549,5 @@ func (t *tokenIssuer) ParseAccessToken(tokenString string) (jwt.MapClaims, error
 
 // jwksResponseJSON serializes JWKSResponse as JSON bytes.
 func jwksResponseJSON(r JWKSResponse) ([]byte, error) {
-	return json.Marshal(r)
+	return json.Marshal(r, jsonx.V1())
 }

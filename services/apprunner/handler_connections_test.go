@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -27,7 +29,7 @@ func TestConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				conn := resp["Connection"].(map[string]any)
 				assert.Contains(t, conn["ConnectionArn"], "connection/my-conn/")
 				assert.Equal(t, "AVAILABLE", conn["Status"])
@@ -65,7 +67,7 @@ func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing 
 	rec := doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "conn1", "ProviderType": "GITHUB"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	connArn := createResp["Connection"].(map[string]any)["ConnectionArn"].(string)
 
 	doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "conn2", "ProviderType": "BITBUCKET"})
@@ -85,7 +87,7 @@ func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing 
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["ConnectionSummaryList"].([]any)
 				assert.Len(t, list, 2)
 			},
@@ -98,7 +100,7 @@ func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing 
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["ConnectionSummaryList"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -111,7 +113,7 @@ func TestConnectionDeleteList(t *testing.T) { //nolint:paralleltest // existing 
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				conn := resp["Connection"].(map[string]any)
 				assert.Equal(t, "conn1", conn["ConnectionName"])
 			},
@@ -157,7 +159,7 @@ func TestDeleteConnection_RejectsWhenServiceUsesIt(t *testing.T) {
 	rec := doRequest(t, h, "CreateConnection", map[string]any{"ConnectionName": "gh-conn", "ProviderType": "GITHUB"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var connResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &connResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &connResp, jsonx.V1()))
 	connArn := connResp["Connection"].(map[string]any)["ConnectionArn"].(string)
 
 	rec = doRequest(t, h, "CreateService", map[string]any{
@@ -172,7 +174,7 @@ func TestDeleteConnection_RejectsWhenServiceUsesIt(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcArn := svcResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 	rec = doRequest(t, h, "DeleteConnection", map[string]any{"ConnectionArn": connArn})

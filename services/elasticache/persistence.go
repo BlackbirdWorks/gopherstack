@@ -2,7 +2,7 @@ package elasticache
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -66,7 +66,7 @@ type clusterSnapshot struct {
 // directly below as region -> that table's own deterministic
 // [store.Table.Snapshot] slice.
 type backendSnapshot struct {
-	Tables                    map[string]json.RawMessage                         `json:"tables"`
+	Tables                    map[string]jsontext.Value                          `json:"tables"`
 	Clusters                  map[string][]*clusterSnapshot                      `json:"clusters"`
 	ReplicationGroups         map[string][]*ReplicationGroup                     `json:"replicationGroups"`
 	ParameterGroups           map[string][]*CacheParameterGroup                  `json:"parameterGroups"`

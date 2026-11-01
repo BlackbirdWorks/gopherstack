@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -924,7 +926,7 @@ func Test_TagResource_RealPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &listResp, jsonx.V1()))
 	tagMap, ok := listResp["tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "prod", tagMap["env"])
@@ -934,7 +936,7 @@ func Test_TagResource_RealPath(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec3.Code)
 
 	rec4 := doRequest(t, h, http.MethodGet, tagPath, nil)
-	require.NoError(t, json.NewDecoder(rec4.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec4.Body), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp["tags"])
 }
 
@@ -956,7 +958,7 @@ func Test_TagResource_RealPath_EventAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp, jsonx.V1()))
 	tagMap, ok := resp["tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "core", tagMap["team"])
@@ -994,7 +996,7 @@ func Test_ApiCache_RealPaths(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	cache := resp["apiCache"].(map[string]any)
 	assert.Equal(t, "LARGE", cache["type"])
 
@@ -1043,7 +1045,7 @@ func Test_ListSourceApiAssociations_ByAPIID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	// The real AWS SDK's ListSourceApiAssociationsOutput wraps the list under
 	// "sourceApiAssociationSummaries", not "sourceApiAssociations" (the latter is only
 	// the URL path segment name).
@@ -1066,7 +1068,7 @@ func Test_ListApis_ResponseKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	apis, ok := resp["apis"].([]any)
 	require.True(t, ok, "response must wrap the list under \"apis\", got keys %v", resp)
 	assert.Len(t, apis, 1)

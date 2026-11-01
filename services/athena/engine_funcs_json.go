@@ -2,13 +2,15 @@ package athena
 
 import (
 	"database/sql/driver"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // arrays and maps live in SQLite as JSON text.
@@ -20,7 +22,7 @@ func parseJSONArg(v driver.Value) (any, bool) {
 	}
 
 	var out any
-	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, containerMark)), &out); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(s, containerMark)), &out, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -29,7 +31,7 @@ func parseJSONArg(v driver.Value) (any, bool) {
 
 // jsonText encodes an ARRAY/MAP value; containerMark tags it so results render Trino-style.
 func jsonText(v any) driver.Value {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return sqlNull()
 	}
@@ -39,7 +41,7 @@ func jsonText(v any) driver.Value {
 
 // jsonPlain encodes a JSON-typed value, which renders as raw JSON text.
 func jsonPlain(v any) driver.Value {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return sqlNull()
 	}
@@ -385,7 +387,7 @@ func udfArrayDistinct(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	out := make([]any, 0, len(a))
 
 	for _, e := range a {
-		k, _ := json.Marshal(e)
+		k, _ := json.Marshal(e, jsonx.V1())
 		if !seen[string(k)] {
 			seen[string(k)] = true
 			out = append(out, e)

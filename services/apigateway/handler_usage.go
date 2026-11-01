@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const opUpdateUsage = "UpdateUsage"
@@ -13,7 +15,7 @@ func (h *Handler) usageActions() map[string]actionFn {
 	return map[string]actionFn{
 		opGetUsage: func(b []byte) (int, any, error) {
 			var input GetUsageInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			out, err := h.Backend.GetUsage(input)
@@ -25,7 +27,7 @@ func (h *Handler) usageActions() map[string]actionFn {
 		},
 		opUpdateUsage: func(b []byte) (int, any, error) {
 			var raw map[string]string
-			if err := json.Unmarshal(b, &raw); err != nil {
+			if err := json.Unmarshal(b, &raw, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 

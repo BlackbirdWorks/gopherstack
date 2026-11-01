@@ -1,7 +1,7 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -40,7 +41,7 @@ func TestTagsLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				tags, ok := resp["tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "security", tags["team"])
@@ -72,7 +73,7 @@ func TestTagsLifecycle(t *testing.T) {
 
 				listRec := auditDo(t, h, http.MethodGet, "/tags/"+filterARN, nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				tags := resp["tags"].(map[string]any)
 				assert.Equal(t, "yes", tags["keep"])
 				_, hasRemove := tags["remove"]
@@ -122,7 +123,7 @@ func TestTagsLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				tags := resp["tags"].(map[string]any)
 				assert.Empty(t, tags)
 			},

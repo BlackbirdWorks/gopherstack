@@ -1,13 +1,14 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
@@ -29,7 +30,7 @@ func Test_ShadowDesiredNull_WipesDesired(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -51,7 +52,7 @@ func Test_ShadowDesiredNull_LeavesReportedIntact(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -78,7 +79,7 @@ func Test_ShadowReportedNull_WipesReported(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasReported := state["reported"]
@@ -105,7 +106,7 @@ func Test_ShadowBothNull_WipesBoth(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -133,7 +134,7 @@ func Test_ShadowDesiredNull_ThenResetDesired(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)
@@ -150,12 +151,12 @@ func Test_ShadowDesiredNull_VersionStillIncrements(t *testing.T) {
 	resp1, err := b.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":{"k":"v"}}}`))
 	require.NoError(t, err)
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(resp1, &r1))
+	require.NoError(t, json.Unmarshal(resp1, &r1, jsonx.V1()))
 
 	resp2, err := b.UpdateThingShadow("dev", "", []byte(`{"state":{"desired":null}}`))
 	require.NoError(t, err)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(resp2, &r2))
+	require.NoError(t, json.Unmarshal(resp2, &r2, jsonx.V1()))
 
 	v1 := int(r1["version"].(float64))
 	v2 := int(r2["version"].(float64))
@@ -175,7 +176,7 @@ func Test_ShadowDesiredNull_ViaHTTP(t *testing.T) {
 	// Confirm desired absent in GET.
 	rec = doRequest(t, h, http.MethodGet, "/things/dev/shadow", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	state := resp["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -193,7 +194,7 @@ func Test_ShadowResponse_OnlyDesiredSet_ReportedOmitted(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -213,7 +214,7 @@ func Test_ShadowResponse_OnlyReportedSet_DesiredOmitted(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasReported := state["reported"]
@@ -233,7 +234,7 @@ func Test_ShadowResponse_BothSet_BothPresent(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDesired := state["desired"]
@@ -256,7 +257,7 @@ func Test_ShadowResponse_EmptyStateSection_StateObjectPresent(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	// "state" key must still exist (as empty object {}).
 	_, hasState := doc["state"]
@@ -285,7 +286,7 @@ func Test_ShadowMetadata_ClearedOnDesiredNull(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	meta, hasMeta := doc["metadata"].(map[string]any)
 	if hasMeta {
@@ -313,7 +314,7 @@ func Test_ShadowDelta_AfterDesiredWipe_NoDelta(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	_, hasDelta := state["delta"]
@@ -332,7 +333,7 @@ func Test_ShadowUpdate_EmptyDesiredPatch_NoOpForKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(resp2, &r2))
+	require.NoError(t, json.Unmarshal(resp2, &r2, jsonx.V1()))
 	assert.InDelta(t, float64(2), r2["version"], 0)
 
 	state := r2["state"].(map[string]any)
@@ -361,7 +362,7 @@ func Test_ShadowUpdate_MultiplePatchesAccumulate(t *testing.T) {
 	require.NoError(t, err)
 
 	var doc map[string]any
-	require.NoError(t, json.Unmarshal(resp, &doc))
+	require.NoError(t, json.Unmarshal(resp, &doc, jsonx.V1()))
 
 	state := doc["state"].(map[string]any)
 	desired := state["desired"].(map[string]any)

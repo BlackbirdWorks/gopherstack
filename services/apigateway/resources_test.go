@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -46,7 +48,7 @@ func TestGetResources_NoPositionOnLastPage(t *testing.T) {
 			require.True(t, apiRec.Code >= 200 && apiRec.Code < 300)
 
 			var apiResp map[string]any
-			require.NoError(t, json.NewDecoder(apiRec.Body).Decode(&apiResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(apiRec.Body), &apiResp, jsonx.V1()))
 			apiID := apiResp["id"].(string)
 			require.NotEmpty(t, apiID)
 
@@ -55,7 +57,7 @@ func TestGetResources_NoPositionOnLastPage(t *testing.T) {
 				require.True(t, resRec.Code >= 200 && resRec.Code < 300)
 
 				var resResp map[string]any
-				require.NoError(t, json.NewDecoder(resRec.Body).Decode(&resResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resRec.Body), &resResp, jsonx.V1()))
 				items := resResp["item"].([]any)
 				rootID := items[0].(map[string]any)["id"].(string)
 
@@ -69,7 +71,7 @@ func TestGetResources_NoPositionOnLastPage(t *testing.T) {
 			require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			_, hasPosition := resp["position"]
 			assert.False(t, hasPosition,
@@ -162,7 +164,7 @@ func TestUpdateResource(t *testing.T) {
 				fmt.Sprintf(`{"restApiId":%q,"parentId":%q,"pathPart":"original"}`, apiID, rootID))
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var childResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &childResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &childResp, jsonx.V1()))
 			childID := childResp["id"].(string)
 
 			lookupID := childID

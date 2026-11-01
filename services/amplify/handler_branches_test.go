@@ -1,13 +1,14 @@
 package amplify_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amplify"
 )
 
@@ -223,7 +224,7 @@ func TestHandler_ListBranchesPagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			branches := resp["branches"].([]any)
 			assert.Len(t, branches, tt.wantCount)
 
@@ -277,7 +278,7 @@ func TestHandler_DeleteBranch(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				branch, ok := resp["branch"].(map[string]any)
 				require.True(
 					t, ok, "expected a \"branch\" key wrapping the deleted Branch, got body %s", rec.Body.String(),
@@ -347,7 +348,7 @@ func TestHandler_UpdateBranch(t *testing.T) {
 
 			if tt.wantDesc != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				br := resp["branch"].(map[string]any)
 				assert.Equal(t, tt.wantDesc, br["description"])
 			}

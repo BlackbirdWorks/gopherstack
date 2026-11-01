@@ -1,7 +1,7 @@
 package cloudformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"testing"
 
@@ -553,7 +553,7 @@ func testWAFv2WebACLAssociation(t *testing.T) {
 	// association template below can reference its real ARN.
 	acl, err := backends.WAFv2.Backend.CreateWebACL(
 		t.Context(), "acl-1", "REGIONAL", "",
-		json.RawMessage(`{"Allow":{}}`), nil,
+		jsontext.Value(`{"Allow":{}}`), nil,
 		nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil,
 		nil,

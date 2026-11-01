@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -66,7 +67,7 @@ func seedSearchContainer(t *testing.T, props azcosmos.ContainerProperties) *azco
 	}
 
 	for _, d := range docs {
-		body, mErr := json.Marshal(d)
+		body, mErr := json.Marshal(d, jsonx.V1())
 		require.NoError(t, mErr)
 
 		_, err = c.CreateItem(ctx, azcosmos.NewPartitionKeyString("p"), body, nil)
@@ -94,7 +95,7 @@ func queryIDs(t *testing.T, c *azcosmos.ContainerClient, query string) ([]string
 				ID string `json:"id"`
 			}
 
-			require.NoError(t, json.Unmarshal(item, &v))
+			require.NoError(t, json.Unmarshal(item, &v, jsonx.V1()))
 
 			ids = append(ids, v.ID)
 		}

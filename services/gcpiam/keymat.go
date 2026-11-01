@@ -6,7 +6,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"net/url"
@@ -14,6 +15,8 @@ import (
 
 	"cloud.google.com/go/iam/admin/apiv1/adminpb"
 	pkcs12 "software.sslmate.com/src/go-pkcs12"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -118,7 +121,7 @@ func (m *material) credentials(acct *adminpb.ServiceAccount, keyID string) ([]by
 		return nil, errInternal(err)
 	}
 
-	out, err := json.MarshalIndent(credentialsFile{
+	out, err := json.Marshal(credentialsFile{
 		Type:                    credentialsType,
 		ProjectID:               acct.GetProjectId(),
 		PrivateKeyID:            keyID,
@@ -130,7 +133,7 @@ func (m *material) credentials(acct *adminpb.ServiceAccount, keyID string) ([]by
 		AuthProviderX509CertURL: authCertsURL,
 		ClientX509CertURL:       clientCertPrefix + url.PathEscape(acct.GetEmail()),
 		UniverseDomain:          universeDomain,
-	}, "", "  ")
+	}, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return nil, errInternal(err)
 	}

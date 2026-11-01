@@ -2,7 +2,7 @@ package gcpworkflows
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 
@@ -23,17 +23,17 @@ var errNoRevisions = errors.New("no revisions")
 const snapshotVersion = 1
 
 type workflowSnap struct {
-	Revisions []json.RawMessage `json:"revisions"`
+	Revisions []jsontext.Value `json:"revisions"`
 }
 
 type backendSnapshot struct {
-	Workflows  map[string]workflowSnap    `json:"workflows"`
-	Executions map[string]json.RawMessage `json:"executions"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	Version    int                        `json:"version"`
+	Workflows  map[string]workflowSnap   `json:"workflows"`
+	Executions map[string]jsontext.Value `json:"executions"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	Version    int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	raw, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -54,12 +54,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:    snapshotVersion,
 		Workflows:  make(map[string]workflowSnap, len(b.workflows)),
-		Executions: make(map[string]json.RawMessage, len(b.execs)),
+		Executions: make(map[string]jsontext.Value, len(b.execs)),
 		Operations: b.ops.Snapshot(),
 	}
 
 	for n, rec := range b.workflows {
-		ws := workflowSnap{Revisions: make([]json.RawMessage, len(rec.revs))}
+		ws := workflowSnap{Revisions: make([]jsontext.Value, len(rec.revs))}
 		for i, r := range rec.revs {
 			ws.Revisions[i] = marshalPB(r)
 		}

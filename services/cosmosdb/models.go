@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"strconv"
 	"sync/atomic"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // System property names auto-populated on every Cosmos resource. Named
@@ -108,9 +111,9 @@ type ContainerSpec struct {
 	ID                string
 	PartitionKeyPath  string
 	PartitionKeyPaths []string
-	IndexingPolicy    json.RawMessage
+	IndexingPolicy    jsontext.Value
 
-	ConflictResolutionPolicy json.RawMessage
+	ConflictResolutionPolicy jsontext.Value
 	ContainerPolicies
 }
 
@@ -122,10 +125,10 @@ type ContainerInfo struct {
 	RID               string
 	PartitionKeyPath  string
 	PartitionKeyPaths []string
-	IndexingPolicy    json.RawMessage
+	IndexingPolicy    jsontext.Value
 	Modified          time.Time
 
-	ConflictResolutionPolicy json.RawMessage
+	ConflictResolutionPolicy jsontext.Value
 	ContainerPolicies
 }
 
@@ -168,16 +171,16 @@ type storedContainer struct {
 	Sprocs                   map[string]*storedScript `json:"Sprocs,omitempty"`
 	PartitionKeyPath         string
 	ID                       string
-	GeospatialConfig         json.RawMessage   `json:"GeospatialConfig,omitempty"`
-	UniqueKeyPolicy          json.RawMessage   `json:"UniqueKeyPolicy,omitempty"`
-	ConflictResolutionPolicy json.RawMessage   `json:"ConflictResolutionPolicy,omitempty"`
+	GeospatialConfig         jsontext.Value    `json:"GeospatialConfig,omitempty"`
+	UniqueKeyPolicy          jsontext.Value    `json:"UniqueKeyPolicy,omitempty"`
+	ConflictResolutionPolicy jsontext.Value    `json:"ConflictResolutionPolicy,omitempty"`
 	Conflicts                []*conflictRecord `json:"Conflicts,omitempty"`
 	PartitionKeyPaths        []string          `json:"PartitionKeyPaths,omitempty"`
-	VectorEmbeddingPolicy    json.RawMessage   `json:"VectorEmbeddingPolicy,omitempty"`
-	FullTextPolicy           json.RawMessage   `json:"FullTextPolicy,omitempty"`
-	ComputedProperties       json.RawMessage   `json:"ComputedProperties,omitempty"`
+	VectorEmbeddingPolicy    jsontext.Value    `json:"VectorEmbeddingPolicy,omitempty"`
+	FullTextPolicy           jsontext.Value    `json:"FullTextPolicy,omitempty"`
+	ComputedProperties       jsontext.Value    `json:"ComputedProperties,omitempty"`
 	ChangeLog                []*changeRecord   `json:"ChangeLog,omitempty"`
-	IndexingPolicy           json.RawMessage   `json:"IndexingPolicy,omitempty"`
+	IndexingPolicy           jsontext.Value    `json:"IndexingPolicy,omitempty"`
 	keep                     time.Duration
 	ChangeFloor              int64 `json:"ChangeFloor,omitempty"`
 	ChangeSeq                int64 `json:"ChangeSeq,omitempty"`
@@ -203,18 +206,18 @@ type storedDocument struct {
 // snapshot/restore cycle -- exactly the bug class AZURE.md's process rules
 // call out.
 type storedDocumentWire struct {
-	Timestamp        time.Time       `json:"Timestamp"`
-	ID               string          `json:"ID"`
-	PartitionKeyJSON string          `json:"PartitionKeyJSON"`
-	Origin           string          `json:"Origin,omitempty"`
-	Body             json.RawMessage `json:"Body"`
-	Seq              int64           `json:"Seq,omitempty"`
-	GLSN             int64           `json:"GLSN,omitempty"`
+	Timestamp        time.Time      `json:"Timestamp"`
+	ID               string         `json:"ID"`
+	PartitionKeyJSON string         `json:"PartitionKeyJSON"`
+	Origin           string         `json:"Origin,omitempty"`
+	Body             jsontext.Value `json:"Body"`
+	Seq              int64          `json:"Seq,omitempty"`
+	GLSN             int64          `json:"GLSN,omitempty"`
 }
 
 // MarshalJSON implements json.Marshaler for persistence snapshots.
 func (d *storedDocument) MarshalJSON() ([]byte, error) {
-	bodyBytes, err := json.Marshal(d.Body)
+	bodyBytes, err := json.Marshal(d.Body, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("cosmosdb: marshal stored document body: %w", err)
 	}
@@ -222,7 +225,7 @@ func (d *storedDocument) MarshalJSON() ([]byte, error) {
 	return json.Marshal(storedDocumentWire{
 		Body: bodyBytes, Timestamp: d.Timestamp, ID: d.ID, PartitionKeyJSON: d.PartitionKeyJSON, Seq: d.Seq,
 		GLSN: d.GLSN, Origin: d.Origin,
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON implements json.Unmarshaler for persistence snapshots. See
@@ -230,7 +233,7 @@ func (d *storedDocument) MarshalJSON() ([]byte, error) {
 func (d *storedDocument) UnmarshalJSON(data []byte) error {
 	var wire storedDocumentWire
 
-	if err := json.Unmarshal(data, &wire); err != nil {
+	if err := json.Unmarshal(data, &wire, jsonx.V1()); err != nil {
 		return fmt.Errorf("cosmosdb: unmarshal stored document: %w", err)
 	}
 
@@ -247,11 +250,10 @@ func (d *storedDocument) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("%w: id %q", ErrSnapshotDocumentNullBody, wire.ID)
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(wire.Body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(wire.Body))
 
 	var body map[string]any
-	if err := dec.Decode(&body); err != nil {
+	if err := json.UnmarshalDecode(dec, &body, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return fmt.Errorf("cosmosdb: unmarshal stored document body: %w", err)
 	}
 
@@ -282,7 +284,7 @@ type documentCompositeKey struct {
 // rather than delimiter-joined, for the same collision-avoidance reason
 // documented above and on services/azuretable's identical MarshalText.
 func (k documentCompositeKey) MarshalText() ([]byte, error) {
-	return json.Marshal([2]string{k.PartitionKeyJSON, k.ID})
+	return json.Marshal([2]string{k.PartitionKeyJSON, k.ID}, jsonx.V1())
 }
 
 // UnmarshalText implements encoding.TextUnmarshaler, the inverse of
@@ -290,7 +292,7 @@ func (k documentCompositeKey) MarshalText() ([]byte, error) {
 func (k *documentCompositeKey) UnmarshalText(text []byte) error {
 	var pair [2]string
 
-	if err := json.Unmarshal(text, &pair); err != nil {
+	if err := json.Unmarshal(text, &pair, jsonx.V1()); err != nil {
 		return fmt.Errorf("cosmosdb: malformed document composite key %q: %w", text, err)
 	}
 
@@ -318,7 +320,7 @@ func (k *documentCompositeKey) UnmarshalText(text []byte) error {
 // data never intended to be a key at all.
 func canonicalPartitionKeyJSON(v any) (string, error) {
 	switch v.(type) {
-	case nil, string, bool, json.Number, float64, float32, int, int32, int64:
+	case nil, string, bool, jsonx.Number, float64, float32, int, int32, int64:
 	default:
 		return "", fmt.Errorf(
 			"%w: partition key value must be a scalar (string, number, bool, or null), got %T",
@@ -326,7 +328,7 @@ func canonicalPartitionKeyJSON(v any) (string, error) {
 		)
 	}
 
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("cosmosdb: encode partition key value: %w", err)
 	}
@@ -342,11 +344,10 @@ func canonicalPartitionKeyJSON(v any) (string, error) {
 // them. json.Number round-trips back out through json.Marshal as the exact
 // original digit sequence.
 func decodeJSONObject(body []byte) (map[string]any, error) {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body), jsonx.V1())
 
 	var m map[string]any
-	if err := dec.Decode(&m); err != nil {
+	if err := json.UnmarshalDecode(dec, &m, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
 
@@ -371,9 +372,9 @@ func decodeJSONObject(body []byte) (map[string]any, error) {
 // *current* enclosing structure -- there isn't one here. Decoding a second
 // value and requiring io.EOF instead makes the JSON scanner itself validate
 // what remains, catching those unmatched-delimiter cases too.
-func rejectTrailingJSON(dec *json.Decoder) error {
+func rejectTrailingJSON(dec *jsontext.Decoder) error {
 	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+	if err := json.UnmarshalDecode(dec, &extra, jsonx.V1(), jsonx.UseNumber()); !errors.Is(err, io.EOF) {
 		if err == nil {
 			return ErrUnexpectedTrailingJSON
 		}
@@ -393,16 +394,15 @@ func rejectTrailingJSON(dec *json.Decoder) error {
 // recursion, since it must handle arbitrarily nested maps/slices/scalars
 // uniformly and preserve json.Number fidelity throughout.
 func deepCopyJSONValue(v any) (any, error) {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("cosmosdb: deep copy: marshal: %w", err)
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
 
 	var out any
-	if decodeErr := dec.Decode(&out); decodeErr != nil {
+	if decodeErr := json.UnmarshalDecode(dec, &out, jsonx.V1(), jsonx.UseNumber()); decodeErr != nil {
 		return nil, fmt.Errorf("cosmosdb: deep copy: unmarshal: %w", decodeErr)
 	}
 
@@ -464,7 +464,7 @@ func documentAsMap(info DocumentInfo) map[string]any {
 // walk; anything else takes the JSON round-trip so results stay identical.
 func copyStoredValue(v any) any {
 	switch t := v.(type) {
-	case nil, string, bool, json.Number:
+	case nil, string, bool, jsonx.Number:
 		return t
 	case map[string]any:
 		out := make(map[string]any, len(t))

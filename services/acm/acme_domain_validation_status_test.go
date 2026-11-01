@@ -1,7 +1,7 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAcmeDomainValidation_SettlesToValid(t *testing.T) {
@@ -39,7 +41,7 @@ func TestAcmeDomainValidation_SettlesToValid(t *testing.T) {
 					"PrevalidationOptions": map[string]any{
 						"DnsPrevalidation": map[string]any{"HostedZoneId": "Z123456"},
 					},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				rec := postACMJSON(t, h, "CreateAcmeDomainValidation", string(body))
@@ -48,7 +50,7 @@ func TestAcmeDomainValidation_SettlesToValid(t *testing.T) {
 				var out struct {
 					Arn string `json:"AcmeDomainValidationArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				time.Sleep(tt.wait)
 
@@ -58,13 +60,13 @@ func TestAcmeDomainValidation_SettlesToValid(t *testing.T) {
 						"PrevalidationOptions": map[string]any{
 							"DnsPrevalidation": map[string]any{"HostedZoneId": "Z999999"},
 						},
-					})
+					}, jsonx.V1())
 					require.NoError(t, mErr)
 					require.Equal(t, http.StatusOK,
 						postACMJSON(t, h, "UpdateAcmeDomainValidation", string(upd)).Code)
 				}
 
-				descBody, err := json.Marshal(map[string]string{"AcmeDomainValidationArn": out.Arn})
+				descBody, err := json.Marshal(map[string]string{"AcmeDomainValidationArn": out.Arn}, jsonx.V1())
 				require.NoError(t, err)
 
 				desc := postACMJSON(t, h, "DescribeAcmeDomainValidation", string(descBody))
@@ -75,7 +77,7 @@ func TestAcmeDomainValidation_SettlesToValid(t *testing.T) {
 						Status string `json:"Status"`
 					} `json:"AcmeDomainValidation"`
 				}
-				require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &got))
+				require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &got, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus, got.V.Status)
 			})
 		})

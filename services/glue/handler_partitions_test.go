@@ -2,7 +2,7 @@ package glue_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -112,7 +113,7 @@ func Test_BatchGetPartition_ReturnsRealPartitions(t *testing.T) {
 			Values []string `json:"Values"`
 		} `json:"UnprocessedKeys"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.Len(t, out.Partitions, 1)
 	assert.Equal(t, []string{"2024-01-01"}, out.Partitions[0].Values)
@@ -303,7 +304,7 @@ func TestAuditGlue_GetPartitions_Expression(t *testing.T) {
 					Values []string `json:"Values"`
 				} `json:"Partitions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			got := make([][]string, len(out.Partitions))
 			for i, p := range out.Partitions {
@@ -390,7 +391,7 @@ func TestHTTPBatchCreatePartition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out["Partitions"])
 }
 
@@ -398,7 +399,7 @@ func TestHTTPBatchCreatePartition(t *testing.T) {
 func postGlue(t *testing.T, h *glue.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bs, err := json.Marshal(body)
+	bs, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bs))
@@ -467,7 +468,7 @@ func TestGetPartition_Found(t *testing.T) {
 			Values []string `json:"Values"`
 		} `json:"Partition"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, []string{"2024", "01"}, out.Partition.Values)
 }
 
@@ -503,7 +504,7 @@ func TestGetPartitions_List(t *testing.T) {
 			Values []string `json:"Values"`
 		} `json:"Partitions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Partitions, 2)
 }
 
@@ -553,7 +554,7 @@ func TestUpdatePartition_Updates(t *testing.T) {
 			} `json:"StorageDescriptor"`
 		} `json:"Partition"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "s3://updated-bucket/tbl3", out.Partition.StorageDescriptor.Location)
 }
 
@@ -608,7 +609,7 @@ func TestBatchUpdatePartition_Updates(t *testing.T) {
 	var out struct {
 		Errors []any `json:"Errors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.Errors)
 }
 

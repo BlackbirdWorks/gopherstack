@@ -3,7 +3,8 @@ package acmpca
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -118,8 +120,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	var m map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(body, &m); unmarshalErr != nil {
+	var m map[string]jsontext.Value
+	if unmarshalErr := json.Unmarshal(body, &m, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -151,7 +153,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // handleError writes a standardized error response back to the client.
@@ -308,11 +310,11 @@ func decodeBase64Field(encoded, fieldName string, sentinel error) (string, error
 }
 
 // extractFirstResourceByKeys returns the first string resource found for the provided JSON field names.
-func extractFirstResourceByKeys(body map[string]json.RawMessage, keys ...string) string {
+func extractFirstResourceByKeys(body map[string]jsontext.Value, keys ...string) string {
 	for _, key := range keys {
 		if raw, ok := body[key]; ok {
 			var resourceID string
-			if err := json.Unmarshal(raw, &resourceID); err == nil {
+			if err := json.Unmarshal(raw, &resourceID, jsonx.V1()); err == nil {
 				return resourceID
 			}
 		}

@@ -1,10 +1,12 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListCopyJobs(c *echo.Context) error {
@@ -100,7 +102,7 @@ func (h *Handler) dispatchCopyJobExtraOps(c *echo.Context, route backupRoute, bo
 			DestinationBackupVaultArn string         `json:"DestinationBackupVaultArn"`
 			IamRoleArn                string         `json:"IamRoleArn"`
 		}
-		if err := json.Unmarshal(body, &copyJobReq); err != nil {
+		if err := json.Unmarshal(body, &copyJobReq, jsonx.V1()); err != nil {
 			return true, c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterValueException", "invalid request body"),

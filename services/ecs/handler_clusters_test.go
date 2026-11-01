@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -44,7 +45,7 @@ func TestECS_CreateCluster(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cluster, ok := resp["cluster"].(map[string]any)
 			require.True(t, ok)
@@ -133,7 +134,7 @@ func TestECS_DescribeClusters(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantCount > 0 {
 				clusters, ok := resp["clusters"].([]any)
@@ -402,7 +403,7 @@ func TestCluster_PutCapacityProviders_WithStrategy(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	providers := cluster["capacityProviders"].([]any)
 	assert.Len(t, providers, 2)
@@ -427,7 +428,7 @@ func TestClusterSetting_ContainerInsights_Enable(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	settings := cluster["settings"].([]any)
 	require.Len(t, settings, 1)
@@ -456,7 +457,7 @@ func TestClusterSetting_ContainerInsights_Disable(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	settings := cluster["settings"].([]any)
 	assert.Equal(t, "disabled", settings[0].(map[string]any)["value"])
@@ -476,7 +477,7 @@ func TestCreateCluster_WithSettings(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	rawSettings := cluster["settings"]
 	require.NotNil(t, rawSettings, "settings should be present in response")
@@ -508,7 +509,7 @@ func TestUpdateCluster_DoesNotAcceptCapacityProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cluster := out["cluster"].(map[string]any)
 	providers, ok := cluster["capacityProviders"].([]any)
 	require.True(t, ok)
@@ -533,7 +534,7 @@ func TestDescribeClusters_MultipleClusters(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &out, jsonx.V1()))
 	clusters := out["clusters"].([]any)
 	assert.Len(t, clusters, 3)
 }
@@ -554,7 +555,7 @@ func TestListClusters_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, resp.Code)
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	arns := out["clusterArns"].([]any)
 	assert.Len(t, arns, 3)
 	assert.NotEmpty(t, out["nextToken"])
@@ -654,7 +655,7 @@ func TestECS_PutClusterCapacityProviders(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cluster, ok := resp["cluster"].(map[string]any)
 			require.True(t, ok)
@@ -707,7 +708,7 @@ func TestECS_UpdateClusterSettings(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			c, ok := resp["cluster"].(map[string]any)
 			require.True(t, ok)
@@ -729,7 +730,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		clusters, _ := resp["clusters"].([]any)
 		assert.Empty(t, clusters)
@@ -754,7 +755,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		clusters, _ := resp["clusters"].([]any)
 		assert.Len(t, clusters, 1)
@@ -776,7 +777,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		clusters, _ := resp["clusters"].([]any)
 		assert.Empty(t, clusters)
@@ -796,7 +797,7 @@ func TestDescribeClusters_FailureSemantics(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		clusters, _ := resp["clusters"].([]any)
 		require.Len(t, clusters, 1)
@@ -821,7 +822,7 @@ func TestCluster_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		cluster, ok := resp["cluster"].(map[string]any)
 		require.True(t, ok, "cluster key must be present")
@@ -846,7 +847,7 @@ func TestCluster_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		cluster := resp["cluster"].(map[string]any)
 
@@ -872,7 +873,7 @@ func TestCluster_EmptyArrays_NotNull(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		clusters, _ := resp["clusters"].([]any)
 		require.Len(t, clusters, 1)
@@ -935,7 +936,7 @@ func TestECS_UpdateCluster(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cluster, ok := resp["cluster"].(map[string]any)
 			require.True(t, ok)
@@ -989,7 +990,7 @@ func TestBackend_EnrichCluster_CachedCounters(t *testing.T) {
 				require.Equal(t, http.StatusOK, runRec.Code)
 
 				var runOut map[string]any
-				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 				for _, task := range runOut["tasks"].([]any) {
 					taskArns = append(taskArns, task.(map[string]any)["taskArn"].(string))
 				}
@@ -1009,7 +1010,7 @@ func TestBackend_EnrichCluster_CachedCounters(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descOut map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			clusters := descOut["clusters"].([]any)
 			require.Len(t, clusters, 1)
 			c := clusters[0].(map[string]any)
@@ -1035,7 +1036,7 @@ func TestBackend_EnrichCluster_RunAndStopUpdatesCounters(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		c := out["clusters"].([]any)[0].(map[string]any)
 
 		return c["runningTasksCount"].(float64), c["pendingTasksCount"].(float64)
@@ -1054,7 +1055,7 @@ func TestBackend_EnrichCluster_RunAndStopUpdatesCounters(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 	tasks := runOut["tasks"].([]any)
 	require.Len(t, tasks, 2)
 

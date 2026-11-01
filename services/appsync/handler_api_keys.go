@@ -2,13 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleAPIKeys handles /v1/apis/{apiId}/apikeys[/{keyId}].
@@ -52,7 +53,7 @@ func (h *Handler) createAPIKey(ctx context.Context, c *echo.Context, apiID strin
 		Expires     int64  `json:"expires"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -105,7 +106,7 @@ func (h *Handler) updateAPIKey(ctx context.Context, c *echo.Context, apiID, keyI
 		Expires     int64  `json:"expires"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

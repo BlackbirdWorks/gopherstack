@@ -2,7 +2,8 @@ package apigateway
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // vtlMap is an insertion-ordered map, matching the LinkedHashMap API Gateway
@@ -67,54 +70,58 @@ var errVTLJSON = errors.New("invalid JSON")
 
 // parseOrderedJSON decodes JSON into vtl values (ordered maps, lists, int64/float64, string, bool, nil).
 func parseOrderedJSON(s string) (any, error) {
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(s), jsonx.V1())
 
 	v, err := decodeVTLValue(dec)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err = dec.Token(); !errors.Is(err, io.EOF) {
+	if _, err = dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return nil, errVTLJSON
 	}
 
 	return v, nil
 }
 
-func decodeVTLValue(dec *json.Decoder) (any, error) {
-	tok, err := dec.Token()
+func decodeVTLValue(dec *jsontext.Decoder) (any, error) {
+	tok, err := dec.ReadToken()
 	if err != nil {
 		return nil, err
 	}
 
-	switch t := tok.(type) {
-	case json.Delim:
-		if t == '{' {
-			return decodeVTLObject(dec)
-		}
-
+	switch tok.Kind() {
+	case '{':
+		return decodeVTLObject(dec)
+	case '[':
 		return decodeVTLArray(dec)
-	case json.Number:
-		return numberFromJSON(t), nil
+	case '0':
+		return numberFromJSON(jsonx.Number(tok.String())), nil
+	case '"':
+		return tok.String(), nil
+	case 't', 'f':
+		return tok.Bool(), nil
 	default:
-		return t, nil
+		var null any
+
+		return null, nil
 	}
 }
 
-func decodeVTLObject(dec *json.Decoder) (any, error) {
+func decodeVTLObject(dec *jsontext.Decoder) (any, error) {
 	m := newVTLMap()
 
-	for dec.More() {
-		keyTok, err := dec.Token()
+	for dec.PeekKind() != '}' {
+		keyTok, err := dec.ReadToken()
 		if err != nil {
 			return nil, err
 		}
 
-		key, ok := keyTok.(string)
-		if !ok {
+		if keyTok.Kind() != '"' {
 			return nil, errVTLJSON
 		}
+
+		key := keyTok.String()
 
 		v, err := decodeVTLValue(dec)
 		if err != nil {
@@ -124,17 +131,17 @@ func decodeVTLObject(dec *json.Decoder) (any, error) {
 		m.put(key, v)
 	}
 
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
 	}
 
 	return m, nil
 }
 
-func decodeVTLArray(dec *json.Decoder) (any, error) {
+func decodeVTLArray(dec *jsontext.Decoder) (any, error) {
 	l := &vtlList{items: []any{}}
 
-	for dec.More() {
+	for dec.PeekKind() != ']' {
 		v, err := decodeVTLValue(dec)
 		if err != nil {
 			return nil, err
@@ -143,14 +150,14 @@ func decodeVTLArray(dec *json.Decoder) (any, error) {
 		l.items = append(l.items, v)
 	}
 
-	if _, err := dec.Token(); err != nil {
+	if _, err := dec.ReadToken(); err != nil {
 		return nil, err
 	}
 
 	return l, nil
 }
 
-func numberFromJSON(n json.Number) any {
+func numberFromJSON(n jsonx.Number) any {
 	if i, err := strconv.ParseInt(n.String(), 10, 64); err == nil {
 		return i
 	}
@@ -213,9 +220,8 @@ func writeVTLJSON(buf *bytes.Buffer, v any) {
 func writeJSONString(buf *bytes.Buffer, s string) {
 	var tmp bytes.Buffer
 
-	enc := json.NewEncoder(&tmp)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(s)
+	enc := jsontext.NewEncoder(&tmp, jsonx.V1(), jsontext.EscapeForHTML(false))
+	_ = json.MarshalEncode(enc, s)
 	buf.Write(bytes.TrimRight(tmp.Bytes(), "\n"))
 }
 

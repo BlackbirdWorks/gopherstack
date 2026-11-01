@@ -1,7 +1,7 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTags(t *testing.T) {
@@ -56,7 +58,7 @@ func TestTags(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var tagsResp map[string]any
-			err = json.Unmarshal(rec.Body.Bytes(), &tagsResp)
+			err = json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1())
 			require.NoError(t, err)
 
 			tags := tagsResp["Tags"].(map[string]any)
@@ -118,7 +120,7 @@ func TestTags_KeyValidation(t *testing.T) {
 			h := newTestHandler()
 			createVault(t, h, "tag-val-vault")
 
-			tagsJSON, _ := json.Marshal(tt.tags)
+			tagsJSON, _ := json.Marshal(tt.tags, jsonx.V1())
 			body := fmt.Sprintf(`{"Tags":%s}`, tagsJSON)
 			rec := doRequest(t, h, http.MethodPost,
 				"/"+testAccountID+"/vaults/tag-val-vault/tags?operation=add", body)
@@ -155,7 +157,7 @@ func TestTags_ExactLimitAccepted(t *testing.T) {
 				tags[fmt.Sprintf("key-%02d", i)] = fmt.Sprintf("val-%02d", i)
 			}
 
-			body, err := json.Marshal(map[string]any{"Tags": tags})
+			body, err := json.Marshal(map[string]any{"Tags": tags}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequestWithHeaders(t, h, http.MethodPost,
@@ -248,7 +250,7 @@ func TestTags_ListTagsEmpty(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			tags, ok := resp["Tags"].(map[string]any)
 			assert.True(t, ok, tt.name)
 			assert.Empty(t, tags)

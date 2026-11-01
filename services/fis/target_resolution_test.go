@@ -2,13 +2,14 @@ package fis_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
@@ -142,7 +143,7 @@ func TestStartExperiment_TargetResolution(t *testing.T) {
 				Status string `json:"status"`
 				Reason string `json:"reason"`
 			}
-			require.NoError(t, json.Unmarshal(exp["status"], &status))
+			require.NoError(t, json.Unmarshal(exp["status"], &status, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, status.Status)
 			assert.Equal(t, tt.wantReason, status.Reason)
 
@@ -152,7 +153,7 @@ func TestStartExperiment_TargetResolution(t *testing.T) {
 						Status string `json:"status"`
 					} `json:"state"`
 				}
-				require.NoError(t, json.Unmarshal(exp["actions"], &actions))
+				require.NoError(t, json.Unmarshal(exp["actions"], &actions, jsonx.V1()))
 				assert.Equal(t, tt.wantActions, actions["act"].State.Status)
 			}
 

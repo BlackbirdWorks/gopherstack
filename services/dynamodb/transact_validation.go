@@ -5,12 +5,13 @@
 package dynamodb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -118,7 +119,7 @@ func checkTransactWriteItemSizeAndDupe(
 	// validation error), so it's not surfaced — the item is simply not
 	// tracked in seen and duplicate detection silently skips it, matching
 	// the pre-refactor loop's "continue on marshal error" behavior.
-	keyBytes, marshalErr := json.Marshal(wireKey)
+	keyBytes, marshalErr := json.Marshal(wireKey, jsonx.V1())
 	if marshalErr == nil {
 		twk := transactWriteKey{TableName: tableName, KeyJSON: string(keyBytes)}
 		if seen[twk] {

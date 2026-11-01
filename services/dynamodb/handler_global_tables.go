@@ -7,11 +7,12 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -91,7 +92,7 @@ type listGlobalTablesOutput struct {
 
 func (h *DynamoDBHandler) handleCreateGlobalTable(ctx context.Context, body []byte) (any, error) {
 	var req createGlobalTableInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -118,7 +119,7 @@ func (h *DynamoDBHandler) handleCreateGlobalTable(ctx context.Context, body []by
 
 func (h *DynamoDBHandler) handleDescribeGlobalTable(ctx context.Context, body []byte) (any, error) {
 	var req describeGlobalTableInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +140,7 @@ func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
 	body []byte,
 ) (any, error) {
 	var req describeGlobalTableSettingsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -164,7 +165,7 @@ func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
 func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byte) (any, error) {
 	var req listGlobalTablesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -213,7 +214,7 @@ func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byt
 
 func (h *DynamoDBHandler) handleUpdateGlobalTable(ctx context.Context, body []byte) (any, error) {
 	var req updateGlobalTableInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -419,7 +420,7 @@ func (h *DynamoDBHandler) handleUpdateGlobalTableSettings(
 	body []byte,
 ) (any, error) {
 	var req updateGlobalTableSettingsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

@@ -1,11 +1,14 @@
 package accessanalyzer
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -52,14 +55,14 @@ type iamStringOrSlice []string
 
 func (s *iamStringOrSlice) UnmarshalJSON(data []byte) error {
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := json.Unmarshal(data, &str, jsonx.V1()); err == nil {
 		*s = []string{str}
 
 		return nil
 	}
 
 	var slice []string
-	if err := json.Unmarshal(data, &slice); err != nil {
+	if err := json.Unmarshal(data, &slice, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -78,27 +81,27 @@ type iamPrincipal struct { //nolint:govet // field order chosen for readability
 
 func (p *iamPrincipal) UnmarshalJSON(data []byte) error {
 	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
+	if err := json.Unmarshal(data, &str, jsonx.V1()); err == nil {
 		p.IsWildcard = str == "*"
 
 		return nil
 	}
 
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(data, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(data, &m, jsonx.V1()); err != nil {
 		return err
 	}
 
 	if v, ok := m["AWS"]; ok {
-		_ = json.Unmarshal(v, &p.AWS)
+		_ = json.Unmarshal(v, &p.AWS, jsonx.V1())
 	}
 
 	if v, ok := m["Service"]; ok {
-		_ = json.Unmarshal(v, &p.Service)
+		_ = json.Unmarshal(v, &p.Service, jsonx.V1())
 	}
 
 	if v, ok := m["Federated"]; ok {
-		_ = json.Unmarshal(v, &p.Federated)
+		_ = json.Unmarshal(v, &p.Federated, jsonx.V1())
 	}
 
 	return nil
@@ -116,7 +119,7 @@ func parsePolicy(doc string) (iamPolicy, error) {
 	}
 
 	var p iamPolicy
-	if err := json.Unmarshal([]byte(doc), &p); err != nil {
+	if err := json.Unmarshal([]byte(doc), &p, jsonx.V1()); err != nil {
 		return iamPolicy{}, ErrMalformedPolicy
 	}
 
@@ -439,7 +442,7 @@ func stmtFieldLoc(stmtPath []any, field string) []map[string]any {
 }
 
 // validateVersion checks the Version field of a policy document.
-func validateVersion(raw map[string]json.RawMessage, p iamPolicy) []ValidatePolicyFinding {
+func validateVersion(raw map[string]jsontext.Value, p iamPolicy) []ValidatePolicyFinding {
 	var findings []ValidatePolicyFinding
 
 	if _, ok := raw["Version"]; !ok {
@@ -546,8 +549,8 @@ func validateStatement(i int, stmt iamStatement, policyType string) []ValidatePo
 
 // ValidatePolicy checks a policy document for structural and semantic errors.
 func ValidatePolicy(policyDoc, policyType string) []ValidatePolicyFinding {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(policyDoc), &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(policyDoc), &raw, jsonx.V1()); err != nil {
 		findings := []ValidatePolicyFinding{errFinding("INVALID_POLICY_SYNTAX", rootLoc())}
 		attachSpans(policyDoc, findings)
 
@@ -582,7 +585,7 @@ func ValidatePolicy(policyDoc, policyType string) []ValidatePolicyFinding {
 // the finding) falls back one step at a time toward the document root,
 // which always resolves -- so span is never dropped.
 func attachSpans(doc string, findings []ValidatePolicyFinding) {
-	root := json.RawMessage(doc)
+	root := jsontext.Value(doc)
 
 	for i := range findings {
 		locs := findings[i].Locations
@@ -595,7 +598,7 @@ func attachSpans(doc string, findings []ValidatePolicyFinding) {
 // attachSpan resolves loc's "span" in place. loc is a map (a reference
 // type), so mutating it here mutates the same map attachSpans's caller
 // holds -- no index expression needs to survive past this call.
-func attachSpan(doc string, root json.RawMessage, loc map[string]any) {
+func attachSpan(doc string, root jsontext.Value, loc map[string]any) {
 	path, _ := loc[keyPath].([]any)
 
 	for {
@@ -619,7 +622,7 @@ func attachSpan(doc string, root json.RawMessage, loc map[string]any) {
 // map[string]any{keyValue: field} / map[string]any{keyIndex: i} shapes
 // rootLoc/fieldLoc/stmtLoc/stmtFieldLoc build (never JSON-decoded, so the
 // map values are concrete Go string/int, not float64/etc).
-func resolveRawAt(node json.RawMessage, nodeStart int, path []any) (json.RawMessage, int, bool) {
+func resolveRawAt(node jsontext.Value, nodeStart int, path []any) (jsontext.Value, int, bool) {
 	if len(path) == 0 {
 		return node, nodeStart, true
 	}
@@ -641,9 +644,9 @@ func resolveRawAt(node json.RawMessage, nodeStart int, path []any) (json.RawMess
 // resolveKeyStep resolves a map[string]any{keyValue: key} path step: the
 // PathElementMemberValue shape rootLoc/fieldLoc/stmtFieldLoc build for "the
 // value at this object key".
-func resolveKeyStep(node json.RawMessage, nodeStart int, key string, rest []any) (json.RawMessage, int, bool) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(node, &m); err != nil {
+func resolveKeyStep(node jsontext.Value, nodeStart int, key string, rest []any) (jsontext.Value, int, bool) {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(node, &m, jsonx.V1()); err != nil {
 		return nil, 0, false
 	}
 
@@ -666,9 +669,9 @@ func resolveKeyStep(node json.RawMessage, nodeStart int, key string, rest []any)
 // against the whole node) so an earlier element byte-identical to arr[idx]
 // can't steal the match -- each element narrows the search window past
 // itself.
-func resolveIndexStep(node json.RawMessage, nodeStart, idx int, rest []any) (json.RawMessage, int, bool) {
-	var arr []json.RawMessage
-	if err := json.Unmarshal(node, &arr); err != nil {
+func resolveIndexStep(node jsontext.Value, nodeStart, idx int, rest []any) (jsontext.Value, int, bool) {
+	var arr []jsontext.Value
+	if err := json.Unmarshal(node, &arr, jsonx.V1()); err != nil {
 		return nil, 0, false
 	}
 

@@ -3,7 +3,6 @@ package cosmosdb
 import (
 	"crypto/rand"
 	"encoding/binary"
-	"encoding/json"
 	"math"
 	"math/big"
 	"regexp"
@@ -12,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Built-in functions of the Cosmos DB query language reference (Learn, "Functions") beyond the first set:
@@ -253,7 +254,7 @@ func trigonometry(name string, x float64) any {
 
 // numberBin rounds a down to a multiple of the bin size (default 1): floor(a / size) * size, so a negative size
 // bins upward as the documented example shows. A zero or non-numeric size has no result.
-func numberBin(a json.Number, args []any) any {
+func numberBin(a jsonx.Number, args []any) any {
 	size := 1.0
 
 	if len(args) > 1 {
@@ -277,7 +278,7 @@ func numberBin(a json.Number, args []any) any {
 			q--
 		}
 
-		return json.Number(strconv.FormatInt(q*si, 10))
+		return jsonx.Number(strconv.FormatInt(q*si, 10))
 	}
 
 	return floatResult(math.Floor(numFloat(a)/size) * size)
@@ -311,7 +312,7 @@ func intMath(name string, args []any) any {
 	}
 
 	if name == biIntbitnot {
-		return json.Number(strconv.FormatInt(^a, 10))
+		return jsonx.Number(strconv.FormatInt(^a, 10))
 	}
 
 	b, bok := int64Arg(args[1])
@@ -324,7 +325,7 @@ func intMath(name string, args []any) any {
 		return undef{}
 	}
 
-	return json.Number(strconv.FormatInt(r, 10))
+	return jsonx.Number(strconv.FormatInt(r, 10))
 }
 
 func intBinary(name string, a, b int64) (int64, bool) {
@@ -810,7 +811,7 @@ func documentIDOf(n *exprCall, env []any) any {
 		return undef{}
 	}
 
-	return json.Number(strconv.FormatInt(row.doc.Seq, 10))
+	return jsonx.Number(strconv.FormatInt(row.doc.Seq, 10))
 }
 
 // randomUnit is a uniform number in [0, 1).

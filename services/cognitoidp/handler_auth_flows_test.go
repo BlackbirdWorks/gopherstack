@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -32,7 +33,7 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &poolResp, jsonx.V1()))
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
 		"UserPoolId": poolResp.UserPool.ID,
@@ -45,7 +46,7 @@ func TestHandler_SignUp_PolicyEnforced(t *testing.T) {
 			ClientID string `json:"ClientId,omitempty"`
 		} `json:"UserPoolClient"`
 	}
-	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 	clientID := clientResp.UserPoolClient.ClientID
 
 	rec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -100,7 +101,7 @@ func TestSignUp_ConfirmSignUp(t *testing.T) {
 					ID string `json:"Id"`
 				} `json:"UserPool"`
 			}
-			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 			poolID := poolResp.UserPool.ID
 
 			if tt.policy != nil {
@@ -121,7 +122,7 @@ func TestSignUp_ConfirmSignUp(t *testing.T) {
 					ClientID string `json:"ClientId"`
 				} `json:"UserPoolClient"`
 			}
-			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1()))
 			clientID := clientResp.UserPoolClient.ClientID
 
 			rec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -153,7 +154,7 @@ func TestHandler_SignUp(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) string {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -161,7 +162,7 @@ func TestHandler_SignUp(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 
 				return clientResp["UserPoolClient"]["ClientId"].(string)
 			},
@@ -225,7 +226,7 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -233,7 +234,7 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -245,7 +246,7 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 
 				// Extract confirm code from the CodeDeliveryDetails in the SignUp response.
 				var signupResp map[string]any
-				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp, jsonx.V1())
 				code := ""
 				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
 					code, _ = details["ConfirmationCode"].(string)
@@ -260,7 +261,7 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -268,7 +269,7 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 
 				return clientResp["UserPoolClient"]["ClientId"].(string), "nobody", "123456"
 			},
@@ -308,7 +309,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -316,7 +317,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -328,7 +329,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 
 				// Extract the confirmation code from the SignUp response.
 				var signupResp map[string]any
-				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp, jsonx.V1())
 				code := ""
 				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
 					code, _ = details["ConfirmationCode"].(string)
@@ -352,7 +353,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -360,7 +361,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -372,7 +373,7 @@ func TestHandler_InitiateAuth(t *testing.T) {
 
 				// Extract the confirmation code from the SignUp response.
 				var signupResp map[string]any
-				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp, jsonx.V1())
 				code := ""
 				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
 					code, _ = details["ConfirmationCode"].(string)
@@ -431,7 +432,7 @@ func TestHandler_AdminInitiateAuth(t *testing.T) {
 			setup: func(h *cognitoidp.Handler) (string, string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
-				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1())
 				poolID := poolResp["UserPool"]["Id"].(string)
 
 				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -439,7 +440,7 @@ func TestHandler_AdminInitiateAuth(t *testing.T) {
 					"ClientName": "c",
 				})
 				var clientResp map[string]map[string]any
-				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp, jsonx.V1())
 				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
 
 				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
@@ -495,7 +496,7 @@ func TestHandler_AdminConfirmSignUp(t *testing.T) {
 
 	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "admin-confirm-pool"})
 	var poolData map[string]map[string]any
-	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData)
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData, jsonx.V1())
 	poolID := poolData["UserPool"]["Id"].(string)
 
 	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
@@ -503,7 +504,7 @@ func TestHandler_AdminConfirmSignUp(t *testing.T) {
 		"ClientName": "c",
 	})
 	var clientData map[string]map[string]any
-	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData)
+	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData, jsonx.V1())
 	clientID := clientData["UserPoolClient"]["ClientId"].(string)
 
 	signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
@@ -552,7 +553,7 @@ func TestAdminNoSRPAuth(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, "ADMIN_NO_SRP_AUTH should succeed")
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasAuth := resp["AuthenticationResult"]
 	assert.True(t, hasAuth, "must have AuthenticationResult")
 }

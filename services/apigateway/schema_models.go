@@ -1,10 +1,13 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // CreateModel creates a data model for a REST API.
@@ -25,7 +28,7 @@ func (b *InMemoryBackend) CreateModel(input CreateModelInput) (*Model, error) {
 		return nil, fmt.Errorf("%w: Model name must be alphanumeric", ErrInvalidParameter)
 	}
 
-	if input.Schema != "" && !json.Valid([]byte(input.Schema)) {
+	if input.Schema != "" && !jsontext.Value([]byte(input.Schema)).IsValid(jsonx.V1()) {
 		return nil, fmt.Errorf("%w: Invalid model specified: schema is not valid JSON", ErrInvalidParameter)
 	}
 
@@ -95,13 +98,13 @@ func (b *InMemoryBackend) GetModel(restAPIID, modelName string, flatten bool) (*
 // JSON, or a $ref naming no model in this REST API, is left untouched.
 func flattenModelSchema(b *InMemoryBackend, restAPIID, schema string, visiting map[string]bool) string {
 	var node any
-	if err := json.Unmarshal([]byte(schema), &node); err != nil {
+	if err := json.Unmarshal([]byte(schema), &node, jsonx.V1()); err != nil {
 		return schema
 	}
 
 	resolved := resolveModelRefNode(b, restAPIID, node, visiting)
 
-	out, err := json.Marshal(resolved)
+	out, err := json.Marshal(resolved, jsonx.V1())
 	if err != nil {
 		return schema
 	}
@@ -150,7 +153,7 @@ func resolveModelRefNode(b *InMemoryBackend, restAPIID string, node any, visitin
 func resolveModelRef(b *InMemoryBackend, restAPIID, ref string, visiting map[string]bool) (any, bool) {
 	refJSON, err := json.Marshal(struct {
 		Ref string `json:"$ref"`
-	}{Ref: ref})
+	}{Ref: ref}, jsonx.V1())
 	if err != nil {
 		return nil, false
 	}
@@ -172,7 +175,7 @@ func resolveModelRef(b *InMemoryBackend, restAPIID, ref string, visiting map[str
 		nested[name] = true
 
 		var decoded any
-		if unmarshalErr := json.Unmarshal([]byte(m.Schema), &decoded); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal([]byte(m.Schema), &decoded, jsonx.V1()); unmarshalErr != nil {
 			return nil, false
 		}
 

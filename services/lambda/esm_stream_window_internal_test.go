@@ -2,7 +2,8 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type scriptedKinesisReader struct {
@@ -39,13 +42,13 @@ func (r *scriptedKinesisReader) GetRecords(string, int) ([]KinesisRecord, string
 }
 
 type streamCall struct {
-	Window                  *windowRange      `json:"window"`
-	State                   map[string]any    `json:"state"`
-	ShardID                 string            `json:"shardId"`
-	EventSourceARN          string            `json:"eventSourceARN"`
-	Records                 []json.RawMessage `json:"Records"`
-	IsFinalInvokeForWindow  bool              `json:"isFinalInvokeForWindow"`
-	IsWindowTerminatedEarly bool              `json:"isWindowTerminatedEarly"`
+	Window                  *windowRange     `json:"window"`
+	State                   map[string]any   `json:"state"`
+	ShardID                 string           `json:"shardId"`
+	EventSourceARN          string           `json:"eventSourceARN"`
+	Records                 []jsontext.Value `json:"Records"`
+	IsFinalInvokeForWindow  bool             `json:"isFinalInvokeForWindow"`
+	IsWindowTerminatedEarly bool             `json:"isWindowTerminatedEarly"`
 }
 
 func (c streamCall) seqs(t *testing.T) []string {
@@ -60,7 +63,7 @@ func (c streamCall) seqs(t *testing.T) []string {
 			} `json:"kinesis"`
 		}
 
-		require.NoError(t, json.Unmarshal(r, &rec))
+		require.NoError(t, json.Unmarshal(r, &rec, jsonx.V1()))
 		out = append(out, rec.Kinesis.Seq)
 	}
 
@@ -104,7 +107,7 @@ func newStreamHarness(
 	h.p.streamInvoker = func(_ context.Context, _ string, payload []byte) invokeOutcome {
 		var c streamCall
 
-		require.NoError(t, json.Unmarshal(payload, &c))
+		require.NoError(t, json.Unmarshal(payload, &c, jsonx.V1()))
 
 		h.mu.Lock()
 		h.calls = append(h.calls, c)
@@ -229,7 +232,7 @@ func TestStreamParallelizationFactor(t *testing.T) {
 						} `json:"kinesis"`
 					}
 
-					require.NoError(t, json.Unmarshal(r, &rec))
+					require.NoError(t, json.Unmarshal(r, &rec, jsonx.V1()))
 
 					l := laneIndex(rec.Kinesis.PK, tt.factor)
 					if laneOf >= 0 {
@@ -360,7 +363,7 @@ func TestStreamTumblingWindow(t *testing.T) {
 				assert.Equal(t, testKinesisARN, c.EventSourceARN)
 				require.NotNil(t, c.Window)
 
-				state, err := json.Marshal(c.State)
+				state, err := json.Marshal(c.State, jsonx.V1())
 				require.NoError(t, err)
 				assert.JSONEq(t, w.state, string(state), "call %d", i)
 			}
@@ -676,7 +679,7 @@ func TestStreamDynamoDBParallelizationKeepsItemOrder(t *testing.T) {
 			} `json:"Records"`
 		}
 
-		require.NoError(t, json.Unmarshal(payload, &ev))
+		require.NoError(t, json.Unmarshal(payload, &ev, jsonx.V1()))
 
 		got := make([]string, 0, len(ev.Records))
 		for _, r := range ev.Records {

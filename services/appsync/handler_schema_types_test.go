@@ -1,7 +1,8 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -139,7 +141,7 @@ func TestHandler_CreateType(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				typ, ok := resp["type"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, typ["name"])
@@ -158,7 +160,7 @@ func TestHandler_CreateType_DuplicateRejected(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	gqlAPI := resp["graphqlApi"].(map[string]any)
 	apiID := gqlAPI["apiId"].(string)
 
@@ -187,7 +189,7 @@ func TestHandler_ListTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	types := resp["types"].([]any)
 	assert.Len(t, types, 1)
 }
@@ -206,7 +208,7 @@ func TestHandler_GetType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["type"])
 }
 
@@ -243,7 +245,7 @@ func TestHandler_UpdateType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	typeDef := resp["type"].(map[string]any)
 	assert.Contains(t, typeDef["definition"], "name")
 }

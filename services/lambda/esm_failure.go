@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -211,7 +212,7 @@ func logDeliveryFailure(ctx context.Context, uuidStr, dest string, err error) {
 }
 
 func marshalFailure(rec failureRecord) ([]byte, error) {
-	body, err := json.Marshal(rec)
+	body, err := json.Marshal(rec, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal failure record: %w", err)
 	}

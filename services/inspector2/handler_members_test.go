@@ -1,12 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestMembersLifecycle(t *testing.T) {
@@ -36,7 +38,7 @@ func TestMembersLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						assert.Equal(t, "111111111111", resp["accountId"])
 					},
 				},
@@ -64,7 +66,7 @@ func TestMembersLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						m, _ := resp["member"].(map[string]any)
 						assert.Equal(t, "222222222222", m["accountId"])
 					},
@@ -78,7 +80,7 @@ func TestMembersLifecycle(t *testing.T) {
 						t.Helper()
 						assert.Equal(t, http.StatusOK, code)
 						var resp map[string]any
-						require.NoError(t, json.Unmarshal(body, &resp))
+						require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 						members, _ := resp["members"].([]any)
 						assert.Len(t, members, 1)
 					},

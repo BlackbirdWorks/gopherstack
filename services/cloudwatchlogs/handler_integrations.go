@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type associateSourceToS3TableIntegrationInput struct {
@@ -20,7 +22,7 @@ func (h *Handler) handleAssociateSourceToS3TableIntegration(
 	b []byte,
 ) (any, error) {
 	var input associateSourceToS3TableIntegrationInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -72,7 +74,7 @@ func (h *Handler) handlePutIntegration(
 	body []byte,
 ) (any, error) {
 	var in putIntegrationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -159,7 +161,7 @@ func (h *Handler) handleGetIntegration(
 	body []byte,
 ) (any, error) {
 	var in getIntegrationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -194,7 +196,7 @@ func (h *Handler) handleListIntegrations(
 	body []byte,
 ) (any, error) {
 	var in listIntegrationsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -224,7 +226,7 @@ func (h *Handler) handleDeleteIntegration(
 	body []byte,
 ) (any, error) {
 	var in deleteIntegrationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -250,7 +252,7 @@ func (h *Handler) handleDisassociateSourceFromS3TableIntegration(
 	body []byte,
 ) (any, error) {
 	var in disassociateSourceFromS3TableIntegrationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 
@@ -289,7 +291,7 @@ func (h *Handler) handleListSourcesForS3TableIntegration(
 	body []byte,
 ) (any, error) {
 	var input listSourcesForS3TableIntegrationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidationException, err)
 	}
 

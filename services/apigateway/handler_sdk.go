@@ -1,8 +1,10 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -48,12 +50,12 @@ func (h *Handler) sdkActions() map[string]actionFn {
 				StageName string `json:"stageName"`
 				SdkType   string `json:"sdkType"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
 			var raw map[string]any
-			_ = json.Unmarshal(b, &raw)
+			_ = json.Unmarshal(b, &raw, jsonx.V1())
 
 			params := make(map[string]string)
 
@@ -78,7 +80,7 @@ func (h *Handler) sdkActions() map[string]actionFn {
 			var input struct {
 				ID string `json:"id"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -93,7 +95,7 @@ func (h *Handler) sdkActions() map[string]actionFn {
 			var input struct {
 				Limit int `json:"limit,omitempty"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 

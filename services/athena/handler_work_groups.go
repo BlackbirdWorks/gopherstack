@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type listWorkGroupsInput struct {
 	NextToken  string `json:"NextToken"`
@@ -37,7 +41,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"CreateWorkGroup": func(b []byte) (any, error) {
 			var input createWorkGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -51,7 +55,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 		},
 		"GetWorkGroup": func(b []byte) (any, error) {
 			var input getWorkGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -64,7 +68,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 		},
 		"ListWorkGroups": func(b []byte) (any, error) {
 			var input listWorkGroupsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			list, nextToken, err := h.Backend.ListWorkGroups(input.NextToken, input.MaxResults)
@@ -80,7 +84,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 		},
 		"UpdateWorkGroup": func(b []byte) (any, error) {
 			var input updateWorkGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -90,7 +94,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 		},
 		"DeleteWorkGroup": func(b []byte) (any, error) {
 			var input deleteWorkGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -278,7 +279,7 @@ func TestKafka_ListChannelsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	channels1, _ := resp1["channels"].([]any)
 	assert.Len(t, channels1, 3)
 
@@ -292,7 +293,7 @@ func TestKafka_ListChannelsPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	channels2, _ := resp2["channels"].([]any)
 	assert.Len(t, channels2, 2)
 	assert.Empty(t, resp2["nextToken"])

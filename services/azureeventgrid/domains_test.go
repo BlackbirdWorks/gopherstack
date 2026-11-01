@@ -1,7 +1,7 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	eg "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -123,7 +124,7 @@ func TestDomainPublishRouting(t *testing.T) {
 			for _, s := range e.rec.all() {
 				var got map[string]any
 
-				require.NoError(t, json.Unmarshal([]byte(s.text), &got))
+				require.NoError(t, json.Unmarshal([]byte(s.text), &got, jsonx.V1()))
 				assert.True(t, strings.HasPrefix(got["topic"].(string), domainRID+"/topics/"), "%v", got["topic"])
 				assert.Equal(t, "1", got["metadataVersion"])
 			}
@@ -334,7 +335,7 @@ func TestDomainSubscriptionWebhookBatchingAndHeaders(t *testing.T) {
 	var events []eg.Event
 
 	for _, id := range []string{"a", "b", "c"} {
-		raw, _ := json.Marshal(domainEvent("orders", id, "/s"))
+		raw, _ := json.Marshal(domainEvent("orders", id, "/s"), jsonx.V1())
 		parsed, perr := eg.ParseEvents(raw, eg.SchemaEventGrid)
 		require.NoError(t, perr)
 
@@ -350,7 +351,7 @@ func TestDomainSubscriptionWebhookBatchingAndHeaders(t *testing.T) {
 
 	var arr []map[string]any
 
-	require.NoError(t, json.Unmarshal(h.bodies[0], &arr))
+	require.NoError(t, json.Unmarshal(h.bodies[0], &arr, jsonx.V1()))
 	assert.Len(t, arr, 3)
 	assert.Equal(t, "v", h.requests[0].Header.Get("X-Secret"))
 	assert.Equal(t, domainRID+"/topics/orders", arr[0]["topic"])

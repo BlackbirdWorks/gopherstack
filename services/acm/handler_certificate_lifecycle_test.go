@@ -2,7 +2,7 @@ package acm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acm"
 )
 
@@ -29,11 +30,11 @@ func TestACMHandler_DNSValidationWorkflow(t *testing.T) {
 		var reqOut struct {
 			CertificateArn string `json:"CertificateArn"`
 		}
-		require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+		require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 		require.NotEmpty(t, reqOut.CertificateArn)
 
 		// Describe should show PENDING_VALIDATION with CNAME records
-		descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+		descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 		descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 		require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -48,7 +49,7 @@ func TestACMHandler_DNSValidationWorkflow(t *testing.T) {
 				} `json:"DomainValidationOptions"`
 			} `json:"Certificate"`
 		}
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 		require.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
 		require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
 		assert.NotNil(t, descOut.Certificate.DomainValidationOptions[0].ResourceRecord)
@@ -64,7 +65,7 @@ func TestACMHandler_DNSValidationWorkflow(t *testing.T) {
 				Status string `json:"Status"`
 			} `json:"Certificate"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "ISSUED", out.Certificate.Status, "cert should transition to ISSUED")
 	})
 }
@@ -89,7 +90,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -98,7 +99,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 					"CertificateArn":   certARN,
 					"Domain":           "email-resend.example.com",
 					"ValidationDomain": "email-resend.example.com",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -114,7 +115,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 					"CertificateArn":   certARN,
 					"Domain":           "example.com",
 					"ValidationDomain": "example.com",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -131,7 +132,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -140,7 +141,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 					"CertificateArn":   certARN,
 					"Domain":           "issued.example.com",
 					"ValidationDomain": "issued.example.com",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -157,7 +158,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -166,7 +167,7 @@ func TestACMHandler_ResendValidationEmail(t *testing.T) {
 					"CertificateArn":   certARN,
 					"Domain":           "dns.example.com",
 					"ValidationDomain": "dns.example.com",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -222,7 +223,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -230,7 +231,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				b, _ := json.Marshal(map[string]string{
 					"CertificateArn":   certARN,
 					"RevocationReason": "UNSPECIFIED",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -245,7 +246,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -253,7 +254,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				b, _ := json.Marshal(map[string]string{
 					"CertificateArn":   certARN,
 					"RevocationReason": "KEY_COMPROMISE",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -286,12 +287,12 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				// Revoke once
 				b, _ := json.Marshal(map[string]string{
 					"CertificateArn":   out.CertificateArn,
 					"RevocationReason": "UNSPECIFIED",
-				})
+				}, jsonx.V1())
 				postACMJSON(t, h, "RevokeCertificate", string(b))
 
 				return out.CertificateArn
@@ -300,7 +301,7 @@ func TestACMHandler_RevokeCertificate(t *testing.T) {
 				b, _ := json.Marshal(map[string]string{
 					"CertificateArn":   certARN,
 					"RevocationReason": "UNSPECIFIED",
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -349,18 +350,18 @@ func TestACMHandler_RevokeCertificate_DescribeShowsRevoked(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	// Revoke it
 	revokeBody, _ := json.Marshal(map[string]string{
 		"CertificateArn":   reqOut.CertificateArn,
 		"RevocationReason": "KEY_COMPROMISE",
-	})
+	}, jsonx.V1())
 	revokeRec := postACMJSON(t, h, "RevokeCertificate", string(revokeBody))
 	require.Equal(t, http.StatusOK, revokeRec.Code)
 
 	// Describe should show REVOKED with RevocationReason
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -371,7 +372,7 @@ func TestACMHandler_RevokeCertificate_DescribeShowsRevoked(t *testing.T) {
 			RevocationReason string `json:"RevocationReason"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "REVOKED", descOut.Certificate.Status)
 	assert.Equal(t, "KEY_COMPROMISE", descOut.Certificate.RevocationReason)
 	assert.NotNil(t, descOut.Certificate.RevokedAt)
@@ -396,7 +397,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -406,7 +407,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 					"Options": map[string]string{
 						"CertificateTransparencyLoggingPreference": "ENABLED",
 					},
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -421,7 +422,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 				var out struct {
 					CertificateArn string `json:"CertificateArn"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				return out.CertificateArn
 			},
@@ -431,7 +432,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 					"Options": map[string]string{
 						"CertificateTransparencyLoggingPreference": "DISABLED",
 					},
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -447,7 +448,7 @@ func TestACMHandler_UpdateCertificateOptions(t *testing.T) {
 					"Options": map[string]string{
 						"CertificateTransparencyLoggingPreference": "ENABLED",
 					},
-				})
+				}, jsonx.V1())
 
 				return string(b)
 			},
@@ -506,7 +507,7 @@ func TestACMHandler_UpdateCertificateOptions_DescribeShowsOptions(t *testing.T) 
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
 	// Update options
 	optsBody, _ := json.Marshal(map[string]any{
@@ -514,12 +515,12 @@ func TestACMHandler_UpdateCertificateOptions_DescribeShowsOptions(t *testing.T) 
 		"Options": map[string]string{
 			"CertificateTransparencyLoggingPreference": "DISABLED",
 		},
-	})
+	}, jsonx.V1())
 	optsRec := postACMJSON(t, h, "UpdateCertificateOptions", string(optsBody))
 	require.Equal(t, http.StatusOK, optsRec.Code)
 
 	// Describe should reflect options
-	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -530,7 +531,7 @@ func TestACMHandler_UpdateCertificateOptions_DescribeShowsOptions(t *testing.T) 
 			} `json:"Options"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.NotNil(t, descOut.Certificate.Options)
 	assert.Equal(t, "DISABLED", descOut.Certificate.Options.CertificateTransparencyLoggingPreference)
 }
@@ -559,9 +560,9 @@ func TestACMHandler_RevokeCertificate_PendingValidationRejected(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	body, _ := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(body))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -570,14 +571,14 @@ func TestACMHandler_RevokeCertificate_PendingValidationRejected(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"Certificate"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
 
 	// Try to revoke PENDING cert
 	revokeBody, _ := json.Marshal(map[string]string{
 		"CertificateArn":   reqOut.CertificateArn,
 		"RevocationReason": "UNSPECIFIED",
-	})
+	}, jsonx.V1())
 	revokeRec := postACMJSON(t, h, "RevokeCertificate", string(revokeBody))
 	assert.Equal(t, http.StatusBadRequest, revokeRec.Code)
 	assert.Contains(t, revokeRec.Body.String(), "ConflictException")
@@ -708,7 +709,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 			certARN := tt.setupCert(t, b)
 			tt.transition(t, b, certARN)
 
-			descBody, _ := json.Marshal(map[string]string{"CertificateArn": certARN})
+			descBody, _ := json.Marshal(map[string]string{"CertificateArn": certARN}, jsonx.V1())
 			descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 			require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -718,7 +719,7 @@ func TestACMHandler_StatusLifecycle_DescribeReflectsNewStatus(t *testing.T) {
 					FailureReason string `json:"FailureReason,omitempty"`
 				} `json:"Certificate"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, descOut.Certificate.Status)
 		})
 	}

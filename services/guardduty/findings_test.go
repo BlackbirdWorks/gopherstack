@@ -1,7 +1,7 @@
 package guardduty_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/guardduty"
 )
 
@@ -32,7 +33,7 @@ func TestFindings(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var lr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr, jsonx.V1()))
 				ids, ok := lr["findingIds"].([]any)
 				require.True(t, ok)
 				assert.Len(t, ids, 1)
@@ -49,7 +50,7 @@ func TestFindings(t *testing.T) {
 				// List to get IDs
 				rec := doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/findings", nil)
 				var lr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr, jsonx.V1()))
 				ids := lr["findingIds"].([]any)
 
 				// Get by ID
@@ -59,7 +60,7 @@ func TestFindings(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				findings, ok := gr["findings"].([]any)
 				require.True(t, ok)
 				require.Len(t, findings, 1)
@@ -75,7 +76,7 @@ func TestFindings(t *testing.T) {
 
 				rec := doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/findings", nil)
 				var lr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr, jsonx.V1()))
 				ids := lr["findingIds"].([]any)
 				fid := ids[0].(string)
 
@@ -90,7 +91,7 @@ func TestFindings(t *testing.T) {
 					"findingIds": []string{fid},
 				})
 				var gr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				findings := gr["findings"].([]any)
 				f := findings[0].(map[string]any)
 				svc := f["service"].(map[string]any)
@@ -105,7 +106,7 @@ func TestFindings(t *testing.T) {
 				rec = doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/findings/get", map[string]any{
 					"findingIds": []string{fid},
 				})
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gr, jsonx.V1()))
 				findings = gr["findings"].([]any)
 				f = findings[0].(map[string]any)
 				svc = f["service"].(map[string]any)
@@ -127,7 +128,7 @@ func TestFindings(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotNil(t, resp["findingStatistics"])
 			},
 		},
@@ -141,7 +142,7 @@ func TestFindings(t *testing.T) {
 
 				rec := doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/findings", nil)
 				var lr map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lr, jsonx.V1()))
 				ids := lr["findingIds"].([]any)
 
 				rec = doRequest(t, h, http.MethodPost, "/detector/"+detectorID+"/findings/feedback", map[string]any{
@@ -173,7 +174,7 @@ func TestListFindings_Empty_State(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["findingIds"]
 	require.True(t, exists, "ListFindings must include 'findingIds' key")
@@ -195,7 +196,7 @@ func TestGetFindings_Empty_Input(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	raw, exists := resp["findings"]
 	require.True(t, exists, "GetFindings must include 'findings' key")
@@ -425,7 +426,7 @@ func TestGetFindingsStatistics_Handler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	fs, ok := resp["findingStatistics"].(map[string]any)
 	require.True(t, ok)

@@ -1,7 +1,7 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/directoryservice"
 )
 
@@ -20,7 +21,7 @@ func TestDirectoryService_Tags(t *testing.T) {
 			"Name": "corp.example.com", "Password": "Admin1234!", "Size": "Small",
 		})
 		var resp map[string]any
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 
 		return resp["DirectoryId"].(string)
 	}
@@ -40,7 +41,7 @@ func TestDirectoryService_Tags(t *testing.T) {
 		assert.Equal(t, http.StatusOK, listRec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 		tags, ok := listResp["Tags"].([]any)
 		require.True(t, ok)
 		require.Len(t, tags, 1)
@@ -70,7 +71,7 @@ func TestDirectoryService_Tags(t *testing.T) {
 
 		listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceId": dirID})
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 		tags := listResp["Tags"].([]any)
 		assert.Len(t, tags, 1)
 		assert.Equal(t, "team", tags[0].(map[string]any)["Key"])
@@ -96,12 +97,12 @@ func TestDirectoryService_Tags(t *testing.T) {
 			"Tags":     []map[string]any{{"Key": "created", "Value": "yes"}},
 		})
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		dirID := createResp["DirectoryId"].(string)
 
 		listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceId": dirID})
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 		tags := listResp["Tags"].([]any)
 		assert.Len(t, tags, 1)
 		assert.Equal(t, "created", tags[0].(map[string]any)["Key"])

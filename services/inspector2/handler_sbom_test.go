@@ -1,12 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSbomExportLifecycle(t *testing.T) {
@@ -28,7 +30,7 @@ func TestSbomExportLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	reportID, _ := createResp["reportId"].(string)
 	require.NotEmpty(t, reportID)
 
@@ -39,7 +41,7 @@ func TestSbomExportLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", getResp["status"])
 	assert.Equal(t, "CYCLONEDX_1_4", getResp["format"])
 

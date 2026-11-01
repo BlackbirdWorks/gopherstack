@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetUsageStatistics(detectorID string, body []byte) (any, int, error) {
@@ -18,7 +20,7 @@ func (h *Handler) handleGetUsageStatistics(detectorID string, body []byte) (any,
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -85,7 +87,7 @@ func (h *Handler) handleGetRemainingFreeTrialDays(detectorID string, body []byte
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}

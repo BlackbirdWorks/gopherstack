@@ -1,13 +1,14 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -84,7 +85,7 @@ type associateEncryptionConfigBody struct {
 
 func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName string, body []byte) error {
 	var in associateEncryptionConfigBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -149,7 +150,7 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 	var in updateClusterConfigBody
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}
@@ -157,7 +158,7 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 	cfgUpd := buildClusterConfigUpdate(in)
 
 	var blocksIn clusterConfigBlocksBody
-	_ = json.Unmarshal(body, &blocksIn)
+	_ = json.Unmarshal(body, &blocksIn, jsonx.V1())
 	cfgUpd.ConfigBlocks = blocksIn.blocks(false)
 
 	return h.withIdempotency(c, opUpdateClusterConfig, in.ClientRequestToken, body, func() (int, any, error) {
@@ -270,7 +271,7 @@ type updateClusterVersionBody struct {
 func (h *Handler) handleUpdateClusterVersion(c *echo.Context, clusterName string, body []byte) error {
 	var in updateClusterVersionBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}
@@ -369,7 +370,7 @@ type cancelUpdateBody struct {
 func (h *Handler) handleCancelUpdate(c *echo.Context, clusterName, updateID string, body []byte) error {
 	var in cancelUpdateBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

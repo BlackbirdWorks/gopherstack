@@ -3,7 +3,7 @@ package lambda
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -346,7 +347,7 @@ func (b *InMemoryBackend) AddLayerVersionPermission(
 
 	stmts[input.StatementID] = stmt
 
-	stmtJSON, marshalErr := json.Marshal(stmt)
+	stmtJSON, marshalErr := json.Marshal(stmt, jsonx.V1())
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
@@ -454,7 +455,7 @@ func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
 		Statement: statements,
 	}
 
-	data, err := json.Marshal(doc)
+	data, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return "", err
 	}

@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -179,7 +180,7 @@ func TestHandler_CreateUserPool_WithPasswordPolicy(t *testing.T) {
 			AutoVerifiedAttributes []string `json:"AutoVerifiedAttributes,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotNil(t, resp.UserPool.Policies)
 	require.NotNil(t, resp.UserPool.Policies.PasswordPolicy)
 	assert.Equal(t, 10, resp.UserPool.Policies.PasswordPolicy.MinimumLength)
@@ -205,7 +206,7 @@ func TestHandler_DescribeUserPool_IncludesPolicy(t *testing.T) {
 			ID string `json:"Id,omitempty"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doCognitoRequest(t, h, "DescribeUserPool", map[string]any{"UserPoolId": createResp.UserPool.ID})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -219,7 +220,7 @@ func TestHandler_DescribeUserPool_IncludesPolicy(t *testing.T) {
 			} `json:"Policies"`
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotNil(t, resp.UserPool.Policies)
 	require.NotNil(t, resp.UserPool.Policies.PasswordPolicy)
 	assert.Equal(t, 12, resp.UserPool.Policies.PasswordPolicy.MinimumLength)
@@ -251,7 +252,7 @@ func TestUserPool_CRUD(t *testing.T) {
 					Name string `json:"Name"`
 				} `json:"UserPool"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			poolID := createResp.UserPool.ID
 			assert.Equal(t, tt.poolName, createResp.UserPool.Name)
 			assert.NotEmpty(t, poolID)
@@ -265,7 +266,7 @@ func TestUserPool_CRUD(t *testing.T) {
 					ID string `json:"Id"`
 				} `json:"UserPool"`
 			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, poolID, descResp.UserPool.ID)
 
 			// Delete.
@@ -588,7 +589,7 @@ func TestHandler_CreateUserPool_MfaConfiguration(t *testing.T) {
 			Id string `json:"Id"` //nolint:revive,staticcheck // matches wire field name.
 		} `json:"UserPool"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec = doCognitoRequest(t, h, "GetUserPoolMfaConfig", map[string]any{
 		"UserPoolId": createResp.UserPool.Id,
@@ -598,7 +599,7 @@ func TestHandler_CreateUserPool_MfaConfiguration(t *testing.T) {
 	var mfaResp struct {
 		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mfaResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mfaResp, jsonx.V1()))
 	assert.Equal(t, "ON", mfaResp.MfaConfiguration)
 }
 
@@ -616,7 +617,7 @@ func TestGetUserPoolMfaConfig_DefaultsToOFF(t *testing.T) {
 	var out struct {
 		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "OFF", out.MfaConfiguration)
 }
 
@@ -844,7 +845,7 @@ func TestHandler_UserPoolReplicas(t *testing.T) {
 					UserPoolArn string `json:"UserPoolArn,omitempty"`
 				} `json:"UserPoolReplica"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			assert.Equal(t, tt.regionName, createResp.UserPoolReplica.RegionName)
 			assert.Equal(t, "SECONDARY", createResp.UserPoolReplica.Role)
 			assert.Equal(t, "INACTIVE", createResp.UserPoolReplica.Status)
@@ -860,7 +861,7 @@ func TestHandler_UserPoolReplicas(t *testing.T) {
 					RegionName string `json:"RegionName,omitempty"`
 				} `json:"UserPoolReplicas,omitempty"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			require.Len(t, listResp.UserPoolReplicas, 1)
 			assert.Equal(t, tt.regionName, listResp.UserPoolReplicas[0].RegionName)
 
@@ -876,7 +877,7 @@ func TestHandler_UserPoolReplicas(t *testing.T) {
 					Status string `json:"Status,omitempty"`
 				} `json:"UserPoolReplica"`
 			}
-			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 			assert.Equal(t, "ACTIVE", updateResp.UserPoolReplica.Status)
 
 			deleteRec := doCognitoRequest(t, h, "DeleteUserPoolReplica", map[string]any{
@@ -890,7 +891,7 @@ func TestHandler_UserPoolReplicas(t *testing.T) {
 					Status string `json:"Status,omitempty"`
 				} `json:"UserPoolReplica"`
 			}
-			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp))
+			require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp, jsonx.V1()))
 			assert.Equal(t, "DELETING", deleteResp.UserPoolReplica.Status)
 		})
 	}
