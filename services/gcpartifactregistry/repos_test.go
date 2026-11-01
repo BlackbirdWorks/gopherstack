@@ -149,7 +149,7 @@ func TestNonDockerRepository(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, "")
-	e.createRepo(t, "maven", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
+	e.createRepo(t, "maven", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_KFP})
 
 	_, err := e.client.GetPackage(t.Context(), &artifactregistrypb.GetPackageRequest{
 		Name: repoName("maven") + "/packages/x",

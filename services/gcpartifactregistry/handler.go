@@ -64,7 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListFiles", "GetFile", "UpdateFile", "DeleteFile",
 		"CreateRule", "GetRule", "ListRules", "UpdateRule", "DeleteRule",
 		"GetProjectSettings", "UpdateProjectSettings", "GetVPCSCConfig", "UpdateVPCSCConfig",
-		"UploadGenericArtifact", "DownloadFile",
+		"UploadGenericArtifact", "DownloadFile", "ImportAptArtifacts", "ImportYumArtifacts",
 		"ListTags", "GetTag", "CreateTag", "UpdateTag", "DeleteTag",
 		"ListDockerImages", "GetDockerImage",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",

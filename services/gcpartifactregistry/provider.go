@@ -39,6 +39,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	backend.SetRegistryAddress(settings.RegistryHost, strconv.Itoa(settings.Port))
 
+	backend.SetRemoteUpstreams(settings.RemoteUpstreams)
+
 	if dc, ok := ctx.Config.(DataDirConfig); ok {
 		backend.SetDataDir(dc.GetRegistryDataDir())
 	}

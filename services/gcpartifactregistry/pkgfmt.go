@@ -19,28 +19,37 @@ const (
 	npmRoute    = "/npm/"
 	pythonRoute = "/python/"
 	mavenRoute  = "/maven/"
+	aptRoute    = "/apt/"
+	yumRoute    = "/yum/"
+	goRoute     = "/go/"
 	routeSegs   = 3
+	segProject  = "projects"
+	segRemote   = "remote"
 )
 
-// repoCtx is the repository a package-manager request addresses.
+// repoCtx is the repository a package-manager request addresses. When a virtual repository serves the request
+// through an upstream, view is the virtual repository whose URLs the response must carry.
 type repoCtx struct {
-	pb  *artifactregistrypb.Repository
-	ref repoRef
+	pb   *artifactregistrypb.Repository
+	ref  repoRef
+	view *repoRef
 }
 
-var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven)\.pkg\.dev(:\d+)?$`)
+var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven|apt|yum|go)\.pkg\.dev(:\d+)?$`)
 
 var hostFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
 	"npm": artifactregistrypb.Repository_NPM, "python": artifactregistrypb.Repository_PYTHON,
-	"maven": artifactregistrypb.Repository_MAVEN,
+	"maven": artifactregistrypb.Repository_MAVEN, "apt": artifactregistrypb.Repository_APT,
+	"yum": artifactregistrypb.Repository_YUM, "go": artifactregistrypb.Repository_GO,
 }
 
 var routeFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
 	npmRoute: artifactregistrypb.Repository_NPM, pythonRoute: artifactregistrypb.Repository_PYTHON,
-	mavenRoute: artifactregistrypb.Repository_MAVEN,
+	mavenRoute: artifactregistrypb.Repository_MAVEN, aptRoute: artifactregistrypb.Repository_APT,
+	yumRoute: artifactregistrypb.Repository_YUM, goRoute: artifactregistrypb.Repository_GO,
 }
 
-// pkgHost parses <location>-<npm|python|maven>.pkg.dev[:port] into its location and format.
+// pkgHost parses <location>-<format>.pkg.dev[:port] into its location and format.
 func pkgHost(host string) (string, artifactregistrypb.Repository_Format, bool) {
 	m := pkgHostRe.FindStringSubmatch(host)
 	if m == nil {
@@ -50,8 +59,9 @@ func pkgHost(host string) (string, artifactregistrypb.Repository_Format, bool) {
 	return m[1], hostFormats[m[2]], true
 }
 
-// PackageExtras routes the npm, Python and Maven protocols on <location>-<format>.pkg.dev hosts, where the
-// path is /<project>/<repository>/..., and at /<format>/<project>/<repository>/... on any other host.
+// PackageExtras routes the npm, Python, Maven, apt, yum and Go protocols on <location>-<format>.pkg.dev hosts,
+// where the path is /<project>/<repository>/... (apt and yum: /projects/<project>/..., yum remote:
+// /remote/<project>/<repository>/...), and at /<format>/... on any other host.
 func (b *InMemoryBackend) PackageExtras() gcprest.Extra {
 	return gcprest.Extra{
 		MatchRequest: func(r *http.Request) bool {
@@ -59,64 +69,123 @@ func (b *InMemoryBackend) PackageExtras() gcprest.Extra {
 				return true
 			}
 
-			path := r.URL.Path
+			_, ok := routeFormats[routeOf(r.URL.Path)]
 
-			return strings.HasPrefix(path, npmRoute) || strings.HasPrefix(path, pythonRoute) ||
-				strings.HasPrefix(path, mavenRoute)
+			return ok
 		},
 		Handler: http.HandlerFunc(b.servePackageRoute),
 	}
 }
 
+func routeOf(path string) string {
+	rest := strings.TrimPrefix(path, "/")
+	if seg, _, ok := strings.Cut(rest, "/"); ok {
+		return "/" + seg + "/"
+	}
+
+	return "/" + rest + "/"
+}
+
+// repoAddr is the project, repository and in-repository path a package-manager request addresses.
+type repoAddr struct {
+	project, id, rest string
+}
+
+// splitRepoAddr parses esc (the escaped path without the route or host prefix).
+func splitRepoAddr(format artifactregistrypb.Repository_Format, esc string) (repoAddr, bool) {
+	remote := false
+
+	if format == artifactregistrypb.Repository_APT || format == artifactregistrypb.Repository_YUM {
+		first, tail, _ := strings.Cut(esc, "/")
+		if first != segProject && first != segRemote {
+			return repoAddr{}, false
+		}
+
+		remote, esc = first == segRemote, tail
+	}
+
+	parts := strings.SplitN(esc, "/", routeSegs)
+	if len(parts) < routeSegs-1 || parts[0] == "" {
+		return repoAddr{}, false
+	}
+
+	if format == artifactregistrypb.Repository_APT && !remote {
+		sub := strings.SplitN(esc, "/", routeSegs+1)
+		if len(sub) < routeSegs || (sub[1] != "dists" && sub[1] != "pool") {
+			return repoAddr{}, false
+		}
+
+		return repoAddr{project: sub[0], id: sub[2], rest: strings.Join(sub[1:], "/")}, true
+	}
+
+	a := repoAddr{project: parts[0], id: parts[1]}
+	if len(parts) > routeSegs-1 {
+		a.rest = parts[routeSegs-1]
+	}
+
+	return a, a.id != ""
+}
+
 func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Request) {
 	esc := strings.TrimPrefix(r.URL.EscapedPath(), "/")
-	location, hostFormat, hosted := pkgHost(r.Host)
-
-	var route string
-
-	format := hostFormat
-	segs := routeSegs - 1
+	location, format, hosted := pkgHost(r.Host)
 
 	if !hosted {
-		route = "/" + strings.SplitN(esc, "/", routeSegs-1)[0] + "/"
+		route := routeOf(r.URL.Path)
 		format = routeFormats[route]
 		esc = strings.TrimPrefix(esc, route[1:])
 	}
 
-	parts := strings.SplitN(esc, "/", segs+1)
-
-	var rest string
-	if len(parts) > segs {
-		rest = parts[segs]
-	}
-
-	if len(parts) < segs {
+	addr, ok := splitRepoAddr(format, esc)
+	if !ok {
 		writePlain(w, http.StatusNotFound, "Repository path must be <project>/<repository>.")
 
 		return
 	}
 
-	rc, ok := b.repoOfFormat(parts[0], parts[1], format)
+	rc, ok := b.repoOfFormat(addr.project, addr.id, format)
 	if !ok || hosted && rc.ref.location != location {
-		writePlain(w, http.StatusNotFound, "No "+strings.ToLower(format.String())+" repository "+parts[1]+".")
+		writePlain(w, http.StatusNotFound, "No "+strings.ToLower(format.String())+" repository "+addr.id+".")
 
 		return
 	}
 
-	path, err := url.PathUnescape(rest)
+	path, err := url.PathUnescape(addr.rest)
 	if err != nil {
 		writePlain(w, http.StatusBadRequest, "Invalid path encoding.")
 
 		return
 	}
 
-	path = strings.Trim(path, "/")
+	b.dispatchRepo(w, r, rc, strings.Trim(path, "/"))
+}
 
-	switch format {
+// dispatchRepo serves a request on a repository according to its mode.
+func (b *InMemoryBackend) dispatchRepo(w http.ResponseWriter, r *http.Request, rc repoCtx, path string) {
+	switch rc.pb.GetMode() {
+	case artifactregistrypb.Repository_VIRTUAL_REPOSITORY:
+		b.serveVirtual(w, r, rc, path)
+	case artifactregistrypb.Repository_REMOTE_REPOSITORY:
+		b.serveRemote(w, r, rc, path)
+	case artifactregistrypb.Repository_MODE_UNSPECIFIED, artifactregistrypb.Repository_STANDARD_REPOSITORY:
+		b.serveLocal(w, r, rc, path)
+	default:
+		b.serveLocal(w, r, rc, path)
+	}
+}
+
+func (b *InMemoryBackend) serveLocal(w http.ResponseWriter, r *http.Request, rc repoCtx, path string) {
+	switch rc.pb.GetFormat() {
 	case artifactregistrypb.Repository_NPM:
 		b.serveNPM(w, r, rc, path)
 	case artifactregistrypb.Repository_PYTHON:
 		b.servePython(w, r, rc, path)
+	case artifactregistrypb.Repository_APT:
+		b.serveApt(w, r, rc, path)
+	case artifactregistrypb.Repository_YUM:
+		b.serveYum(w, r, rc, path)
+	case artifactregistrypb.Repository_GO:
+		b.serveGo(w, r, rc, path)
 	default:
 		b.serveMaven(w, r, rc, path)
 	}
@@ -127,11 +196,16 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 func isPkgHost(r *http.Request) bool { return pkgHostRe.MatchString(r.Host) }
 
 func repoPrefix(hosted bool, route string, rc repoCtx) string {
-	if hosted {
-		return "/" + rc.ref.project + "/" + rc.ref.id
+	ref := rc.ref
+	if rc.view != nil {
+		ref = *rc.view
 	}
 
-	return route + rc.ref.project + "/" + rc.ref.id
+	if hosted {
+		return "/" + ref.project + "/" + ref.id
+	}
+
+	return route + ref.project + "/" + ref.id
 }
 
 func (b *InMemoryBackend) repoOfFormat(
@@ -362,5 +436,5 @@ func (b *InMemoryBackend) packageIDs(ref repoRef) []string {
 }
 
 func (b *InMemoryBackend) packageDenied(ctx context.Context, rc repoCtx, pkgID string) bool {
-	return b.downloadDenied(ctx, rc.ref.project, rc.ref.id, pkgID)
+	return b.downloadDenied(ctx, rc.ref.project, rc.ref.id, ruleResource{pkg: pkgID})
 }

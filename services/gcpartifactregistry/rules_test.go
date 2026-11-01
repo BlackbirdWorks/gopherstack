@@ -203,11 +203,60 @@ func TestRulesDenyDockerPulls(t *testing.T) {
 	_, err := e.client.CreateRule(ctx, &artifactregistrypb.CreateRuleRequest{
 		Parent: parent, RuleId: "cond", Rule: &artifactregistrypb.Rule{
 			Action: artifactregistrypb.Rule_DENY, Operation: artifactregistrypb.Rule_DOWNLOAD, PackageId: "lib",
-			Condition: &expr.Expr{Expression: `tag_name == "v1"`},
+			Condition: &expr.Expr{Expression: `"v1" in resource.tags`},
 		},
 	})
 	require.NoError(t, err)
 
-	lib, _ = pull("lib")
-	assert.Equal(t, http.StatusOK, lib, "rules with a condition are stored but not evaluated")
+	lib, libBlob := pull("lib")
+	assert.Equal(t, http.StatusForbidden, lib, "the condition holds for the v1 manifest")
+	assert.NotEqual(t, http.StatusForbidden, libBlob, "blob reads carry no tags, so the condition does not hold")
+}
+
+func TestRuleConditions(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "cel", dockerRepo())
+
+	c := e.docker(t)
+	pushTo(c, "cel", "app", "v1")
+
+	ctx, parent := t.Context(), repoName("cel")
+	accept := map[string]string{"Accept": "application/vnd.docker.distribution.manifest.v2+json"}
+	pull := func() int {
+		return c.Do(http.MethodGet, "/v2/"+project+"/cel/app/manifests/v1", nil, accept).Status
+	}
+
+	tests := []struct {
+		name string
+		expr string
+		want int
+		code codes.Code
+	}{
+		{name: "future time does not apply", expr: `request.time < timestamp("2000-01-01T00:00:00Z")`, want: http.StatusOK},
+		{name: "past time applies", expr: `request.time > timestamp("2000-01-01T00:00:00Z")`, want: http.StatusForbidden},
+		{name: "package match", expr: `resource.package == "app"`, want: http.StatusForbidden},
+		{name: "package mismatch", expr: `resource.package == "other"`, want: http.StatusOK},
+		{name: "syntax error", expr: `resource.package ==`, code: codes.InvalidArgument},
+		{name: "not a bool", expr: `resource.package`, code: codes.InvalidArgument},
+		{name: "undeclared", expr: `bogus == 1`, code: codes.InvalidArgument},
+	}
+
+	for i, tt := range tests {
+		id := "r" + string(rune('a'+i))
+
+		rule := &artifactregistrypb.Rule{
+			Action: artifactregistrypb.Rule_DENY, Operation: artifactregistrypb.Rule_DOWNLOAD,
+			Condition: &expr.Expr{Expression: tt.expr},
+		}
+
+		_, err := e.client.CreateRule(ctx, &artifactregistrypb.CreateRuleRequest{Parent: parent, RuleId: id, Rule: rule})
+		assert.Equal(t, tt.code, status.Code(err), tt.name)
+
+		if tt.code == codes.OK {
+			assert.Equal(t, tt.want, pull(), tt.name)
+			require.NoError(t, e.client.DeleteRule(ctx, &artifactregistrypb.DeleteRuleRequest{Name: parent + "/rules/" + id}))
+		}
+	}
 }

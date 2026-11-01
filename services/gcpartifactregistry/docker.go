@@ -98,12 +98,20 @@ func (b *InMemoryBackend) dockerPullDenied(r *http.Request, dp dockerPath) bool 
 	}
 
 	for _, kind := range []string{"/manifests/", "/blobs/"} {
-		if image, _, ok := strings.Cut(
+		if image, ref, ok := strings.Cut(
 			dp.tail,
 			kind,
 		); ok && image != "" &&
 			!strings.HasPrefix(dp.tail[len(image):], "/blobs/uploads") {
-			return b.downloadDenied(r.Context(), dp.project, dp.id, image)
+			res := ruleResource{pkg: image}
+			if kind == "/manifests/" {
+				res.version = ref
+				if !strings.HasPrefix(ref, "sha256:") {
+					res.tags = []string{ref}
+				}
+			}
+
+			return b.downloadDenied(r.Context(), dp.project, dp.id, res)
 		}
 	}
 

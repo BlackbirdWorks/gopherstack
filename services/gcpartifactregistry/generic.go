@@ -38,7 +38,8 @@ type genFile struct {
 func storesFormat(f artifactregistrypb.Repository_Format) bool {
 	switch f {
 	case artifactregistrypb.Repository_GENERIC, artifactregistrypb.Repository_NPM,
-		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN:
+		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN,
+		artifactregistrypb.Repository_APT, artifactregistrypb.Repository_YUM, artifactregistrypb.Repository_GO:
 		return true
 	default:
 		return false
