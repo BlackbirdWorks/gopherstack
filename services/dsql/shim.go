@@ -16,19 +16,33 @@ var (
 		`(?is)^aws\s+iam\s+(grant|revoke)\s+("(?:[^"]|"")+"|[a-z_][a-z0-9_$]*)\s+(?:to|from)\s+'((?:[^']|'')*)'$`)
 )
 
-var unsupportedStatements = []struct {
+var (
+	triggerRE    = regexp.MustCompile(`(?is)^create\s+(or\s+replace\s+)?(constraint\s+)?trigger\b`)
+	tempObjectRE = regexp.MustCompile(`(?is)^create\s+((global|local)\s+)?(temp|temporary)\s+(table|sequence|view)\b`)
+	truncateRE   = regexp.MustCompile(`(?is)^truncate\b`)
+	vacuumRE     = regexp.MustCompile(`(?is)^vacuum\b`)
+	tablespaceRE = regexp.MustCompile(`(?is)^create\s+tablespace\b`)
+	databaseRE   = regexp.MustCompile(`(?is)^create\s+database\b`)
+	plpgsqlRE    = regexp.MustCompile(
+		`(?is)^create\s+(or\s+replace\s+)?(function|procedure)\b.*\blanguage\s+'?plpgsql\b`,
+	)
+)
+
+type unsupportedRule struct {
 	re      *regexp.Regexp
 	feature string
-}{
-	{regexp.MustCompile(`(?is)^create\s+(or\s+replace\s+)?(constraint\s+)?trigger\b`), "CREATE TRIGGER"},
-	{regexp.MustCompile(`(?is)^create\s+((global|local)\s+)?(temp|temporary)\s+(table|sequence|view)\b`),
-		"temporary objects"},
-	{regexp.MustCompile(`(?is)^truncate\b`), "TRUNCATE"},
-	{regexp.MustCompile(`(?is)^vacuum\b`), "VACUUM"},
-	{regexp.MustCompile(`(?is)^create\s+tablespace\b`), "CREATE TABLESPACE"},
-	{regexp.MustCompile(`(?is)^create\s+database\b`), "CREATE DATABASE"},
-	{regexp.MustCompile(`(?is)^create\s+(or\s+replace\s+)?(function|procedure)\b.*\blanguage\s+'?plpgsql\b`),
-		"PL/pgSQL"},
+}
+
+func unsupportedStatements() []unsupportedRule {
+	return []unsupportedRule{
+		{triggerRE, "CREATE TRIGGER"},
+		{tempObjectRE, "temporary objects"},
+		{truncateRE, "TRUNCATE"},
+		{vacuumRE, "VACUUM"},
+		{tablespaceRE, "CREATE TABLESPACE"},
+		{databaseRE, "CREATE DATABASE"},
+		{plpgsqlRE, "PL/pgSQL"},
+	}
 }
 
 // rewriteSQL maps DSQL-only statements onto the PostgreSQL container. Statements it does not know pass through.
@@ -46,7 +60,7 @@ func rewriteSQL(sql string) string {
 		return rewriteIAMGrant(m)
 	}
 
-	for _, u := range unsupportedStatements {
+	for _, u := range unsupportedStatements() {
 		if u.re.MatchString(stmt) {
 			return raiseUnsupported(u.feature)
 		}
@@ -124,7 +138,7 @@ func skipLeading(sql string) string {
 func hasStatementBreak(sql string) bool {
 	var quote byte
 
-	for i := 0; i < len(sql); i++ {
+	for i := range len(sql) {
 		c := sql[i]
 
 		switch {

@@ -94,18 +94,17 @@ func TestEngineActivation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		launchErr  error
-		advance    time.Duration
-		release    bool
+		name       string
 		wantBefore string
 		wantAfter  string
+		advance    time.Duration
 	}{
-		{name: "waits for the data plane past the deadline", advance: time.Minute, release: true,
+		{name: "waits for the data plane past the deadline", advance: time.Minute,
 			wantBefore: statusCreating, wantAfter: statusActive},
-		{name: "waits for the deadline once the data plane is up", advance: 0, release: true,
+		{name: "waits for the deadline once the data plane is up", advance: 0,
 			wantBefore: statusCreating, wantAfter: statusActive},
-		{name: "launch failure", launchErr: errLaunch, advance: time.Minute, release: true,
+		{name: "launch failure", launchErr: errLaunch, advance: time.Minute,
 			wantBefore: statusCreating, wantAfter: statusFailed},
 	}
 
@@ -146,8 +145,8 @@ func TestEngineTeardown(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		do   func(t *testing.T, b *InMemoryBackend, id string)
+		name string
 	}{
 		{name: "delete", do: func(t *testing.T, b *InMemoryBackend, id string) {
 			t.Helper()

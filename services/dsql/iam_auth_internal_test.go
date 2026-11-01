@@ -58,7 +58,12 @@ func TestAuthenticateToken(t *testing.T) {
 			token: gen(true, "127.0.0.1:49152", region, &creds, time.Hour)},
 		{name: "loopback wrong port", user: "admin", wantErr: errTokenEndpoint,
 			token: gen(true, "127.0.0.1:1", region, &creds, time.Hour)},
-		{name: "granted user token", user: "app", wantRole: "app", token: gen(false, endpoint, region, &creds, time.Hour)},
+		{
+			name:     "granted user token",
+			user:     "app",
+			wantRole: "app",
+			token:    gen(false, endpoint, region, &creds, time.Hour),
+		},
 		{name: "user token without grant", user: "other", wantErr: errTokenNoGrant,
 			token: gen(false, endpoint, region, &creds, time.Hour)},
 		{name: "admin token for non-admin role", user: "app", wantErr: errTokenRole,
@@ -104,7 +109,15 @@ func TestAuthenticateToken(t *testing.T) {
 				cfg.Identities = fakeIdentities{policies: []string{allowAdmin}}
 			}
 
-			sess, err := authenticateToken(cfg, target, tt.user, tt.token, "127.0.0.1", time.Now().Add(tt.skew), granted)
+			sess, err := authenticateToken(
+				cfg,
+				target,
+				tt.user,
+				tt.token,
+				"127.0.0.1",
+				time.Now().Add(tt.skew),
+				granted,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

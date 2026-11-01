@@ -5,14 +5,15 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"net"
+	"net/http"
 	"net/url"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	dsqlauth "github.com/aws/aws-sdk-go-v2/feature/dsql/auth"
 	"github.com/jackc/pgx/v5"
@@ -71,7 +72,6 @@ func containerExists(t *testing.T, id string) bool {
 
 type dataPlane struct {
 	b     *InMemoryBackend
-	skew  *atomic.Int64
 	pool  *x509.CertPool
 	c     *Cluster
 	host  string
@@ -84,7 +84,7 @@ func newDataPlane(t *testing.T) *dataPlane {
 
 	rt := dockerRuntime(t)
 	dp := &dataPlane{
-		b: NewInMemoryBackend(), skew: new(atomic.Int64),
+		b:     NewInMemoryBackend(),
 		creds: credentials.NewStaticCredentialsProvider(fakeAccessKey, fakeSecretKey, ""),
 	}
 
@@ -94,7 +94,6 @@ func newDataPlane(t *testing.T) *dataPlane {
 	require.NoError(t, dp.b.EnableDockerEngine(DockerConfig{
 		Runtime: rt,
 		Auth:    func() *IAMAuthConfig { return &cfg },
-		Now:     func() time.Time { return time.Now().Add(time.Duration(dp.skew.Load())) },
 	}))
 	t.Cleanup(dp.b.Close)
 
@@ -171,161 +170,214 @@ func (dp *dataPlane) mustOpen(t *testing.T, user, password string, mode pgx.Quer
 	return conn
 }
 
+// expiredToken is a correctly signed admin token whose 15 minute lifetime ended an hour ago.
+func (dp *dataPlane) expiredToken(t *testing.T) string {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+dp.c.Endpoint, nil)
+	require.NoError(t, err)
+
+	q := req.URL.Query()
+	q.Set("Action", tokenActionAdmin)
+	q.Set("X-Amz-Expires", "900")
+	req.URL.RawQuery = q.Encode()
+
+	creds, err := dp.creds.Retrieve(t.Context())
+	require.NoError(t, err)
+
+	signed, _, err := v4.NewSigner().PresignHTTP(t.Context(), creds, req, emptyPayloadHash, tokenSigningName,
+		testRegion, time.Now().Add(-time.Hour).UTC())
+	require.NoError(t, err)
+
+	return strings.TrimPrefix(signed, "https://")
+}
+
 func TestDockerDataPlane(t *testing.T) {
+	t.Parallel()
+
 	dp := newDataPlane(t)
 
 	ctx, cancel := context.WithTimeout(t.Context(), dockerEngineWait)
 	defer cancel()
 
-	admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeCacheStatement)
+	t.Run("sessions", func(t *testing.T) {
+		t.Run("sql over both protocols", func(t *testing.T) {
+			t.Parallel()
 
-	_, err := admin.Exec(ctx, "CREATE TABLE items (id int PRIMARY KEY, v text)")
-	require.NoError(t, err)
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeCacheStatement)
 
-	_, err = admin.Exec(ctx, "INSERT INTO items VALUES (1, 'a'), (2, 'b'), (3, 'b')")
-	require.NoError(t, err)
+			_, err := admin.Exec(ctx, "CREATE TABLE plain_items (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
 
-	var n int
+			_, err = admin.Exec(ctx, "INSERT INTO plain_items VALUES (1, 'a'), (2, 'b'), (3, 'b')")
+			require.NoError(t, err)
 
-	require.NoError(t, admin.QueryRow(ctx, "SELECT count(*) FROM items WHERE v = $1", "b").Scan(&n))
-	assert.Equal(t, 2, n)
+			var n int
 
-	var user, db string
+			require.NoError(t, admin.QueryRow(ctx, "SELECT count(*) FROM plain_items WHERE v = $1", "b").Scan(&n))
+			assert.Equal(t, 2, n)
 
-	require.NoError(t, admin.QueryRow(ctx, "SELECT current_user, current_database()").Scan(&user, &db))
-	assert.Equal(t, "admin", user)
-	assert.Equal(t, "postgres", db)
+			var user, db string
 
-	t.Run("async index over the extended protocol", func(t *testing.T) {
-		var job string
+			require.NoError(t, admin.QueryRow(ctx, "SELECT current_user, current_database()").Scan(&user, &db))
+			assert.Equal(t, "admin", user)
+			assert.Equal(t, "postgres", db)
+		})
 
-		require.NoError(t, admin.QueryRow(ctx, "CREATE INDEX ASYNC items_v_idx ON items (v)").Scan(&job))
-		assert.Len(t, job, 26)
+		t.Run("async index over the extended protocol", func(t *testing.T) {
+			t.Parallel()
 
-		var ok bool
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeCacheStatement)
 
-		require.NoError(t, admin.QueryRow(ctx, "SELECT sys.wait_for_job($1)", job).Scan(&ok))
-		assert.True(t, ok)
+			_, err := admin.Exec(ctx, "CREATE TABLE ext_items (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
 
-		var status, jobType, name string
+			var job string
 
-		require.NoError(t, admin.QueryRow(ctx,
-			"SELECT status, job_type, object_name FROM sys.jobs WHERE job_id = $1", job).Scan(&status, &jobType, &name))
-		assert.Equal(t, "completed", status)
-		assert.Equal(t, "INDEX_BUILD", jobType)
-		assert.Equal(t, "public.items_v_idx", name)
+			require.NoError(t, admin.QueryRow(ctx, "CREATE INDEX ASYNC ext_items_v_idx ON ext_items (v)").Scan(&job))
+			assert.Len(t, job, 26)
 
-		var valid bool
+			var ok bool
 
-		require.NoError(t, admin.QueryRow(ctx,
-			"SELECT indisvalid FROM pg_index WHERE indexrelid = 'public.items_v_idx'::regclass").Scan(&valid))
-		assert.True(t, valid)
-	})
+			require.NoError(t, admin.QueryRow(ctx, "SELECT sys.wait_for_job($1)", job).Scan(&ok))
+			assert.True(t, ok)
 
-	t.Run("async unique index over the simple protocol fails on duplicates", func(t *testing.T) {
-		conn := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+			var status, jobType, name string
 
-		var job string
+			require.NoError(t, admin.QueryRow(ctx,
+				"SELECT status, job_type, object_name FROM sys.jobs WHERE job_id = $1", job).
+				Scan(&status, &jobType, &name))
+			assert.Equal(t, "completed", status)
+			assert.Equal(t, "INDEX_BUILD", jobType)
+			assert.Equal(t, "public.ext_items_v_idx", name)
 
-		require.NoError(t, conn.QueryRow(ctx, "CREATE UNIQUE INDEX ASYNC items_v_uniq ON items (v);").Scan(&job))
+			var valid bool
 
-		var ok bool
+			require.NoError(t, admin.QueryRow(ctx,
+				"SELECT indisvalid FROM pg_index WHERE indexrelid = 'public.ext_items_v_idx'::regclass").Scan(&valid))
+			assert.True(t, valid)
+		})
 
-		require.NoError(t, conn.QueryRow(ctx, "SELECT sys.wait_for_job('"+job+"')").Scan(&ok))
-		assert.False(t, ok)
+		t.Run("async unique index over the simple protocol fails on duplicates", func(t *testing.T) {
+			t.Parallel()
 
-		var status, details string
+			conn := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
 
-		require.NoError(t, conn.QueryRow(ctx, "SELECT status, details FROM sys.jobs WHERE job_id = '"+job+"'").
-			Scan(&status, &details))
-		assert.Equal(t, "failed", status)
-		assert.Equal(t, uniqueFailure, details)
-	})
+			_, err := conn.Exec(ctx, "CREATE TABLE dup_items (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
 
-	t.Run("unsupported statements", func(t *testing.T) {
-		for _, stmt := range []string{"TRUNCATE items", "CREATE TEMP TABLE x (a int)", "VACUUM items"} {
-			_, err = admin.Exec(ctx, stmt)
+			_, err = conn.Exec(ctx, "INSERT INTO dup_items VALUES (1, 'b'), (2, 'b')")
+			require.NoError(t, err)
+
+			var job string
+
+			require.NoError(t, conn.QueryRow(ctx, "CREATE UNIQUE INDEX ASYNC dup_items_v ON dup_items (v);").Scan(&job))
+
+			var ok bool
+
+			require.NoError(t, conn.QueryRow(ctx, "SELECT sys.wait_for_job('"+job+"')").Scan(&ok))
+			assert.False(t, ok)
+
+			var status, details string
+
+			require.NoError(t, conn.QueryRow(ctx, "SELECT status, details FROM sys.jobs WHERE job_id = '"+job+"'").
+				Scan(&status, &details))
+			assert.Equal(t, "failed", status)
+			assert.Equal(t, uniqueFailure, details)
+		})
+
+		t.Run("unsupported statements", func(t *testing.T) {
+			t.Parallel()
+
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeCacheStatement)
+
+			for _, stmt := range []string{"TRUNCATE plain_items", "CREATE TEMP TABLE x (a int)", "VACUUM"} {
+				_, err := admin.Exec(ctx, stmt)
+
+				var pgErr *pgconn.PgError
+
+				require.ErrorAs(t, err, &pgErr, stmt)
+				assert.Equal(t, unsupportedSQLState, pgErr.Code, stmt)
+			}
+		})
+
+		t.Run("rejected logins", func(t *testing.T) {
+			t.Parallel()
+
+			cases := map[string]struct{ user, password string }{
+				"expired token":       {user: "admin", password: dp.expiredToken(t)},
+				"plain password":      {user: "admin", password: "hunter2"},
+				"user token as admin": {user: "admin", password: dp.token(t, false)},
+				"admin token as user": {user: "ghost", password: dp.token(t, true)},
+				"ungranted user":      {user: "ghost", password: dp.token(t, false)},
+			}
+
+			for name, tc := range cases {
+				_, err := dp.open(ctx, tc.user, tc.password, pgx.QueryExecModeSimpleProtocol)
+
+				var pgErr *pgconn.PgError
+
+				require.ErrorAs(t, err, &pgErr, name)
+				assert.Equal(t, pgPasswordFailedCode, pgErr.Code, name)
+			}
+		})
+
+		t.Run("only the postgres database exists", func(t *testing.T) {
+			t.Parallel()
+
+			_, err := dp.openDB(ctx, "other", "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
 
 			var pgErr *pgconn.PgError
 
-			require.ErrorAs(t, err, &pgErr, stmt)
-			assert.Equal(t, unsupportedSQLState, pgErr.Code, stmt)
-		}
-	})
+			require.ErrorAs(t, err, &pgErr)
+			assert.Equal(t, pgNoDatabaseCode, pgErr.Code)
+		})
 
-	t.Run("rejected logins", func(t *testing.T) {
-		cases := map[string]struct {
-			user, password string
-			skew           time.Duration
-		}{
-			"expired token":        {user: "admin", password: dp.token(t, true), skew: time.Hour},
-			"plain password":       {user: "admin", password: "hunter2"},
-			"user token as admin":  {user: "admin", password: dp.token(t, false)},
-			"admin token as user":  {user: "app", password: dp.token(t, true)},
-			"ungranted user":       {user: "app", password: dp.token(t, false)},
-		}
+		t.Run("iam granted role", func(t *testing.T) {
+			t.Parallel()
 
-		for name, tc := range cases {
-			dp.skew.Store(int64(tc.skew))
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeCacheStatement)
 
-			_, err = dp.open(ctx, tc.user, tc.password, pgx.QueryExecModeSimpleProtocol)
-			require.Error(t, err, name)
+			_, err := admin.Exec(ctx, "CREATE ROLE app WITH LOGIN")
+			require.NoError(t, err)
 
-			var pgErr *pgconn.PgError
+			_, err = admin.Exec(ctx, "AWS IAM GRANT app TO '"+fakeUserARN+"'")
+			require.NoError(t, err)
 
-			require.ErrorAs(t, err, &pgErr, name)
-			assert.Equal(t, pgPasswordFailedCode, pgErr.Code, name)
-		}
+			var arn, role string
 
-		dp.skew.Store(0)
-	})
+			require.NoError(t, admin.QueryRow(ctx, "SELECT arn, pg_role_name FROM sys.iam_pg_role_mappings").
+				Scan(&arn, &role))
+			assert.Equal(t, fakeUserARN, arn)
+			assert.Equal(t, "app", role)
 
-	t.Run("only the postgres database exists", func(t *testing.T) {
-		_, err = dp.openDB(ctx, "other", "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+			app := dp.mustOpen(t, "app", dp.token(t, false), pgx.QueryExecModeCacheStatement)
 
-		var pgErr *pgconn.PgError
+			var cu string
 
-		require.ErrorAs(t, err, &pgErr)
-		assert.Equal(t, pgNoDatabaseCode, pgErr.Code)
-	})
+			require.NoError(t, app.QueryRow(ctx, "SELECT current_user").Scan(&cu))
+			assert.Equal(t, "app", cu)
 
-	t.Run("iam granted role", func(t *testing.T) {
-		_, err = admin.Exec(ctx, "CREATE ROLE app WITH LOGIN")
-		require.NoError(t, err)
+			_, err = app.Exec(ctx, "CREATE TABLE mine (a int)")
+			require.Error(t, err, "non-admin roles cannot create objects in the public schema")
 
-		_, err = admin.Exec(ctx, "AWS IAM GRANT app TO '"+fakeUserARN+"'")
-		require.NoError(t, err)
+			_, err = app.Exec(ctx, "AWS IAM GRANT app TO 'arn:aws:iam::123456789012:user/eve'")
+			require.Error(t, err, "only admin may grant")
 
-		var arn, role string
+			_, err = admin.Exec(ctx, "AWS IAM REVOKE app FROM '"+fakeUserARN+"'")
+			require.NoError(t, err)
 
-		require.NoError(t, admin.QueryRow(ctx, "SELECT arn, pg_role_name FROM sys.iam_pg_role_mappings").Scan(&arn, &role))
-		assert.Equal(t, fakeUserARN, arn)
-		assert.Equal(t, "app", role)
-
-		app := dp.mustOpen(t, "app", dp.token(t, false), pgx.QueryExecModeCacheStatement)
-
-		var cu string
-
-		require.NoError(t, app.QueryRow(ctx, "SELECT current_user").Scan(&cu))
-		assert.Equal(t, "app", cu)
-
-		_, err = app.Exec(ctx, "CREATE TABLE mine (a int)")
-		require.Error(t, err, "non-admin roles cannot create objects in the public schema")
-
-		_, err = app.Exec(ctx, "AWS IAM GRANT app TO 'arn:aws:iam::123456789012:user/eve'")
-		require.Error(t, err, "only admin may grant")
-
-		_, err = admin.Exec(ctx, "AWS IAM REVOKE app FROM '"+fakeUserARN+"'")
-		require.NoError(t, err)
-
-		_, err = dp.open(ctx, "app", dp.token(t, false), pgx.QueryExecModeSimpleProtocol)
-		require.Error(t, err)
+			_, err = dp.open(ctx, "app", dp.token(t, false), pgx.QueryExecModeSimpleProtocol)
+			require.Error(t, err)
+		})
 	})
 
 	t.Run("delete removes the container", func(t *testing.T) {
+		t.Parallel()
+
 		require.True(t, containerExists(t, dp.c.Identifier))
 
-		_, err = dp.b.DeleteCluster(dp.c.Identifier)
+		_, err := dp.b.DeleteCluster(dp.c.Identifier)
 		require.NoError(t, err)
 
 		require.Eventually(t, func() bool { return !containerExists(t, dp.c.Identifier) }, dockerEngineWait,

@@ -72,7 +72,11 @@ func (b *InMemoryBackend) EnableDockerEngine(cfg DockerConfig) error {
 	}
 
 	eng, err := pgengine.New(pgengine.Config{
-		Runtime: cfg.Runtime, Ports: cfg.Ports, Logger: cfg.Logger, Prefix: enginePrefix, StartTimeout: cfg.StartTimeout,
+		Runtime:      cfg.Runtime,
+		Ports:        cfg.Ports,
+		Logger:       cfg.Logger,
+		Prefix:       enginePrefix,
+		StartTimeout: cfg.StartTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("dsql engine: %w", err)

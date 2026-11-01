@@ -22,19 +22,19 @@ import (
 // Token wire format: feature/dsql/auth@v1.2.8 auth_token_generator.go -- a SigV4 query presign of
 // https://<endpoint>/?Action=DbConnect[Admin] for signing name "dsql" with the scheme stripped.
 const (
-	tokenSigningName  = "dsql"
-	tokenActionUser   = "DbConnect"
-	tokenActionAdmin  = "DbConnectAdmin"
-	tokenMaxExpires   = 7 * 24 * 3600
-	tokenMaxSkew      = 15 * time.Minute
-	tokenDateLayout   = "20060102T150405Z"
-	tokenAlgorithm    = "AWS4-HMAC-SHA256"
-	tokenEmptyHash    = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	tokenUnsignedHash = "UNSIGNED-PAYLOAD"
-	tokenCredParts    = 5
-	tokenArnParts     = 6
-	adminRole         = "admin"
-	hostLocalhost     = "localhost"
+	tokenSigningName = "dsql"
+	tokenActionUser  = "DbConnect"
+	tokenActionAdmin = "DbConnectAdmin"
+	tokenMaxExpires  = 7 * 24 * 3600
+	tokenMaxSkew     = 15 * time.Minute
+	tokenDateLayout  = "20060102T150405Z"
+	tokenAlgorithm   = "AWS4-HMAC-SHA256"
+	emptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	unsignedPayload  = "UNSIGNED-PAYLOAD"
+	tokenCredParts   = 5
+	tokenArnParts    = 6
+	adminRole        = "admin"
+	hostLocalhost    = "localhost"
 )
 
 var (
@@ -105,10 +105,6 @@ type authToken struct {
 	signature    string
 	sessionToken string
 	expires      time.Duration
-}
-
-func looksLikeAuthToken(password string) bool {
-	return strings.Contains(password, "Action=DbConnect") && strings.Contains(password, "X-Amz-Signature=")
 }
 
 func parseAuthToken(raw string) (*authToken, error) {
@@ -186,7 +182,7 @@ func (t *authToken) verifySignature(secret string) error {
 
 	creds := aws.Credentials{AccessKeyID: t.accessKeyID, SecretAccessKey: secret, SessionToken: t.sessionToken}
 
-	for _, payloadHash := range []string{tokenEmptyHash, tokenUnsignedHash} {
+	for _, payloadHash := range []string{emptyPayloadHash, unsignedPayload} {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 			"https://"+t.host+"/?"+q.Encode(), nil)
 		if err != nil {

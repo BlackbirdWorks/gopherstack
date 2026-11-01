@@ -84,7 +84,11 @@ func (i *dockerInstance) buildIndex(ctx context.Context, status *pgx.Conn, j ind
 	rctx := context.WithoutCancel(ctx)
 
 	if state == "completed" {
-		_, _ = status.Exec(rctx, "UPDATE sys.gs_jobs SET object_id = to_regclass(object_name)::oid WHERE job_id = $1", j.id)
+		_, _ = status.Exec(
+			rctx,
+			"UPDATE sys.gs_jobs SET object_id = to_regclass(object_name)::oid WHERE job_id = $1",
+			j.id,
+		)
 	}
 
 	const q = "UPDATE sys.gs_jobs SET status = $2, details = NULLIF($3, ''), update_time = now() WHERE job_id = $1"
@@ -105,8 +109,7 @@ func (i *dockerInstance) runDDL(ctx context.Context, j indexJob) string {
 	}
 
 	if _, err = conn.Exec(ctx, j.ddl); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			if pgErr.Code == pgUniqueCode {
 				return uniqueFailure
 			}
