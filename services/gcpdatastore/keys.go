@@ -14,8 +14,6 @@ const (
 	maxNameBytes  = 1500
 	maxKeysLookup = 1000
 	defaultDBName = "(default)"
-	pathSep       = 0x1e
-	kindSep       = 0x1f
 )
 
 // partition is the (project, database, namespace) a key lives in.
@@ -198,28 +196,32 @@ func validateElemID(e *datastorepb.Key_PathElement, forWrite bool) error {
 	return nil
 }
 
-// keyString is the canonical map key of a complete key within its partition.
+// keyString is the canonical map key of a complete key within its partition. Variable parts are length-prefixed
+// so no two distinct keys share a string, whatever bytes kinds and names contain.
 func keyString(k *datastorepb.Key) string {
 	var sb strings.Builder
 
+	writeLP := func(s string) {
+		sb.WriteString(strconv.Itoa(len(s)))
+		sb.WriteByte(':')
+		sb.WriteString(s)
+	}
+
 	pid := k.GetPartitionId()
-	sb.WriteString(pid.GetProjectId())
-	sb.WriteByte(0)
-	sb.WriteString(pid.GetDatabaseId())
-	sb.WriteByte(0)
-	sb.WriteString(pid.GetNamespaceId())
+	writeLP(pid.GetProjectId())
+	writeLP(pid.GetDatabaseId())
+	writeLP(pid.GetNamespaceId())
 
 	for _, e := range k.GetPath() {
-		sb.WriteByte(pathSep)
-		sb.WriteString(e.GetKind())
-		sb.WriteByte(kindSep)
+		writeLP(e.GetKind())
 
 		if n, ok := e.GetIdType().(*datastorepb.Key_PathElement_Name); ok {
 			sb.WriteByte('n')
-			sb.WriteString(n.Name)
+			writeLP(n.Name)
 		} else {
 			sb.WriteByte('i')
 			sb.WriteString(strconv.FormatInt(e.GetId(), 10))
+			sb.WriteByte(';')
 		}
 	}
 

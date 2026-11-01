@@ -54,7 +54,7 @@ func (p *queryPlan) compositeNeeded() (indexSignature, bool) {
 	descKey := slices.ContainsFunc(sig.sorts, func(o order) bool { return o.name == keyProperty && o.desc })
 
 	switch {
-	case p.ancestor != nil && hasIneq, hasIneq && hasEq, descKey, explicit > 1:
+	case p.ancestor != nil && hasIneq, hasIneq && hasEq, len(p.ineq) > 1, descKey, explicit > 1:
 		return sig, true
 	case explicit == 1 && !onIneq:
 		return sig, hasEq || hasIneq || p.ancestor != nil

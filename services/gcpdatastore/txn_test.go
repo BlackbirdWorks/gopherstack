@@ -104,6 +104,57 @@ func TestTransactionConflicts(t *testing.T) {
 	}
 }
 
+func TestTransactionConflictWithinOneClockTick(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	e.handler.Backend.SetEnforceIndexes(false)
+
+	fixed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	e.handler.Backend.SetClock(func() time.Time { return fixed })
+
+	tx, err := e.client.NewTransaction(t.Context())
+	require.NoError(t, err)
+
+	var c counter
+
+	require.ErrorIs(t, tx.Get(datastore.NameKey("C", "k", nil), &c), datastore.ErrNoSuchEntity)
+
+	_, err = e.client.Put(t.Context(), datastore.NameKey("C", "k", nil), &counter{N: 9})
+	require.NoError(t, err)
+
+	_, err = tx.Put(datastore.NameKey("C", "k", nil), &counter{N: 1})
+	require.NoError(t, err)
+
+	_, err = tx.Commit()
+	assert.ErrorIs(t, err, datastore.ErrConcurrentTransaction)
+}
+
+func TestKeysWithSeparatorBytesDoNotCollide(t *testing.T) {
+	t.Parallel()
+
+	e := newLooseEnv(t)
+
+	elem := func(kind, name string) *datastorepb.Key_PathElement {
+		return &datastorepb.Key_PathElement{Kind: kind, IdType: &datastorepb.Key_PathElement_Name{Name: name}}
+	}
+	nested := &datastorepb.Key{Path: []*datastorepb.Key_PathElement{elem("Task", "a"), elem("Sub", "b")}}
+	flat := &datastorepb.Key{Path: []*datastorepb.Key_PathElement{elem("Task", "a\x1eSub\x1fnb")}}
+
+	_, err := e.commit(t,
+		upsert(&datastorepb.Entity{Key: nested, Properties: map[string]*datastorepb.Value{"v": strVal("nested")}}),
+		upsert(&datastorepb.Entity{Key: flat, Properties: map[string]*datastorepb.Value{"v": strVal("flat")}}),
+	)
+	require.NoError(t, err)
+
+	for key, want := range map[string]*datastorepb.Key{"nested": nested, "flat": flat} {
+		resp, lerr := e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{want}})
+		require.NoError(t, lerr)
+		require.Len(t, resp.GetFound(), 1)
+		assert.Equal(t, key, resp.GetFound()[0].GetEntity().GetProperties()["v"].GetStringValue())
+	}
+}
+
 func TestTransactionLifecycle(t *testing.T) {
 	t.Parallel()
 
