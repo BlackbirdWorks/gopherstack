@@ -101,11 +101,7 @@ func (h *Handler) handleStartTranscriptionJob(
 		return nil, err
 	}
 
-	transcriptURI := buildTranscriptURI(job)
-
-	return &startTranscriptionJobOutput{
-		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
-	}, nil
+	return &startTranscriptionJobOutput{TranscriptionJob: buildTranscriptionJobOutput(job)}, nil
 }
 
 func (h *Handler) handleGetTranscriptionJob(
@@ -117,24 +113,10 @@ func (h *Handler) handleGetTranscriptionJob(
 		return nil, err
 	}
 
-	transcriptURI := buildTranscriptURI(job)
-
-	return &getTranscriptionJobOutput{
-		TranscriptionJob: buildTranscriptionJobOutput(job, transcriptURI),
-	}, nil
+	return &getTranscriptionJobOutput{TranscriptionJob: buildTranscriptionJobOutput(job)}, nil
 }
 
-func buildTranscriptURI(job *TranscriptionJob) string {
-	if job.OutputBucketName != "" {
-		key := outputObjectKey(job.OutputKey, job.JobName)
-
-		return "s3://" + job.OutputBucketName + "/" + key
-	}
-
-	return "s3://synthetic-transcripts/" + job.JobName + ".json"
-}
-
-func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) transcriptionJobOutput {
+func buildTranscriptionJobOutput(job *TranscriptionJob) transcriptionJobOutput {
 	out := transcriptionJobOutput{
 		TranscriptionJobName:      job.JobName,
 		TranscriptionJobStatus:    job.JobStatus,
@@ -158,7 +140,7 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 	}
 
 	if job.JobStatus == jobStatusCompleted {
-		out.Transcript.TranscriptFileURI = transcriptURI
+		out.Transcript.TranscriptFileURI = job.TranscriptFileURI
 	}
 
 	if job.Media.MediaFileURI != "" {
@@ -166,9 +148,8 @@ func buildTranscriptionJobOutput(job *TranscriptionJob, transcriptURI string) tr
 		out.Media = &m
 	}
 
-	if job.ContentRedaction != nil {
-		redacted := "s3://synthetic-transcripts/" + job.JobName + "-redacted.json"
-		out.Transcript.RedactedTranscriptFileURI = &redacted
+	if job.JobStatus == jobStatusCompleted && job.RedactedTranscriptURI != "" {
+		out.Transcript.RedactedTranscriptFileURI = &job.RedactedTranscriptURI
 	}
 
 	if !job.CreationTime.IsZero() {

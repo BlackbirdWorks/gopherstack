@@ -14,28 +14,7 @@ func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
 }
 
 func (b *InMemoryBackend) settling(since time.Time) bool {
-	return b.lifecycleDelay > 0 && time.Now().Before(since.Add(b.lifecycleDelay))
-}
-
-func (b *InMemoryBackend) observeTranscriptionJob(j *TranscriptionJob) {
-	if j.JobStatus == jobStatusCompleted && b.settling(j.CreationTime) {
-		j.JobStatus = jobStatusInProgress
-		j.CompletionTime = time.Time{}
-	}
-}
-
-func (b *InMemoryBackend) observeMedicalTranscriptionJob(j *MedicalTranscriptionJob) {
-	if j.TranscriptionJobStatus == jobStatusCompleted && b.settling(j.CreationTime) {
-		j.TranscriptionJobStatus = jobStatusInProgress
-		j.CompletionTime = time.Time{}
-	}
-}
-
-func (b *InMemoryBackend) observeCallAnalyticsJob(j *CallAnalyticsJob) {
-	if j.CallAnalyticsJobStatus == jobStatusCompleted && b.settling(j.CreationTime) {
-		j.CallAnalyticsJobStatus = jobStatusInProgress
-		j.CompletionTime = time.Time{}
-	}
+	return b.lifecycleDelay > 0 && b.now().Before(since.Add(b.lifecycleDelay))
 }
 
 func (b *InMemoryBackend) observeMedicalScribeJob(j *MedicalScribeJob) {

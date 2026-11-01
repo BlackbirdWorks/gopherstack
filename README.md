@@ -890,7 +890,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SageMaker](services/sagemaker/README.md) | A | 70 | 1 gap; 19 structural gaps |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap; 1 structural gap |
 | [Textract](services/textract/README.md) | A | 25 | 2 structural gaps; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 44 | 2 structural gaps |
+| [Transcribe](services/transcribe/README.md) | A | 44 | 6 gaps; 2 structural gaps |
 | [Translate](services/translate/README.md) | A | 19 | 1 gap; 2 structural gaps |
 
 ### Media

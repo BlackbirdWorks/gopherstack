@@ -651,6 +651,7 @@ type CLI struct {
 	AzureGraph                    azuregraphbackend.Settings          `embed:"" prefix:"azure-graph-"`
 	CodeBuild                     codebuildbackend.Settings           `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings                `embed:"" prefix:"glue-"`
+	Transcribe                    transcribebackend.Settings          `embed:"" prefix:"transcribe-"`
 	GCPIdentityToolkit            gcpidtkbackend.Settings             `embed:"" prefix:"gcp-identitytoolkit-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings       `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                  `embed:"" prefix:"s3-"`
@@ -1501,6 +1502,14 @@ func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
 func (c *CLI) GetGlueSettings() gluebackend.Settings {
 	st := c.Glue
 	st.Engine = c.engineMode("glue-engine", st.Engine)
+
+	return st
+}
+
+// GetTranscribeSettings returns Transcribe settings (transcribe.ConfigProvider).
+func (c *CLI) GetTranscribeSettings() transcribebackend.Settings {
+	st := c.Transcribe
+	st.Engine = c.engineMode("transcribe-engine", st.Engine)
 
 	return st
 }
@@ -3166,6 +3175,7 @@ func buildEchoServer(
 	registerSSOEndpoints(e, services)
 	registerEC2NetworkEndpoints(e, services)
 	registerEKSEndpoints(e, services)
+	registerTranscribeEndpoints(e, services)
 	registerPricingEndpoints(e, services)
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
 	e.POST("/_gopherstack/load", buildLoadHandler(persistManager))

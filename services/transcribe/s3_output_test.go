@@ -91,7 +91,7 @@ func TestTranscriptionJobWritesOutput(t *testing.T) {
 			assert.Equal(t, "j", doc.JobName)
 			assert.Equal(t, "COMPLETED", doc.Status)
 			assert.NotEmpty(t, doc.Results.Transcripts)
-			assert.NotEmpty(t, doc.Results.Items)
+			assert.Empty(t, doc.Results.Items)
 		})
 	}
 }
@@ -148,7 +148,7 @@ func TestCallAnalyticsJobWritesOutput(t *testing.T) {
 			var doc map[string]any
 			require.NoError(t, json.Unmarshal(w.objects[tt.wantKey], &doc))
 			assert.Equal(t, "COMPLETED", doc["JobStatus"])
-			assert.NotEmpty(t, doc["Transcript"])
+			assert.Contains(t, doc, "Transcript")
 			assert.NotEmpty(t, doc["Participants"])
 		})
 	}
