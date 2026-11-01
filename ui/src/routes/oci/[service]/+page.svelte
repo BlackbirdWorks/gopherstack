@@ -7,6 +7,8 @@
 	import ContainerInstancesDashboard from '#lib/components/oci/ContainerInstancesDashboard.svelte';
 	import ContainerEngineDashboard from '#lib/components/oci/ContainerEngineDashboard.svelte';
 	import CoreDashboard from '#lib/components/oci/CoreDashboard.svelte';
+	import DatabaseDashboard from '#lib/components/oci/DatabaseDashboard.svelte';
+	import DnsDashboard from '#lib/components/oci/DnsDashboard.svelte';
 	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
@@ -68,6 +70,10 @@
 	<ArtifactsDashboard />
 {:else if service?.id === 'containerinstances'}
 	<ContainerInstancesDashboard />
+{:else if service?.id === 'dns'}
+	<DnsDashboard />
+{:else if service?.id === 'database'}
+	<DatabaseDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

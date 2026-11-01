@@ -81,6 +81,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
+	"github.com/blackbirdworks/gopherstack/services/ocidatabase"
+	"github.com/blackbirdworks/gopherstack/services/ocidns"
 	"github.com/blackbirdworks/gopherstack/services/ocievents"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -487,6 +489,14 @@ func linkOCIObservabilityExtras(conf *Config, cfg any) {
 	if p, ok := cfg.(interface{ GetOCIContainerInstancesHandler() service.Registerable }); ok {
 		conf.OCIContainerInstancesOps, _ = getHandler[*ocicontainerinstances.Handler](
 			p.GetOCIContainerInstancesHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIDNSHandler() service.Registerable }); ok {
+		conf.OCIDNSOps, _ = getHandler[*ocidns.Handler](p.GetOCIDNSHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIDatabaseHandler() service.Registerable }); ok {
+		conf.OCIDatabaseOps, _ = getHandler[*ocidatabase.Handler](p.GetOCIDatabaseHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIEventsHandler() service.Registerable }); ok {

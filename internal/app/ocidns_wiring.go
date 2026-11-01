@@ -42,3 +42,8 @@ func wireOCIDNS(byName map[string]service.Registerable) {
 		})
 	}
 }
+
+// GetOCIDNSHandler returns the OCIDNS handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOCIDNSHandler() service.Registerable { return c.ociDNSHandler }
