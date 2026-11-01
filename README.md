@@ -1177,10 +1177,9 @@ memory. Tunables: `LINT_BATCH` (packages per invocation, default 15), `LINT_TIME
 `golangci-lint` holds the lock). The golangci-lint cache is reused, never cleaned.
 
 **Build cache.** `task gocache-trim` deletes `GOCACHE` entries older than
-`GOCACHE_TRIM_MINUTES` (default 180), or runs `go clean -cache` if the cache exceeds
-`GOCACHE_CLEAN_GB` (default 200), and prints before/after sizes. `lint-changed`, `build-check`,
+`GOCACHE_TRIM_MINUTES` (default 180) and prints before/after sizes; it never wipes the whole cache. `lint-changed`, `build-check`,
 `lint`, `test` and `integration-test` run it automatically when the `GOCACHE` filesystem has
-less than `GOCACHE_MIN_FREE_GB` (default 5) free.
+less than `GOCACHE_MIN_FREE_GB` (default 60) free (or the cache exceeds `GOCACHE_MAX_GB`=150, which deletes entries older than `GOCACHE_AGED_MINUTES`=720).
 
 ## Versioning
 

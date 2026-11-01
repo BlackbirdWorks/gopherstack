@@ -6,15 +6,15 @@
 #                                           or the cache is over GOCACHE_MAX_GB (entries older than GOCACHE_AGED_MINUTES)
 #
 # Env: GOCACHE_TRIM_MINUTES (180) delete entries older than this,
-#      GOCACHE_CLEAN_GB (200) if the cache exceeds this, `go clean -cache` instead,
 #      GOCACHE_MIN_FREE_GB (60) free-space floor for --if-low,
 #      GOCACHE_MAX_GB (150) / GOCACHE_AGED_MINUTES (720) size cap for --if-low.
+# Never runs `go clean -cache`: only entries older than the thresholds are deleted. If the disk is still
+# below the floor afterwards the script warns and leaves the rest to the operator.
 # Two agents building in parallel can add >100GB between runs, so the floor is generous.
 set -euo pipefail
 
-cache=$(go env GOCACHE)
+cache="${GOCACHE:-$(go env GOCACHE)}"
 minutes="${GOCACHE_TRIM_MINUTES:-180}"
-clean_gb="${GOCACHE_CLEAN_GB:-200}"
 min_free_gb="${GOCACHE_MIN_FREE_GB:-60}"
 max_gb="${GOCACHE_MAX_GB:-150}"
 aged_minutes="${GOCACHE_AGED_MINUTES:-720}"
@@ -45,11 +45,9 @@ human() { awk -v k="$1" 'BEGIN {printf "%.1fGB", k/1048576}'; }
 
 before=$(size_kb)
 echo "gocache-trim: $cache is $(human "$before") before"
-if [[ "$before" -gt $((clean_gb * 1048576)) ]]; then
-  echo "gocache-trim: over ${clean_gb}GB -- go clean -cache"
-  go clean -cache
-else
-  find "$cache" -type f -mmin "+$minutes" -delete
-fi
+find "$cache" -type f -mmin "+$minutes" -delete
 after=$(size_kb)
 echo "gocache-trim: $(human "$after") after (freed $(human $((before - after))), $(free_gb)GB free)"
+if [[ "${1:-}" == "--if-low" && "$(free_gb)" -lt "$min_free_gb" ]]; then
+  echo "gocache-trim: WARNING still below ${min_free_gb}GB free after trimming entries older than ${minutes}m" >&2
+fi

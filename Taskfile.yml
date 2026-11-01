@@ -269,7 +269,7 @@ tasks:
       - go tool govulncheck -mode=binary bin/{{.BINARY_NAME}}-linux
 
   gocache-trim:
-    desc: Trim old GOCACHE entries (GOCACHE_TRIM_MINUTES=180; go clean -cache if over GOCACHE_CLEAN_GB=200)
+    desc: Trim old GOCACHE entries (GOCACHE_TRIM_MINUTES=180; never a full wipe)
     silent: true
     cmds:
       - bash scripts/gocache-trim.sh
