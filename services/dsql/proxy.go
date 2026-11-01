@@ -405,10 +405,8 @@ func relayStatement(dst io.Writer, src io.Reader, typ byte, n int) error {
 
 	out := make([]byte, proxyFrameHeader, proxyFrameHeader+len(body))
 	out[0] = typ
-	binary.BigEndian.PutUint32(
-		out[1:],
-		uint32(len(body)+proxyFrameLenSize),
-	) //nolint:gosec // body bounded by proxyMaxFrame
+	total := uint32(len(body) + proxyFrameLenSize) //nolint:gosec // body bounded by proxyMaxFrame
+	binary.BigEndian.PutUint32(out[1:], total)
 
 	if _, err := dst.Write(append(out, body...)); err != nil {
 		return fmt.Errorf("write frame: %w", err)

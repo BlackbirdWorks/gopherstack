@@ -3,6 +3,8 @@ package dsql
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -29,7 +31,6 @@ const (
 	tokenMaxSkew     = 15 * time.Minute
 	tokenDateLayout  = "20060102T150405Z"
 	tokenAlgorithm   = "AWS4-HMAC-SHA256"
-	emptyPayloadHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	unsignedPayload  = "UNSIGNED-PAYLOAD"
 	tokenCredParts   = 5
 	tokenArnParts    = 6
@@ -182,7 +183,9 @@ func (t *authToken) verifySignature(secret string) error {
 
 	creds := aws.Credentials{AccessKeyID: t.accessKeyID, SecretAccessKey: secret, SessionToken: t.sessionToken}
 
-	for _, payloadHash := range []string{emptyPayloadHash, unsignedPayload} {
+	empty := sha256.Sum256(nil)
+
+	for _, payloadHash := range []string{hex.EncodeToString(empty[:]), unsignedPayload} {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 			"https://"+t.host+"/?"+q.Encode(), nil)
 		if err != nil {

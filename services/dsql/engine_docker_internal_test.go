@@ -185,8 +185,9 @@ func (dp *dataPlane) expiredToken(t *testing.T) string {
 	creds, err := dp.creds.Retrieve(t.Context())
 	require.NoError(t, err)
 
-	signed, _, err := v4.NewSigner().PresignHTTP(t.Context(), creds, req, emptyPayloadHash, tokenSigningName,
-		testRegion, time.Now().Add(-time.Hour).UTC())
+	signed, _, err := v4.NewSigner().
+		PresignHTTP(t.Context(), creds, req, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", tokenSigningName,
+			testRegion, time.Now().Add(-time.Hour).UTC())
 	require.NoError(t, err)
 
 	return strings.TrimPrefix(signed, "https://")
