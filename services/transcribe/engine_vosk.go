@@ -334,7 +334,11 @@ func unzipSafe(archive, dest string) error {
 	defer zr.Close()
 
 	for _, f := range zr.File {
-		target := filepath.Join(dest, f.Name) //nolint:gosec // prefix-checked below
+		if strings.Contains(f.Name, "..") {
+			return fmt.Errorf("%w: %s", errVoskArchive, f.Name)
+		}
+
+		target := filepath.Join(dest, f.Name) //nolint:gosec // ".." rejected above, prefix-checked below
 
 		if target != filepath.Clean(dest) && !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return fmt.Errorf("%w: %s", errVoskArchive, f.Name)
