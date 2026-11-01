@@ -80,6 +80,12 @@ environment:
   - ELASTICACHE_ENGINE=embedded
 ```
 
+## Running as non-root
+
+The image is built on `gcr.io/distroless/static:nonroot` and runs as `65532:65532` by default. The binary is `/usr/local/bin/gopherstack` (the working directory, so `./gopherstack health` keeps working), `/data` is owned by 65532 and `/tmp` is `1777`. The image used to be `FROM scratch` and ran as root with the binary at `/root/gopherstack`; that path is gone.
+
+To run as root again (for example to keep an older root-owned volume without a `chown`), pass `--user 0:0` / `user: "0:0"`.
+
 ## Volume-backed persistence
 
 State snapshots are written to `/data` inside the container. Mount a named volume or host path to keep state across container restarts:
@@ -89,6 +95,18 @@ volumes:
   - gopherstack-data:/data       # named volume (shown above)
   - ./local-data:/data           # host path
 ```
+
+A new named volume inherits the ownership of `/data` (65532) and just works. A host path keeps the host's ownership, so give the container user write access, using either of:
+
+```bash
+mkdir -p local-data && sudo chown 65532:65532 local-data
+docker run --rm -p 8000:8000 -e PERSIST=true -v "$PWD/local-data:/data" ghcr.io/blackbirdworks/gopherstack:latest
+
+# or run as your own user
+docker run --rm --user "$(id -u):$(id -g)" -p 8000:8000 -e PERSIST=true -v "$PWD/local-data:/data" ghcr.io/blackbirdworks/gopherstack:latest
+```
+
+Without write access Gopherstack logs `mkdir /data/...: permission denied`. A named volume created by an older, root-running image is still owned by root; fix it once with `docker run --rm -v gopherstack-data:/data alpine chown -R 65532:65532 /data`.
 
 ## Multi-service application example
 
@@ -165,10 +183,19 @@ docker run --rm -p 8000:8000 gopherstack:local
 
 Lambda image-based functions require the Docker daemon. When running Gopherstack itself inside Docker, you need to mount the host Docker socket and set `LAMBDA_DOCKER_HOST` to the host IP:
 
+The container user (65532) is not in the socket's group, so add that group with `--group-add`/`group_add`:
+
+```bash
+docker run --rm -p 8000:8000 -v /var/run/docker.sock:/var/run/docker.sock \
+  --group-add "$(stat -c %g /var/run/docker.sock)" ghcr.io/blackbirdworks/gopherstack:latest
+```
+
 ```yaml
 services:
   gopherstack:
     image: ghcr.io/blackbirdworks/gopherstack:latest
+    group_add:
+      - "${DOCKER_GID}"   # export DOCKER_GID=$(stat -c %g /var/run/docker.sock)
     environment:
       - LAMBDA_DOCKER_HOST=host-gateway  # or your host IP
     volumes:
@@ -177,6 +204,8 @@ services:
     ports:
       - "8000:8000"
 ```
+
+On Docker Desktop the socket is typically `root:root` inside the VM; use `--group-add 0` or `--user 0:0`. Without the group, engine-backed services (Lambda, ECS, ...) cannot reach the daemon and stay metadata-only.
 
 See [Lambda architecture](architecture/lambda.md) for details.
 

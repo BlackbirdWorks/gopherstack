@@ -92,7 +92,11 @@ class GopherstackContainer(DockerContainer):
         return self
 
     def with_persistence(self, host_dir: str) -> GopherstackContainer:
-        """Enable snapshot persistence, bind-mounting host_dir at /data."""
+        """Enable snapshot persistence, bind-mounting host_dir at /data.
+
+        The image runs as UID 65532; a host bind mount is rarely writable by it, so the container runs as root.
+        """
+        self.with_kwargs(user="0:0")
         self.with_env("PERSIST", "true")
         self.with_env("GOPHERSTACK_DATA_DIR", DATA_DIR)
         self.with_volume_mapping(host_dir, DATA_DIR, "rw")
@@ -102,8 +106,9 @@ class GopherstackContainer(DockerContainer):
         """Mount the host Docker socket (Lambda/RDS/ECS docker engines).
 
         This gives the emulator control of the host Docker daemon; use only in
-        trusted test environments.
+        trusted test environments. The container runs as root to open the socket.
         """
+        self.with_kwargs(user="0:0")
         self.with_volume_mapping(DOCKER_SOCK, DOCKER_SOCK, "rw")
         return self
 

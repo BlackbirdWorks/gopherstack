@@ -30,6 +30,7 @@ export class GopherstackContainer {
   #services = [];
   #env = {};
   #binds = [];
+  #root = false;
 
   constructor(image = DEFAULT_IMAGE) {
     this.#image = image;
@@ -40,15 +41,18 @@ export class GopherstackContainer {
     return this;
   }
 
+  /** The image runs as UID 65532; a host bind mount is rarely writable by it, so this runs the container as root. */
   withPersistence(hostDir) {
+    this.#root = true;
     this.#env.PERSIST = "true";
     this.#env.GOPHERSTACK_DATA_DIR = DATA_DIR;
     this.#binds.push({ source: hostDir, target: DATA_DIR, mode: "rw" });
     return this;
   }
 
-  /** Mounts the host Docker socket; grants control of the host daemon. */
+  /** Mounts the host Docker socket (container runs as root to open it); grants control of the host daemon. */
   withDockerSocket() {
+    this.#root = true;
     this.#binds.push({ source: DOCKER_SOCK, target: DOCKER_SOCK, mode: "rw" });
     return this;
   }
@@ -62,7 +66,9 @@ export class GopherstackContainer {
     const env = { ...this.#env };
     if (this.#services.length > 0) env.GOPHERSTACK_SERVICES = this.#services.join(",");
     const ports = [API_PORT, ...Object.values(AZURE_PORTS), ...Object.values(GCP_PORTS), ...Object.values(OCI_PORTS)];
-    const started = await new GenericContainer(this.#image)
+    let container = new GenericContainer(this.#image);
+    if (this.#root) container = container.withUser("0:0");
+    const started = await container
       .withExposedPorts(...ports)
       .withEnvironment(env)
       .withBindMounts(this.#binds)

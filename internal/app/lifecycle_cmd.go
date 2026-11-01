@@ -27,6 +27,7 @@ const (
 	lifecycleDefaultTail    = 100
 	lifecycleLogTailMaxByte = 1 << 20
 	lifecycleSocketInside   = "/var/run/docker.sock"
+	lifecycleRootUser       = "0:0" // image default 65532 can't write a host bind mount or open the socket
 	lifecycleSchemeHTTPS    = "https"
 	lifecycleStopGrace      = 2 * lifecycleStopTimeout
 	localstackAvailable     = "available"

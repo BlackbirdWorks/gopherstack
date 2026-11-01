@@ -1,6 +1,8 @@
 package helm_test
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -39,6 +41,7 @@ const (
 	pollEvery     = time.Second
 	k3sVersion    = "1.34"
 	testRegion    = "us-east-1"
+	nonRootUID    = 65532
 )
 
 var errNotReady = errors.New("not ready")
@@ -127,6 +130,59 @@ func (k *k8sAPI) deploymentReady(ctx context.Context) (bool, error) {
 	}
 
 	return false, fmt.Errorf("%w: status %+v", errNotReady, s)
+}
+
+type podInfo struct {
+	Status struct {
+		Phase             string `json:"phase"`
+		ContainerStatuses []struct {
+			RestartCount int `json:"restartCount"`
+		} `json:"containerStatuses"`
+	} `json:"status"`
+	Spec struct {
+		SecurityContext struct {
+			RunAsUser    int  `json:"runAsUser"`
+			RunAsNonRoot bool `json:"runAsNonRoot"`
+		} `json:"securityContext"`
+	} `json:"spec"`
+}
+
+// podRunsNonRoot is true once a release pod is Running with the non-root UID and no restarts.
+func (k *k8sAPI) podRunsNonRoot(ctx context.Context) error {
+	code, body, err := k.do(ctx, http.MethodGet,
+		"/api/v1/namespaces/"+namespace+"/pods?labelSelector=app.kubernetes.io/instance%3D"+releaseName)
+	if err != nil {
+		return err
+	}
+
+	if code != http.StatusOK {
+		return fmt.Errorf("%w: list pods returned %d", errNotReady, code)
+	}
+
+	var l struct {
+		Items []podInfo `json:"items"`
+	}
+	if err = json.Unmarshal(body, &l); err != nil {
+		return err
+	}
+
+	if len(l.Items) != 1 {
+		return fmt.Errorf("%w: %d pods", errNotReady, len(l.Items))
+	}
+
+	pod := l.Items[0]
+	if !pod.Spec.SecurityContext.RunAsNonRoot || pod.Spec.SecurityContext.RunAsUser != nonRootUID ||
+		pod.Status.Phase != "Running" {
+		return fmt.Errorf("%w: pod not running as UID %d: %+v", errNotReady, nonRootUID, pod)
+	}
+
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.RestartCount != 0 {
+			return fmt.Errorf("%w: container restarted %d times", errNotReady, cs.RestartCount)
+		}
+	}
+
+	return nil
 }
 
 func (k *k8sAPI) deletePods(ctx context.Context) error {
@@ -255,7 +311,7 @@ func TestChart_InstallK3s(t *testing.T) {
 	docker := []string{"--network", "host", "-v", kubeconfig + ":/kube/config:ro", "-e", "KUBECONFIG=/kube/config"}
 
 	out, errOut, err := helm(ctx, t, docker, "install", releaseName, "/chart", "--namespace", namespace,
-		"--set", "image.repository="+repo+",image.tag="+tag+",image.pullPolicy=Never",
+		"--set-string", "image.repository="+repo+",image.tag="+tag+",image.pullPolicy=Never",
 		"--set", "service.type=NodePort,service.nodePort="+strconv.Itoa(nodePort),
 		"--set", "persistence.enabled=true")
 	require.NoError(t, err, out+errOut)
@@ -266,6 +322,8 @@ func TestChart_InstallK3s(t *testing.T) {
 	})
 
 	require.NoError(t, until(ctx, "deployment ready", func() (bool, error) { return api.deploymentReady(ctx) }))
+
+	require.NoError(t, api.podRunsNonRoot(ctx))
 
 	base := "http://127.0.0.1:" + strconv.Itoa(inst.LBHost[0])
 	assertHealthy(ctx, t, base)
@@ -302,7 +360,7 @@ func assertHealthy(ctx context.Context, t *testing.T, base string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/_gopherstack/health", nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()

@@ -28,3 +28,11 @@ Java and .NET modules are not provided yet. Use the generic container with
 `/var/run/docker.sock` so the Lambda, RDS and ECS docker engines can start
 sibling containers. That gives the emulator root-equivalent control of the host
 Docker daemon. Use it only on trusted dev and CI machines.
+
+## Non-root image
+
+The image runs as UID 65532. Because a host bind mount (persistence) is rarely
+writable by that user and the Docker socket is group-restricted, the modules
+run the container as root (`0:0`) whenever persistence or the Docker socket is
+requested. Override the user with the language's customizer if you prefer
+`chown 65532` on the host directory or a `--group-add` of the socket's group.

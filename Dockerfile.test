@@ -1,8 +1,13 @@
-# Lightweight test image — expects a pre-built static binary at bin/gopherstack-linux
-# (from `task build-linux`; this is a separate path from `task build`'s bin/gopherstack
-# so the two targets can't clobber each other — see gopherstack-gooq).
-FROM scratch
-COPY bin/gopherstack-linux /root/gopherstack
+# Lightweight test image: expects a pre-built static binary at bin/gopherstack-linux
+# (from `task build-linux`; separate from `task build`'s bin/gopherstack — see gopherstack-gooq).
+# Same non-root layout as the release image.
+FROM --platform=$BUILDPLATFORM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f AS state
+RUN mkdir /data
+
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
+COPY --from=state --chown=65532:65532 /data /data
+COPY --chown=0:0 --chmod=755 bin/gopherstack-linux /usr/local/bin/gopherstack
+USER 65532:65532
 EXPOSE 8000
 EXPOSE 1883
-CMD ["/root/gopherstack"]
+CMD ["/usr/local/bin/gopherstack"]

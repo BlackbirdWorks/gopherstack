@@ -134,13 +134,16 @@ func WithServices(names ...string) Option {
 }
 
 // WithPersistence enables snapshot persistence, bind-mounting hostDir at /data.
+// The image runs as UID 65532 by default; a host bind mount is rarely writable by it, so the container
+// runs as root. Override with a WithCustomizer user if hostDir is owned by 65532.
 func WithPersistence(hostDir string) Option {
 	return func(s *settings) { s.persistDir = hostDir }
 }
 
 // WithDockerSocket mounts the host Docker socket so Lambda/RDS/ECS docker
 // engines can start sibling containers. This grants the emulator control of
-// the host Docker daemon; use only in trusted test environments.
+// the host Docker daemon; use only in trusted test environments. The container
+// runs as root so it can open the socket regardless of the socket's group.
 func WithDockerSocket() Option {
 	return func(s *settings) { s.dockerSock = true }
 }
@@ -193,6 +196,8 @@ func Run(ctx context.Context, image string, opts ...Option) (*Container, error) 
 
 	var binds []string
 
+	rootUser := s.persistDir != "" || s.dockerSock
+
 	if s.persistDir != "" {
 		s.env["PERSIST"] = "true"
 		s.env["GOPHERSTACK_DATA_DIR"] = dataDir
@@ -209,6 +214,10 @@ func Run(ctx context.Context, image string, opts ...Option) (*Container, error) 
 		Env:          s.env,
 		WaitingFor: wait.ForHTTP(HealthPath).WithPort(APIPort + "/tcp").
 			WithStartupTimeout(startupTimeout),
+	}
+
+	if rootUser {
+		req.User = "0:0"
 	}
 
 	if len(binds) > 0 {
