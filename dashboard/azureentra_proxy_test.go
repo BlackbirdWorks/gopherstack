@@ -310,7 +310,12 @@ func TestAzureAuthzProxyRejects(t *testing.T) {
 		{"put policy", http.MethodPut, loc + "policyAssignments/x", `{}`},
 		{"delete policy", http.MethodDelete, loc + "policyAssignments/x", ""},
 		{"other namespace", http.MethodGet, entraRG + "/providers/Microsoft.Storage/storageAccounts", ""},
-		{"resource scope", http.MethodGet, entraRG + "/providers/Microsoft.Compute/virtualMachines/a" + entraAuth + "locks", ""},
+		{
+			"resource scope",
+			http.MethodGet,
+			entraRG + "/providers/Microsoft.Compute/virtualMachines/a" + entraAuth + "locks",
+			"",
+		},
 		{"assignment bad name", http.MethodPut, loc + "roleAssignments/not-a-guid", `{}`},
 		{
 			"assignment bad role", http.MethodPut, loc + "roleAssignments/" + entraGUID2,
