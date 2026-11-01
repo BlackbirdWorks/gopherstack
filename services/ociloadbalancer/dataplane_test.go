@@ -527,16 +527,16 @@ func TestBackendTLSVerification(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
+		health loadbalancer.BackendHealthStatusEnum
 		name   string
 		ca     string
-		verify bool
 		status int
-		health loadbalancer.BackendHealthStatusEnum
+		verify bool
 	}{
-		{"trusted bundle", string(good), true, http.StatusOK, loadbalancer.BackendHealthStatusOk},
-		{"wrong bundle", string(wrong), true, http.StatusServiceUnavailable, loadbalancer.BackendHealthStatusCritical},
-		{"no verify wrong bundle", string(wrong), false, http.StatusOK, loadbalancer.BackendHealthStatusOk},
-		{"no verify no bundle", "", false, http.StatusOK, loadbalancer.BackendHealthStatusOk},
+		{loadbalancer.BackendHealthStatusOk, "trusted bundle", string(good), http.StatusOK, true},
+		{loadbalancer.BackendHealthStatusCritical, "wrong bundle", string(wrong), http.StatusServiceUnavailable, true},
+		{loadbalancer.BackendHealthStatusOk, "no verify wrong bundle", string(wrong), http.StatusOK, false},
+		{loadbalancer.BackendHealthStatusOk, "no verify no bundle", "", http.StatusOK, false},
 	}
 
 	for _, tt := range tests {
@@ -566,10 +566,10 @@ func TestBackendTLSVerification(t *testing.T) {
 			e.clock.Advance(2 * time.Second)
 
 			name := be.ip() + ":" + itoa(be.port())
-			bh, err := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
+			bh, herr := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
 				LoadBalancerId: &id, BackendSetName: new("bs"), BackendName: &name,
 			})
-			require.NoError(t, err)
+			require.NoError(t, herr)
 			assert.Equal(t, tt.health, bh.Status)
 		})
 	}
