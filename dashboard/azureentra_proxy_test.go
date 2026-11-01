@@ -170,7 +170,8 @@ func TestAzureGraphProxySecretOnce(t *testing.T) {
 	env := newEntraEnv(t)
 
 	app := env.create(t, entraGraph+"/applications",
-		`{"displayName":"web","passwordCredentials":[{"secretText":"smuggled"}],"signInAudience":"AzureADMultipleOrgs"}`)
+		`{"displayName":"web","passwordCredentials":[{"secretText":"smuggled"}],`+
+			`"signInAudience":"AzureADMultipleOrgs"}`)
 	id, _ := app["id"].(string)
 	require.NotEmpty(t, id)
 	assert.Equal(t, "AzureADMyOrg", app["signInAudience"])

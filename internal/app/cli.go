@@ -2279,11 +2279,6 @@ func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureARMHandler() service.Registerable { return c.azureARMHandler }
 
-// GetAzureGraphHandler returns the Microsoft Graph handler for the dashboard proxy.
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetAzureGraphHandler() service.Registerable { return c.azureGraphHandler }
-
 // GetAzureBlobHandler returns the Azure Blob handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -3606,7 +3601,6 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociAPIGatewayHandler = byName["OCIAPIGateway"]
 	cli.ociEventsHandler = byName["OCIEvents"]
 	cli.azureMonitorHandler = byName["AzureMonitor"]
-	cli.azureGraphHandler = byName["AzureGraph"]
 }
 
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {

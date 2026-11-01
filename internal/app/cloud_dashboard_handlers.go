@@ -52,6 +52,7 @@ func storeConsoleHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpCloudBuildHandler = byName["GCPCloudBuild"]
 	cli.gcpRedisHandler = byName["GCPRedis"]
 	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
+	cli.azureGraphHandler = byName["AzureGraph"]
 }
 
 // GetGCPWorkflowsHandler returns the GCPWorkflows handler for the dashboard proxy.
@@ -193,3 +194,8 @@ func (c *CLI) GetGCPResourceManagerHandler() service.Registerable { return c.gcp
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGCPBatchHandler() service.Registerable { return c.gcpBatchHandler }
+
+// GetAzureGraphHandler returns the Microsoft Graph handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureGraphHandler() service.Registerable { return c.azureGraphHandler }
