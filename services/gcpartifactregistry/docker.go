@@ -82,6 +82,10 @@ func (b *InMemoryBackend) serveDocker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if b.dockerModeHandled(w, r, dp) {
+		return
+	}
+
 	if b.dockerPullDenied(r, dp) {
 		writeRegError(w, http.StatusForbidden, "DENIED", "A download rule denies access to this package.")
 

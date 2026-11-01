@@ -121,32 +121,7 @@ func firstNonEmpty(a, b string) string {
 
 // fetch GETs an upstream URL. It fails with errRemoteDisabled unless remote upstreams were enabled.
 func (b *InMemoryBackend) fetch(ctx context.Context, rawURL string) ([]byte, int, http.Header, error) {
-	b.mu.RLock("fetch")
-	enabled := b.remote.enabled
-	b.mu.RUnlock()
-
-	if !enabled {
-		return nil, 0, nil, errRemoteDisabled
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("upstream request: %w", err)
-	}
-
-	resp, err := b.upstreamClient().Do(req)
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("upstream %s: %w", rawURL, err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxGenericBytes+1))
-	if err != nil {
-		return nil, 0, nil, fmt.Errorf("upstream %s: %w", rawURL, err)
-	}
-
-	return data, resp.StatusCode, resp.Header, nil
+	return b.fetchWith(ctx, rawURL, "", "")
 }
 
 // fetchOK is fetch that treats any non-200 status as an error.

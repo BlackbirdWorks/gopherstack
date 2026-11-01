@@ -162,6 +162,7 @@ func (b *InMemoryBackend) repoByKey(project, id string) (string, *repoRec, bool)
 // DockerRepoInfo describes the repository a registry path belongs to.
 type DockerRepoInfo struct {
 	Location  string
+	Mode      artifactregistrypb.Repository_Mode
 	Immutable bool
 	Docker    bool
 }
@@ -180,6 +181,7 @@ func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, 
 
 	return DockerRepoInfo{
 		Location:  ref.location,
+		Mode:      rec.pb.GetMode(),
 		Docker:    rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER,
 		Immutable: rec.pb.GetDockerConfig().GetImmutableTags(),
 	}, true
