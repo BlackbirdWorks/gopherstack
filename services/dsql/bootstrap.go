@@ -63,20 +63,110 @@ BEGIN
 	RETURN id;
 END $fn$;
 
+CREATE EXTENSION IF NOT EXISTS dblink SCHEMA sys;
+
 CREATE OR REPLACE FUNCTION sys.wait_for_job(job_id text) RETURNS boolean
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, sys, pg_temp AS $fn$
 DECLARE
 	st text;
+	conn constant text := 'gs_wait_' || pg_backend_pid();
 BEGIN
+	PERFORM sys.dblink_connect(conn, 'dbname=postgres user=gsroot');
+	BEGIN
+		LOOP
+			SELECT r.status INTO st FROM sys.dblink(conn,
+				format('SELECT status FROM sys.gs_jobs WHERE job_id = %L', wait_for_job.job_id)) AS r(status text);
+			IF NOT FOUND THEN
+				RAISE EXCEPTION 'job "%" does not exist', wait_for_job.job_id USING ERRCODE = 'no_data_found';
+			END IF;
+			IF st IN ('completed', 'failed') THEN
+				PERFORM sys.dblink_disconnect(conn);
+				RETURN st = 'completed';
+			END IF;
+			PERFORM pg_sleep(0.05);
+		END LOOP;
+	EXCEPTION WHEN OTHERS THEN
+		IF conn = ANY (sys.dblink_get_connections()) THEN
+			PERFORM sys.dblink_disconnect(conn);
+		END IF;
+		RAISE;
+	END;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_txn_guard(kind text, n bigint) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+	total bigint;
+BEGIN
+	IF session_user = 'gsroot' OR current_setting('gs.internal', true) = '1' THEN
+		RETURN;
+	END IF;
+	IF kind = 'ddl' THEN
+		IF current_setting('gs.dml', true) = '1' THEN
+			RAISE EXCEPTION 'ddl and dml are not supported in the same transaction' USING ERRCODE = '0A000';
+		END IF;
+		IF current_setting('gs.ddl', true) = '1' THEN
+			RAISE EXCEPTION 'only one DDL statement is allowed per transaction' USING ERRCODE = '0A000';
+		END IF;
+		PERFORM set_config('gs.ddl', '1', true);
+		RETURN;
+	END IF;
+	IF current_setting('gs.ddl', true) = '1' THEN
+		RAISE EXCEPTION 'ddl and dml are not supported in the same transaction' USING ERRCODE = '0A000';
+	END IF;
+	total := coalesce(nullif(current_setting('gs.rows', true), ''), '0')::bigint + n;
+	IF total > 3000 THEN
+		RAISE EXCEPTION 'transaction row limit exceeded' USING ERRCODE = '54000';
+	END IF;
+	PERFORM set_config('gs.dml', '1', true);
+	PERFORM set_config('gs.rows', total::text, true);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_dml_ins() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_new));
+	RETURN NULL;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_dml_upd() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_new));
+	RETURN NULL;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_dml_del() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+	PERFORM sys.gs_txn_guard('dml', (SELECT count(*) FROM gs_old));
+	RETURN NULL;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_ddl_start() RETURNS event_trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+BEGIN
+	PERFORM sys.gs_txn_guard('ddl', 0);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION sys.gs_ddl_end() RETURNS event_trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $fn$
+DECLARE
+	r record;
+BEGIN
+	FOR r IN SELECT c.objid, c.schema_name FROM pg_event_trigger_ddl_commands() c
+		WHERE c.object_type = 'table' AND c.schema_name NOT IN ('sys', 'pg_catalog')
 	LOOP
-		SELECT j.status INTO st FROM sys.gs_jobs j WHERE j.job_id = wait_for_job.job_id;
-		IF NOT FOUND THEN
-			RAISE EXCEPTION 'job "%" does not exist', wait_for_job.job_id USING ERRCODE = 'no_data_found';
+		IF EXISTS (SELECT 1 FROM pg_class k WHERE k.oid = r.objid AND k.relkind = 'r' AND NOT k.relispartition) THEN
+			PERFORM set_config('gs.internal', '1', true);
+			EXECUTE format('CREATE TRIGGER gs_dml_ins AFTER INSERT ON %s REFERENCING NEW TABLE AS gs_new '
+				'FOR EACH STATEMENT EXECUTE FUNCTION sys.gs_dml_ins()', r.objid::regclass);
+			EXECUTE format('CREATE TRIGGER gs_dml_upd AFTER UPDATE ON %s REFERENCING NEW TABLE AS gs_new '
+				'FOR EACH STATEMENT EXECUTE FUNCTION sys.gs_dml_upd()', r.objid::regclass);
+			EXECUTE format('CREATE TRIGGER gs_dml_del AFTER DELETE ON %s REFERENCING OLD TABLE AS gs_old '
+				'FOR EACH STATEMENT EXECUTE FUNCTION sys.gs_dml_del()', r.objid::regclass);
+			PERFORM set_config('gs.internal', '', true);
 		END IF;
-		IF st IN ('completed', 'failed') THEN
-			RETURN st = 'completed';
-		END IF;
-		PERFORM pg_sleep(0.05);
 	END LOOP;
 END $fn$;
 
@@ -114,6 +204,7 @@ BEGIN
 END $fn$;
 
 REVOKE ALL ON ALL TABLES IN SCHEMA sys FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA sys FROM PUBLIC;
 GRANT USAGE ON SCHEMA sys TO PUBLIC;
 GRANT SELECT ON sys.jobs, sys.iam_pg_role_mappings TO PUBLIC;
 REVOKE ALL ON FUNCTION sys.gs_create_index_async(text), sys.wait_for_job(text), sys.gs_iam_grant(text, text),
@@ -121,5 +212,10 @@ REVOKE ALL ON FUNCTION sys.gs_create_index_async(text), sys.wait_for_job(text), 
 GRANT EXECUTE ON FUNCTION sys.gs_create_index_async(text), sys.wait_for_job(text), sys.gs_iam_grant(text, text),
 	sys.gs_iam_revoke(text, text) TO PUBLIC;
 ALTER DATABASE postgres SET timezone TO 'UTC';
+ALTER DATABASE postgres SET default_transaction_isolation TO 'repeatable read';
+
+CREATE EVENT TRIGGER gs_ddl_start ON ddl_command_start EXECUTE FUNCTION sys.gs_ddl_start();
+CREATE EVENT TRIGGER gs_ddl_end ON ddl_command_end
+	WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') EXECUTE FUNCTION sys.gs_ddl_end();
 ALTER SCHEMA public OWNER TO admin;
 `

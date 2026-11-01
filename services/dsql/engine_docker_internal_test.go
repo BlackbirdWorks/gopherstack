@@ -305,6 +305,102 @@ func TestDockerDataPlane(t *testing.T) {
 			}
 		})
 
+		t.Run("transaction rules", func(t *testing.T) {
+			t.Parallel()
+
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+			_, err := admin.Exec(ctx, "CREATE TABLE rules_items (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
+
+			tests := []struct {
+				name  string
+				code  string
+				msg   string
+				stmts []string
+			}{
+				{name: "ddl then dml", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
+					stmts: []string{"CREATE TABLE r1 (a int)", "INSERT INTO rules_items VALUES (1000000, 'x')"}},
+				{name: "dml then ddl", code: "0A000", msg: "ddl and dml are not supported in the same transaction",
+					stmts: []string{"INSERT INTO rules_items VALUES (1000001, 'x')", "CREATE TABLE r2 (a int)"}},
+				{name: "two ddl", code: "0A000", msg: "only one DDL statement is allowed per transaction",
+					stmts: []string{"CREATE TABLE r3 (a int)", "CREATE TABLE r4 (a int)"}},
+				{name: "3001 rows", code: "54000", msg: "transaction row limit exceeded",
+					stmts: []string{"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(1, 3001) g"}},
+				{name: "3000 rows across statements", code: "54000", msg: "transaction row limit exceeded",
+					stmts: []string{
+						"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(10001, 12000) g",
+						"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(20001, 22000) g",
+					}},
+				{name: "3000 rows ok", stmts: []string{
+					"INSERT INTO rules_items SELECT g, 'x' FROM generate_series(30001, 33000) g"}},
+				{name: "reads next to ddl ok", stmts: []string{"SELECT count(*) FROM rules_items", "CREATE TABLE r5 (a int)"}},
+				{name: "update counts rows", code: "54000", msg: "transaction row limit exceeded",
+					stmts: []string{"UPDATE rules_items SET v = 'y' WHERE id > 30000", "DELETE FROM rules_items WHERE id > 30000 AND id < 30002"}},
+			}
+
+			for _, tt := range tests {
+				tx, berr := admin.Begin(ctx)
+				require.NoError(t, berr, tt.name)
+
+				var runErr error
+
+				for _, stmt := range tt.stmts {
+					if _, runErr = tx.Exec(ctx, stmt); runErr != nil {
+						break
+					}
+				}
+
+				if tt.code == "" {
+					require.NoError(t, runErr, tt.name)
+					require.NoError(t, tx.Commit(ctx), tt.name)
+
+					continue
+				}
+
+				var pgErr *pgconn.PgError
+
+				require.ErrorAs(t, runErr, &pgErr, tt.name)
+				assert.Equal(t, tt.code, pgErr.Code, tt.name)
+				assert.Equal(t, tt.msg, pgErr.Message, tt.name)
+				require.NoError(t, tx.Rollback(ctx), tt.name)
+			}
+
+			var iso string
+
+			require.NoError(t, admin.QueryRow(ctx, "SHOW transaction_isolation").Scan(&iso))
+			assert.Equal(t, "repeatable read", iso)
+
+			var pgErr *pgconn.PgError
+
+			_, err = admin.Exec(ctx, "CREATE INDEX plain_idx ON rules_items (v)")
+			require.ErrorAs(t, err, &pgErr)
+			assert.Equal(t, unsupportedSQLState, pgErr.Code)
+			assert.Equal(t, plainIndexMessage, pgErr.Message)
+		})
+
+		t.Run("wait_for_job inside a repeatable read transaction", func(t *testing.T) {
+			t.Parallel()
+
+			admin := dp.mustOpen(t, "admin", dp.token(t, true), pgx.QueryExecModeSimpleProtocol)
+
+			_, err := admin.Exec(ctx, "CREATE TABLE rr_items (id int PRIMARY KEY, v text)")
+			require.NoError(t, err)
+
+			var job string
+
+			require.NoError(t, admin.QueryRow(ctx, "CREATE INDEX ASYNC rr_idx ON rr_items (v)").Scan(&job))
+
+			tx, err := admin.Begin(ctx)
+			require.NoError(t, err)
+
+			var ok bool
+
+			require.NoError(t, tx.QueryRow(ctx, "SELECT sys.wait_for_job('"+job+"')").Scan(&ok))
+			assert.True(t, ok)
+			require.NoError(t, tx.Commit(ctx))
+		})
+
 		t.Run("rejected logins", func(t *testing.T) {
 			t.Parallel()
 

@@ -1,8 +1,11 @@
 package dsql
 
 import (
+	"net"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +22,9 @@ func TestRewriteSQL(t *testing.T) {
 		want string
 		// feature, when set, expects an unsupported-feature rejection naming it.
 		feature string
+		// msg and code, when set, expect a rejection with exactly that message and SQLSTATE.
+		msg  string
+		code string
 	}{
 		{name: "async index", sql: "CREATE INDEX ASYNC idx ON t(a)",
 			want: "SELECT sys.gs_create_index_async('CREATE INDEX idx ON t(a)') AS job_id"},
@@ -36,7 +42,8 @@ func TestRewriteSQL(t *testing.T) {
 			want: `SELECT sys.gs_create_index_async('CREATE INDEX i ON t(a) WHERE b = '';x''') AS job_id`},
 		{name: "async multiple statements", sql: "CREATE INDEX ASYNC i ON t(a); DROP TABLE t",
 			feature: "multiple statements with CREATE INDEX ASYNC"},
-		{name: "plain index passes", sql: "CREATE INDEX i ON t(a)", want: "CREATE INDEX i ON t(a)"},
+		{name: "plain index rejected", sql: "CREATE INDEX i ON t(a)", code: "0A000", msg: plainIndexMessage},
+		{name: "plain unique index rejected", sql: "create unique index concurrently i on t(a);", code: "0A000", msg: plainIndexMessage},
 		{
 			name: "async word in table name passes",
 			sql:  "CREATE TABLE async_t (a int)",
@@ -79,6 +86,14 @@ func TestRewriteSQL(t *testing.T) {
 			t.Parallel()
 
 			got := rewriteSQL(tt.sql)
+
+			if tt.msg != "" {
+				assert.True(t, strings.HasPrefix(got, raise), got)
+				assert.Contains(t, got, quoteLiteral(tt.msg))
+				assert.Contains(t, got, "ERRCODE = '"+tt.code+"'")
+
+				return
+			}
 
 			if tt.feature == "" {
 				assert.Equal(t, tt.want, got)
@@ -125,6 +140,58 @@ func TestRewriteFrame(t *testing.T) {
 			t.Parallel()
 
 			require.Equal(t, tt.want, string(rewriteFrame(tt.typ, []byte(tt.body))))
+		})
+	}
+}
+
+func TestConnLifetime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		max    time.Duration
+		closed bool
+	}{
+		{name: "closes after max", max: time.Hour, closed: true},
+		{name: "disabled", max: 0, closed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				client, cpeer := net.Pipe()
+				up, upeer := net.Pipe()
+
+				defer func() { _ = cpeer.Close(); _ = upeer.Close() }()
+
+				start := time.Now()
+				done := make(chan struct{})
+
+				go func() {
+					pump(client, up, connLifetime{max: tt.max, now: time.Now})
+					close(done)
+				}()
+
+				synctest.Wait()
+
+				if !tt.closed {
+					select {
+					case <-done:
+						t.Fatal("pump ended without a lifetime cap")
+					default:
+					}
+
+					_ = cpeer.Close()
+				}
+
+				<-done
+
+				if tt.closed {
+					assert.Equal(t, tt.max, time.Since(start))
+				}
+			})
 		})
 	}
 }

@@ -8,10 +8,15 @@ import (
 // Unsupported-feature list: docs.aws.amazon.com/aurora-dsql/latest/userguide/
 // working-with-postgresql-compatibility-migration-guide.html (no temporary tables, triggers, TRUNCATE, VACUUM,
 // tablespaces, PL/pgSQL, a single built-in database). The error text is not documented.
-const unsupportedSQLState = "0A000"
+const (
+	unsupportedSQLState = "0A000"
+	// plainIndexMessage: the User Guide says to use CREATE INDEX ASYNC; the exact text is recalled, not documented.
+	plainIndexMessage = "unsupported mode. please use CREATE INDEX ASYNC"
+)
 
 var (
 	asyncIndexRE = regexp.MustCompile(`(?is)^create\s+(unique\s+)?index\s+async\b(.*)$`)
+	plainIndexRE = regexp.MustCompile(`(?is)^create\s+(unique\s+)?index\b`)
 	iamGrantRE   = regexp.MustCompile(
 		`(?is)^aws\s+iam\s+(grant|revoke)\s+("(?:[^"]|"")+"|[a-z_][a-z0-9_$]*)\s+(?:to|from)\s+'((?:[^']|'')*)'$`)
 )
@@ -54,6 +59,10 @@ func rewriteSQL(sql string) string {
 
 	if m := asyncIndexRE.FindStringSubmatch(stmt); m != nil {
 		return rewriteAsyncIndex(m)
+	}
+
+	if plainIndexRE.MatchString(stmt) {
+		return raiseWith(unsupportedSQLState, plainIndexMessage)
 	}
 
 	if m := iamGrantRE.FindStringSubmatch(stmt); m != nil {
@@ -102,8 +111,11 @@ func rewriteIAMGrant(m []string) string {
 }
 
 func raiseUnsupported(feature string) string {
-	return "DO $$ BEGIN RAISE EXCEPTION " + quoteLiteral(feature+" is not supported in Aurora DSQL") +
-		" USING ERRCODE = '" + unsupportedSQLState + "'; END $$"
+	return raiseWith(unsupportedSQLState, feature+" is not supported in Aurora DSQL")
+}
+
+func raiseWith(code, msg string) string {
+	return "DO $$ BEGIN RAISE EXCEPTION " + quoteLiteral(msg) + " USING ERRCODE = '" + code + "'; END $$"
 }
 
 func quoteLiteral(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" }

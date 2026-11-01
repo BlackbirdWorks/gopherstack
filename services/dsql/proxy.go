@@ -34,6 +34,7 @@ const (
 	frameQuery            = 'Q'
 	frameParse            = 'P'
 	postgresScheme        = "postgres"
+	connMaxDuration       = time.Hour
 )
 
 var (
@@ -93,7 +94,7 @@ func (i *dockerInstance) serve(raw net.Conn) {
 
 	_ = c.SetDeadline(time.Time{})
 
-	pump(c.Conn, up)
+	pump(c.Conn, up, connLifetime{max: connMaxDuration, now: i.l.cfg.Now})
 }
 
 func (i *dockerInstance) startup(conn net.Conn) (*clientConn, *pgproto3.StartupMessage, error) {
@@ -336,8 +337,50 @@ func completeStartup(c *clientConn, hj *pgconn.HijackedConn) bool {
 	return c.backend.Flush() == nil
 }
 
-func pump(client, upstream net.Conn) {
+// connLifetime caps a client connection's age on an injectable clock.
+type connLifetime struct {
+	now func() time.Time
+	max time.Duration
+}
+
+// watch closes both ends once the clock passes start+max.
+func (l connLifetime) watch(stop <-chan struct{}, closeBoth func()) {
+	if l.max <= 0 {
+		return
+	}
+
+	deadline := l.now().Add(l.max)
+	timer := time.NewTimer(l.max)
+
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-timer.C:
+			rest := deadline.Sub(l.now())
+			if rest <= 0 {
+				closeBoth()
+
+				return
+			}
+
+			timer.Reset(rest)
+		}
+	}
+}
+
+func pump(client, upstream net.Conn, life connLifetime) {
 	done := make(chan struct{}, pumpDirections)
+	stop := make(chan struct{})
+
+	defer close(stop)
+
+	go life.watch(stop, func() {
+		_ = client.Close()
+		_ = upstream.Close()
+	})
 
 	go func() {
 		_, _ = io.Copy(client, upstream)
