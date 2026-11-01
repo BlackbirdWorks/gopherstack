@@ -56,7 +56,8 @@ func chartDir(t *testing.T) string {
 func helm(ctx context.Context, t *testing.T, dockerArgs []string, args ...string) (string, string, error) {
 	t.Helper()
 
-	cmd := []string{"run", "--rm", "-v", chartDir(t) + ":/chart:ro"}
+	cmd := make([]string, 0, 6+len(dockerArgs)+len(args))
+	cmd = append(cmd, "run", "--rm", "-v", chartDir(t)+":/chart:ro")
 	cmd = append(cmd, dockerArgs...)
 	cmd = append(cmd, helmImage)
 	cmd = append(cmd, args...)

@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -39,6 +40,8 @@ const (
 	k3sVersion    = "1.34"
 	testRegion    = "us-east-1"
 )
+
+var errNotReady = errors.New("not ready")
 
 type k8sAPI struct {
 	client *http.Client
@@ -84,7 +87,7 @@ func until(ctx context.Context, what string, fn func() (bool, error)) error {
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("%s: %w (last: %v)", what, ctx.Err(), last)
+			return errors.Join(fmt.Errorf("%s: %w", what, ctx.Err()), last)
 		case <-tick.C:
 		}
 	}
@@ -92,9 +95,17 @@ func until(ctx context.Context, what string, fn func() (bool, error)) error {
 
 // deploymentReady is true once the release's Deployment has exactly one ready pod running the current spec.
 func (k *k8sAPI) deploymentReady(ctx context.Context) (bool, error) {
-	code, body, err := k.do(ctx, http.MethodGet, "/apis/apps/v1/namespaces/"+namespace+"/deployments/"+releaseName+"-gopherstack")
-	if err != nil || code != http.StatusOK {
-		return false, fmt.Errorf("deployment get: code %d err %v", code, err)
+	code, body, err := k.do(
+		ctx,
+		http.MethodGet,
+		"/apis/apps/v1/namespaces/"+namespace+"/deployments/"+releaseName+"-gopherstack",
+	)
+	if err != nil {
+		return false, err
+	}
+
+	if code != http.StatusOK {
+		return false, fmt.Errorf("%w: deployment get returned %d", errNotReady, code)
 	}
 
 	var d struct {
@@ -111,14 +122,22 @@ func (k *k8sAPI) deploymentReady(ctx context.Context) (bool, error) {
 
 	s := d.Status
 
-	return s.ReadyReplicas == 1 && s.Replicas == 1 && s.UpdatedReplicas == 1, fmt.Errorf("status %+v", s)
+	if s.ReadyReplicas == 1 && s.Replicas == 1 && s.UpdatedReplicas == 1 {
+		return true, nil
+	}
+
+	return false, fmt.Errorf("%w: status %+v", errNotReady, s)
 }
 
 func (k *k8sAPI) deletePods(ctx context.Context) error {
 	code, body, err := k.do(ctx, http.MethodDelete,
 		"/api/v1/namespaces/"+namespace+"/pods?labelSelector=app.kubernetes.io/instance%3D"+releaseName)
-	if err != nil || code >= 300 {
-		return fmt.Errorf("delete pods: code %d err %v body %s", code, err, body)
+	if err != nil {
+		return err
+	}
+
+	if code >= http.StatusMultipleChoices {
+		return fmt.Errorf("%w: delete pods returned %d: %s", errNotReady, code, body)
 	}
 
 	return nil
@@ -137,7 +156,8 @@ func buildImage(t *testing.T) string {
 	}
 
 	img := "gopherstack-helm-test:" + uuid.NewString()[:8]
-	out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-f", filepath.Join(root, "Dockerfile.test"), "-t", img, root).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-f", filepath.Join(root, "Dockerfile.test"), "-t", img, root).
+		CombinedOutput()
 	require.NoError(t, err, string(out))
 
 	t.Cleanup(func() {
@@ -150,12 +170,22 @@ func buildImage(t *testing.T) string {
 func loadIntoK3s(ctx context.Context, t *testing.T, containerID, img string) {
 	t.Helper()
 
-	out, err := exec.CommandContext(ctx, "bash", "-o", "pipefail", "-c",
-		`docker save "$1" | docker exec -i "$2" ctr -n k8s.io images import -`, "bash", img, containerID).CombinedOutput()
+	out, err := exec.CommandContext(
+		ctx,
+		"bash",
+		"-o",
+		"pipefail",
+		"-c",
+		`docker save "$1" | docker exec -i "$2" ctr -n k8s.io images import -`,
+		"bash",
+		img,
+		containerID,
+	).CombinedOutput()
 	require.NoError(t, err, string(out))
 }
 
 func TestChart_InstallK3s(t *testing.T) {
+	t.Parallel()
 	requireDocker(t)
 
 	if testing.Short() {
@@ -215,7 +245,10 @@ func TestChart_InstallK3s(t *testing.T) {
 	loadIntoK3s(ctx, t, inst.ContainerID, img)
 
 	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
-	require.NoError(t, os.WriteFile(kubeconfig, []byte(kubeconfigYAML(addr, servingCA, eng.Token())), 0o644)) //nolint:gosec // read by the helm container
+	require.NoError(
+		t,
+		os.WriteFile(kubeconfig, []byte(kubeconfigYAML(addr, servingCA, eng.Token())), 0o644),
+	) //nolint:gosec // read by the helm container
 
 	repo, tag := splitImage(img)
 	docker := []string{"--network", "host", "-v", kubeconfig + ":/kube/config:ro", "-e", "KUBECONFIG=/kube/config"}

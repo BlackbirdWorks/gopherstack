@@ -3,7 +3,6 @@ package helm_test
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,18 +45,25 @@ func TestChart_GoldenTemplate(t *testing.T) {
 		{"default", nil},
 		{"persistence_ingress", []string{
 			"--set", "persistence.enabled=true,persistence.size=5Gi,persistence.storageClass=fast",
-			"--set", "ingress.enabled=true,ingress.className=nginx,ingress.hosts[0].host=gs.example.com,ingress.hosts[0].paths[0].path=/",
+			"--set", "ingress.enabled=true,ingress.className=nginx",
+			"--set", "ingress.hosts[0].host=gs.example.com,ingress.hosts[0].paths[0].path=/",
 		}},
 		{"nodeport_extraports", []string{
 			"--set", "service.type=NodePort,service.nodePort=30080",
 			"--set", "service.extraPorts[0].name=azure-blob,service.extraPorts[0].port=10000",
 			"--set", "service.extraPorts[1].name=cosmos,service.extraPorts[1].port=8081",
 		}},
-		{"config", []string{
-			"--set", "config.services={s3,dynamodb},config.disableServices={sqs},config.enforceIam=true,config.region=eu-west-1",
-			"--set", "config.extra.PORT_RANGE_START=20000,resources.limits.memory=1Gi",
-			"--set", "nodeSelector.disk=ssd",
-		}},
+		{
+			"config",
+			[]string{
+				"--set",
+				"config.services={s3,dynamodb},config.disableServices={sqs},config.enforceIam=true,config.region=eu-west-1",
+				"--set",
+				"config.extra.PORT_RANGE_START=20000,resources.limits.memory=1Gi",
+				"--set",
+				"nodeSelector.disk=ssd",
+			},
+		},
 		{"dind", []string{"--set", "dind.enabled=true,config.engines=docker"}},
 	}
 
@@ -103,7 +109,7 @@ func TestChart_SchemaRejects(t *testing.T) {
 
 			_, errOut, err := helm(t.Context(), t, nil, "template", "rel", "/chart", "--set", tt.set)
 			require.Error(t, err)
-			assert.True(t, strings.Contains(errOut, tt.want), errOut)
+			assert.Contains(t, errOut, tt.want)
 		})
 	}
 }
