@@ -62,7 +62,9 @@ func wireDMSStores(byName map[string]service.Registerable) {
 }
 
 // dmsSecrets resolves endpoint SecretsManagerSecretId values against the in-process Secrets Manager.
-type dmsSecrets struct{ bk secretsmanagerbackend.StorageBackend }
+type dmsSecrets struct {
+	bk secretsmanagerbackend.StorageBackend
+}
 
 func (d dmsSecrets) SecretString(ctx context.Context, region, secretID string) (string, error) {
 	out, err := d.bk.GetSecretValue(secretsmanagerbackend.WithRegion(ctx, region),

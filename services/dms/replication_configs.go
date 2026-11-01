@@ -295,15 +295,9 @@ func (b *InMemoryBackend) ReloadReplicationTables(
 		)
 	}
 
-	if run, ok := b.eng.runsFor(rc.ReplicationConfigArn); ok && run.task != nil {
-		for _, ref := range refs {
-			if !run.task.Has(ref) {
-				return nil, fmt.Errorf("%w: table %s.%s is not part of replication %s", ErrNotFound, ref.Schema,
-					ref.Name, arnOrID)
-			}
-		}
-
-		b.reloadRun(run, run.task, refs)
+	run, _ := b.eng.runsFor(rc.ReplicationConfigArn)
+	if err := b.reloadChecked(run, arnOrID, refs); err != nil {
+		return nil, err
 	}
 
 	return b.viewReplication(rc), nil

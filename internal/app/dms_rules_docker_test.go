@@ -142,7 +142,12 @@ func TestDMSDockerS3SourceCSVAndCDC(t *testing.T) {
 			"U,employee,hr,101,Smith-Updated,2014-06-04 10:00:00.123,13.00\n"+
 			"D,employee,hr,102,Jones,2015-10-08 00:00:00.000,7.00\n")
 	awaitRows(t, tgt, q, [][]string{
-		{"101", "Smith-Updated", "2014-06-04 10:00:00.123", "13.00"}, {"103", "Brown", "2017-03-13 00:00:00.000", "9.99"},
+		{
+			"101",
+			"Smith-Updated",
+			"2014-06-04 10:00:00.123",
+			"13.00",
+		}, {"103", "Brown", "2017-03-13 00:00:00.000", "9.99"},
 	})
 
 	require.Eventually(t, func() bool {
@@ -162,7 +167,12 @@ func TestDMSDockerEndpointFromSecretsManager(t *testing.T) {
 	srcEP, tgtEP := h.createDB(t, "src", "mysql", "8.4"), h.createDB(t, "tgt", "postgres", "16")
 	src, tgt := openDB(t, "mysql", srcEP), openDB(t, "postgres", tgtEP)
 
-	mustExec(t, src, "CREATE TABLE items (id INT PRIMARY KEY, name VARCHAR(40))", "INSERT INTO items VALUES (1,'alpha')")
+	mustExec(
+		t,
+		src,
+		"CREATE TABLE items (id INT PRIMARY KEY, name VARCHAR(40))",
+		"INSERT INTO items VALUES (1,'alpha')",
+	)
 
 	sm := secretsmanager.NewFromConfig(h.cfg)
 	secret := func(name, password string) string {
@@ -226,7 +236,9 @@ func TestDMSDockerServerlessReplication(t *testing.T) {
 	tgtARN := h.endpoint(t, "tgt-ep", dmstypes.ReplicationEndpointTypeValueTarget, "postgres", &tgtEP, nil)
 
 	cfg, err := h.dms.CreateReplicationConfig(t.Context(), &databasemigrationservice.CreateReplicationConfigInput{
-		ReplicationConfigIdentifier: aws.String("serverless"), ReplicationType: dmstypes.MigrationTypeValueFullLoadAndCdc,
+		ReplicationConfigIdentifier: aws.String(
+			"serverless",
+		), ReplicationType: dmstypes.MigrationTypeValueFullLoadAndCdc,
 		SourceEndpointArn: aws.String(srcARN), TargetEndpointArn: aws.String(tgtARN),
 		TableMappings: aws.String(tableMapping("items")),
 		ComputeConfig: &dmstypes.ComputeConfig{MinCapacityUnits: aws.Int32(2), MaxCapacityUnits: aws.Int32(8)},

@@ -19,7 +19,8 @@ const employeeDefinition = `{
       {"ColumnName": "Id", "ColumnType": "INT8", "ColumnNullable": "false", "ColumnIsPk": "true"},
       {"ColumnName": "LastName", "ColumnType": "STRING", "ColumnLength": "20", "ColumnNullable": "true"},
       {"ColumnName": "HireDate", "ColumnType": "DATETIME", "ColumnScale": "3", "ColumnNullable": "true"},
-      {"ColumnName": "Rate", "ColumnType": "NUMERIC", "ColumnPrecision": "5", "ColumnScale": "2", "ColumnNullable": "true"}
+      {"ColumnName": "Rate", "ColumnType": "NUMERIC", "ColumnPrecision": "5", "ColumnScale": "2",
+      "ColumnNullable": "true"}
     ],
     "TableColumnsTotal": "4"
   }]
@@ -66,8 +67,9 @@ func TestS3SourceTablesAndScan(t *testing.T) {
 			},
 		},
 		{
-			name:     "bucket folder, custom delimiters, header and null marker",
-			settings: `{"BucketName":"b","BucketFolder":"src","CsvDelimiter":"|","CsvRowDelimiter":";","IgnoreHeaderRows":1,"CsvNullValue":"\\N"}`,
+			name: "bucket folder, custom delimiters, header and null marker",
+			settings: `{"BucketName":"b","BucketFolder":"src","CsvDelimiter":"|","CsvRowDelimiter":";",
+			"IgnoreHeaderRows":1,"CsvNullValue":"\\N"}`,
 			objects: map[string]string{
 				"b/src/hr/employee/LOAD001.csv": "Id|LastName|HireDate|Rate;101|\\N|2014-06-04 10:00:00|1.5;",
 			},
@@ -114,7 +116,8 @@ func TestS3SourceCDCFiles(t *testing.T) {
 	t.Parallel()
 
 	objs := &memObjects{objs: map[string]string{
-		"b/chg/CDC00001.csv": "INSERT,employee,hr,101,Smith,2014-06-04 10:00:00,1\nU,employee,hr,101,Smith,2015-10-08 00:00:00,2\n",
+		"b/chg/CDC00001.csv": "INSERT,employee,hr,101,Smith,2014-06-04 10:00:00,1\n" +
+			"U,employee,hr,101,Smith,2015-10-08 00:00:00,2\n",
 		"b/chg/CDC00003.csv": "DELETE,employee,hr,101,Smith,2015-10-08 00:00:00,2\nI,other,hr,1,x,,\n",
 	}}
 	src := openS3Source(t, objs, `{"BucketName":"b","CdcPath":"chg"}`)
@@ -132,8 +135,8 @@ func TestS3SourceCDCFiles(t *testing.T) {
 
 	type seen struct {
 		op  dmsengine.Op
-		row dmsengine.Row
 		pos string
+		row dmsengine.Row
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -147,18 +150,30 @@ func TestS3SourceCDCFiles(t *testing.T) {
 				row = c.Before
 			}
 
-			got <- seen{c.Op, row, c.Position}
+			got <- seen{op: c.Op, row: row, pos: c.Position}
 
 			return nil
 		})
 	}()
 
 	want := []seen{
-		{dmsengine.OpInsert, dmsengine.Row{"101", "Smith", "2014-06-04 10:00:00", "1"}, "chg/CDC00001.csv"},
-		{dmsengine.OpUpdate, dmsengine.Row{"101", "Smith", "2015-10-08 00:00:00", "2"}, "chg/CDC00001.csv"},
-		{"", nil, "chg/CDC00001.csv"},
-		{dmsengine.OpDelete, dmsengine.Row{"101", "Smith", "2015-10-08 00:00:00", "2"}, "chg/CDC00003.csv"},
-		{"", nil, "chg/CDC00003.csv"},
+		{
+			op:  dmsengine.OpInsert,
+			row: dmsengine.Row{"101", "Smith", "2014-06-04 10:00:00", "1"},
+			pos: "chg/CDC00001.csv",
+		},
+		{
+			op:  dmsengine.OpUpdate,
+			row: dmsengine.Row{"101", "Smith", "2015-10-08 00:00:00", "2"},
+			pos: "chg/CDC00001.csv",
+		},
+		{pos: "chg/CDC00001.csv"},
+		{
+			op:  dmsengine.OpDelete,
+			row: dmsengine.Row{"101", "Smith", "2015-10-08 00:00:00", "2"},
+			pos: "chg/CDC00003.csv",
+		},
+		{pos: "chg/CDC00003.csv"},
 	}
 
 	for _, w := range want {
@@ -169,8 +184,12 @@ func TestS3SourceCDCFiles(t *testing.T) {
 	require.NoError(t, objs.PutObject(t.Context(), "b", "chg/CDC00002.csv", []byte("I,employee,hr,9,late,,\n")))
 	require.NoError(t, objs.PutObject(t.Context(), "b", "chg/CDC00004.csv", []byte("I,employee,hr,4,fresh,,\n")))
 
-	assert.Equal(t, seen{dmsengine.OpInsert, dmsengine.Row{"4", "fresh", nil, nil}, "chg/CDC00004.csv"}, <-got)
-	assert.Equal(t, seen{"", nil, "chg/CDC00004.csv"}, <-got)
+	assert.Equal(
+		t,
+		seen{op: dmsengine.OpInsert, row: dmsengine.Row{"4", "fresh", nil, nil}, pos: "chg/CDC00004.csv"},
+		<-got,
+	)
+	assert.Equal(t, seen{pos: "chg/CDC00004.csv"}, <-got)
 
 	cancel()
 	require.NoError(t, <-done)
@@ -180,16 +199,46 @@ func TestS3SourceOpenErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		store dmsengine.ObjectStore
 		name  string
 		ep    dmsengine.EndpointConfig
-		store dmsengine.ObjectStore
 	}{
-		{"no bucket", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{}`, ExternalTableDefinition: employeeDefinition}, &memObjects{}},
-		{"no definition", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b"}`}, &memObjects{}},
-		{"parquet", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b","DataFormat":"parquet"}`, ExternalTableDefinition: employeeDefinition}, &memObjects{}},
-		{"bad type", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b"}`, ExternalTableDefinition: `{"Tables":[{"TableName":"t","TableOwner":"o","TableColumns":[{"ColumnName":"c","ColumnType":"MAP"}]}]}`}, &memObjects{}},
-		{"column total mismatch", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b"}`, ExternalTableDefinition: `{"Tables":[{"TableName":"t","TableOwner":"o","TableColumnsTotal":"2","TableColumns":[{"ColumnName":"c","ColumnType":"INT4"}]}]}`}, &memObjects{}},
-		{"no store", dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b"}`, ExternalTableDefinition: employeeDefinition}, nil},
+		{
+			name: "no bucket",
+			ep: dmsengine.EndpointConfig{
+				Engine:                  "s3",
+				S3Settings:              `{}`,
+				ExternalTableDefinition: employeeDefinition,
+			},
+			store: &memObjects{},
+		},
+		{
+			name:  "no definition",
+			ep:    dmsengine.EndpointConfig{Engine: "s3", S3Settings: `{"BucketName":"b"}`},
+			store: &memObjects{},
+		},
+		{name: "parquet", ep: dmsengine.EndpointConfig{
+			Engine:                  "s3",
+			S3Settings:              `{"BucketName":"b","DataFormat":"parquet"}`,
+			ExternalTableDefinition: employeeDefinition,
+		}, store: &memObjects{}},
+		{name: "bad type", ep: dmsengine.EndpointConfig{
+			Engine:     "s3",
+			S3Settings: `{"BucketName":"b"}`,
+			ExternalTableDefinition: `{"Tables":[{"TableName":"t","TableOwner":"o",
+			"TableColumns":[{"ColumnName":"c","ColumnType":"MAP"}]}]}`,
+		}, store: &memObjects{}},
+		{name: "column total mismatch", ep: dmsengine.EndpointConfig{
+			Engine:     "s3",
+			S3Settings: `{"BucketName":"b"}`,
+			ExternalTableDefinition: `{"Tables":[{"TableName":"t","TableOwner":"o","TableColumnsTotal":"2",
+			"TableColumns":[{"ColumnName":"c","ColumnType":"INT4"}]}]}`,
+		}, store: &memObjects{}},
+		{name: "no store", ep: dmsengine.EndpointConfig{
+			Engine:                  "s3",
+			S3Settings:              `{"BucketName":"b"}`,
+			ExternalTableDefinition: employeeDefinition,
+		}, store: nil},
 	}
 
 	for _, tt := range tests {

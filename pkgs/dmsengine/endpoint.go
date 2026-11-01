@@ -32,13 +32,13 @@ type EndpointConfig struct {
 	// SlotName names the PostgreSQL logical replication slot for source endpoints.
 	SlotName string
 	// S3Settings, KinesisSettings and DynamoDBSettings carry the raw settings JSON objects.
-	S3Settings       string
+	S3Settings string
 	// ExternalTableDefinition is the S3 source's table-definition JSON (the endpoint member or S3Settings'
 	// ExternalTableDefinition).
 	ExternalTableDefinition string
 	// SecretID and SecretRoleARN are SecretsManagerSecretId and SecretsManagerAccessRoleArn from the engine settings.
-	SecretID      string
-	SecretRoleARN string
+	SecretID         string
+	SecretRoleARN    string
 	KinesisSettings  string
 	DynamoDBSettings string
 	Port             int

@@ -48,20 +48,20 @@ type taskRun struct {
 }
 
 type runParams struct {
-	taskARN      string
-	region       string
+	cdcStart     string
+	targetEngine string
 	slot         string
 	migration    string
 	mappings     string
 	settings     string
-	cdcStart     string
-	cdcStop      string
 	resume       string
+	cdcStop      string
+	region       string
 	sourceEngine string
-	targetEngine string
-	replication  bool
+	taskARN      string
 	source       dmsengine.EndpointConfig
 	target       dmsengine.EndpointConfig
+	replication  bool
 }
 
 // EnableEngine switches the backend to real replication; call before serving requests.
@@ -327,7 +327,7 @@ func (b *InMemoryBackend) runTask(ctx context.Context, run *taskRun, p runParams
 		Source: src, Target: tgt, Now: b.clock, MigrationType: p.migration,
 		CDCStart: p.cdcStart, CDCStop: p.cdcStop, Resume: p.resume, Mappings: mappings, Settings: settings,
 		SourceFamily: dmsengine.FamilyOf(p.sourceEngine), TargetFamily: dmsengine.FamilyOf(p.targetEngine),
-		OnProgress:   func(pr dmsengine.Progress) { b.recordProgress(run, p, pr) },
+		OnProgress: func(pr dmsengine.Progress) { b.recordProgress(run, p, pr) },
 	})
 
 	b.mu.Lock("taskReady")

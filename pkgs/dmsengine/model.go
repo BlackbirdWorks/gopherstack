@@ -58,10 +58,9 @@ func FamilyOf(engine string) Family {
 type Column struct {
 	Name     string
 	Native   string
+	DMS      DMSType
 	Kind     Kind
 	Nullable bool
-	// DMS is set for columns whose type comes from a DMS data-type (S3 sources, add-column, change-data-type).
-	DMS DMSType
 }
 
 // Table is a source table; PK lists primary-key column names in key order.
@@ -148,16 +147,15 @@ type TargetColumn struct {
 
 // TargetTable is a source table after mapping rules.
 type TargetTable struct {
-	Schema       string
-	Name         string
-	SourceSchema string
-	SourceName   string
-	Columns      []TargetColumn
-	PK           []string
-	KeyName      string
-	SourceFamily Family
-	KeyUnique    bool
-	// HasBeforeImage is set when add-before-image-columns added columns.
+	Schema         string
+	Name           string
+	SourceSchema   string
+	SourceName     string
+	KeyName        string
+	Columns        []TargetColumn
+	PK             []string
+	SourceFamily   Family
+	KeyUnique      bool
 	HasBeforeImage bool
 }
 
@@ -168,9 +166,9 @@ func (t TargetTable) Key() string { return t.Schema + "." + t.Name }
 type ProjectCtx struct {
 	Time     time.Time
 	Now      time.Time
-	Before   Row
 	Op       Op
 	Position string
+	Before   Row
 	Full     bool
 }
 

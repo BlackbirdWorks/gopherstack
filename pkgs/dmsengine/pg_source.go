@@ -345,7 +345,7 @@ func parseDecoded(lsn, data string, tables func(string, string) (Table, bool)) (
 	c := Change{Schema: t.Schema, Table: t.Name}
 
 	switch opName {
-	case "INSERT":
+	case opWordInsert:
 		c.Op, c.After = OpInsert, tupleRow(parseTuple(body), t)
 	case "DELETE":
 		c.Op, c.Before = OpDelete, tupleRow(parseTuple(body), t)

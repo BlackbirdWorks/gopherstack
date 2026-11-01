@@ -389,44 +389,35 @@ type ModifyMigrationProjectParams struct {
 // at most one associated replication in this in-memory emulation, so the
 // runtime fields live on the same struct rather than a separate table.
 type ReplicationConfig struct {
-	Tags                        *tags.Tags `json:"-"`
-	ComputeConfig               *ComputeConfig
-	ReplicationConfigIdentifier string
-	ReplicationConfigArn        string
-	ReplicationType             string
+	StartDate          time.Time  `json:",omitzero"`
+	UpdateTime         time.Time  `json:",omitzero"`
+	CreateTime         time.Time  `json:",omitzero"`
+	FullLoadFinishDate time.Time  `json:",omitzero"`
+	FullLoadStartDate  time.Time  `json:",omitzero"`
+	StopDate           time.Time  `json:",omitzero"`
+	CdcStartTime       *time.Time `json:",omitempty"`
+	Tags               *tags.Tags `json:"-"`
+	ComputeConfig      *ComputeConfig
+	// Status is the Replication's runtime status; it is not part of the ReplicationConfig wire shape.
+	Status                      string
 	SourceEndpointArn           string
-	TargetEndpointArn           string
-	TableMappings               string
-	ReplicationSettings         string `json:",omitempty"`
-	SupplementalSettings        string `json:",omitempty"`
-	AccountID                   string
 	Region                      string
-	// Status is the runtime status of the associated Replication resource
-	// (created, running, stopped, ...). It is never surfaced on the
-	// ReplicationConfig wire shape itself -- only via StartReplication /
-	// StopReplication / DescribeReplications, which report on the
-	// "Replication" resource, not the "ReplicationConfig" resource.
-	Status string
-	// StartReplicationType records the StartReplicationType passed to the
-	// most recent StartReplication call (start-replication, resume-processing,
-	// or reload-target), echoed back on the Replication resource.
-	StartReplicationType string
-	// CdcStartTime/CdcStartPosition/CdcStopPosition record the CDC window of the most recent StartReplication.
-	CdcStartTime     *time.Time `json:",omitempty"`
-	CdcStartPosition string     `json:",omitempty"`
-	CdcStopPosition  string     `json:",omitempty"`
-	// Run state of the Replication, filled by the engine.
-	StartDate          time.Time        `json:",omitzero"`
-	StopDate           time.Time        `json:",omitzero"`
-	FullLoadStartDate  time.Time        `json:",omitzero"`
-	FullLoadFinishDate time.Time        `json:",omitzero"`
-	CreateTime         time.Time        `json:",omitzero"`
-	UpdateTime         time.Time        `json:",omitzero"`
-	TableStats         []TableStatistic `json:",omitempty"`
-	StopReason         string           `json:",omitempty"`
-	FailureMessage     string           `json:",omitempty"`
-	RecoveryCheckpoint string           `json:",omitempty"`
-	ElapsedTimeMillis  int64            `json:"-"`
+	TableMappings               string
+	StartReplicationType        string
+	SupplementalSettings        string `json:",omitempty"`
+	CdcStartPosition            string `json:",omitempty"`
+	CdcStopPosition             string `json:",omitempty"`
+	TargetEndpointArn           string
+	AccountID                   string
+	ReplicationType             string
+	ReplicationConfigArn        string
+	ReplicationConfigIdentifier string
+	ReplicationSettings         string           `json:",omitempty"`
+	RecoveryCheckpoint          string           `json:",omitempty"`
+	StopReason                  string           `json:",omitempty"`
+	FailureMessage              string           `json:",omitempty"`
+	TableStats                  []TableStatistic `json:",omitempty"`
+	ElapsedTimeMillis           int64            `json:"-"`
 }
 
 // ComputeConfig mirrors types.ComputeConfig (types.go:190) -- configuration

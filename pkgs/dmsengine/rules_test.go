@@ -50,20 +50,37 @@ func TestSelectionFilterMatch(t *testing.T) {
 		{
 			name:    "gte",
 			filters: srcFilter("empid", `{"filter-operator":"gte","value":"100"}`),
-			rows:    []dmsengine.Row{row("99", "a", "1", "2020-01-01"), row("100", "a", "1", "2020-01-01"), row("1000", "a", "1", "2020-01-01")},
-			want:    []bool{false, true, true},
+			rows: []dmsengine.Row{
+				row("99", "a", "1", "2020-01-01"),
+				row("100", "a", "1", "2020-01-01"),
+				row("1000", "a", "1", "2020-01-01"),
+			},
+			want: []bool{false, true, true},
 		},
 		{
-			name:    "or of conditions in one filter",
-			filters: srcFilter("empid", `{"filter-operator":"lte","value":"10"},{"filter-operator":"between","start-value":"50","end-value":"75"},{"filter-operator":"gte","value":"100"}`),
-			rows:    []dmsengine.Row{row("5", "a", "1", "2020-01-01"), row("20", "a", "1", "2020-01-01"), row("75", "a", "1", "2020-01-01"), row("120", "a", "1", "2020-01-01")},
-			want:    []bool{true, false, true, true},
+			name: "or of conditions in one filter",
+			filters: srcFilter(
+				"empid",
+				`{"filter-operator":"lte","value":"10"},{"filter-operator":"between","start-value":"50",`+
+					`"end-value":"75"},{"filter-operator":"gte","value":"100"}`,
+			),
+			rows: []dmsengine.Row{
+				row("5", "a", "1", "2020-01-01"),
+				row("20", "a", "1", "2020-01-01"),
+				row("75", "a", "1", "2020-01-01"),
+				row("120", "a", "1", "2020-01-01"),
+			},
+			want: []bool{true, false, true, true},
 		},
 		{
 			name: "and of filters",
 			filters: srcFilter("empid", `{"filter-operator":"ste","value":"100"}`) + "," +
 				srcFilter("dept", `{"filter-operator":"eq","value":"tech"}`),
-			rows: []dmsengine.Row{row("50", "tech", "1", "2020-01-01"), row("50", "ops", "1", "2020-01-01"), row("500", "tech", "1", "2020-01-01")},
+			rows: []dmsengine.Row{
+				row("50", "tech", "1", "2020-01-01"),
+				row("50", "ops", "1", "2020-01-01"),
+				row("500", "tech", "1", "2020-01-01"),
+			},
 			want: []bool{true, false, false},
 		},
 		{
@@ -75,8 +92,12 @@ func TestSelectionFilterMatch(t *testing.T) {
 		{
 			name:    "notbetween skips null",
 			filters: srcFilter("salary", `{"filter-operator":"notbetween","start-value":"50","end-value":"75"}`),
-			rows:    []dmsengine.Row{row("1", "a", "49.5", "2020-01-01"), row("2", "a", "60", "2020-01-01"), {"3", "a", nil, nil, nil}},
-			want:    []bool{true, false, false},
+			rows: []dmsengine.Row{
+				row("1", "a", "49.5", "2020-01-01"),
+				row("2", "a", "60", "2020-01-01"),
+				{"3", "a", nil, nil, nil},
+			},
+			want: []bool{true, false, false},
 		},
 		{
 			name:    "noteq numeric compare not text",
@@ -97,10 +118,14 @@ func TestSelectionFilterMatch(t *testing.T) {
 			want:    []bool{false},
 		},
 		{
-			name:    "inclusive negative and null drop null rows",
-			filters: srcFilter("dept", `{"filter-operator":"eq","value":"a"},{"filter-operator":"noteq","value":"b"},{"filter-operator":"null"}`),
-			rows:    []dmsengine.Row{row("1", "c", "1", "2020-01-01"), row("2", "<null>", "1", "2020-01-01")},
-			want:    []bool{true, false},
+			name: "inclusive negative and null drop null rows",
+			filters: srcFilter(
+				"dept",
+				`{"filter-operator":"eq","value":"a"},{"filter-operator":"noteq","value":"b"},`+
+					`{"filter-operator":"null"}`,
+			),
+			rows: []dmsengine.Row{row("1", "c", "1", "2020-01-01"), row("2", "<null>", "1", "2020-01-01")},
+			want: []bool{true, false},
 		},
 	}
 
@@ -125,8 +150,14 @@ func TestSelectionFilterMatch(t *testing.T) {
 func TestSelectionFilterSQL(t *testing.T) {
 	t.Parallel()
 
-	filters := srcFilter("empid", `{"filter-operator":"lte","value":"10"},{"filter-operator":"between","start-value":"50","end-value":"75"}`) +
-		"," + srcFilter("dept", `{"filter-operator":"notnull"}`)
+	filters := srcFilter(
+		"empid",
+		`{"filter-operator":"lte","value":"10"},{"filter-operator":"between","start-value":"50","end-value":"75"}`,
+	) +
+		"," + srcFilter(
+		"dept",
+		`{"filter-operator":"notnull"}`,
+	)
 
 	m, err := dmsengine.ParseMappings(filterRule(filters))
 	require.NoError(t, err)
@@ -145,18 +176,57 @@ func TestSelectionFilterSQL(t *testing.T) {
 func TestParseMappingsRuleErrors(t *testing.T) {
 	t.Parallel()
 
-	sel := `{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"%","table-name":"%"},"rule-action":"include"}`
+	sel := `{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"%",` +
+		`"table-name":"%"},"rule-action":"include"}`
 	tests := []struct {
 		name string
 		rule string
 	}{
-		{"filter on wildcard table", `{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"test","table-name":"emp%"},"rule-action":"include","filters":[` + srcFilter("a", `{"filter-operator":"eq","value":"1"}`) + `]}`},
-		{"bad operator", `{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"test","table-name":"employee"},"rule-action":"include","filters":[` + srcFilter("a", `{"filter-operator":"like","value":"1"}`) + `]}`},
-		{"add-column without data-type", `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-column","rule-target":"column","object-locator":{"schema-name":"%","table-name":"%"},"value":"x"}`},
-		{"unsupported data type", `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type","rule-target":"column","object-locator":{"schema-name":"%","table-name":"%","column-name":"%"},"data-type":{"type":"map"}}`},
-		{"define-primary-key wildcard", `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"define-primary-key","rule-target":"table","object-locator":{"schema-name":"%","table-name":"t"},"primary-key-def":{"name":"pk","columns":["a"]}}`},
-		{"before image both empty", `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns","rule-target":"column","object-locator":{"schema-name":"%","table-name":"%"},"before-image-def":{"column-prefix":"","column-suffix":""}}`},
-		{"data masking", `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"data-masking-hash-mask","rule-target":"column","object-locator":{"schema-name":"%","table-name":"%","column-name":"%"}}`},
+		{
+			"filter on wildcard table",
+			`{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"test",` +
+				`"table-name":"emp%"},"rule-action":"include","filters":[` + srcFilter(
+				"a",
+				`{"filter-operator":"eq","value":"1"}`,
+			) + `]}`,
+		},
+		{
+			"bad operator",
+			`{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"test",` +
+				`"table-name":"employee"},"rule-action":"include","filters":[` + srcFilter(
+				"a",
+				`{"filter-operator":"like","value":"1"}`,
+			) + `]}`,
+		},
+		{
+			"add-column without data-type",
+			`{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-column",` +
+				`"rule-target":"column","object-locator":{"schema-name":"%","table-name":"%"},"value":"x"}`,
+		},
+		{
+			"unsupported data type",
+			`{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type",` +
+				`"rule-target":"column","object-locator":{"schema-name":"%","table-name":"%","column-name":"%"},` +
+				`"data-type":{"type":"map"}}`,
+		},
+		{
+			"define-primary-key wildcard",
+			`{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"define-primary-key",` +
+				`"rule-target":"table","object-locator":{"schema-name":"%","table-name":"t"},` +
+				`"primary-key-def":{"name":"pk","columns":["a"]}}`,
+		},
+		{
+			"before image both empty",
+			`{"rule-type":"transformation","rule-id":"2","rule-name":"2",` +
+				`"rule-action":"add-before-image-columns","rule-target":"column",` +
+				`"object-locator":{"schema-name":"%","table-name":"%"},` +
+				`"before-image-def":{"column-prefix":"","column-suffix":""}}`,
+		},
+		{
+			"data masking",
+			`{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"data-masking-hash-mask",` +
+				`"rule-target":"column","object-locator":{"schema-name":"%","table-name":"%","column-name":"%"}}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -199,8 +269,10 @@ func TestSelectLoadOrderAndExplicit(t *testing.T) {
 	t.Parallel()
 
 	m, err := dmsengine.ParseMappings(`{"rules":[
-		{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include","load-order":"1"},
-		{"rule-type":"selection","rule-id":"2","rule-name":"2","object-locator":{"schema-name":"app","table-name":"orders"},"rule-action":"explicit","load-order":"2"}]}`)
+		{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app",
+		"table-name":"items"},"rule-action":"include","load-order":"1"},
+		{"rule-type":"selection","rule-id":"2","rule-name":"2","object-locator":{"schema-name":"app",
+		"table-name":"orders"},"rule-action":"explicit","load-order":"2"}]}`)
 	require.NoError(t, err)
 
 	sel, err := m.SelectFiltered(twoTables().tables)

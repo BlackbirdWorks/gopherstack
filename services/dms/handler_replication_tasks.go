@@ -297,9 +297,9 @@ func runStats(
 	}
 
 	st := &replicationTaskStatsJSON{
-		ElapsedTimeMillis: elapsed,
-		FreshStartDate:    awstime.Epoch(start),
-		FullLoadStartDate: awstime.Epoch(flStart),
+		ElapsedTimeMillis:  elapsed,
+		FreshStartDate:     awstime.Epoch(start),
+		FullLoadStartDate:  awstime.Epoch(flStart),
 		FullLoadFinishDate: awstime.Epoch(flFinish),
 		StartDate:          awstime.Epoch(start),
 		StopDate:           awstime.Epoch(stop),
@@ -429,10 +429,10 @@ func buildTableStatistics(tableMappings string) []tableStatisticJSON {
 }
 
 type describeReplicationTableStatisticsInput struct {
-	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
-	Marker               *string `json:"Marker"`
-	MaxRecords           *int32  `json:"MaxRecords"`
-	Filters []filterEntry `json:"Filters"`
+	ReplicationConfigArn *string       `json:"ReplicationConfigArn"`
+	Marker               *string       `json:"Marker"`
+	MaxRecords           *int32        `json:"MaxRecords"`
+	Filters              []filterEntry `json:"Filters"`
 }
 
 type describeReplicationTableStatisticsOutput struct {

@@ -2,6 +2,7 @@ package dms
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
@@ -80,8 +81,9 @@ func (b *InMemoryBackend) finishReplication(ctx context.Context, p runParams, re
 
 	if res.Err != nil {
 		rc.Status, rc.FailureMessage = statusFailed, res.Err.Error()
-		logger.Load(ctx).WarnContext(ctx, "dms: serverless replication failed", "config", rc.ReplicationConfigIdentifier,
-			"error", res.Err)
+		logger.Load(ctx).
+			WarnContext(ctx, "dms: serverless replication failed", "config", rc.ReplicationConfigIdentifier,
+				"error", res.Err)
 
 		return
 	}
@@ -106,4 +108,21 @@ func (b *InMemoryBackend) viewReplication(rc *ReplicationConfig) *ReplicationCon
 
 func replicationActive(status string) bool {
 	return status == statusRunning || status == statusStarting || status == statusStopping
+}
+
+// reloadChecked re-copies tables on a live run once every table is known to it; no run means nothing to reload.
+func (b *InMemoryBackend) reloadChecked(run *taskRun, owner string, refs []dmsengine.TableRef) error {
+	if run == nil || run.task == nil {
+		return nil
+	}
+
+	for _, ref := range refs {
+		if !run.task.Has(ref) {
+			return fmt.Errorf("%w: table %s.%s is not part of %s", ErrNotFound, ref.Schema, ref.Name, owner)
+		}
+	}
+
+	b.reloadRun(run, run.task, refs)
+
+	return nil
 }

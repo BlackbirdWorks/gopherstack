@@ -1,6 +1,7 @@
 package dmsengine_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -11,13 +12,10 @@ import (
 )
 
 func transformDoc(rules ...string) string {
-	doc := `{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1",
+	sel := `{"rule-type":"selection","rule-id":"1","rule-name":"1",
 		"object-locator":{"schema-name":"test","table-name":"employee"},"rule-action":"include"}`
-	for _, r := range rules {
-		doc += "," + r
-	}
 
-	return doc + "]}"
+	return `{"rules":[` + strings.Join(append([]string{sel}, rules...), ",") + `]}`
 }
 
 func addColumn(id, name, expr, dataType string) string {
@@ -33,26 +31,37 @@ func TestAddColumnExpressions(t *testing.T) {
 	row := dmsengine.Row{"7", "Tech", "20500.50", "2002-01-15", nil}
 
 	tests := []struct {
+		want any
 		name string
 		expr string
 		typ  string
-		want any
 	}{
-		{"concat", `$dept||'_'||$empid`, `{"type":"string","length":50}`, "Tech_7"},
-		{"case round", `CASE WHEN round($salary)>=20000 THEN 'SENIOR' ELSE 'JUNIOR' END`, `{"type":"string","length":50}`, "SENIOR"},
-		{"round int8", `round($salary)`, `{"type":"int8"}`, "20501"},
-		{"arithmetic", `$empid*2+1`, `{"type":"int4"}`, "15"},
-		{"lower upper", `lower($dept)||upper($dept)`, `{"type":"string"}`, "techTECH"},
-		{"substr hex", `substr(hex($dept),1,4)`, `{"type":"string"}`, "5465"},
-		{"sha256", `hash_sha256($dept)`, `{"type":"string","length":64}`, ""},
-		{"coalesce null", `coalesce($notes,'none')`, `{"type":"string"}`, "none"},
-		{"datetime now", `datetime()`, `{"type":"datetime","precision":6}`, "2026-03-04 05:06:07"},
-		{"strftime", `strftime('%Y/%m/%d', $started)`, `{"type":"string"}`, "2002/01/15"},
-		{"header operation", `$AR_H_OPERATION`, `{"type":"string"}`, "INSERT"},
-		{"operation indicator", `operation_indicator('D','U','I')`, `{"type":"string"}`, "I"},
-		{"source metadata", `$AR_M_SOURCE_SCHEMA||'.'||$AR_M_SOURCE_TABLE_NAME`, `{"type":"string"}`, "test.employee"},
-		{"boolean", `$empid > 5`, `{"type":"boolean"}`, "true"},
-		{"replace trim", `trim(replace($dept,'e','  '))`, `{"type":"string"}`, "T  ch"},
+		{name: "concat", expr: `$dept||'_'||$empid`, typ: `{"type":"string","length":50}`, want: "Tech_7"},
+		{
+			name: "case round",
+			expr: `CASE WHEN round($salary)>=20000 THEN 'SENIOR' ELSE 'JUNIOR' END`,
+			typ:  `{"type":"string","length":50}`,
+			want: "SENIOR",
+		},
+		{name: "round int8", expr: `round($salary)`, typ: `{"type":"int8"}`, want: "20501"},
+		{name: "arithmetic", expr: `$empid*2+1`, typ: `{"type":"int4"}`, want: "15"},
+		{name: "lower upper", expr: `lower($dept)||upper($dept)`, typ: `{"type":"string"}`, want: "techTECH"},
+		{name: "substr hex", expr: `substr(hex($dept),1,4)`, typ: `{"type":"string"}`, want: "5465"},
+		{name: "sha256", expr: `hash_sha256($dept)`, typ: `{"type":"string","length":64}`, want: ""},
+		{name: "coalesce null", expr: `coalesce($notes,'none')`, typ: `{"type":"string"}`, want: "none"},
+		{name: "datetime now", expr: `datetime()`, typ: `{"type":"datetime",` +
+			`"precision":6}`, want: "2026-03-04 05:06:07"},
+		{name: "strftime", expr: `strftime('%Y/%m/%d', $started)`, typ: `{"type":"string"}`, want: "2002/01/15"},
+		{name: "header operation", expr: `$AR_H_OPERATION`, typ: `{"type":"string"}`, want: "INSERT"},
+		{name: "operation indicator", expr: `operation_indicator('D','U','I')`, typ: `{"type":"string"}`, want: "I"},
+		{
+			name: "source metadata",
+			expr: `$AR_M_SOURCE_SCHEMA||'.'||$AR_M_SOURCE_TABLE_NAME`,
+			typ:  `{"type":"string"}`,
+			want: "test.employee",
+		},
+		{name: "boolean", expr: `$empid > 5`, typ: `{"type":"boolean"}`, want: "true"},
+		{name: "replace trim", expr: `trim(replace($dept,'e','  '))`, typ: `{"type":"string"}`, want: "T  ch"},
 	}
 
 	for _, tt := range tests {
@@ -109,16 +118,18 @@ func TestChangeDataTypeAndKeys(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		check    func(*testing.T, dmsengine.TargetTable)
 		name     string
 		rule     string
 		wantCols []string
 		wantPK   []string
-		check    func(*testing.T, dmsengine.TargetTable)
 	}{
 		{
 			name: "change type",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type","rule-target":"column",
-				"object-locator":{"schema-name":"test","table-name":"employee","column-name":"empid"},"data-type":{"type":"string","length":"12"}}`,
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type",` +
+				`"rule-target":"column",
+				"object-locator":{"schema-name":"test","table-name":"employee","column-name":"empid"},
+				"data-type":{"type":"string","length":"12"}}`,
 			wantCols: []string{"empid", "dept", "salary", "started", "notes"}, wantPK: []string{"empid"},
 			check: func(t *testing.T, tt dmsengine.TargetTable) {
 				t.Helper()
@@ -129,8 +140,10 @@ func TestChangeDataTypeAndKeys(t *testing.T) {
 		},
 		{
 			name: "change type by existing data type",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type","rule-target":"column",
-				"object-locator":{"schema-name":"test","table-name":"employee","column-name":"%","data-type":"numeric"},"data-type":{"type":"real8"}}`,
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"change-data-type",` +
+				`"rule-target":"column",
+				"object-locator":{"schema-name":"test","table-name":"employee","column-name":"%",
+				"data-type":"numeric"},"data-type":{"type":"real8"}}`,
 			wantCols: []string{"empid", "dept", "salary", "started", "notes"}, wantPK: []string{"empid"},
 			check: func(t *testing.T, tt dmsengine.TargetTable) {
 				t.Helper()
@@ -140,14 +153,17 @@ func TestChangeDataTypeAndKeys(t *testing.T) {
 		},
 		{
 			name: "include-column",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"include-column","rule-target":"column",
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"include-column",` +
+				`"rule-target":"column",
 				"object-locator":{"schema-name":"test","table-name":"employee","column-name":"dept"}}`,
 			wantCols: []string{"dept"}, wantPK: []string{},
 		},
 		{
 			name: "define-primary-key",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"define-primary-key","rule-target":"table",
-				"object-locator":{"schema-name":"test","table-name":"employee"},"primary-key-def":{"name":"emp_dept","origin":"unique-index","columns":["dept","started"]}}`,
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2",` +
+				`"rule-action":"define-primary-key","rule-target":"table",
+				"object-locator":{"schema-name":"test","table-name":"employee"},"primary-key-def":{"name":"emp_dept",
+				"origin":"unique-index","columns":["dept","started"]}}`,
 			wantCols: []string{"empid", "dept", "salary", "started", "notes"}, wantPK: []string{"dept", "started"},
 			check: func(t *testing.T, tt dmsengine.TargetTable) {
 				t.Helper()
@@ -157,8 +173,10 @@ func TestChangeDataTypeAndKeys(t *testing.T) {
 		},
 		{
 			name: "before image pk-only",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns","rule-target":"column",
-				"object-locator":{"schema-name":"test","table-name":"employee"},"before-image-def":{"column-prefix":"BI_","column-suffix":"","column-filter":"pk-only"}}`,
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2",` +
+				`"rule-action":"add-before-image-columns","rule-target":"column",
+				"object-locator":{"schema-name":"test","table-name":"employee"},
+				"before-image-def":{"column-prefix":"BI_","column-suffix":"","column-filter":"pk-only"}}`,
 			wantCols: []string{"empid", "dept", "salary", "started", "notes", "BI_empid"}, wantPK: []string{"empid"},
 			check: func(t *testing.T, tt dmsengine.TargetTable) {
 				t.Helper()
@@ -167,10 +185,22 @@ func TestChangeDataTypeAndKeys(t *testing.T) {
 		},
 		{
 			name: "before image non-lob defaults",
-			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns","rule-target":"column",
-				"object-locator":{"schema-name":"test","table-name":"employee"},"before-image-def":{"column-suffix":"_old","column-prefix":"","column-filter":"non-lob"}}`,
-			wantCols: []string{"empid", "dept", "salary", "started", "notes", "empid_old", "dept_old", "salary_old", "started_old"},
-			wantPK:   []string{"empid"},
+			rule: `{"rule-type":"transformation","rule-id":"2","rule-name":"2",` +
+				`"rule-action":"add-before-image-columns","rule-target":"column",
+				"object-locator":{"schema-name":"test","table-name":"employee"},
+				"before-image-def":{"column-suffix":"_old","column-prefix":"","column-filter":"non-lob"}}`,
+			wantCols: []string{
+				"empid",
+				"dept",
+				"salary",
+				"started",
+				"notes",
+				"empid_old",
+				"dept_old",
+				"salary_old",
+				"started_old",
+			},
+			wantPK: []string{"empid"},
 		},
 	}
 
@@ -222,18 +252,34 @@ func TestDMSTypeSQL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		dt           dmsengine.DMSType
-		pg, my       string
+		pg           string
+		my           string
 		wantKindName string
+		dt           dmsengine.DMSType
 	}{
-		{dmsengine.DMSType{Name: "int8"}, "bigint", "bigint", "int8"},
-		{dmsengine.DMSType{Name: "uint4"}, "bigint", "int unsigned", "uint4"},
-		{dmsengine.DMSType{Name: "string", Length: 30}, "varchar(30)", "varchar(30)", "string"},
-		{dmsengine.DMSType{Name: "string"}, "text", "longtext", "string"},
-		{dmsengine.DMSType{Name: "numeric", Precision: 5, Scale: 2}, "numeric(5,2)", "numeric(5,2)", "numeric"},
-		{dmsengine.DMSType{Name: "datetime", Scale: 3}, "timestamp(3)", "datetime(3)", "datetime"},
-		{dmsengine.DMSType{Name: "boolean"}, "boolean", "tinyint(1)", "boolean"},
-		{dmsengine.DMSType{Name: "bytes", Length: 16}, "bytea", "varbinary(16)", "bytes"},
+		{dt: dmsengine.DMSType{Name: "int8"}, pg: "bigint", my: "bigint", wantKindName: "int8"},
+		{dt: dmsengine.DMSType{Name: "uint4"}, pg: "bigint", my: "int unsigned", wantKindName: "uint4"},
+		{
+			dt:           dmsengine.DMSType{Name: "string", Length: 30},
+			pg:           "varchar(30)",
+			my:           "varchar(30)",
+			wantKindName: "string",
+		},
+		{dt: dmsengine.DMSType{Name: "string"}, pg: "text", my: "longtext", wantKindName: "string"},
+		{
+			dt:           dmsengine.DMSType{Name: "numeric", Precision: 5, Scale: 2},
+			pg:           "numeric(5,2)",
+			my:           "numeric(5,2)",
+			wantKindName: "numeric",
+		},
+		{
+			dt:           dmsengine.DMSType{Name: "datetime", Scale: 3},
+			pg:           "timestamp(3)",
+			my:           "datetime(3)",
+			wantKindName: "datetime",
+		},
+		{dt: dmsengine.DMSType{Name: "boolean"}, pg: "boolean", my: "tinyint(1)", wantKindName: "boolean"},
+		{dt: dmsengine.DMSType{Name: "bytes", Length: 16}, pg: "bytea", my: "varbinary(16)", wantKindName: "bytes"},
 	}
 
 	for _, tt := range tests {

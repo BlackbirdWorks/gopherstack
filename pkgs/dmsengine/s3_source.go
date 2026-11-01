@@ -16,13 +16,16 @@ import (
 
 // Errors reported by the S3 source.
 var (
-	ErrS3Source         = errors.New("invalid S3 source")
-	errS3SourceBucket   = fmt.Errorf("%w: S3Settings.BucketName is required", ErrS3Source)
-	errS3SourceDef      = fmt.Errorf("%w: an ExternalTableDefinition is required", ErrS3Source)
-	errS3SourceCDCPath  = fmt.Errorf("%w: S3Settings.CdcPath is required to capture changes", ErrS3Source)
-	errS3SourceParquet  = fmt.Errorf("%w: Parquet source files are not supported", ErrS3Source)
-	errS3SourceDelim    = fmt.Errorf("%w: CsvDelimiter must be a single character", ErrS3Source)
-	errS3SourceNoStore  = fmt.Errorf("%w: %w: S3", ErrS3Source, ErrNotConfigured)
+	ErrS3Source        = errors.New("invalid S3 source")
+	errS3SourceBucket  = fmt.Errorf("%w: S3Settings.BucketName is required", ErrS3Source)
+	errS3SourceDef     = fmt.Errorf("%w: an ExternalTableDefinition is required", ErrS3Source)
+	errS3SourceCDCPath = fmt.Errorf("%w: S3Settings.CdcPath is required to capture changes", ErrS3Source)
+	errS3SourceParquet = fmt.Errorf("%w: Parquet source files are not supported", ErrS3Source)
+	errS3SourceDelim   = fmt.Errorf("%w: CsvDelimiter must be a single character", ErrS3Source)
+	errS3SourceNoStore = fmt.Errorf("%w: %w: S3", ErrS3Source, ErrNotConfigured)
+)
+
+const (
 	s3SourceLoadPrefix  = "load"
 	s3SourceCSVSuffix   = ".csv"
 	s3SourceMinCDCCells = 3
@@ -72,8 +75,8 @@ type s3TableDef struct {
 	Name         string        `json:"TableName"`
 	Path         string        `json:"TablePath"`
 	Owner        string        `json:"TableOwner"`
-	Columns      []s3ColumnDef `json:"TableColumns"`
 	ColumnsTotal jsonScalar    `json:"TableColumnsTotal"`
+	Columns      []s3ColumnDef `json:"TableColumns"`
 }
 
 type s3SourceOptions struct {
@@ -195,7 +198,7 @@ func (td s3TableDef) table() (Table, error) {
 	for _, c := range td.Columns {
 		kind := strings.ToLower(c.Type)
 		if kind == "byte" {
-			kind = "bytes"
+			kind = tBytes
 		}
 
 		dt, err := ParseDMSType(kind)
@@ -216,7 +219,9 @@ func (td s3TableDef) table() (Table, error) {
 	return t, nil
 }
 
-func (s *s3Source) Ping(ctx context.Context) error { return s.store.CheckBucket(ctx, s.opts.BucketName) }
+func (s *s3Source) Ping(ctx context.Context) error {
+	return s.store.CheckBucket(ctx, s.opts.BucketName)
+}
 
 func (s *s3Source) Close() error { return nil }
 
@@ -316,7 +321,7 @@ func (s *s3Source) records(ctx context.Context, key string) ([][]string, error) 
 }
 
 func isInsertOp(s string) bool {
-	return strings.EqualFold(s, "I") || strings.EqualFold(s, "INSERT")
+	return strings.EqualFold(s, "I") || strings.EqualFold(s, opWordInsert)
 }
 
 func (s *s3Source) fullLoadRow(t Table, rec []string) (Row, error) {
@@ -329,7 +334,13 @@ func (s *s3Source) fullLoadRow(t Table, rec []string) (Row, error) {
 
 func (s *s3Source) row(t Table, rec []string) (Row, error) {
 	if len(rec) != len(t.Columns) {
-		return nil, fmt.Errorf("%w: %s has %d columns, the record has %d", ErrS3Source, t.Key(), len(t.Columns), len(rec))
+		return nil, fmt.Errorf(
+			"%w: %s has %d columns, the record has %d",
+			ErrS3Source,
+			t.Key(),
+			len(t.Columns),
+			len(rec),
+		)
 	}
 
 	fm := s.dates[t.Key()]
@@ -349,7 +360,24 @@ func (s *s3Source) row(t Table, rec []string) (Row, error) {
 	return row, nil
 }
 
-var dateTokens = strings.NewReplacer("YYYY", "2006", "MM", "01", "dd", "02", "HH", "15", "mm", "04", "ss", "05", ".F", ".999999999")
+func dateTokens() *strings.Replacer {
+	return strings.NewReplacer(
+		"YYYY",
+		"2006",
+		"MM",
+		"01",
+		"dd",
+		"02",
+		"HH",
+		"15",
+		"mm",
+		"04",
+		"ss",
+		"05",
+		".F",
+		".999999999",
+	)
+}
 
 // normalizeDate rewrites a ColumnDateFormat value to the ISO form databases accept.
 func normalizeDate(v, format, dmsType string) string {
@@ -357,15 +385,15 @@ func normalizeDate(v, format, dmsType string) string {
 		return v
 	}
 
-	t, err := time.Parse(dateTokens.Replace(format), v)
+	t, err := time.Parse(dateTokens().Replace(format), v)
 	if err != nil {
 		return v
 	}
 
 	switch dmsType {
-	case "date":
+	case tDate:
 		return t.Format("2006-01-02")
-	case "time":
+	case tTime:
 		return t.Format("15:04:05")
 	}
 
@@ -415,7 +443,8 @@ func (s *s3Source) drain(
 
 	for _, k := range keys {
 		base := strings.ToLower(path.Base(k))
-		if k <= last || strings.Contains(strings.TrimPrefix(k, dir), "/") || !strings.HasSuffix(base, s3SourceCSVSuffix) {
+		if k <= last || strings.Contains(strings.TrimPrefix(k, dir), "/") ||
+			!strings.HasSuffix(base, s3SourceCSVSuffix) {
 			continue
 		}
 
@@ -475,7 +504,7 @@ func (s *s3Source) change(rec []string, tables func(string, string) (Table, bool
 	c := Change{Schema: t.Schema, Table: t.Name}
 
 	switch strings.ToUpper(rec[0]) {
-	case "I", "INSERT":
+	case "I", opWordInsert:
 		c.Op, c.After = OpInsert, row
 	case "U", "UPDATE":
 		c.Op, c.After = OpUpdate, row

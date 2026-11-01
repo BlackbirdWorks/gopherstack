@@ -57,17 +57,23 @@ func TestEndpointCredentialsFromSecretsManager(t *testing.T) {
 	}}
 
 	tests := []struct {
+		secrets  dms.SecretResolver
 		name     string
 		secretID string
 		role     string
-		secrets  dms.SecretResolver
-		wantOK   bool
 		wantMsg  string
+		wantOK   bool
 	}{
 		{name: "resolved", secretID: "db/creds", role: secretRole, secrets: secrets, wantOK: true},
 		{name: "role is required", secretID: "db/creds", secrets: secrets, wantMsg: "SecretsManagerAccessRoleArn"},
 		{name: "unknown secret", secretID: "db/none", role: secretRole, secrets: secrets, wantMsg: "db/none"},
-		{name: "malformed secret", secretID: "db/junk", role: secretRole, secrets: secrets, wantMsg: "not a JSON object"},
+		{
+			name:     "malformed secret",
+			secretID: "db/junk",
+			role:     secretRole,
+			secrets:  secrets,
+			wantMsg:  "not a JSON object",
+		},
 		{name: "no secrets manager", secretID: "db/creds", role: secretRole, wantMsg: "no Secrets Manager"},
 	}
 
@@ -291,9 +297,12 @@ func TestServerlessReplicationWireShapes(t *testing.T) {
 	assert.NotNil(t, r.ReplicationLastStopTime)
 	assert.Empty(t, r.FailureMessages)
 
-	stats, err := client.DescribeReplicationTableStatistics(t.Context(), &dmssdk.DescribeReplicationTableStatisticsInput{
-		ReplicationConfigArn: aws.String(s.config),
-	})
+	stats, err := client.DescribeReplicationTableStatistics(
+		t.Context(),
+		&dmssdk.DescribeReplicationTableStatisticsInput{
+			ReplicationConfigArn: aws.String(s.config),
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, stats.ReplicationTableStatistics, 1)
 	assert.Equal(t, "items", aws.ToString(stats.ReplicationTableStatistics[0].TableName))
@@ -316,4 +325,24 @@ func TestServerlessReplicationProvisionDataFromCapacity(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, desc.Replications[0].ProvisionData)
 	assert.EqualValues(t, 2, desc.Replications[0].ProvisionData.ProvisionedCapacityUnits)
+}
+
+func TestServerlessSnapshotSettlesRunningReplications(t *testing.T) {
+	t.Parallel()
+
+	s := newServerlessEnv(t, "cdc")
+
+	_, err := s.b.StartReplication(t.Context(), s.config, "start-replication", dms.StartReplicationCDC{})
+	require.NoError(t, err)
+	s.awaitStatus(t, "running")
+
+	restored := dms.NewInMemoryBackend("123456789012", "us-east-1")
+	require.NoError(t, restored.Restore(t.Context(), s.b.Snapshot(t.Context())))
+
+	list, err := restored.DescribeReplications(t.Context(), dms.DescribeFilters{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "stopped", list[0].Status)
+	assert.NotEmpty(t, list[0].StopReason)
+	assert.Equal(t, "serverless", list[0].ReplicationConfigIdentifier)
 }

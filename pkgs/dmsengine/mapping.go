@@ -120,19 +120,19 @@ type Rule struct {
 		Column   string `json:"column-name"`
 		DataType string `json:"data-type"`
 	} `json:"object-locator"`
-	DataType    *ruleDataType  `json:"data-type"`
-	PrimaryKey  *primaryKeyDef `json:"primary-key-def"`
+	DataType    *ruleDataType   `json:"data-type"`
+	PrimaryKey  *primaryKeyDef  `json:"primary-key-def"`
 	BeforeImage *beforeImageDef `json:"before-image-def"`
-	ID          flexString     `json:"rule-id"`
-	Name        flexString     `json:"rule-name"`
-	LoadOrder   flexString     `json:"load-order"`
-	Type        string         `json:"rule-type"`
-	Action      string         `json:"rule-action"`
-	Target      string         `json:"rule-target"`
-	Value       string         `json:"value"`
-	Old         string         `json:"old-value"`
-	Expression  string         `json:"expression"`
-	Filters     []RuleFilter   `json:"filters"`
+	ID          flexString      `json:"rule-id"`
+	Name        flexString      `json:"rule-name"`
+	LoadOrder   flexString      `json:"load-order"`
+	Type        string          `json:"rule-type"`
+	Action      string          `json:"rule-action"`
+	Target      string          `json:"rule-target"`
+	Value       string          `json:"value"`
+	Old         string          `json:"old-value"`
+	Expression  string          `json:"expression"`
+	Filters     []RuleFilter    `json:"filters"`
 }
 
 // Mappings is a parsed table-mappings document.
@@ -407,7 +407,7 @@ func (m Mappings) chosen(tables []Table) map[string]*Rule {
 	return chosen
 }
 
-func (r *Rule) selects(t Table) bool {
+func (r Rule) selects(t Table) bool {
 	return MatchPattern(r.Locator.Schema, t.Schema) && MatchPattern(r.Locator.Table, t.Name)
 }
 

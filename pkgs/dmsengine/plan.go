@@ -160,12 +160,12 @@ func (cp *colPlan) addColumns(t Table) error {
 
 func isLOB(c Column) bool {
 	switch c.DMS.Name {
-	case "blob", "clob", "nclob":
+	case tBlob, "clob", tNclob:
 		return true
 	}
 
 	return slices.Contains([]string{
-		"blob", "tinyblob", "mediumblob", "longblob", "text", "tinytext", "mediumtext", "longtext", "json", "jsonb",
+		tBlob, tTinyblob, tMediumblob, "longblob", "text", "tinytext", "mediumtext", "longtext", "json", "jsonb",
 		"bytea",
 	}, parseNative(c.Native).base)
 }

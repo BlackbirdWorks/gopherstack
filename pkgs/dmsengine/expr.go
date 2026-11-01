@@ -13,6 +13,16 @@ import (
 	"unicode"
 )
 
+const (
+	opWordInsert  = "INSERT"
+	arityTwo      = 2
+	arityThree    = 3
+	blobRank      = 2
+	decimalBase   = 10
+	nanosPerMilli = 1_000_000
+	daysInWeek    = 7
+)
+
 // ErrExpression reports an add-column expression the engine cannot evaluate.
 var ErrExpression = fmt.Errorf("%w: unsupported expression", ErrMapping)
 
@@ -20,9 +30,9 @@ var ErrExpression = fmt.Errorf("%w: unsupported expression", ErrMapping)
 type EvalCtx struct {
 	Time     time.Time
 	Now      time.Time
-	Row      Row
 	Op       Op
 	Position string
+	Row      Row
 	Full     bool
 }
 
@@ -512,6 +522,8 @@ func (p *parser) call(name string) (node, error) {
 	}, nil
 }
 
+type caseArm struct{ when, then node }
+
 func (p *parser) parseCase() (node, error) {
 	var subject node
 
@@ -524,30 +536,18 @@ func (p *parser) parseCase() (node, error) {
 		subject = s
 	}
 
-	type arm struct{ when, then node }
-
-	var (
-		arms []arm
-		els  node
-	)
+	var arms []caseArm
 
 	for p.acceptKeyword("when") {
-		w, err := p.parseOr()
+		arm, err := p.parseArm()
 		if err != nil {
 			return nil, err
 		}
 
-		if !p.acceptKeyword("then") {
-			return nil, fmt.Errorf("%w: CASE WHEN needs THEN", ErrExpression)
-		}
-
-		th, err := p.parseOr()
-		if err != nil {
-			return nil, err
-		}
-
-		arms = append(arms, arm{w, th})
+		arms = append(arms, arm)
 	}
+
+	var els node
 
 	if p.acceptKeyword("else") {
 		e, err := p.parseOr()
@@ -562,33 +562,48 @@ func (p *parser) parseCase() (node, error) {
 		return nil, fmt.Errorf("%w: malformed CASE expression", ErrExpression)
 	}
 
-	return func(c *EvalCtx) any {
-		var base any
+	return func(c *EvalCtx) any { return evalCase(c, subject, arms, els) }, nil
+}
+
+func (p *parser) parseArm() (caseArm, error) {
+	w, err := p.parseOr()
+	if err != nil {
+		return caseArm{}, err
+	}
+
+	if !p.acceptKeyword("then") {
+		return caseArm{}, fmt.Errorf("%w: CASE WHEN needs THEN", ErrExpression)
+	}
+
+	th, err := p.parseOr()
+
+	return caseArm{when: w, then: th}, err
+}
+
+func evalCase(c *EvalCtx, subject node, arms []caseArm, els node) any {
+	var base any
+	if subject != nil {
+		base = subject(c)
+	}
+
+	for _, a := range arms {
+		w := a.when(c)
+
+		matched := w != nil && truthy(w)
 		if subject != nil {
-			base = subject(c)
+			matched = base != nil && w != nil && compareValues(base, w) == 0
 		}
 
-		for _, a := range arms {
-			w := a.when(c)
-			if subject != nil {
-				if base != nil && w != nil && compareValues(base, w) == 0 {
-					return a.then(c)
-				}
-
-				continue
-			}
-
-			if w != nil && truthy(w) {
-				return a.then(c)
-			}
+		if matched {
+			return a.then(c)
 		}
+	}
 
-		if els != nil {
-			return els(c)
-		}
+	if els != nil {
+		return els(c)
+	}
 
-		return nil
-	}, nil
+	return nil
 }
 
 func (p *parser) reference(name string) (node, error) {
@@ -636,7 +651,7 @@ func (p *parser) header(name string) (node, error) {
 	case "AR_H_OPERATION":
 		return func(c *EvalCtx) any {
 			if c.Full {
-				return "INSERT"
+				return opWordInsert
 			}
 
 			return strings.ToUpper(string(c.Op))
@@ -672,6 +687,7 @@ func fromText(v any, k Kind) any {
 			if f, err := strconv.ParseFloat(x, 64); err == nil {
 				return f
 			}
+		case KindString, KindBool, KindTime, KindBytes, KindJSON:
 		}
 
 		return x
@@ -769,26 +785,33 @@ func logic(l, r node, or bool) node {
 
 // compareValues orders values SQLite-style: numbers before text before blobs.
 func compareValues(a, b any) int {
-	ra, rb := valueRank(a), valueRank(b)
-	if ra != rb {
-		return ra - rb
-	}
-
-	switch ra {
-	case 0:
-		fa, fb := asFloat(a), asFloat(b)
-		if ia, ok := a.(int64); ok {
-			if ib, ok2 := b.(int64); ok2 {
-				return cmpOrdered(ia, ib)
-			}
+	switch x := a.(type) {
+	case string:
+		if y, ok := b.(string); ok {
+			return strings.Compare(x, y)
 		}
-
-		return cmpOrdered(fa, fb)
-	case 1:
-		return strings.Compare(a.(string), b.(string))
+	case []byte:
+		if y, ok := b.([]byte); ok {
+			return bytes.Compare(x, y)
+		}
+	default:
+		if valueRank(b) == 0 {
+			return compareNumbers(a, b)
+		}
 	}
 
-	return bytes.Compare(a.([]byte), b.([]byte))
+	return valueRank(a) - valueRank(b)
+}
+
+func compareNumbers(a, b any) int {
+	ia, aInt := a.(int64)
+	ib, bInt := b.(int64)
+
+	if aInt && bInt {
+		return cmpOrdered(ia, ib)
+	}
+
+	return cmpOrdered(asFloat(a), asFloat(b))
 }
 
 func cmpOrdered[T int64 | float64](a, b T) int {
@@ -807,7 +830,7 @@ func valueRank(v any) int {
 	case string:
 		return 1
 	case []byte:
-		return 2 //nolint:mnd // blobs sort after text
+		return blobRank
 	}
 
 	return 0
@@ -912,10 +935,10 @@ func exprFuncs() map[string]funcSpec {
 	return map[string]funcSpec{
 		"lower": {min: 1, max: 1, fn: func(_ *EvalCtx, a []any) any { return mapNil(a[0], asciiCase(false)) }},
 		"upper": {min: 1, max: 1, fn: func(_ *EvalCtx, a []any) any { return mapNil(a[0], asciiCase(true)) }},
-		"ltrim": {min: 1, max: 2, fn: trimFn(true, false)},
-		"rtrim": {min: 1, max: 2, fn: trimFn(false, true)},
-		"trim":  {min: 1, max: 2, fn: trimFn(true, true)},
-		"replace": {min: 3, max: 3, fn: func(_ *EvalCtx, a []any) any {
+		"ltrim": {min: 1, max: arityTwo, fn: trimFn(true, false)},
+		"rtrim": {min: 1, max: arityTwo, fn: trimFn(false, true)},
+		"trim":  {min: 1, max: arityTwo, fn: trimFn(true, true)},
+		"replace": {min: arityThree, max: arityThree, fn: func(_ *EvalCtx, a []any) any {
 			if a[0] == nil || a[1] == nil || a[2] == nil {
 				return nil
 			}
@@ -926,16 +949,16 @@ func exprFuncs() map[string]funcSpec {
 
 			return strings.ReplaceAll(text(a[0]), text(a[1]), text(a[2]))
 		}},
-		"substr":   {min: 2, max: 3, fn: substrFn},
+		"substr":   {min: arityTwo, max: arityThree, fn: substrFn},
 		"hex":      {min: 1, max: 1, fn: hexFn},
 		"abs":      {min: 1, max: 1, fn: absFn},
-		"round":    {min: 1, max: 2, fn: roundFn},
-		"random":   {min: 0, max: 0, fn: func(*EvalCtx, []any) any { return int64(rand.Uint64()) }}, //nolint:gosec // SQL random()
-		"max":      {min: 2, max: -1, fn: extremum(1)},
-		"min":      {min: 2, max: -1, fn: extremum(-1)},
-		"coalesce": {min: 2, max: -1, fn: coalesceFn},
-		"ifnull":   {min: 2, max: 2, fn: coalesceFn},
-		"nullif": {min: 2, max: 2, fn: func(_ *EvalCtx, a []any) any {
+		"round":    {min: 1, max: arityTwo, fn: roundFn},
+		"random":   {min: 0, max: 0, fn: randomInt},
+		"max":      {min: arityTwo, max: -1, fn: extremum(1)},
+		"min":      {min: arityTwo, max: -1, fn: extremum(-1)},
+		"coalesce": {min: arityTwo, max: -1, fn: coalesceFn},
+		"ifnull":   {min: arityTwo, max: arityTwo, fn: coalesceFn},
+		"nullif": {min: arityTwo, max: arityTwo, fn: func(_ *EvalCtx, a []any) any {
 			if a[0] != nil && a[1] != nil && compareValues(a[0], a[1]) == 0 {
 				return nil
 			}
@@ -955,12 +978,12 @@ func exprFuncs() map[string]funcSpec {
 
 			return hex.EncodeToString(sum[:])
 		}},
-		"operation_indicator": {min: 3, max: 3, fn: operationIndicator},
-		"date":                {min: 0, max: 1, fn: dateFn("2006-01-02")},
-		"time":                {min: 0, max: 1, fn: dateFn("15:04:05")},
+		"operation_indicator": {min: arityThree, max: arityThree, fn: operationIndicator},
+		tDate:                 {min: 0, max: 1, fn: dateFn("2006-01-02")},
+		tTime:                 {min: 0, max: 1, fn: dateFn("15:04:05")},
 		"datetime":            {min: 0, max: 1, fn: dateFn("2006-01-02 15:04:05")},
 		"julianday":           {min: 0, max: 1, fn: julianFn},
-		"strftime":            {min: 1, max: 2, fn: strftimeFn},
+		"strftime":            {min: 1, max: arityTwo, fn: strftimeFn},
 	}
 }
 
@@ -1047,7 +1070,7 @@ func trimFn(left, right bool) func(*EvalCtx, []any) any {
 }
 
 func substrFn(_ *EvalCtx, a []any) any {
-	if a[0] == nil || a[1] == nil || (len(a) == 3 && a[2] == nil) {
+	if a[0] == nil || a[1] == nil || (len(a) == arityThree && a[2] == nil) {
 		return nil
 	}
 
@@ -1055,7 +1078,7 @@ func substrFn(_ *EvalCtx, a []any) any {
 	start := int(asFloat(a[1]))
 	length := len(rs)
 
-	if len(a) == 3 {
+	if len(a) == arityThree {
 		length = int(asFloat(a[2]))
 	}
 
@@ -1106,11 +1129,11 @@ func roundFn(_ *EvalCtx, a []any) any {
 	}
 
 	digits := 0
-	if len(a) == 2 {
+	if len(a) == arityTwo {
 		digits = int(asFloat(a[1]))
 	}
 
-	scale := math.Pow(10, float64(digits))
+	scale := math.Pow(decimalBase, float64(digits))
 
 	return math.Round(asFloat(a[0])*scale) / scale
 }
@@ -1143,6 +1166,10 @@ func coalesceFn(_ *EvalCtx, a []any) any {
 	return nil
 }
 
+func randomInt(*EvalCtx, []any) any {
+	return int64(rand.Uint64()) //nolint:gosec // SQL random() is not a security primitive
+}
+
 func randomBlob(_ *EvalCtx, a []any) any {
 	b := make([]byte, max(1, int(asFloat(a[0]))))
 	for i := range b {
@@ -1162,6 +1189,7 @@ func operationIndicator(c *EvalCtx, a []any) any {
 		return a[0]
 	case OpUpdate:
 		return a[1]
+	case OpInsert:
 	}
 
 	return a[2]
@@ -1243,8 +1271,8 @@ func strftimeFn(c *EvalCtx, a []any) any {
 
 		i++
 
-		s, ok := strftimeVar(f[i], t)
-		if !ok {
+		s, known := strftimeVar(f[i], t)
+		if !known {
 			return nil
 		}
 
@@ -1261,7 +1289,7 @@ func strftimeVar(v rune, t time.Time) (string, bool) {
 	case 'H':
 		return t.Format("15"), true
 	case 'f':
-		return fmt.Sprintf("%02d.%03d", t.Second(), t.Nanosecond()/1e6), true
+		return fmt.Sprintf("%02d.%03d", t.Second(), t.Nanosecond()/nanosPerMilli), true
 	case 'j':
 		return fmt.Sprintf("%03d", t.YearDay()), true
 	case 'J':
@@ -1277,7 +1305,7 @@ func strftimeVar(v rune, t time.Time) (string, bool) {
 	case 'w':
 		return strconv.Itoa(int(t.Weekday())), true
 	case 'W':
-		return fmt.Sprintf("%02d", (t.YearDay()+6-int(t.Weekday()))/7), true //nolint:mnd // SQLite week of year
+		return fmt.Sprintf("%02d", (t.YearDay()+daysInWeek-1-int(t.Weekday()))/daysInWeek), true
 	case 'Y':
 		return t.Format("2006"), true
 	case '%':
@@ -1316,6 +1344,7 @@ func (d DMSType) Cast(v any) any {
 		}
 
 		return []byte(text(v))
+	case KindString, KindTime, KindJSON:
 	}
 
 	return text(v)

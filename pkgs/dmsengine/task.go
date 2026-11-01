@@ -546,8 +546,14 @@ func filterChange(f *TableFilter, c Change) (Change, bool) {
 		return c, f.Match(c.After)
 	case OpDelete:
 		return c, c.Before == nil || f.Match(c.Before)
+	case OpUpdate:
+		return filterUpdate(f, c)
 	}
 
+	return c, true
+}
+
+func filterUpdate(f *TableFilter, c Change) (Change, bool) {
 	switch {
 	case f.Match(c.After):
 		if c.Before != nil && !f.Match(c.Before) {

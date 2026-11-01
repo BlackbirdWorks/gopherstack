@@ -66,7 +66,9 @@ func TestTaskFilterAndAddColumnOnLoadAndCDC(t *testing.T) {
 	src.changes <- upd("5", "five", "99", "moved-out")
 	src.changes <- upd("60", "x", "3", "moved-in")
 	src.changes <- upd("70", "x", "71", "never")
-	src.changes <- dmsengine.Change{Schema: "app", Table: "items", Op: dmsengine.OpDelete, Before: dmsengine.Row{"80", "x"}}
+	src.changes <- dmsengine.Change{
+		Schema: "app", Table: "items", Op: dmsengine.OpDelete, Before: dmsengine.Row{"80", "x"},
+	}
 	src.changes <- dmsengine.Change{Commit: true, Position: "p"}
 	log.waitFor(t, func(p dmsengine.Progress) bool { return p.Checkpoint == "p" })
 	cancel()
@@ -79,7 +81,7 @@ func TestTaskFilterAndAddColumnOnLoadAndCDC(t *testing.T) {
 		row dmsengine.Row
 	}
 
-	var got []applied
+	got := make([]applied, 0, len(tgt.applied))
 
 	for _, c := range tgt.applied {
 		img := c.After
@@ -102,29 +104,29 @@ func TestTaskRuleErrorsFailTheTask(t *testing.T) {
 	t.Parallel()
 
 	addCol := func(expr string) string {
-		return `{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
+		return `{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1",` +
+			`"object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
 		{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-column","rule-target":"column",
-		"object-locator":{"schema-name":"app","table-name":"items"},"value":"x","expression":"` + expr + `","data-type":{"type":"string"}}]}`
+		"object-locator":{"schema-name":"app","table-name":"items"},"value":"x","expression":"` + expr + `",
+		"data-type":{"type":"string"}}]}`
 	}
 
 	tests := []struct {
 		name   string
 		doc    string
-		target dmsengine.Family
 		want   string
+		target dmsengine.Family
 	}{
-		{"unsupported function", addCol("soundex($name)"), dmsengine.FamilyOther, "soundex"},
-		{
-			"filter column missing",
-			`{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include","filters":[{"filter-type":"source","column-name":"nope","filter-conditions":[{"filter-operator":"null"}]}]}]}`,
-			dmsengine.FamilyOther, "nope",
-		},
-		{
-			"before image on a SQL target",
-			`{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
-			{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns","rule-target":"column","object-locator":{"schema-name":"app","table-name":"items"}}]}`,
-			dmsengine.FamilyPostgres, "Kinesis and S3",
-		},
+		{name: "unsupported function", doc: addCol("soundex($name)"), target: dmsengine.FamilyOther, want: "soundex"},
+		{name: "filter column missing", doc: `{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1",` +
+			`"object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include",` +
+			`"filters":[{"filter-type":"source","column-name":"nope",` +
+			`"filter-conditions":[{"filter-operator":"null"}]}]}]}`, target: dmsengine.FamilyOther, want: "nope"},
+		{name: "before image on a SQL target", doc: `{"rules":[{"rule-type":"selection","rule-id":"1",` +
+			`"rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
+			{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns",
+			"rule-target":"column","object-locator":{"schema-name":"app","table-name":"items"}}]}`,
+			target: dmsengine.FamilyPostgres, want: "Kinesis and S3"},
 	}
 
 	for _, tt := range tests {
@@ -151,8 +153,12 @@ func TestTaskRuleErrorsFailTheTask(t *testing.T) {
 func TestTaskBeforeImageOnKinesisLikeTarget(t *testing.T) {
 	t.Parallel()
 
-	mappings, err := dmsengine.ParseMappings(`{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app","table-name":"items"},"rule-action":"include"},
-		{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns","rule-target":"column","object-locator":{"schema-name":"app","table-name":"items"}}]}`)
+	mappings, err := dmsengine.ParseMappings(
+		`{"rules":[{"rule-type":"selection","rule-id":"1","rule-name":"1","object-locator":{"schema-name":"app",` +
+			`"table-name":"items"},"rule-action":"include"},
+		{"rule-type":"transformation","rule-id":"2","rule-name":"2","rule-action":"add-before-image-columns",
+		"rule-target":"column","object-locator":{"schema-name":"app","table-name":"items"}}]}`,
+	)
 	require.NoError(t, err)
 
 	src, tgt, log := intTable(), newFakeTarget(), newProgressLog()

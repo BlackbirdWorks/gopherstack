@@ -65,7 +65,7 @@ func (t *sqlTarget) ph(n int) string {
 }
 
 func (t *sqlTarget) columnType(tt TargetTable, c TargetColumn) string {
-	typ := ""
+	var typ string
 
 	if c.DMS.Name != "" {
 		typ = c.DMS.SQLType(t.fam)
