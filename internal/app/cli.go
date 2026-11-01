@@ -3606,6 +3606,7 @@ func storeGCPHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ociAPIGatewayHandler = byName["OCIAPIGateway"]
 	cli.ociEventsHandler = byName["OCIEvents"]
 	cli.azureMonitorHandler = byName["AzureMonitor"]
+	cli.azureGraphHandler = byName["AzureGraph"]
 }
 
 func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
@@ -3627,7 +3628,6 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.azureARMHandler = byName["AzureARM"]
 	cli.azureBlobHandler = byName["AzureBlob"]
-	cli.azureGraphHandler = byName["AzureGraph"]
 	storeGCPHandlers(cli, byName)
 	cli.azureQueueHandler = byName["AzureQueue"]
 	cli.azureTableHandler = byName["AzureTable"]

@@ -34,7 +34,7 @@ var (
 // lock writes are rebuilt from fixed fields; policy and role definitions are read-only.
 func (h *DashboardHandler) registerAzureAuthzRoutes() {
 	h.registerARMProxy(armProxy{
-		name: "Authorization", prefix: azureAuthzPrefix,
+		name: "Azure Authorization", prefix: azureAuthzPrefix,
 		queryKeys: []string{armQueryVersion, "$filter"},
 		methods:   []string{http.MethodGet, http.MethodPut, http.MethodDelete},
 		allowed:   authzProxyAllowed,

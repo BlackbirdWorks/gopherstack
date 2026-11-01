@@ -27,6 +27,7 @@ const (
 	entraSub   = "/subscriptions/" + armSub
 	entraRG    = entraSub + "/resourceGroups/entra"
 	entraAPI   = "?api-version=2022-04-01"
+	entraAuth  = "/providers/Microsoft.Authorization/"
 	entraGUID1 = "11111111-1111-1111-1111-111111111111"
 	entraGUID2 = "22222222-2222-2222-2222-222222222222"
 	entraRole  = "/subscriptions/" + armSub +
@@ -34,8 +35,8 @@ const (
 )
 
 type entraEnv struct {
-	url    string
 	client *http.Client
+	url    string
 }
 
 func newEntraEnv(t *testing.T) *entraEnv {
@@ -142,8 +143,10 @@ func TestAzureGraphProxyBadBodies(t *testing.T) {
 		{"app no name", "/applications", `{}`},
 		{"app not json", "/applications", `nope`},
 		{"sp bad appid", "/servicePrincipals", `{"appId":"x"}`},
-		{"user no password", "/users", `{"displayName":"A","mailNickname":"a","userPrincipalName":"a@gopherstack.onmicrosoft.com"}`},
-		{"user bad upn", "/users", `{"displayName":"A","mailNickname":"a","userPrincipalName":"a b","password":"Xx1!xxxxxx"}`},
+		{"user no password", "/users", `{"displayName":"A","mailNickname":"a",` +
+			`"userPrincipalName":"a@gopherstack.onmicrosoft.com"}`},
+		{"user bad upn", "/users", `{"displayName":"A","mailNickname":"a","userPrincipalName":"a b",` +
+			`"password":"Xx1!xxxxxx"}`},
 		{"group bad nick", "/groups", `{"displayName":"G","mailNickname":"a b"}`},
 		{"remove password bad key", "/applications/" + entraGUID1 + "/removePassword", `{"keyId":"x"}`},
 		{"member bad id", "/groups/" + entraGUID1 + "/members/$ref", `{"id":"http://evil/x"}`},
@@ -177,7 +180,9 @@ func TestAzureGraphProxySecretOnce(t *testing.T) {
 	require.Len(t, secret, 40)
 	assert.NotEmpty(t, pw["hint"])
 
-	for _, path := range []string{"/applications", "/applications/" + id, "/applications?$select=id,passwordCredentials"} {
+	paths := []string{"/applications", "/applications/" + id, "/applications?$select=id,passwordCredentials"}
+
+	for _, path := range paths {
 		code, body := env.do(t, http.MethodGet, entraGraph+path, "")
 		require.Equal(t, http.StatusOK, code, body)
 		assert.NotContains(t, body, secret, path)
@@ -263,19 +268,20 @@ func TestAzureAuthzProxy(t *testing.T) {
 	assert.NotContains(t, body, "smuggled")
 	assert.Contains(t, body, entraRG)
 
-	code, body = env.do(t, http.MethodGet, entraAuthz+entraRG+"/providers/Microsoft.Authorization/roleAssignments"+entraAPI, "")
+	code, body = env.do(t, http.MethodGet, entraAuthz+entraRG+entraAuth+"roleAssignments"+entraAPI, "")
 	require.Equal(t, http.StatusOK, code, body)
 	assert.Contains(t, body, entraGUID2)
 
-	code, body = env.do(t, http.MethodGet, entraAuthz+entraSub+"/providers/Microsoft.Authorization/roleDefinitions"+entraAPI, "")
+	code, body = env.do(t, http.MethodGet, entraAuthz+entraSub+entraAuth+"roleDefinitions"+entraAPI, "")
 	require.Equal(t, http.StatusOK, code, body)
 	assert.Contains(t, body, "Contributor")
 
-	code, body = env.do(t, http.MethodGet, entraAuthz+entraSub+"/providers/Microsoft.Authorization/policyDefinitions?api-version=2021-06-01", "")
+	code, body = env.do(t, http.MethodGet, entraAuthz+entraSub+entraAuth+"policyDefinitions?api-version=2021-06-01", "")
 	require.Equal(t, http.StatusOK, code, body)
 
 	lock := entraAuthz + entraRG + "/providers/Microsoft.Authorization/locks/keep?api-version=2020-05-01"
-	code, body = env.do(t, http.MethodPut, lock, `{"properties":{"level":"CanNotDelete","notes":"n","owners":[{"applicationId":"x"}]}}`)
+	lockBody := `{"properties":{"level":"CanNotDelete","notes":"n","owners":[{"applicationId":"x"}]}}`
+	code, body = env.do(t, http.MethodPut, lock, lockBody)
 	require.Less(t, code, http.StatusBadRequest, body)
 	assert.NotContains(t, body, "applicationId")
 
@@ -299,11 +305,11 @@ func TestAzureAuthzProxyRejects(t *testing.T) {
 	tests := []struct {
 		name, method, path, body string
 	}{
-		{"put role definition", http.MethodPut, entraSub + "/providers/Microsoft.Authorization/roleDefinitions/" + entraGUID1, `{}`},
+		{"put role definition", http.MethodPut, entraSub + entraAuth + "roleDefinitions/" + entraGUID1, `{}`},
 		{"put policy", http.MethodPut, loc + "policyAssignments/x", `{}`},
 		{"delete policy", http.MethodDelete, loc + "policyAssignments/x", ""},
 		{"other namespace", http.MethodGet, entraRG + "/providers/Microsoft.Storage/storageAccounts", ""},
-		{"resource scope", http.MethodGet, entraRG + "/providers/Microsoft.Compute/virtualMachines/a/providers/Microsoft.Authorization/locks", ""},
+		{"resource scope", http.MethodGet, entraRG + "/providers/Microsoft.Compute/virtualMachines/a" + entraAuth + "locks", ""},
 		{"assignment bad name", http.MethodPut, loc + "roleAssignments/not-a-guid", `{}`},
 		{
 			"assignment bad role", http.MethodPut, loc + "roleAssignments/" + entraGUID2,

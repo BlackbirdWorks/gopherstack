@@ -33,22 +33,31 @@ const (
 	graphPxRemovePw    = "removepassword"
 	graphPxMembers     = "members"
 	graphPxRef         = "$ref"
+	graphPxPassword    = "password"
+	graphPxDisplayName = "displayName"
 	graphPxItem        = 2
 	graphPxSub         = 3
-	graphPxMemberItem  = 5
 )
 
 //nolint:gochecknoglobals // immutable allow-lists and validators
 var (
-	graphPxCollections = map[string]bool{
-		graphPxApplication: true, graphPxPrincipals: true, graphPxUsers: true, graphPxGroups: true,
+	graphPxRoutes = map[string]bool{
+		"GET applications": true, "POST applications": true, "GET applications/*": true,
+		"DELETE applications/*": true, "GET applications/*/owners": true,
+		"POST applications/*/addpassword": true, "POST applications/*/removepassword": true,
+		"GET serviceprincipals": true, "POST serviceprincipals": true, "GET serviceprincipals/*": true,
+		"GET serviceprincipals/*/approleassignments": true,
+		"GET users": true, "POST users": true, "GET users/*": true,
+		"GET groups": true, "POST groups": true, "GET groups/*": true, "GET groups/*/members": true,
+		"POST groups/*/members/$ref": true, "DELETE groups/*/members/*/$ref": true,
+		"POST directoryobjects/getbyids": true,
 	}
 	graphPxGUID     = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	graphPxSelectRE = regexp.MustCompile(`^[A-Za-z0-9_,]{1,200}$`)
 	graphPxTokenRE  = regexp.MustCompile(`^[A-Za-z0-9_=.\-]{1,1000}$`)
 	graphPxNickRE   = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 	graphPxUPNRE    = regexp.MustCompile(`^[A-Za-z0-9._'+-]{1,64}@[A-Za-z0-9.-]{1,253}$`)
-	graphPxSecrets  = []string{"secrettext", "passwordprofile", "password"}
+	graphPxSecrets  = []string{"secrettext", "passwordprofile", graphPxPassword}
 )
 
 type graphProxyErr struct {
@@ -131,7 +140,7 @@ func graphProxyRequest(r *http.Request, segs []string, body []byte, token string
 	fwd.URL.RawPath = ""
 	fwd.URL.RawQuery = graphProxyQuery(r.URL.Query()).Encode()
 	fwd.RequestURI = ""
-	fwd.Header = http.Header{"Authorization": {"Bearer " + token}}
+	fwd.Header = http.Header{echo.HeaderAuthorization: {"Bearer " + token}}
 	fwd.Body, fwd.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
 
 	if len(body) > 0 {
@@ -170,45 +179,18 @@ func graphLower(parts []string) []string {
 	return out
 }
 
+// graphProxyAllowed matches the lower-cased path, with every GUID segment folded to "*", against graphPxRoutes.
 func graphProxyAllowed(method string, p []string) bool {
-	if len(p) == graphPxItem && p[0] == "directoryobjects" && p[1] == "getbyids" {
-		return method == http.MethodPost
+	shape := make([]string, len(p))
+
+	for i, seg := range p {
+		shape[i] = seg
+		if graphPxGUID.MatchString(seg) {
+			shape[i] = "*"
+		}
 	}
 
-	if !graphPxCollections[p[0]] {
-		return false
-	}
-
-	switch len(p) {
-	case 1:
-		return method == http.MethodGet || method == http.MethodPost
-	case graphPxItem:
-		return graphPxGUID.MatchString(p[1]) &&
-			(method == http.MethodGet || (method == http.MethodDelete && p[0] == graphPxApplication))
-	case graphPxSub:
-		return graphPxGUID.MatchString(p[1]) && graphProxySub(method, p[0], p[2])
-	case graphPxSub + 1:
-		return method == http.MethodPost && p[0] == graphPxGroups && p[2] == graphPxMembers && p[3] == graphPxRef &&
-			graphPxGUID.MatchString(p[1])
-	case graphPxMemberItem:
-		return method == http.MethodDelete && p[0] == graphPxGroups && p[2] == graphPxMembers &&
-			p[4] == graphPxRef && graphPxGUID.MatchString(p[1]) && graphPxGUID.MatchString(p[3])
-	}
-
-	return false
-}
-
-func graphProxySub(method, coll, sub string) bool {
-	switch {
-	case method == http.MethodGet:
-		return (coll == graphPxApplication && sub == "owners") ||
-			(coll == graphPxPrincipals && sub == "approleassignments") ||
-			(coll == graphPxGroups && sub == graphPxMembers)
-	case method == http.MethodPost:
-		return coll == graphPxApplication && (sub == graphPxAddPassword || sub == graphPxRemovePw)
-	}
-
-	return false
+	return graphPxRoutes[method+" "+strings.Join(shape, "/")]
 }
 
 func graphIsAddPassword(method string, segs []string) bool {
@@ -271,9 +253,10 @@ func graphDecode(in []byte, into any) bool {
 	return json.Unmarshal(in, into) == nil
 }
 
-func graphText(v string, limit int) (string, bool) {
+func graphText(v string) (string, bool) {
 	v = strings.TrimSpace(v)
-	if v == "" || utf8.RuneCountInString(v) > limit || strings.ContainsFunc(v, func(r rune) bool { return r < ' ' }) {
+	control := strings.ContainsFunc(v, func(r rune) bool { return r < ' ' })
+	if v == "" || utf8.RuneCountInString(v) > graphPxMaxName || control {
 		return "", false
 	}
 
@@ -302,9 +285,9 @@ func graphCreateBody(coll string, in []byte) (any, bool) {
 
 		return map[string]any{"appId": req.AppID}, true
 	case graphPxApplication:
-		name, ok := graphText(req.DisplayName, graphPxMaxName)
+		name, ok := graphText(req.DisplayName)
 
-		return map[string]any{"displayName": name}, ok
+		return map[string]any{graphPxDisplayName: name}, ok
 	case graphPxGroups:
 		return graphGroupBody(req.DisplayName, req.MailNickname)
 	}
@@ -313,25 +296,25 @@ func graphCreateBody(coll string, in []byte) (any, bool) {
 }
 
 func graphGroupBody(displayName, nick string) (any, bool) {
-	name, ok := graphText(displayName, graphPxMaxName)
+	name, ok := graphText(displayName)
 	if !ok || !graphPxNickRE.MatchString(nick) {
 		return nil, false
 	}
 
 	return map[string]any{
-		"displayName": name, "mailNickname": nick, "mailEnabled": false, "securityEnabled": true,
+		graphPxDisplayName: name, "mailNickname": nick, "mailEnabled": false, "securityEnabled": true,
 	}, true
 }
 
 func graphUserBody(displayName, nick, upn, password string, force bool) (any, bool) {
-	name, ok := graphText(displayName, graphPxMaxName)
+	name, ok := graphText(displayName)
 	if !ok || !graphPxNickRE.MatchString(nick) || !graphPxUPNRE.MatchString(upn) ||
 		password == "" || len(password) > graphPxMaxPassword {
 		return nil, false
 	}
 
 	return map[string]any{
-		"accountEnabled": true, "displayName": name, "mailNickname": nick, "userPrincipalName": upn,
+		"accountEnabled": true, graphPxDisplayName: name, "mailNickname": nick, "userPrincipalName": upn,
 		"passwordProfile": map[string]any{"password": password, "forceChangePasswordNextSignIn": force},
 	}, true
 }
@@ -349,12 +332,12 @@ func graphAddPasswordBody(in []byte) (any, bool) {
 	cred := map[string]any{}
 
 	if req.DisplayName != "" {
-		name, ok := graphText(req.DisplayName, graphPxMaxName)
+		name, ok := graphText(req.DisplayName)
 		if !ok {
 			return nil, false
 		}
 
-		cred["displayName"] = name
+		cred[graphPxDisplayName] = name
 	}
 
 	if req.EndDateTime != "" {
@@ -419,7 +402,7 @@ func graphProxyRelay(c *echo.Context, rec *httptest.ResponseRecorder, keepSecret
 	body := rec.Body.Bytes()
 	ok := rec.Code < http.StatusMultipleChoices
 
-	if len(body) > 0 && !(keepSecret && ok) {
+	if len(body) > 0 && !keepSecret || !ok {
 		var doc any
 		if json.Unmarshal(body, &doc) == nil {
 			graphScrub(doc)
