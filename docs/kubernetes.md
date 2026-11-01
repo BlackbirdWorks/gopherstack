@@ -70,7 +70,7 @@ This adds a `docker:dind` container that runs **privileged** and exposes `tcp://
 
 ## Security
 
-The container drops all capabilities, forbids privilege escalation, uses the `RuntimeDefault` seccomp profile and a read-only root filesystem (`/tmp` and `/data` are writable volumes). It runs as UID 0 by default: the release image is `FROM scratch`, and containerd unpacks such an image's root directory as `0700 root`, so a non-root UID cannot exec the binary or resolve any path (seen on k3s; `stat /root/gopherstack: permission denied`). With an image that has a world-searchable root, set `podSecurityContext.runAsNonRoot=true` and `podSecurityContext.runAsUser`; `fsGroup` (65532) makes the PVC writable either way. It mounts no service account token and the chart creates no RBAC, because Gopherstack does not call the Kubernetes API.
+The container drops all capabilities, forbids privilege escalation, uses the `RuntimeDefault` seccomp profile and a read-only root filesystem (`/tmp` and `/data` are writable volumes). It runs as the image's non-root user (UID/GID 65532, `runAsNonRoot: true`); `fsGroup` 65532 makes the PVC writable. The release image is distroless `static:nonroot`, so its root directory is world-searchable under containerd as well. To run docker-backed engines from the cluster, enable the `dind` sidecar rather than mounting a host socket. It mounts no service account token and the chart creates no RBAC, because Gopherstack does not call the Kubernetes API.
 
 ## Tests
 

@@ -90,12 +90,10 @@ probes:
 podAnnotations: {}
 podLabels: {}
 
-# The release image is FROM scratch and containerd unpacks its root directory as 0700 root, so a non-root
-# UID cannot even exec the binary. Run as UID 0 with every capability dropped; set runAsNonRoot: true and
-# runAsUser to a numeric UID only with an image whose root directory is world-searchable.
+# The release image runs as UID/GID 65532 and owns /data; fsGroup makes a PVC writable by that user.
 podSecurityContext:
-  runAsNonRoot: false
-  runAsUser: 0
+  runAsNonRoot: true
+  runAsUser: 65532
   runAsGroup: 65532
   fsGroup: 65532
   seccompProfile:

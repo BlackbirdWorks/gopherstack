@@ -95,6 +95,13 @@ func TestScript(t *testing.T) {
 	assert.Contains(t, k3sengine.Script(false), "--disable servicelb")
 	assert.NotContains(t, k3sengine.Script(true), "servicelb")
 
+	// umask 077 for the CA key must not leak into k3s/containerd: it would make every image root 0700.
+	for _, lb := range []bool{false, true} {
+		sc := k3sengine.Script(lb)
+		assert.Less(t, strings.Index(sc, "umask 077"), strings.Index(sc, "umask 022"))
+		assert.Less(t, strings.Index(sc, "umask 022"), strings.Index(sc, "exec /bin/k3s"))
+	}
+
 	for _, lb := range []bool{false, true} {
 		s := k3sengine.Script(lb)
 		assert.Contains(t, s, "token-auth-file=")
