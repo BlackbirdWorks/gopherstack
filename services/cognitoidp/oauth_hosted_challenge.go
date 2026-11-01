@@ -152,6 +152,6 @@ func renderChallenge(c *echo.Context, q url.Values, status int, ch hostedLogin, 
 
 	return challengeTemplate.Execute(c.Response(), map[string]string{
 		"Error": msg, "CSRF": token, "Name": ch.ChallengeName, "Session": ch.Session,
-		"Action": pathLogin + "?" + q.Encode(),
+		"Action": loginPath(c.Request()) + "?" + q.Encode(),
 	})
 }

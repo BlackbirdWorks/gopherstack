@@ -285,7 +285,7 @@ func (h *Handler) handleOAuthAuthorize(c *echo.Context) error {
 		return req.loginRequired().respond(c)
 	}
 
-	return c.Redirect(http.StatusFound, pathLogin+"?"+c.Request().URL.RawQuery)
+	return c.Redirect(http.StatusFound, loginPath(c.Request())+"?"+c.Request().URL.RawQuery)
 }
 
 // sessionUser returns the user of the request's managed-login session cookie, if it is live for the client's pool.
@@ -447,7 +447,7 @@ func renderLogin(c *echo.Context, q url.Values, status int, msg string) error {
 
 	return loginTemplate.Execute(c.Response(), map[string]string{
 		"Error": msg, "CSRF": token, "Username": q.Get("login_hint"),
-		"Action": pathLogin + "?" + q.Encode(),
+		"Action": loginPath(c.Request()) + "?" + q.Encode(),
 	})
 }
 
@@ -533,5 +533,5 @@ func (h *Handler) handleHostedLogout(c *echo.Context) error {
 		return fail.respond(c)
 	}
 
-	return c.Redirect(http.StatusFound, pathLogin+"?"+c.Request().URL.RawQuery)
+	return c.Redirect(http.StatusFound, loginPath(c.Request())+"?"+c.Request().URL.RawQuery)
 }
