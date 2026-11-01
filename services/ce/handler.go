@@ -201,7 +201,6 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	switch {
 	case errors.Is(err, ErrUnknownMonitor):
 		payload, _ := json.Marshal(service.JSONErrorResponse{

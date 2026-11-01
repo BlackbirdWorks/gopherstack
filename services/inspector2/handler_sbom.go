@@ -20,6 +20,7 @@ const (
 	pathSbomExportGet    = "/sbomexport/get"
 )
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleCreateSbomExport(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

@@ -77,6 +77,7 @@ func (h *Handler) getRequestValidatorAction(b []byte) (int, any, error) {
 	return http.StatusOK, rv, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getRequestValidatorsAction(b []byte) (int, any, error) {
 	var input getRequestValidatorsInput
 	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {

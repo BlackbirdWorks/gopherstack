@@ -62,6 +62,7 @@ func (h *Handler) handleDescribeStream(c *echo.Context, body []byte) error {
 	return h.writeJSON(c, describeStreamResponse{StreamInfo: streamInfoFromStream(s)})
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleListStreams(c *echo.Context, body []byte) error {
 	var req listStreamsRequest
 	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {

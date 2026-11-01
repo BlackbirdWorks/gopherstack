@@ -155,7 +155,7 @@ func writeV1JSON(w http.ResponseWriter, code int, v any) {
 func writeV1Raw(w http.ResponseWriter, code int, raw []byte) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	w.WriteHeader(code)
-	_, _ = w.Write(raw)
+	_, _ = w.Write(raw) // #nosec G705
 }
 
 func writeV1Proto(w http.ResponseWriter, m proto.Message) {

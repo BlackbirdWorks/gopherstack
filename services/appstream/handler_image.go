@@ -333,6 +333,7 @@ type describeImageBuildersInput struct {
 	Names []string `json:"Names"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeImageBuilders(_ context.Context, body []byte) (any, error) {
 	var req describeImageBuildersInput
 	if len(body) > 0 {

@@ -205,6 +205,7 @@ type listAcmeDomainValidationsOutput struct {
 	AcmeDomainValidations []acmeDomainValidationWire `json:"AcmeDomainValidations"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) jsonListAcmeDomainValidations(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeDomainValidationsInput
 	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {

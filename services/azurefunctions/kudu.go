@@ -85,7 +85,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_, _ = w.Write(raw)
+	_, _ = w.Write(raw) // #nosec G705
 }
 
 // authorized accepts the app's publishing credentials as Basic auth, or any Bearer token (Kudu trusts the

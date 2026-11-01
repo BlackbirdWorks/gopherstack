@@ -21,7 +21,6 @@ import (
 var wireCodePrefix = regexp.MustCompile(`^(?:[A-Za-z]+Exception: )+`)
 
 func handleErr(c *echo.Context, err error) error {
-
 	var code string
 	var status int
 

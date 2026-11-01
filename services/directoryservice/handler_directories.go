@@ -154,6 +154,7 @@ func (h *Handler) handleCreateMicrosoftAD(c *echo.Context) error {
 	})
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleDeleteDirectory(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

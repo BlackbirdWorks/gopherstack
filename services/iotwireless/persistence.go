@@ -298,7 +298,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Idempotency:                idemEntries,
 	}
 
-	data, err := json.Marshal(snap, jsonx.V1()) //nolint:musttag // nested types lack tags
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "iotwireless: failed to marshal snapshot", "error", err)
 

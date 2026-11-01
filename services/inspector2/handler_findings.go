@@ -174,6 +174,7 @@ func resourceToWire(r FindingResource) map[string]any {
 	return res
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

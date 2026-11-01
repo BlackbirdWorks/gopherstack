@@ -369,7 +369,6 @@ func (h *Handler) Reset() {
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		code := errorCode(err)

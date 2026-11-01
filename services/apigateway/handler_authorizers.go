@@ -107,6 +107,7 @@ func (h *Handler) getAuthorizerAction(b []byte) (int, any, error) {
 	return http.StatusOK, auth, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getAuthorizersAction(b []byte) (int, any, error) {
 	var input getAuthorizersInput
 	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {

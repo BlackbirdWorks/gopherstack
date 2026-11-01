@@ -231,7 +231,6 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	switch {
 	// ErrNotFound/ErrAlreadyExists deliberately map to the SAME wire code as
 	// ErrInvalidParameter below: every one of datasync's 53

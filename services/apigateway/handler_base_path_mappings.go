@@ -77,6 +77,7 @@ func (h *Handler) getBasePathMappingAction(b []byte) (int, any, error) {
 	return http.StatusOK, bpm, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getBasePathMappingsAction(b []byte) (int, any, error) {
 	var input getBasePathMappingsInput
 	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {

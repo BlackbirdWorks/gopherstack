@@ -200,7 +200,6 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	respond := func(status int, errType string) error {
 		msg := strings.TrimPrefix(err.Error(), errType+": ")
 

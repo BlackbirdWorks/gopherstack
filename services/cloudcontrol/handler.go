@@ -143,7 +143,6 @@ func marshalError(errType, message string) []byte {
 // exceptions (e.g. ConcurrentModificationException, ServiceInternalErrorException) use 500.
 // See e.g. https://docs.aws.amazon.com/cloudcontrolapi/latest/APIReference/API_GetResource.html#API_GetResource_Errors
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	switch {
 	case errors.Is(err, ErrClientTokenConflict):
 		return ccError(c, http.StatusBadRequest, "ClientTokenConflictException", err,

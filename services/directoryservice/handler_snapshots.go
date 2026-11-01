@@ -39,6 +39,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 	})
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {

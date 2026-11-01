@@ -96,6 +96,7 @@ type describeAppBlocksInput struct {
 	Arns []string `json:"Arns"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeAppBlocks(_ context.Context, body []byte) (any, error) {
 	var req describeAppBlocksInput
 	if len(body) > 0 {
@@ -194,6 +195,7 @@ type describeAppBlockBuildersInput struct {
 	Names []string `json:"Names"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeAppBlockBuilders(_ context.Context, body []byte) (any, error) {
 	var req describeAppBlockBuildersInput
 	if len(body) > 0 {

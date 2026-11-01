@@ -236,7 +236,6 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 const codestarContentType = "application/x-amz-json-1.0"
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	var errType string
 	var statusCode int
 

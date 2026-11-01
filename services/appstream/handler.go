@@ -699,6 +699,7 @@ type describeStacksInput struct {
 	Names []string `json:"Names"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) {
 	var req describeStacksInput
 	if len(body) > 0 {
@@ -926,6 +927,7 @@ type describeFleetsInput struct {
 	Names []string `json:"Names"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) {
 	var req describeFleetsInput
 	if len(body) > 0 {

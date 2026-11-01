@@ -85,6 +85,7 @@ type describeApplicationsInput struct {
 	Arns []string `json:"Arns"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeApplications(_ context.Context, body []byte) (any, error) {
 	var req describeApplicationsInput
 	if len(body) > 0 {
@@ -524,6 +525,7 @@ type describeDirectoryConfigsInput struct {
 	DirectoryNames []string `json:"DirectoryNames"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) opDescribeDirectoryConfigs(_ context.Context, body []byte) (any, error) {
 	var req describeDirectoryConfigsInput
 	if len(body) > 0 {

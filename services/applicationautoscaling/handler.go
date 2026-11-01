@@ -235,7 +235,6 @@ func clientMessage(err error) string {
 }
 
 func (h *Handler) writeAPIError(_ context.Context, c *echo.Context, _ string, err error, msg string) error {
-
 	resourceName := ""
 	if rn, ok := errors.AsType[resourceNamer](err); ok {
 		resourceName = rn.ResourceName()

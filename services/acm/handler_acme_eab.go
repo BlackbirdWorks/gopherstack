@@ -169,6 +169,7 @@ type listAcmeEABsOutput struct {
 	ExternalAccountBindings []acmeEABWire `json:"ExternalAccountBindings"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) jsonListAcmeExternalAccountBindings(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeEABsInput
 	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {

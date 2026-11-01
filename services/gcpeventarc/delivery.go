@@ -180,7 +180,7 @@ type structuredEvent struct {
 
 func workflowArgument(ev cloudEvent) ([]byte, error) {
 	data := jsontext.Value(ev.body)
-	if !jsontext.Value(data).IsValid(jsonx.V1()) {
+	if !data.IsValid(jsonx.V1()) {
 		quoted, err := json.Marshal(string(ev.body), jsonx.V1())
 		if err != nil {
 			return nil, err

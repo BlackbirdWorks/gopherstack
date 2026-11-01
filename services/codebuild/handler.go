@@ -273,7 +273,6 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-
 	respond := func(errType string) error {
 		payload, _ := json.Marshal(service.JSONErrorResponse{
 			Type:    errType,

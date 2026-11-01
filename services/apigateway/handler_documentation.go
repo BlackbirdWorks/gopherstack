@@ -282,6 +282,7 @@ func (h *Handler) getDocumentationVersionAction(b []byte) (int, any, error) {
 	return http.StatusOK, v, nil
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) getDocumentationVersionsAction(b []byte) (int, any, error) {
 	var input getDocumentationVersionsInput
 	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
