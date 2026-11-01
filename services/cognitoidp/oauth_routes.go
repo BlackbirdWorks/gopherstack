@@ -18,6 +18,7 @@ const (
 	rootDiscoveryPath  = discoverySuffix
 	rootJWKSPath       = jwksPathSuffix
 	sigV4Prefix        = "AWS4-"
+	aliasPathPrefix    = "/_aws/cognito-idp"
 
 	opOAuthToken     = "OAuth2Token" //nolint:gosec // operation name, not a credential
 	opOAuthAuthorize = "OAuth2Authorize"
@@ -36,11 +37,15 @@ func (h *Handler) oauthOp(r *http.Request) string {
 		return ""
 	}
 
+	if aliasedOAuthPath(r.URL.Path) {
+		return oauthAliasOp(r)
+	}
+
 	switch r.URL.Path {
 	case pathOAuthToken, pathOAuthRevoke, pathOAuthUserInfo:
-		return oauthAPIOp(r)
+		return oauthAPIOp(r, r.URL.Path)
 	case pathOAuthAuthorize, pathLogin, pathLogout:
-		return oauthBrowserOp(r)
+		return oauthBrowserOp(r, r.URL.Path)
 	case pathOAuthIDPResponse:
 		if r.Method == http.MethodGet || r.Method == http.MethodPost {
 			return opOAuthIDPResponse
@@ -80,12 +85,38 @@ func samlOp(r *http.Request) string {
 	return ""
 }
 
-func oauthAPIOp(r *http.Request) string {
+// aliasedOAuthPath reports whether path is a LocalStack-style /_aws/cognito-idp/ OAuth endpoint.
+func aliasedOAuthPath(path string) bool { return strings.HasPrefix(path, aliasPathPrefix+"/") }
+
+// oauthAliasOp classifies the LocalStack /_aws/cognito-idp/ alias of the hosted-UI endpoints.
+func oauthAliasOp(r *http.Request) string {
+	p := strings.TrimPrefix(r.URL.Path, aliasPathPrefix)
+
+	switch p {
+	case pathOAuthToken, pathOAuthRevoke, pathOAuthUserInfo:
+		return oauthAPIOp(r, p)
+	case pathOAuthAuthorize, pathLogin, pathLogout:
+		return oauthBrowserOp(r, p)
+	}
+
+	return ""
+}
+
+// loginPath returns the login endpoint on the same prefix the request arrived on.
+func loginPath(r *http.Request) string {
+	if aliasedOAuthPath(r.URL.Path) {
+		return aliasPathPrefix + pathLogin
+	}
+
+	return pathLogin
+}
+
+func oauthAPIOp(r *http.Request, path string) string {
 	if r.Method == http.MethodOptions {
 		return opOAuthPreflight
 	}
 
-	switch r.URL.Path {
+	switch path {
 	case pathOAuthToken:
 		return methodOp(r, http.MethodPost, opOAuthToken)
 	case pathOAuthRevoke:
@@ -99,12 +130,12 @@ func oauthAPIOp(r *http.Request) string {
 	}
 }
 
-func oauthBrowserOp(r *http.Request) string {
+func oauthBrowserOp(r *http.Request, path string) string {
 	if !r.URL.Query().Has("client_id") {
 		return ""
 	}
 
-	switch r.URL.Path {
+	switch path {
 	case pathOAuthAuthorize:
 		return methodOp(r, http.MethodGet, opOAuthAuthorize)
 	case pathLogout:
