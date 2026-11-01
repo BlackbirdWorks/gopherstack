@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
-	"github.com/blackbirdworks/gopherstack/pkgs/jsonx" // registers the "pgx" database/sql driver
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (

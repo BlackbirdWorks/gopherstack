@@ -167,7 +167,11 @@ func (h *Handler) handleDeleteEmailIdentity(identity string) (any, error) {
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleCreateEmailIdentityPolicy(c *echo.Context, identity string) (any, error) {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleCreateEmailIdentityPolicy(
+	c *echo.Context,
+	identity string,
+) (any, error) {
 	// Extract policyName from the URL: .../identities/{identity}/policies/{policyName}
 	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
 	if len(segments) < policyPathMinSegments {
@@ -222,7 +226,11 @@ func (h *Handler) handleDeleteEmailIdentityPolicy(c *echo.Context, identity stri
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleUpdateEmailIdentityPolicy(c *echo.Context, identity string) (any, error) {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleUpdateEmailIdentityPolicy(
+	c *echo.Context,
+	identity string,
+) (any, error) {
 	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
 	if len(segments) < policyPathMinSegments {
 		return nil, fmt.Errorf("%w: invalid policy path", ErrInvalidInput)

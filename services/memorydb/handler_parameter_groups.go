@@ -34,7 +34,12 @@ func (h *Handler) handleCreateParameterGroup(ctx context.Context, c *echo.Contex
 	return c.JSON(http.StatusOK, createParameterGroupResponse{ParameterGroup: toParameterGroupObject(pg)})
 }
 
-func (h *Handler) handleDescribeParameterGroups(ctx context.Context, c *echo.Context, body []byte) error {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleDescribeParameterGroups(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var req describeParameterGroupRequest
 
 	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {

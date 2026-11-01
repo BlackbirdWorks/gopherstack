@@ -35,7 +35,12 @@ func (h *Handler) handleCreateSubnetGroup(ctx context.Context, c *echo.Context, 
 	return c.JSON(http.StatusOK, createSubnetGroupResponse{SubnetGroup: toSubnetGroupObject(sg)})
 }
 
-func (h *Handler) handleDescribeSubnetGroups(ctx context.Context, c *echo.Context, body []byte) error {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleDescribeSubnetGroups(
+	ctx context.Context,
+	c *echo.Context,
+	body []byte,
+) error {
 	var req describeSubnetGroupRequest
 
 	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {

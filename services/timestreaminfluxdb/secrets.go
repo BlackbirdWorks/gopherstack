@@ -40,7 +40,7 @@ func (b *InMemoryBackend) authSecretLocked(sc scope, id string, a authSecret) (s
 		return "", nil
 	}
 
-	body, err := json.Marshal(a, jsonx.V1()) //nolint:gosec // the secret holds the credentials by design
+	body, err := json.Marshal(a, jsonx.V1())
 	if err != nil {
 		return "", fail(ErrInternalServer, "encode auth secret")
 	}

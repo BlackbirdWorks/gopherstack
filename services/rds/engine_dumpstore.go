@@ -49,10 +49,7 @@ func (s *dumpStore) save(key string, at time.Time, d engineData) error {
 
 	rec := dumpRecord{At: at, Key: key, Dump: d.dump, Password: d.password, DBName: d.dbName}
 
-	raw, err := json.Marshal(
-		rec,
-		jsonx.V1(),
-	) //nolint:gosec // the master password must come back with the restored data
+	raw, err := json.Marshal(rec, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("marshal dump: %w", err)
 	}

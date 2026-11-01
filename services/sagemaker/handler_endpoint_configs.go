@@ -144,7 +144,11 @@ func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte)
 	return json.Marshal(resp, jsonx.V1())
 }
 
-func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([]byte, error) {
+//nolint:dupl // structurally similar handlers
+func (h *Handler) handleListEndpointConfigs(
+	ctx context.Context,
+	body []byte,
+) ([]byte, error) {
 	var req nameTimeListRequest
 
 	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
