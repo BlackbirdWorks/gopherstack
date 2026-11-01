@@ -247,6 +247,7 @@ import (
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocidatabase "github.com/blackbirdworks/gopherstack/services/ocidatabase"
 	ocidns "github.com/blackbirdworks/gopherstack/services/ocidns"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
@@ -669,6 +670,7 @@ type CLI struct {
 	OCIContainerEngine            ocioke.Settings                     `embed:"" prefix:"oci-oke-"`
 	OCIContainerInstances         ocicontainerinstances.Settings      `embed:""`
 	OCIMySQL                      ocimysqlbackend.Settings            `embed:"" prefix:"oci-mysql-"`
+	OCIDatabase                   ocidatabase.Settings                `embed:"" prefix:"oci-database-"`
 	AgentCore                     agentcorebackend.Settings           `embed:"" prefix:"agentcore-"`
 	GCPCloudBuild                 gcpcloudbuildbackend.Settings       `embed:"" prefix:"gcp-cloudbuild-"`
 	GCPBatch                      gcpbatchbackend.Settings            `embed:"" prefix:"gcp-batch-"`
@@ -1002,6 +1004,11 @@ func (c *CLI) GetOCIMySQLSettings() ocimysqlbackend.Settings {
 // GetOCIMySQLEngine returns the OCI MySQL engine mode (ocimysql.EngineConfigProvider).
 func (c *CLI) GetOCIMySQLEngine() string {
 	return c.engineMode("oci-mysql-engine", c.OCIMySQL.Engine)
+}
+
+// GetOCIDatabaseEngine returns the OCI Database engine mode (ocidatabase.EngineConfigProvider).
+func (c *CLI) GetOCIDatabaseEngine() string {
+	return c.engineMode("oci-database-engine", c.OCIDatabase.Engine)
 }
 
 // GetOCINotificationsSettings returns OCI Notifications settings (ocinotifications.ConfigProvider).
@@ -2816,6 +2823,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
 		{"OCIDNS", "ocidns", cli.OCIDNS.Port},
 		{"OCIDNSServer", "ocidns-server", cli.OCIDNS.DNSPort},
+		{"OCIDatabase", "ocidatabase", cli.OCIDatabase.Port},
 	}
 }
 
@@ -3835,6 +3843,7 @@ func wireCrossServiceDependencies(
 	wireOCIArtifacts(byName)
 	wireOCIContainerInstances(byName)
 	wireOCIDNS(byName)
+	wireOCIDatabase(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5340,6 +5349,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociartifacts.Provider{},
 		&ocicontainerinstances.Provider{},
 		&ocidns.Provider{},
+		&ocidatabase.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
