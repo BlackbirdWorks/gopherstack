@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -28,7 +29,7 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 	body []byte,
 ) ([]byte, error) {
 	var req createNotebookLifecycleConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -62,7 +63,7 @@ func (h *Handler) handleCreateNotebookInstanceLifecycleConfig(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created notebook lifecycle config", "name", lc.Name)
 
-	return json.Marshal(map[string]string{keyNotebookLifecycleConfigArn: lc.ARN})
+	return json.Marshal(map[string]string{keyNotebookLifecycleConfigArn: lc.ARN}, jsonx.V1())
 }
 
 // describeNotebookInstanceLifecycleConfigInput is
@@ -77,7 +78,7 @@ func (h *Handler) handleDescribeNotebookInstanceLifecycleConfig(
 	body []byte,
 ) ([]byte, error) {
 	var req describeNotebookInstanceLifecycleConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.NotebookInstanceLifecycleConfigName == "" {
@@ -111,7 +112,7 @@ func (h *Handler) handleDescribeNotebookInstanceLifecycleConfig(
 		"OnStart":                             onStart,
 		keyCreationTime:                       epochSeconds(lc.CreationTime),
 		keyLastModifiedTime:                   epochSeconds(lc.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // updateNotebookInstanceLifecycleConfigInput is
@@ -128,7 +129,7 @@ func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
 	body []byte,
 ) ([]byte, error) {
 	var req updateNotebookInstanceLifecycleConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.NotebookInstanceLifecycleConfigName == "" {
@@ -163,7 +164,7 @@ func (h *Handler) handleUpdateNotebookInstanceLifecycleConfig(
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // deleteNotebookInstanceLifecycleConfigInput is
@@ -178,7 +179,7 @@ func (h *Handler) handleDeleteNotebookInstanceLifecycleConfig(
 	body []byte,
 ) error {
 	var req deleteNotebookInstanceLifecycleConfigInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.NotebookInstanceLifecycleConfigName == "" {
@@ -227,7 +228,7 @@ type listNotebookInstanceLifecycleConfigsInput struct {
 
 func (h *Handler) handleListNotebookInstanceLifecycleConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listNotebookInstanceLifecycleConfigsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -258,7 +259,7 @@ func (h *Handler) handleListNotebookInstanceLifecycleConfigs(ctx context.Context
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +303,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 	body []byte,
 ) ([]byte, error) {
 	var req createNotebookInstanceFullRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -352,7 +353,7 @@ func (h *Handler) handleCreateNotebookInstanceFull(
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created notebook instance (full)", "name", nb.NotebookInstanceName)
 
-	return json.Marshal(map[string]string{keyNotebookInstanceArn: nb.NotebookInstanceArn})
+	return json.Marshal(map[string]string{keyNotebookInstanceArn: nb.NotebookInstanceArn}, jsonx.V1())
 }
 
 // describeNotebookInstanceInput is DescribeNotebookInstance's request shape
@@ -367,7 +368,7 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 	body []byte,
 ) ([]byte, error) {
 	var req describeNotebookInstanceInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.NotebookInstanceName == "" {
@@ -390,7 +391,7 @@ func (h *Handler) handleDescribeNotebookInstanceFull(
 	}
 	addNotebookOptionalFields(resp, nb)
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // addNotebookOptionalFields adds every describable optional field.
@@ -477,7 +478,7 @@ type updateNotebookInstanceInput struct {
 // handleUpdateNotebookInstanceFull supports all mutable fields (#1 update coverage).
 func (h *Handler) handleUpdateNotebookInstanceFull(ctx context.Context, body []byte) error {
 	var req updateNotebookInstanceInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.NotebookInstanceName == "" {
@@ -558,7 +559,7 @@ type listNotebookInstancesInput struct {
 func (h *Handler) handleListNotebookInstances(ctx context.Context, body []byte) ([]byte, error) {
 	var req listNotebookInstancesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -599,7 +600,7 @@ func (h *Handler) handleListNotebookInstances(ctx context.Context, body []byte) 
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteNotebookInstanceInput is DeleteNotebookInstance's request shape
@@ -611,7 +612,7 @@ type deleteNotebookInstanceInput struct {
 func (h *Handler) handleDeleteNotebookInstance(ctx context.Context, body []byte) error {
 	var req deleteNotebookInstanceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -638,7 +639,7 @@ type startNotebookInstanceInput struct {
 func (h *Handler) handleStartNotebookInstance(ctx context.Context, body []byte) error {
 	var req startNotebookInstanceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -665,7 +666,7 @@ type stopNotebookInstanceInput struct {
 func (h *Handler) handleStopNotebookInstance(ctx context.Context, body []byte) error {
 	var req stopNotebookInstanceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -698,7 +699,7 @@ func (h *Handler) handleCreatePresignedNotebookInstanceURL(
 ) ([]byte, error) {
 	var req createPresignedNotebookInstanceURLInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -715,5 +716,5 @@ func (h *Handler) handleCreatePresignedNotebookInstanceURL(
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"AuthorizedUrl": url})
+	return json.Marshal(map[string]string{"AuthorizedUrl": url}, jsonx.V1())
 }

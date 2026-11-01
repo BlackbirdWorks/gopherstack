@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -48,7 +49,7 @@ func TestMacie2_Tags(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				tags, ok := resp["tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "prod", tags["env"])
@@ -169,7 +170,7 @@ func TestMacie2_TagOperations(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				id := resp["customDataIdentifierId"]
 				doRequest(t, h, http.MethodDelete, "/custom-data-identifiers/"+id, nil)
 
@@ -220,14 +221,14 @@ func TestCreationTagsVisibleViaTagAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	arn := created["arn"]
 
 	rec2 := doRequest(t, h, http.MethodGet, "/tags/"+arn, nil)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp, jsonx.V1()))
 
 	tags, ok := tagResp["tags"].(map[string]any)
 	require.True(t, ok, "tags must be an object")
@@ -248,7 +249,7 @@ func TestUntagResourceRemovesSpecificKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	arn := created["arn"]
 
 	doRequest(t, h, http.MethodPost, "/tags/"+arn,
@@ -260,7 +261,7 @@ func TestUntagResourceRemovesSpecificKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, ok := tagResp["tags"].(map[string]any)
 	require.True(t, ok)
 
@@ -285,7 +286,7 @@ func TestTagResourceMergesWithCreationTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	arn := created["arn"]
 
 	doRequest(t, h, http.MethodPost, "/tags/"+arn,
@@ -295,7 +296,7 @@ func TestTagResourceMergesWithCreationTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, ok := tagResp["tags"].(map[string]any)
 	require.True(t, ok)
 

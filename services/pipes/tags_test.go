@@ -1,12 +1,14 @@
 package pipes_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestTags_CreateAndDescribe verifies tags are stored on create and returned on describe.
@@ -96,7 +98,7 @@ func TestTags_UpdateViaTagResource(t *testing.T) {
 
 			tagsRec := auditDo(t, h, http.MethodGet, "/tags/"+pipeARN, nil)
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tags, _ := tagsResp["tags"].(map[string]any)
 
 			for k, v := range tt.wantTags {

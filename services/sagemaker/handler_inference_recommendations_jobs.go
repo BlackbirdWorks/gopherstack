@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,20 +16,20 @@ import (
 // createInferenceRecommendationsJobInput mirrors
 // CreateInferenceRecommendationsJobInput (api_op_CreateInferenceRecommendationsJob.go:1-58).
 type createInferenceRecommendationsJobInput struct {
-	JobName            string          `json:"JobName"`
-	JobType            string          `json:"JobType,omitempty"`
-	JobDescription     string          `json:"JobDescription,omitempty"`
-	RoleArn            string          `json:"RoleArn,omitempty"`
-	InputConfig        json.RawMessage `json:"InputConfig,omitempty"`
-	OutputConfig       json.RawMessage `json:"OutputConfig,omitempty"`
-	StoppingConditions json.RawMessage `json:"StoppingConditions,omitempty"`
-	Tags               []tagObject     `json:"Tags,omitempty"`
+	JobName            string         `json:"JobName"`
+	JobType            string         `json:"JobType,omitempty"`
+	JobDescription     string         `json:"JobDescription,omitempty"`
+	RoleArn            string         `json:"RoleArn,omitempty"`
+	InputConfig        jsontext.Value `json:"InputConfig,omitempty"`
+	OutputConfig       jsontext.Value `json:"OutputConfig,omitempty"`
+	StoppingConditions jsontext.Value `json:"StoppingConditions,omitempty"`
+	Tags               []tagObject    `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createInferenceRecommendationsJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -52,7 +55,7 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyJobArn: j.JobArn})
+	return json.Marshal(map[string]string{keyJobArn: j.JobArn}, jsonx.V1())
 }
 
 // describeInferenceRecommendationsJobInput mirrors
@@ -64,7 +67,7 @@ type describeInferenceRecommendationsJobInput struct {
 func (h *Handler) handleDescribeInferenceRecommendationsJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeInferenceRecommendationsJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -103,7 +106,7 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(ctx context.Context,
 		resp["StoppingConditions"] = j.StoppingConditions
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // stopInferenceRecommendationsJobInput mirrors
@@ -115,7 +118,7 @@ type stopInferenceRecommendationsJobInput struct {
 func (h *Handler) handleStopInferenceRecommendationsJob(ctx context.Context, body []byte) error {
 	var req stopInferenceRecommendationsJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -157,7 +160,7 @@ type listInferenceRecommendationsJobsInput struct {
 func (h *Handler) handleListInferenceRecommendationsJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listInferenceRecommendationsJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -198,7 +201,7 @@ func (h *Handler) handleListInferenceRecommendationsJobs(ctx context.Context, bo
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listInferenceRecommendationsJobStepsInput mirrors
@@ -218,7 +221,7 @@ type listInferenceRecommendationsJobStepsInput struct {
 func (h *Handler) handleListInferenceRecommendationsJobSteps(ctx context.Context, body []byte) ([]byte, error) {
 	var req listInferenceRecommendationsJobStepsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -230,5 +233,5 @@ func (h *Handler) handleListInferenceRecommendationsJobSteps(ctx context.Context
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Steps": []any{}})
+	return json.Marshal(map[string]any{"Steps": []any{}}, jsonx.V1())
 }

@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -42,7 +43,7 @@ func TestHandler_StartExecution(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["executionArn"].(string), "exec1")
 			},
 		},
@@ -239,7 +240,7 @@ func TestHandler_ListExecutions(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp["executions"].([]any), tt.wantCount)
 		})
 	}
@@ -292,7 +293,7 @@ func TestExecutionName_Validation(t *testing.T) {
 				"stateMachineArn": smARN,
 				"name":            tt.execName,
 				"input":           "{}",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
@@ -312,14 +313,14 @@ func TestStartExecution_ResponseContainsARNAndStartDate(t *testing.T) {
 		"stateMachineArn": smArn,
 		"name":            "start-resp-exec",
 		"input":           "{}",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.NotEmpty(t, out["executionArn"])
 	assert.Greater(t, out["startDate"].(float64), float64(0))
@@ -339,7 +340,7 @@ func TestListExecutions_OrderedByStartDateDesc_ViaHandler(t *testing.T) {
 				"stateMachineArn": smARN,
 				"name":            name,
 				"input":           "{}",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
@@ -347,14 +348,14 @@ func TestListExecutions_OrderedByStartDateDesc_ViaHandler(t *testing.T) {
 			time.Sleep(5 * time.Millisecond)
 		}
 
-		listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+		listBody, err := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := sfnPost(ctx, t, h, e, "ListExecutions", string(listBody))
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		rawExecs, _ := resp["executions"].([]any)
 		require.Len(t, rawExecs, 3)
@@ -381,7 +382,7 @@ func TestSFN_DescribeStateMachineForExecution(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	execARN, _ := resp["executionArn"].(string)
 	require.NotEmpty(t, execARN)
 

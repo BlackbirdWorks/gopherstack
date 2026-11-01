@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +23,7 @@ import (
 	dockerapifilters "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/filters"
 	dockerapiimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	dockerclient "github.com/blackbirdworks/gopherstack/internal/dockercompat/client"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -163,7 +164,7 @@ func TestLambdaIntegration_Invoke_DockerEchoContainer(t *testing.T) {
 		"Code":         map[string]string{"ImageUri": lambdaEchoImage},
 		"Role":         "arn:aws:iam::000000000000:role/lambda-test",
 		"Timeout":      15, // 15s gives enough time for container cold start in CI
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createResp, err := doLambdaRequest(ctx, http.MethodPost, server.URL+"/2015-03-31/functions",
@@ -277,7 +278,7 @@ func buildEchoLambdaImage(ctx context.Context, t *testing.T) {
 			Error string `json:"error"`
 		}
 
-		if jsonErr := json.Unmarshal([]byte(line), &msg); jsonErr == nil && msg.Error != "" {
+		if jsonErr := json.Unmarshal([]byte(line), &msg, jsonx.V1()); jsonErr == nil && msg.Error != "" {
 			t.Skipf("Docker image build failed (infrastructure error — skipping test): %s", msg.Error)
 		}
 	}

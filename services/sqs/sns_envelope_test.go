@@ -3,13 +3,14 @@ package sqs_test
 import (
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -46,7 +47,7 @@ func receiveOneEnvelope(t *testing.T, snsBk *snsbackend.InMemoryBackend, sqsBk *
 	require.Len(t, out.Messages, 1)
 
 	var env snsEnvelopeFields
-	require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env))
+	require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env, jsonx.V1()))
 
 	return env
 }

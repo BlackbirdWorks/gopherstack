@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleSendMessages handles POST /v1/apps/{appId}/messages.
@@ -23,7 +24,7 @@ func (h *Handler) handleSendMessages(c *echo.Context, appID string) error {
 	}
 
 	var req sendMessagesRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
@@ -54,7 +55,7 @@ func (h *Handler) handleSendUsersMessages(c *echo.Context, appID string) error {
 
 	var req sendUsersMessagesRequest
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 		}
 	}
@@ -105,7 +106,7 @@ func (h *Handler) handleVerifyOTPMessage(c *echo.Context, appID string) error {
 
 	var req verifyOTPMessageRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	code := req.Otp
@@ -136,7 +137,7 @@ func (h *Handler) handlePhoneNumberValidate(c *echo.Context) error {
 	}
 
 	var req phoneNumberValidateRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 

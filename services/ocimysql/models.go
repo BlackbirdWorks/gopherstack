@@ -1,7 +1,7 @@
 package ocimysql
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -40,13 +40,13 @@ func (t *Tags) merge(in Tags) {
 
 // BackupPolicy is the automatic backup policy of a DB system.
 type BackupPolicy struct {
-	Tags            Tags            `json:"tags"`
-	WindowStartTime string          `json:"windowStartTime"`
-	SoftDelete      string          `json:"softDelete"`
-	CopyPolicies    json.RawMessage `json:"copyPolicies,omitempty"`
-	RetentionInDays int             `json:"retentionInDays"`
-	IsEnabled       bool            `json:"isEnabled"`
-	PitrEnabled     bool            `json:"pitrEnabled"`
+	Tags            Tags           `json:"tags"`
+	WindowStartTime string         `json:"windowStartTime"`
+	SoftDelete      string         `json:"softDelete"`
+	CopyPolicies    jsontext.Value `json:"copyPolicies,omitempty"`
+	RetentionInDays int            `json:"retentionInDays"`
+	IsEnabled       bool           `json:"isEnabled"`
+	PitrEnabled     bool           `json:"pitrEnabled"`
 }
 
 // DeletionPolicy controls what DeleteDBSystem does.
@@ -64,48 +64,48 @@ type Source struct {
 
 // DBSystem is a MySQL DB system. AdminPassword and RootSecret are never returned by the API.
 type DBSystem struct {
-	TimeCreated    time.Time                  `json:"timeCreated"`
-	TimeUpdated    time.Time                  `json:"timeUpdated"`
-	LastAutoBackup time.Time                  `json:"lastAutoBackup"`
-	Tags           Tags                       `json:"tags"`
-	TransitionAt   *time.Time                 `json:"transitionAt,omitempty"`
-	Source         *Source                    `json:"source,omitempty"`
-	Extra          map[string]json.RawMessage `json:"extra,omitempty"`
-	Maintenance    map[string]any             `json:"maintenance,omitempty"`
-	FD             string                     `json:"faultDomain"`
-	AdminUser      string                     `json:"adminUsername"`
-	ID             string                     `json:"id"`
-	CompartmentID  string                     `json:"compartmentId"`
-	Name           string                     `json:"displayName"`
-	Description    string                     `json:"description,omitempty"`
-	SubnetID       string                     `json:"subnetId"`
-	Shape          string                     `json:"shapeName"`
-	Version        string                     `json:"mysqlVersion"`
-	ConfigID       string                     `json:"configurationId"`
-	Hostname       string                     `json:"hostnameLabel,omitempty"`
-	AD             string                     `json:"availabilityDomain"`
-	EngineHost     string                     `json:"engineHost,omitempty"`
-	State          string                     `json:"state"`
-	After          string                     `json:"after,omitempty"`
-	Details        string                     `json:"details,omitempty"`
-	Etag           string                     `json:"etag"`
-	IP             string                     `json:"ipAddress"`
-	AdminPass      string                     `json:"adminPassword,omitempty"`
-	RootSecret     string                     `json:"rootSecret,omitempty"`
-	DatabaseMode   string                     `json:"databaseMode"`
-	AccessMode     string                     `json:"accessMode"`
-	CrashRecovery  string                     `json:"crashRecovery"`
-	DBManagement   string                     `json:"databaseManagement"`
-	Deletion       DeletionPolicy             `json:"deletionPolicy"`
-	BackupPolicy   BackupPolicy               `json:"backupPolicy"`
-	DataGB         int                        `json:"dataStorageSizeInGBs"`
-	MaxGB          int                        `json:"maxStorageSizeInGBs,omitempty"`
-	Port           int                        `json:"port"`
-	PortX          int                        `json:"portX"`
-	EnginePort     int                        `json:"enginePort,omitempty"`
-	Seq            int64                      `json:"seq"`
-	AutoExpand     bool                       `json:"isAutoExpandStorageEnabled"`
-	HA             bool                       `json:"isHighlyAvailable"`
+	TimeCreated    time.Time                 `json:"timeCreated"`
+	TimeUpdated    time.Time                 `json:"timeUpdated"`
+	LastAutoBackup time.Time                 `json:"lastAutoBackup"`
+	Tags           Tags                      `json:"tags"`
+	TransitionAt   *time.Time                `json:"transitionAt,omitempty"`
+	Source         *Source                   `json:"source,omitempty"`
+	Extra          map[string]jsontext.Value `json:"extra,omitempty"`
+	Maintenance    map[string]any            `json:"maintenance,omitempty"`
+	FD             string                    `json:"faultDomain"`
+	AdminUser      string                    `json:"adminUsername"`
+	ID             string                    `json:"id"`
+	CompartmentID  string                    `json:"compartmentId"`
+	Name           string                    `json:"displayName"`
+	Description    string                    `json:"description,omitempty"`
+	SubnetID       string                    `json:"subnetId"`
+	Shape          string                    `json:"shapeName"`
+	Version        string                    `json:"mysqlVersion"`
+	ConfigID       string                    `json:"configurationId"`
+	Hostname       string                    `json:"hostnameLabel,omitempty"`
+	AD             string                    `json:"availabilityDomain"`
+	EngineHost     string                    `json:"engineHost,omitempty"`
+	State          string                    `json:"state"`
+	After          string                    `json:"after,omitempty"`
+	Details        string                    `json:"details,omitempty"`
+	Etag           string                    `json:"etag"`
+	IP             string                    `json:"ipAddress"`
+	AdminPass      string                    `json:"adminPassword,omitempty"`
+	RootSecret     string                    `json:"rootSecret,omitempty"`
+	DatabaseMode   string                    `json:"databaseMode"`
+	AccessMode     string                    `json:"accessMode"`
+	CrashRecovery  string                    `json:"crashRecovery"`
+	DBManagement   string                    `json:"databaseManagement"`
+	Deletion       DeletionPolicy            `json:"deletionPolicy"`
+	BackupPolicy   BackupPolicy              `json:"backupPolicy"`
+	DataGB         int                       `json:"dataStorageSizeInGBs"`
+	MaxGB          int                       `json:"maxStorageSizeInGBs,omitempty"`
+	Port           int                       `json:"port"`
+	PortX          int                       `json:"portX"`
+	EnginePort     int                       `json:"enginePort,omitempty"`
+	Seq            int64                     `json:"seq"`
+	AutoExpand     bool                      `json:"isAutoExpandStorageEnabled"`
+	HA             bool                      `json:"isHighlyAvailable"`
 }
 
 // Backup is a DB system backup. Dump holds the logical dump when the docker engine took it.
@@ -134,24 +134,24 @@ type Backup struct {
 
 // ChannelSource is the replication source of a channel; the password is never stored.
 type ChannelSource struct {
-	Extra       map[string]json.RawMessage `json:"extra,omitempty"`
-	SourceType  string                     `json:"sourceType"`
-	Hostname    string                     `json:"hostname"`
-	Username    string                     `json:"username"`
-	SslMode     string                     `json:"sslMode"`
-	Port        int                        `json:"port"`
-	HasPassword bool                       `json:"hasPassword"`
+	Extra       map[string]jsontext.Value `json:"extra,omitempty"`
+	SourceType  string                    `json:"sourceType"`
+	Hostname    string                    `json:"hostname"`
+	Username    string                    `json:"username"`
+	SslMode     string                    `json:"sslMode"`
+	Port        int                       `json:"port"`
+	HasPassword bool                      `json:"hasPassword"`
 }
 
 // ChannelTarget is the DB system a channel replicates into.
 type ChannelTarget struct {
-	TargetType                      string          `json:"targetType"`
-	DBSystemID                      string          `json:"dbSystemId"`
-	ChannelName                     string          `json:"channelName"`
-	ApplierUsername                 string          `json:"applierUsername"`
-	TablesWithoutPrimaryKeyHandling string          `json:"tablesWithoutPrimaryKeyHandling"`
-	Filters                         json.RawMessage `json:"filters,omitempty"`
-	DelayInSeconds                  int             `json:"delayInSeconds"`
+	TargetType                      string         `json:"targetType"`
+	DBSystemID                      string         `json:"dbSystemId"`
+	ChannelName                     string         `json:"channelName"`
+	ApplierUsername                 string         `json:"applierUsername"`
+	TablesWithoutPrimaryKeyHandling string         `json:"tablesWithoutPrimaryKeyHandling"`
+	Filters                         jsontext.Value `json:"filters,omitempty"`
+	DelayInSeconds                  int            `json:"delayInSeconds"`
 }
 
 // Channel is a replication channel. It records configuration and lifecycle only; no data is replicated.

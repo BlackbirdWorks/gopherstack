@@ -1,12 +1,13 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseTemplatesPath(method string, parts []string) (string, string) {
@@ -85,7 +86,7 @@ func (h *Handler) handleUpdateSensitivityInspectionTemplate(templateID string, b
 		Name        string         `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -172,7 +173,7 @@ func TestHandler_ListStateMachineVersions(t *testing.T) {
 
 			body := tt.body
 			if body == "" {
-				b, err := json.Marshal(map[string]string{"stateMachineArn": smARN})
+				b, err := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 				require.NoError(t, err)
 				body = string(b)
 			}
@@ -181,7 +182,7 @@ func TestHandler_ListStateMachineVersions(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "stateMachineVersions")
 		})
 	}
@@ -271,24 +272,24 @@ func TestListStateMachineVersions(t *testing.T) {
 		"definition": validPassDef,
 		"roleArn":    "arn:aws:iam::000:role/r",
 		"type":       "STANDARD",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	createRec := sfnPost(t.Context(), t, h, e, "CreateStateMachine", string(createBody))
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	smARN := createResp["stateMachineArn"].(string)
 
-	listBody, merr := json.Marshal(map[string]string{"stateMachineArn": smARN})
+	listBody, merr := json.Marshal(map[string]string{"stateMachineArn": smARN}, jsonx.V1())
 	require.NoError(t, merr)
 
 	rec := sfnPost(t.Context(), t, h, e, "ListStateMachineVersions", string(listBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions, ok := resp["stateMachineVersions"].([]any)
 	require.True(t, ok, "stateMachineVersions should be an array")
 	assert.Empty(t, versions)

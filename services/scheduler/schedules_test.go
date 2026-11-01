@@ -2,7 +2,8 @@ package scheduler_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -73,7 +75,7 @@ func TestSchedulerHandler_CreateSchedule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ScheduleArn"], "arn:aws:scheduler:")
 }
 
@@ -114,7 +116,7 @@ func TestSchedulerHandler_CreateScheduleDefaultState(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ENABLED", resp["State"])
 }
 
@@ -139,7 +141,7 @@ func TestCreateSchedule_DefaultStateEnabled(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ENABLED", resp["State"])
 }
 
@@ -404,7 +406,7 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -805,7 +807,7 @@ func TestCreateSchedule_FlexibleModeRequiresMaximumWindowInMinutes(t *testing.T)
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "ValidationException", errResp["__type"])
 			}
 		})
@@ -835,7 +837,7 @@ func TestCreateSchedule_FlexibleWindowRoundtrip(t *testing.T) {
 			MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
 		} `json:"FlexibleTimeWindow"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "FLEXIBLE", out.FlexibleTimeWindow.Mode)
 	assert.Equal(t, 20, out.FlexibleTimeWindow.MaximumWindowInMinutes)
 }
@@ -864,7 +866,7 @@ func TestCreateSchedule_FlexibleTimeWindowMaximumWindowInMinutes(t *testing.T) {
 			MaximumWindowInMinutes int    `json:"MaximumWindowInMinutes"`
 		} `json:"FlexibleTimeWindow"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "FLEXIBLE", out.FlexibleTimeWindow.Mode)
 	assert.Equal(t, 15, out.FlexibleTimeWindow.MaximumWindowInMinutes)
 }
@@ -884,7 +886,7 @@ func TestSchedulerHandler_GetSchedule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-schedule", resp["Name"])
 	assert.Equal(t, "rate(5 minutes)", resp["ScheduleExpression"])
 	assert.Contains(t, resp, "Target")
@@ -913,7 +915,7 @@ func TestGetSchedule_ReturnsGroupNameAndDates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "mygroup", resp["GroupName"])
 	assert.Equal(t, "test description", resp["Description"])
@@ -938,7 +940,7 @@ func TestGetSchedule_ReturnsARNWithGroupName(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Contains(t, createResp["ScheduleArn"], "schedule/my-group/grouped-sched")
 }
 
@@ -968,18 +970,18 @@ func TestGetSchedule_TimestampsAreEpochSeconds(t *testing.T) {
 	rec2 := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "ts-schedule"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 	// CreationDate must be a JSON number (float64), not a string.
 	var creationDate float64
-	require.NoError(t, json.Unmarshal(out["CreationDate"], &creationDate), "CreationDate must be a number")
+	require.NoError(t, json.Unmarshal(out["CreationDate"], &creationDate, jsonx.V1()), "CreationDate must be a number")
 	assert.Greater(t, creationDate, float64(0), "CreationDate must be a positive epoch value")
 
 	var lastModDate float64
 	require.NoError(
 		t,
-		json.Unmarshal(out["LastModificationDate"], &lastModDate),
+		json.Unmarshal(out["LastModificationDate"], &lastModDate, jsonx.V1()),
 		"LastModificationDate must be a number",
 	)
 	assert.GreaterOrEqual(t, lastModDate, creationDate)
@@ -1006,11 +1008,11 @@ func TestCreateSchedule_EpochSecondsConvertBack(t *testing.T) {
 	rec2 := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "epoch-test"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 	var startDate float64
-	require.NoError(t, json.Unmarshal(out["StartDate"], &startDate))
+	require.NoError(t, json.Unmarshal(out["StartDate"], &startDate, jsonx.V1()))
 	// The stored epoch should round-trip back to the same second.
 	assert.InDelta(t, epoch, startDate, 1.0)
 }
@@ -1037,7 +1039,7 @@ func TestCreateSchedule_ActionAfterCompletion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "DELETE", out["ActionAfterCompletion"])
 }
 
@@ -1061,7 +1063,7 @@ func TestCreateSchedule_KmsKeyArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, kmsARN, out["KmsKeyArn"])
 }
 
@@ -1086,8 +1088,8 @@ func TestCreateSchedule_StartDateEndDate(t *testing.T) {
 	rec2 := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "dated-sched"})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 
 	_, hasStart := out["StartDate"]
 	_, hasEnd := out["EndDate"]
@@ -1113,7 +1115,7 @@ func TestCreateSchedule_ScheduleExpressionTimezone(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "America/New_York", resp["ScheduleExpressionTimezone"])
 }
 
@@ -1152,7 +1154,7 @@ func TestCreateSchedule_ScheduleExpressionTimezone_Validation(t *testing.T) {
 
 			if tt.wantCode != http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "ValidationException", resp["__type"])
 			}
 		})
@@ -1183,7 +1185,7 @@ func TestUpdateSchedule_ScheduleExpressionTimezone_Validation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -1261,13 +1263,13 @@ func TestSchedulerHandler_UpdateSchedule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ScheduleArn"], "arn:aws:scheduler:")
 
 	// Verify the update
 	getRec := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "my-schedule"})
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "rate(10 minutes)", getResp["ScheduleExpression"])
 	assert.Equal(t, "DISABLED", getResp["State"])
 }
@@ -1355,7 +1357,7 @@ func TestUpdateSchedule_WithActionAfterCompletion(t *testing.T) {
 
 	rec2 := doSchedulerRequest(t, h, "GetSchedule", map[string]any{"Name": "upd-aac"})
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "NONE", out["ActionAfterCompletion"])
 }
 
@@ -1440,7 +1442,7 @@ func TestUpdateSchedule_RequiredFieldValidation(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 				assert.Equal(t, "ValidationException", errResp["__type"])
 			}
 		})
@@ -1490,7 +1492,7 @@ func TestUpdateSchedule_ScheduleExpression_SemanticValidation(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, "ValidationException", errResp["__type"])
 		})
 	}
@@ -1523,7 +1525,7 @@ func TestUpdateSchedule_DoesNotBlankFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 
 	assert.Equal(t, "rate(10 minutes)", out["ScheduleExpression"])
 
@@ -1582,7 +1584,7 @@ func TestUpdateSchedule_ClearsOmittedOptionalFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 
 			assert.NotContains(t, out, tc.field, "%s should be cleared after an update that omits it", tc.field)
 		})

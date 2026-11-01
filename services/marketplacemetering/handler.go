@@ -2,7 +2,7 @@ package marketplacemetering
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -82,7 +83,7 @@ func decode(body []byte, v any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return fail(ErrValidation, "malformed request body: %v", err)
 	}
 

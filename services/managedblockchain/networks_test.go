@@ -2,7 +2,7 @@ package managedblockchain_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -275,7 +276,7 @@ func TestHandler_CreateNetwork(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantKey)
 			}
 		})
@@ -316,7 +317,7 @@ func TestHandler_GetNetwork(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			networkID := createResp["NetworkId"].(string)
 
 			id := tt.networkID
@@ -329,7 +330,7 @@ func TestHandler_GetNetwork(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "Network")
 			}
 		})
@@ -376,7 +377,7 @@ func TestHandler_ListNetworks(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			networks, ok := resp["Networks"].([]any)
 			require.True(t, ok)
@@ -466,7 +467,7 @@ func TestHandler_VotingPolicyStoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			networkID := createResp["NetworkId"].(string)
 
@@ -474,7 +475,7 @@ func TestHandler_VotingPolicyStoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			network := getResp["Network"].(map[string]any)
 
@@ -549,7 +550,7 @@ func TestHandler_ListNetworksFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			networks := resp["Networks"].([]any)
 			assert.Len(t, networks, tt.wantCount)
@@ -674,7 +675,7 @@ func TestHandler_CreateNetworkWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	networkID, _ := resp["NetworkId"].(string)
 	require.NotEmpty(t, networkID)
@@ -684,7 +685,7 @@ func TestHandler_CreateNetworkWithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var netResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &netResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &netResp, jsonx.V1()))
 
 	network := netResp["Network"].(map[string]any)
 	tags := network["Tags"].(map[string]any)
@@ -713,7 +714,7 @@ func TestHandler_CreateNetworkFoundingMemberTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	networkID, _ := resp["NetworkId"].(string)
 	memberID, _ := resp["MemberId"].(string)
@@ -724,7 +725,7 @@ func TestHandler_CreateNetworkFoundingMemberTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1()))
 
 	member := memResp["Member"].(map[string]any)
 	tags := member["Tags"].(map[string]any)

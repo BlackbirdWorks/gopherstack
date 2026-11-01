@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -86,7 +88,7 @@ func TestMediaConvert_Policy_DeleteAfterGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	policy, ok := out["policy"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "ALLOWED", policy["httpInputs"])
@@ -114,7 +116,7 @@ func TestPutPolicy_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	pol, ok := out["policy"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "ALLOWED", pol["httpInputs"])
@@ -142,7 +144,7 @@ func TestGetPolicy_AfterPut(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	pol := out["policy"].(map[string]any)
 	assert.Equal(t, "DISABLED", pol["s3Inputs"])
 }

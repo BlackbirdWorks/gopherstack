@@ -2,7 +2,7 @@ package mediatailor
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -32,7 +32,7 @@ const mediatailorSnapshotVersion = 1
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`

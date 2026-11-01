@@ -2,7 +2,7 @@ package sts_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -41,7 +42,7 @@ func buildJWT(t *testing.T, claims map[string]any) string {
 	t.Helper()
 
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"mock","typ":"JWT"}`))
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".fakesig"
@@ -52,7 +53,7 @@ func buildParityJWT(t *testing.T, expUnix int64) string {
 	t.Helper()
 
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	payload, err := json.Marshal(map[string]any{"sub": "test", "exp": expUnix})
+	payload, err := json.Marshal(map[string]any{"sub": "test", "exp": expUnix}, jsonx.V1())
 	require.NoError(t, err)
 
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + "."
@@ -69,7 +70,7 @@ func parseJWTClaims(t *testing.T, tokenStr string) map[string]any {
 	require.NoError(t, err)
 
 	var claims map[string]any
-	require.NoError(t, json.Unmarshal(payloadBytes, &claims))
+	require.NoError(t, json.Unmarshal(payloadBytes, &claims, jsonx.V1()))
 
 	return claims
 }

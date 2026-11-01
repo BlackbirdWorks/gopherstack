@@ -2,7 +2,7 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"cloud.google.com/go/bigtable/admin/apiv2/adminpb"
@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	gcpbigtablebackend "github.com/blackbirdworks/gopherstack/services/gcpbigtable"
 )
 
@@ -171,7 +172,7 @@ func (a *gcpBigtableAPI) readRows(r gcpRESTCall, table string) (proto.Message, e
 		}
 
 		var v any
-		if uErr := json.Unmarshal(b, &v); uErr != nil {
+		if uErr := json.Unmarshal(b, &v, jsonx.V1()); uErr != nil {
 			return nil, status.Error(codes.Internal, uErr.Error())
 		}
 

@@ -5,13 +5,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) deliverSubscriptionConfirmation(
 		SignatureVersion: version,
 		Signature:        b.signer.signWithVersion(canonical, version),
 		SigningCertURL:   certURL,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return
 	}

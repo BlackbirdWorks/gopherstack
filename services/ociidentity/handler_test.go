@@ -3,7 +3,7 @@ package ociidentity_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	oci "github.com/blackbirdworks/gopherstack/services/ociidentity"
 )
@@ -71,7 +72,7 @@ func TestRawErrorEnvelopes(t *testing.T) {
 				Code    string `json:"code"`
 				Message string `json:"message"`
 			}
-			require.NoError(t, json.Unmarshal(body, &eb))
+			require.NoError(t, json.Unmarshal(body, &eb, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, eb.Code)
 			assert.NotEmpty(t, eb.Message)
 		})
@@ -87,7 +88,12 @@ func TestEnforcedAuthAndAdminEndpoint(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, svcErr(t, err).GetHTTPStatusCode())
 
 	body, err := json.Marshal(
-		map[string]string{"tenancy": testTenancy, "user": "ocid1.user.oc1..bootstrap", "publicKey": e.kp.pubPEM},
+		map[string]string{
+			"tenancy":   testTenancy,
+			"user":      "ocid1.user.oc1..bootstrap",
+			"publicKey": e.kp.pubPEM,
+		},
+		jsonx.V1(),
 	)
 	require.NoError(t, err)
 

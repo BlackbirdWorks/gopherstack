@@ -2,7 +2,8 @@ package mediaconvert_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -30,7 +32,7 @@ func doRequest(t *testing.T, h *mediaconvert.Handler, method, path string, body 
 
 	var reqBody *bytes.Reader
 	if body != nil {
-		bodyBytes, err := json.Marshal(body)
+		bodyBytes, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		reqBody = bytes.NewReader(bodyBytes)
 	} else {
@@ -71,7 +73,7 @@ func parseJSONResponse(t *testing.T, h *mediaconvert.Handler, method, path strin
 
 	var resp map[string]any
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 	}
 
 	return resp, rec.Code
@@ -357,7 +359,7 @@ func TestErrValidationMappedTo400(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				job := resp["job"].(map[string]any)
 				id := job["id"].(string)
 
@@ -406,7 +408,7 @@ func TestListHandlers_ReturnEmptySlices(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			list, ok := resp[tt.key]
 			require.True(t, ok, "key %q missing from response", tt.key)

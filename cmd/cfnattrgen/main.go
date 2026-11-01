@@ -26,7 +26,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -37,10 +38,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type resourceTypeSpec struct {
-	Attributes map[string]json.RawMessage `json:"Attributes"`
+	Attributes map[string]jsontext.Value `json:"Attributes"`
 }
 
 type resourceSpec struct {
@@ -158,15 +161,15 @@ func runTrimSpec(specPath, outPath string) error {
 			continue
 		}
 
-		attrs := make(map[string]json.RawMessage, len(rt.Attributes))
+		attrs := make(map[string]jsontext.Value, len(rt.Attributes))
 		for attr := range rt.Attributes {
-			attrs[attr] = json.RawMessage("{}")
+			attrs[attr] = jsontext.Value("{}")
 		}
 
 		trimmed.ResourceTypes[name] = resourceTypeSpec{Attributes: attrs}
 	}
 
-	out, err := json.MarshalIndent(trimmed, "", "  ")
+	out, err := json.Marshal(trimmed, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Errorf("marshal trimmed spec: %w", err)
 	}
@@ -187,7 +190,7 @@ func loadSpec(path string) (*resourceSpec, error) {
 	}
 
 	var spec resourceSpec
-	if unmarshalErr := json.Unmarshal(data, &spec); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &spec, jsonx.V1()); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
 
@@ -295,7 +298,7 @@ func buildTable(spec *resourceSpec, supportedTypes map[string]struct{}) map[stri
 }
 
 func renderJSON(table map[string][]string) ([]byte, error) {
-	out, err := json.MarshalIndent(table, "", "  ")
+	out, err := json.Marshal(table, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +362,7 @@ func buildServices(spec *resourceSpec, literals map[string]struct{}) []string {
 const minTypeNameParts = 3
 
 func renderServices(services []string) ([]byte, error) {
-	out, err := json.MarshalIndent(services, "", "  ")
+	out, err := json.Marshal(services, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return nil, err
 	}

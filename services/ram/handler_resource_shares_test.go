@@ -1,7 +1,8 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -387,7 +389,7 @@ func TestCreateResourceShare_PermissionArns(t *testing.T) {
 					ResourceShareArn string `json:"resourceShareArn"`
 				} `json:"resourceShare"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			shareARN := createResp.ResourceShare.ResourceShareArn
 
 			// Verify permissions were associated.
@@ -397,9 +399,9 @@ func TestCreateResourceShare_PermissionArns(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp struct {
-				Permissions []json.RawMessage `json:"permissions"`
+				Permissions []jsontext.Value `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.Len(t, listResp.Permissions, tt.wantPermCount)
 		})
 	}
@@ -455,9 +457,9 @@ func TestGetResourceShares_OtherAccounts(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				ResourceShares []json.RawMessage `json:"resourceShares"`
+				ResourceShares []jsontext.Value `json:"resourceShares"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ResourceShares, tt.wantCount)
 		})
 	}
@@ -499,7 +501,7 @@ func TestAllowExternalPrincipals_Default(t *testing.T) {
 					AllowExternalPrincipals bool `json:"allowExternalPrincipals"`
 				} `json:"resourceShare"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantExternal, resp.ResourceShare.AllowExternalPrincipals)
 		})
 	}
@@ -576,7 +578,7 @@ func TestCreateResourceShare_WithPrincipalsAndResources(t *testing.T) {
 					ResourceShareArn string `json:"resourceShareArn"`
 				} `json:"resourceShare"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp, jsonx.V1()))
 			shareARN := shareResp.ResourceShare.ResourceShareArn
 
 			// Check principals.
@@ -587,9 +589,9 @@ func TestCreateResourceShare_WithPrincipalsAndResources(t *testing.T) {
 			require.Equal(t, http.StatusOK, principalRec.Code)
 
 			var principalResp struct {
-				Principals []json.RawMessage `json:"principals"`
+				Principals []jsontext.Value `json:"principals"`
 			}
-			require.NoError(t, json.Unmarshal(principalRec.Body.Bytes(), &principalResp))
+			require.NoError(t, json.Unmarshal(principalRec.Body.Bytes(), &principalResp, jsonx.V1()))
 			assert.Len(t, principalResp.Principals, tt.wantPrincipals)
 
 			// Check resources.
@@ -600,9 +602,9 @@ func TestCreateResourceShare_WithPrincipalsAndResources(t *testing.T) {
 			require.Equal(t, http.StatusOK, resourceRec.Code)
 
 			var resourceResp struct {
-				Resources []json.RawMessage `json:"resources"`
+				Resources []jsontext.Value `json:"resources"`
 			}
-			require.NoError(t, json.Unmarshal(resourceRec.Body.Bytes(), &resourceResp))
+			require.NoError(t, json.Unmarshal(resourceRec.Body.Bytes(), &resourceResp, jsonx.V1()))
 			assert.Len(t, resourceResp.Resources, tt.wantResources)
 		})
 	}
@@ -654,7 +656,7 @@ func TestCreateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
 					ResourceShareArn string `json:"resourceShareArn"`
 				} `json:"resourceShare"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp, jsonx.V1()))
 
 			listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
 				"resourceShareArn": shareResp.ResourceShare.ResourceShareArn,
@@ -666,7 +668,7 @@ func TestCreateResourceShare_AutoAssociatesDefaultPermission(t *testing.T) {
 					Arn string `json:"arn"`
 				} `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			require.Len(t, listResp.Permissions, 1)
 			assert.Equal(t, "arn:aws:ram::aws:permission/AWSRAMDefaultPermissionEC2Subnet", listResp.Permissions[0].Arn)
 		})
@@ -689,7 +691,7 @@ func TestCreateResourceShare_NoAutoAttachWithoutResources(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shareResp, jsonx.V1()))
 
 	listRec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
 		"resourceShareArn": shareResp.ResourceShare.ResourceShareArn,
@@ -725,7 +727,7 @@ func TestGetResourceShares_PermissionArnFilter(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"resourceShares"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ResourceShares, 1)
 	assert.Equal(t, "with-perm-share", resp.ResourceShares[0].Name)
 }
@@ -761,7 +763,7 @@ func TestGetResourceShares_TagFilters(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"resourceShares"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ResourceShares, 1)
 	assert.Equal(t, "tagged-share", resp.ResourceShares[0].Name)
 }
@@ -811,9 +813,9 @@ func TestGetResourceShares_NameFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				ResourceShares []json.RawMessage `json:"resourceShares"`
+				ResourceShares []jsontext.Value `json:"resourceShares"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ResourceShares, tt.wantCount)
 		})
 	}
@@ -863,7 +865,7 @@ func TestResourceShare_TagsInResponse(t *testing.T) {
 					} `json:"tags"`
 				} `json:"resourceShare"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.ResourceShare.Tags, tt.wantTags)
 		})
 	}
@@ -883,7 +885,7 @@ func TestResourceShare_FeatureSetStandard(t *testing.T) {
 			FeatureSet string `json:"featureSet"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "STANDARD", resp.ResourceShare.FeatureSet)
 }
 
@@ -1046,7 +1048,7 @@ func TestGetResourceShares_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -1055,7 +1057,7 @@ func TestGetResourceShares_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.ResourceShares)
@@ -1087,7 +1089,7 @@ func TestGetResourceShares_StatusFilter(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	delRec := doRAMRawRequest(t, h, http.MethodDelete,
 		"/deleteresourceshare?resourceShareArn="+createResp.ResourceShare.ResourceShareArn, nil)
@@ -1109,7 +1111,7 @@ func TestGetResourceShares_StatusFilter(t *testing.T) {
 			Name string `json:"name"`
 		} `json:"resourceShares"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.ResourceShares, 1)
 	assert.Equal(t, "live-share", resp.ResourceShares[0].Name)
 }
@@ -1149,7 +1151,7 @@ func TestDeleteResourceShare_RemovesFromMap(t *testing.T) {
 			require.Equal(t, http.StatusOK, createResp.Code)
 
 			var createBody map[string]any
-			require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createBody))
+			require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createBody, jsonx.V1()))
 			shareARN := createBody["resourceShare"].(map[string]any)["resourceShareArn"].(string)
 			require.NotEmpty(t, shareARN)
 
@@ -1168,7 +1170,7 @@ func TestDeleteResourceShare_RemovesFromMap(t *testing.T) {
 			require.Equal(t, http.StatusOK, listResp.Code)
 
 			var listBody map[string]any
-			require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listBody))
+			require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listBody, jsonx.V1()))
 			shares := listBody["resourceShares"].([]any)
 
 			for _, s := range shares {
@@ -1200,14 +1202,14 @@ func TestPaginationTokenIsOpaque(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	nextToken, _ := resp["nextToken"].(string)
 	require.NotEmpty(t, nextToken, "expected a nextToken for multi-page result")
 
 	// The token must not be a plain integer.
 	var plainInt int
-	err := json.Unmarshal([]byte(nextToken), &plainInt)
+	err := json.Unmarshal([]byte(nextToken), &plainInt, jsonx.V1())
 	require.Error(t, err, "nextToken should not be a plain integer")
 
 	// Following the token must yield the next page without overlap.
@@ -1219,7 +1221,7 @@ func TestPaginationTokenIsOpaque(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	page1Shares := resp["resourceShares"].([]any)
 	page2Shares := resp2["resourceShares"].([]any)

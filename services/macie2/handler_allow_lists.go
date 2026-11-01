@@ -1,13 +1,14 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseAllowListPath(method string, parts []string) (string, string) {
@@ -77,7 +78,7 @@ func (h *Handler) handleCreateAllowList(body []byte) (any, int, error) {
 		Name        string             `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -132,7 +133,7 @@ func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error
 		Name        string             `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

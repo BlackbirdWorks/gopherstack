@@ -9,7 +9,7 @@ package pipes_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -38,7 +39,7 @@ func b2Do(t *testing.T, h *pipes.Handler, method, path string, body any) *httpte
 	var b []byte
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 	e := echo.New()
@@ -58,7 +59,7 @@ func b2Create(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	rec := b2Do(t, h, http.MethodPost, "/v1/pipes/"+name, body)
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -68,7 +69,7 @@ func b2Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	rec := b2Do(t, h, http.MethodGet, "/v1/pipes/"+name, nil)
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -78,7 +79,7 @@ func b2Update(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	rec := b2Do(t, h, http.MethodPut, "/v1/pipes/"+name, body)
 	require.Equal(t, http.StatusOK, rec.Code, "update pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }

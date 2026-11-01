@@ -7,7 +7,7 @@ package waf_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -33,7 +34,7 @@ func wafDo(t *testing.T, h *waf.Handler, action string, body any) *httptest.Resp
 	var b []byte
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -56,7 +57,7 @@ func wafGetToken(t *testing.T, h *waf.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	token, ok := resp["ChangeToken"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, token)
@@ -68,7 +69,7 @@ func errType(t *testing.T, body []byte) string {
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	typ, _ := resp["__type"].(string)
 

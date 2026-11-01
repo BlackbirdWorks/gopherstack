@@ -1,7 +1,7 @@
 package personalize_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/personalize"
 )
 
@@ -52,7 +53,7 @@ func personalizeDoWithPrefix(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -70,7 +71,7 @@ func personalizeUnmarshal(t *testing.T, rec *httptest.ResponseRecorder) map[stri
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }

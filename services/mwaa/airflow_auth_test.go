@@ -1,7 +1,7 @@
 package mwaa_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const startupBody = "export MY_VAR=from-startup\necho hello-startup\n"
@@ -196,7 +197,7 @@ func TestAirflowAuth_SSOLoginAndRest(t *testing.T) {
 
 	desc, err := rig.b.GetEnvironment(t.Context(), "auth")
 	require.NoError(t, err)
-	raw, _ := json.Marshal(desc)
+	raw, _ := json.Marshal(desc, jsonx.V1())
 	assert.NotContains(t, string(raw), pass)
 
 	rec := doMWAARequest(t, rig.h, http.MethodPost, "/webtoken/auth", nil)
@@ -204,7 +205,7 @@ func TestAirflowAuth_SSOLoginAndRest(t *testing.T) {
 
 	var tok map[string]string
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok, jsonx.V1()))
 
 	sso := rawRequest(t, rig.h, http.MethodGet, "/aws_mwaa/aws-console-sso?login=true&token="+tok["WebToken"], "", nil)
 	require.Equal(t, http.StatusFound, sso.Code)
@@ -235,7 +236,7 @@ func TestAirflowAuth_BrowserTarget(t *testing.T) {
 
 	var tok map[string]string
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok, jsonx.V1()))
 
 	env, err := rig.b.GetEnvironment(t.Context(), "host")
 	require.NoError(t, err)

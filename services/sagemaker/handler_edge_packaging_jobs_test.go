@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_DescribeEdgePackagingJob_FailureReasonNotOnWire proves
@@ -28,7 +30,7 @@ func TestHandler_DescribeEdgePackagingJob_FailureReasonNotOnWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	_, present := out["FailureReason"]
 	assert.False(t, present, "FailureReason is not a real DescribeEdgePackagingJobOutput field")
 }
@@ -55,7 +57,7 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		assert.Contains(t, createResp["EdgePackagingJobArn"], "my-edge-job")
 
 		// Describe
@@ -65,7 +67,7 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "my-edge-job", descResp["EdgePackagingJobName"])
 		assert.Equal(t, "my-model", descResp["ModelName"])
 		assert.Equal(t, "1.0", descResp["ModelVersion"])
@@ -80,7 +82,7 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		summaries := listResp["EdgePackagingJobSummaries"].([]any)
 		assert.Len(t, summaries, 1)
 
@@ -95,7 +97,7 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
 			"EdgePackagingJobName": "my-edge-job",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "STOPPING", descResp["EdgePackagingJobStatus"])
 
 		// Confirm it actually reaches STOPPED.
@@ -105,7 +107,7 @@ func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
 			"EdgePackagingJobName": "my-edge-job",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "STOPPED", descResp["EdgePackagingJobStatus"])
 	})
 }
@@ -137,7 +139,7 @@ func TestHandler_EdgePackagingJob_ReachesCompleted(t *testing.T) {
 			"EdgePackagingJobName": "edge-job-completes",
 		})
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "COMPLETED", out["EdgePackagingJobStatus"])
 		assert.Equal(t, "s3://bucket/edge-out/model.tar.gz", out["ModelArtifact"],
 			"ModelArtifact must be derived from OutputConfig.S3OutputLocation once the job completes")
@@ -227,7 +229,7 @@ func TestHandler_ListEdgePackagingJobs_StatusFilter(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["EdgePackagingJobSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 }
@@ -248,7 +250,7 @@ func TestHandler_ListEdgePackagingJobs_FilterSort(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["EdgePackagingJobSummaries"].([]any))
 
 	// SortBy=NAME, SortOrder=Descending reverses this backend's ascending
@@ -258,7 +260,7 @@ func TestHandler_ListEdgePackagingJobs_FilterSort(t *testing.T) {
 		"SortOrder": "Descending",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["EdgePackagingJobSummaries"].([]any)
 	require.Len(t, summaries, 2)
 	assert.Equal(t, "job-beta", summaries[0].(map[string]any)["EdgePackagingJobName"])
@@ -316,7 +318,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var createResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				assert.Contains(t, createResp["JobArn"], "job-2")
 
 				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
@@ -325,7 +327,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var descResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "InProgress", descResp["JobStatus"])
 				assert.Equal(t, "AgentRFT", descResp["JobCategory"])
 				assert.NotEmpty(t, descResp["SecondaryStatusTransitions"])
@@ -346,7 +348,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 				rec = doSageMakerRequest(t, h, "DescribeJob", map[string]any{
 					"JobCategory": "AgentRFT", "JobName": "job-2",
 				})
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 				assert.Equal(t, "Stopping", descResp["JobStatus"])
 			},
 		},
@@ -403,7 +405,7 @@ func TestHandler_JobLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items := resp["JobSummaries"].([]any)
 				require.Len(t, items, 1)
 				assert.Equal(t, "job-cat-a", items[0].(map[string]any)["JobName"])
@@ -440,7 +442,7 @@ func TestHandler_JobSchemaVersionLookups(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "1.0", resp["JobConfigSchemaVersion"])
 				assert.NotEmpty(t, resp["JobConfigSchema"])
 			},
@@ -472,7 +474,7 @@ func TestHandler_JobSchemaVersionLookups(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				items := resp["JobConfigSchemas"].([]any)
 				require.Len(t, items, 1)
 				assert.Equal(t, "1.0", items[0].(map[string]any)["JobConfigSchemaVersion"])

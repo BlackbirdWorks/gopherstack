@@ -3,7 +3,7 @@ package ram
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -669,7 +670,7 @@ func writeInternalServerError(c *echo.Context) error {
 	payload, err := json.Marshal(map[string]string{
 		keyTypeField:    "ServerInternalException",
 		keyMessageField: "internal server error",
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -724,7 +725,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	if errors.Is(err, idempotency.ErrParamsMismatch) {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField: "IdempotentParameterMismatchException", keyMessageField: err.Error(),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	}
@@ -732,19 +733,15 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	for _, e := range errCodeLookup {
 		if errors.Is(err, e.err) {
 			payload, _ := json.Marshal(
-				map[string]string{keyTypeField: e.code, keyMessageField: errorMessage(err, e.code)},
+				map[string]string{keyTypeField: e.code, keyMessageField: errorMessage(err, e.code)}, jsonx.V1(),
 			)
 
 			return c.JSONBlob(http.StatusBadRequest, payload)
 		}
 	}
-
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		// These branches used to omit keyTypeField entirely, so
 		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
 		// decoder_util.go:15) found no code in the header (unset) or the

@@ -3,7 +3,8 @@ package rds_test
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/rds"
 	"github.com/blackbirdworks/gopherstack/services/s3"
@@ -71,7 +73,7 @@ func startPgExtEnv(t *testing.T) *pgExtEnv {
 			return
 		}
 
-		out, _ := json.Marshal(map[string]any{"fn": r.PathValue("name"), "echo": json.RawMessage(in)})
+		out, _ := json.Marshal(map[string]any{"fn": r.PathValue("name"), "echo": jsontext.Value(in)}, jsonx.V1())
 		_, _ = w.Write(out)
 	})
 	mux.Handle("/", s3e)

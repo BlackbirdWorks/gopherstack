@@ -1,7 +1,7 @@
 package mq
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"sort"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -39,7 +40,7 @@ type createBrokerInput struct {
 
 func (h *Handler) handleCreateBroker(c *echo.Context, body []byte) error {
 	var in createBrokerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -233,7 +234,7 @@ type updateBrokerResponse struct {
 
 func (h *Handler) handleUpdateBroker(c *echo.Context, brokerID string, body []byte) error {
 	var in updateBrokerInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -550,7 +551,7 @@ type promoteInput struct {
 
 func (h *Handler) handlePromote(c *echo.Context, brokerID string, body []byte) error {
 	var in promoteInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

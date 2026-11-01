@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -255,7 +256,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 
 			if tt.wantErrTyp != "" {
 				var errResp service.JSONErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrTyp, errResp.Type)
 			}
 		})
@@ -362,7 +363,7 @@ func TestHandler_GetParametersByPathViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out ssm.GetParametersByPathOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Parameters, 2)
 }
 
@@ -381,7 +382,7 @@ func TestHandler_DescribeParametersViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out ssm.DescribeParametersOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Parameters, 2)
 }
 

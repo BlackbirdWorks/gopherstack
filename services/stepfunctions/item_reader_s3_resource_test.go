@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
@@ -126,7 +127,7 @@ func TestItemReader_S3ListObjectsV2(t *testing.T) {
 		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
 
 		var items []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(output), &items))
+		require.NoError(t, json.Unmarshal([]byte(output), &items, jsonx.V1()))
 		require.Len(t, items, 2)
 
 		assert.Equal(t, "data/a.txt", items[0]["Key"])
@@ -217,7 +218,7 @@ func TestItemReader_S3Manifest(t *testing.T) {
 			"files":             []map[string]any{{"key": dataKey, "size": len(inventoryCSV)}},
 		}
 
-		b, err := json.Marshal(manifest)
+		b, err := json.Marshal(manifest, jsonx.V1())
 		require.NoError(t, err)
 
 		return string(b)
@@ -242,7 +243,7 @@ func TestItemReader_S3Manifest(t *testing.T) {
 		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
 
 		var items []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(output), &items))
+		require.NoError(t, json.Unmarshal([]byte(output), &items, jsonx.V1()))
 		require.Len(t, items, 2)
 		assert.Equal(t, map[string]any{
 			"Bucket": "src-bucket", "Key": "csvDataset/titles.csv",
@@ -269,7 +270,7 @@ func TestItemReader_S3Manifest(t *testing.T) {
 		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
 
 		var items []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(output), &items))
+		require.NoError(t, json.Unmarshal([]byte(output), &items, jsonx.V1()))
 		require.Len(t, items, 2)
 		assert.Equal(t, "imageDataset/pic.jpg", items[1]["Key"])
 	})
@@ -295,7 +296,7 @@ func TestItemReader_S3Manifest(t *testing.T) {
 		require.Equal(t, sfntypes.ExecutionStatusSucceeded, status, "error=%s cause=%s", errCode, cause)
 
 		var items []map[string]any
-		require.NoError(t, json.Unmarshal([]byte(output), &items))
+		require.NoError(t, json.Unmarshal([]byte(output), &items, jsonx.V1()))
 		require.Len(t, items, 1)
 		assert.Equal(t, "csvDataset/titles.csv", items[0]["Key"])
 	})

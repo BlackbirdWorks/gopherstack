@@ -2,7 +2,7 @@ package omics
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -40,7 +40,7 @@ const omicsSnapshotVersion = 2
 // restored directly. The five left-raw maps (see the InMemoryBackend doc
 // comment in store.go) are persisted as plain fields alongside Tables.
 type backendSnapshot struct {
-	Tables         map[string]json.RawMessage                      `json:"tables"`
+	Tables         map[string]jsontext.Value                       `json:"tables"`
 	UploadParts    map[string]map[string][]*ReadSetUploadPart      `json:"uploadParts"`
 	UploadPartData map[string]map[string]map[string]map[int][]byte `json:"uploadPartData"`
 	ReadSetBytes   map[string]map[string][]byte                    `json:"readSetBytes"`

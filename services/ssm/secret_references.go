@@ -2,7 +2,7 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -146,7 +147,7 @@ func (b *InMemoryBackend) getSecretReference(
 		value = string(secret.SecretBinary)
 	}
 
-	source, err := json.Marshal(secretSourceResult(*secret))
+	source, err := json.Marshal(secretSourceResult(*secret), jsonx.V1())
 	if err != nil {
 		return ParameterOutput{}, fmt.Errorf("marshal secret source result: %w", err)
 	}

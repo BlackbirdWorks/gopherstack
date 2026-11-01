@@ -1,12 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDeleteRun_RequiresTerminalState verifies real AWS DeleteRun semantics
@@ -26,7 +28,7 @@ func TestDeleteRun_RequiresTerminalState(t *testing.T) {
 	require.Equal(t, http.StatusCreated, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	runID := startResp["id"].(string)
 
 	delRec := doRequest(t, h, http.MethodDelete, "/run/"+runID, nil)
@@ -55,7 +57,7 @@ func TestDeleteReferenceStore_RequiresEmpty(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
@@ -68,7 +70,7 @@ func TestDeleteReferenceStore_RequiresEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	refs, ok := listResp["references"].([]any)
 	require.True(t, ok)
 	require.Len(t, refs, 1)
@@ -100,7 +102,7 @@ func TestDeleteSequenceStore_RequiresEmpty(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
@@ -113,7 +115,7 @@ func TestDeleteSequenceStore_RequiresEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	readSets, ok := listResp["readSets"].([]any)
 	require.True(t, ok)
 	require.Len(t, readSets, 1)
@@ -147,7 +149,7 @@ func TestDeleteReference_RequiresNoAssociatedReadSet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, refStoreRec.Code)
 
 	var refStore map[string]any
-	require.NoError(t, json.Unmarshal(refStoreRec.Body.Bytes(), &refStore))
+	require.NoError(t, json.Unmarshal(refStoreRec.Body.Bytes(), &refStore, jsonx.V1()))
 	refStoreID := refStore["id"].(string)
 
 	refJobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+refStoreID+"/importjob", map[string]any{
@@ -160,7 +162,7 @@ func TestDeleteReference_RequiresNoAssociatedReadSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, refListRec.Code)
 
 	var refListResp map[string]any
-	require.NoError(t, json.Unmarshal(refListRec.Body.Bytes(), &refListResp))
+	require.NoError(t, json.Unmarshal(refListRec.Body.Bytes(), &refListResp, jsonx.V1()))
 	refs, ok := refListResp["references"].([]any)
 	require.True(t, ok)
 	require.Len(t, refs, 1)
@@ -173,7 +175,7 @@ func TestDeleteReference_RequiresNoAssociatedReadSet(t *testing.T) {
 	require.Equal(t, http.StatusCreated, seqStoreRec.Code)
 
 	var seqStore map[string]any
-	require.NoError(t, json.Unmarshal(seqStoreRec.Body.Bytes(), &seqStore))
+	require.NoError(t, json.Unmarshal(seqStoreRec.Body.Bytes(), &seqStore, jsonx.V1()))
 	seqStoreID := seqStore["id"].(string)
 
 	readSetJobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+seqStoreID+"/importjob", map[string]any{
@@ -190,7 +192,7 @@ func TestDeleteReference_RequiresNoAssociatedReadSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, readSetListRec.Code)
 
 	var readSetListResp map[string]any
-	require.NoError(t, json.Unmarshal(readSetListRec.Body.Bytes(), &readSetListResp))
+	require.NoError(t, json.Unmarshal(readSetListRec.Body.Bytes(), &readSetListResp, jsonx.V1()))
 	readSets, ok := readSetListResp["readSets"].([]any)
 	require.True(t, ok)
 	require.Len(t, readSets, 1)

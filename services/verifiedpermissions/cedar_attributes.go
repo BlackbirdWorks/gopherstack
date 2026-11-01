@@ -1,11 +1,14 @@
 package verifiedpermissions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	cedar "github.com/cedar-policy/cedar-go"
 	cedartypes "github.com/cedar-policy/cedar-go/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // entityIdentifierJSON already exists in handler_authorization.go (entityType/entityId).
@@ -18,9 +21,9 @@ import (
 // the same as cedar-go's own implicit JSON value format (types.UnmarshalJSON:
 // bare JSON literals plus __entity/__extn tags), so this needs its own converter
 // rather than reusing cedar-go's decoder.
-func attributeValueToCedar(raw json.RawMessage) (cedar.Value, error) {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
+func attributeValueToCedar(raw jsontext.Value) (cedar.Value, error) {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &m, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid attribute value: %w", errInvalidRequest, err)
 	}
 
@@ -38,25 +41,25 @@ func attributeValueToCedar(raw json.RawMessage) (cedar.Value, error) {
 // per-member would scatter the union's shape across more functions than it clarifies.
 //
 //nolint:cyclop // one discriminated-union switch over AWS's 9 AttributeValue member types; decomposing
-func attributeValueMemberToCedar(key string, v json.RawMessage) (cedar.Value, error) {
+func attributeValueMemberToCedar(key string, v jsontext.Value) (cedar.Value, error) {
 	switch key {
 	case "boolean":
 		var b bool
-		if err := json.Unmarshal(v, &b); err != nil {
+		if err := json.Unmarshal(v, &b, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid boolean attribute: %w", errInvalidRequest, err)
 		}
 
 		return cedar.Boolean(b), nil
 	case "string":
 		var s string
-		if err := json.Unmarshal(v, &s); err != nil {
+		if err := json.Unmarshal(v, &s, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid string attribute: %w", errInvalidRequest, err)
 		}
 
 		return cedar.String(s), nil
 	case "long":
 		var n int64
-		if err := json.Unmarshal(v, &n); err != nil {
+		if err := json.Unmarshal(v, &n, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid long attribute: %w", errInvalidRequest, err)
 		}
 
@@ -71,7 +74,7 @@ func attributeValueMemberToCedar(key string, v json.RawMessage) (cedar.Value, er
 		return parseCedarStringAttr(v, cedartypes.ParseIPAddr)
 	case "entityIdentifier":
 		var eid entityIdentifierJSON
-		if err := json.Unmarshal(v, &eid); err != nil {
+		if err := json.Unmarshal(v, &eid, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid entityIdentifier attribute: %w", errInvalidRequest, err)
 		}
 
@@ -85,9 +88,9 @@ func attributeValueMemberToCedar(key string, v json.RawMessage) (cedar.Value, er
 	}
 }
 
-func parseCedarStringAttr[T cedar.Value](raw json.RawMessage, parse func(string) (T, error)) (cedar.Value, error) {
+func parseCedarStringAttr[T cedar.Value](raw jsontext.Value, parse func(string) (T, error)) (cedar.Value, error) {
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid string-encoded attribute: %w", errInvalidRequest, err)
 	}
 
@@ -99,9 +102,9 @@ func parseCedarStringAttr[T cedar.Value](raw json.RawMessage, parse func(string)
 	return val, nil
 }
 
-func recordAttributeToCedar(raw json.RawMessage) (cedar.Value, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
+func recordAttributeToCedar(raw jsontext.Value) (cedar.Value, error) {
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &fields, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid record attribute: %w", errInvalidRequest, err)
 	}
 
@@ -119,9 +122,9 @@ func recordAttributeToCedar(raw json.RawMessage) (cedar.Value, error) {
 	return cedar.NewRecord(rec), nil
 }
 
-func setAttributeToCedar(raw json.RawMessage) (cedar.Value, error) {
-	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
+func setAttributeToCedar(raw jsontext.Value) (cedar.Value, error) {
+	var items []jsontext.Value
+	if err := json.Unmarshal(raw, &items, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid set attribute: %w", errInvalidRequest, err)
 	}
 
@@ -141,7 +144,7 @@ func setAttributeToCedar(raw json.RawMessage) (cedar.Value, error) {
 
 // attributeMapToCedarRecord converts an AWS "attributes"/"contextMap" object
 // (map of name -> AttributeValue) into a cedar-go Record.
-func attributeMapToCedarRecord(m map[string]json.RawMessage) (cedar.Record, error) {
+func attributeMapToCedarRecord(m map[string]jsontext.Value) (cedar.Record, error) {
 	rec := make(cedar.RecordMap, len(m))
 
 	for k, v := range m {
@@ -161,10 +164,10 @@ func attributeMapToCedarRecord(m map[string]json.RawMessage) (cedar.Record, erro
 // awsAwsjson10_serializeDocumentEntityItem). CedarTagValue has the same members
 // as AttributeValue (serializers.go:2334), so tags reuse the attribute converter.
 type entityItemJSON struct {
-	Identifier *entityIdentifierJSON      `json:"identifier,omitempty"`
-	Attributes map[string]json.RawMessage `json:"attributes,omitempty"`
-	Tags       map[string]json.RawMessage `json:"tags,omitempty"`
-	Parents    []entityIdentifierJSON     `json:"parents,omitempty"`
+	Identifier *entityIdentifierJSON     `json:"identifier,omitempty"`
+	Attributes map[string]jsontext.Value `json:"attributes,omitempty"`
+	Tags       map[string]jsontext.Value `json:"tags,omitempty"`
+	Parents    []entityIdentifierJSON    `json:"parents,omitempty"`
 }
 
 // entitiesDefinitionJSON mirrors the real SDK's types.EntitiesDefinition union
@@ -183,8 +186,8 @@ type entitiesDefinitionJSON struct {
 // (contextMap: typed AttributeValue objects: cedarJson: a literal Cedar JSON
 // object using cedar-go's own native record JSON shape).
 type contextDefinitionJSON struct {
-	ContextMap map[string]json.RawMessage `json:"contextMap,omitempty"`
-	CedarJSON  string                     `json:"cedarJson,omitempty"`
+	ContextMap map[string]jsontext.Value `json:"contextMap,omitempty"`
+	CedarJSON  string                    `json:"cedarJson,omitempty"`
 }
 
 // entitiesToCedar converts a parsed entitiesDefinitionJSON into a cedar-go
@@ -198,7 +201,7 @@ func entitiesToCedar(def *entitiesDefinitionJSON) (cedar.EntityMap, error) {
 
 	if def.CedarJSON != "" {
 		var em cedar.EntityMap
-		if err := json.Unmarshal([]byte(def.CedarJSON), &em); err != nil {
+		if err := json.Unmarshal([]byte(def.CedarJSON), &em, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid entities cedarJson: %w", errInvalidRequest, err)
 		}
 
@@ -245,7 +248,7 @@ func contextToCedar(def *contextDefinitionJSON) (cedar.Record, error) {
 
 	if def.CedarJSON != "" {
 		var rec cedar.Record
-		if err := json.Unmarshal([]byte(def.CedarJSON), &rec); err != nil {
+		if err := json.Unmarshal([]byte(def.CedarJSON), &rec, jsonx.V1()); err != nil {
 			return cedar.Record{}, fmt.Errorf("%w: invalid context cedarJson: %w", errInvalidRequest, err)
 		}
 

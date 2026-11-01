@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -62,7 +64,7 @@ func TestStartServiceSoftwareUpdate_ScheduleAt(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			swo, ok := out["ServiceSoftwareOptions"].(map[string]any)
 			require.True(t, ok, "expected ServiceSoftwareOptions in response")
@@ -109,7 +111,7 @@ func TestOpenSearchHandler_DescribeDomains(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	list, ok := out["DomainStatusList"].([]any)
 	require.True(t, ok)
@@ -141,7 +143,7 @@ func TestOpenSearchHandler_DescribeDomains_All(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	list, ok := out["DomainStatusList"].([]any)
 	require.True(t, ok)
@@ -184,7 +186,7 @@ func TestDescribeDomains_FullStatusShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			list, ok := out["DomainStatusList"].([]any)
 			require.True(t, ok)
@@ -424,7 +426,7 @@ func TestListDomainNames_EngineTypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			domainNames, ok := out["DomainNames"].([]any)
 			require.True(t, ok)
@@ -516,7 +518,7 @@ func TestDescribeDomains_FullDomainStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 			list, ok := out["DomainStatusList"].([]any)
 			require.True(t, ok)
@@ -582,7 +584,7 @@ func TestListDomainNames_ReturnsBothDomains(t *testing.T) {
 					EngineType string `json:"EngineType"`
 				} `json:"DomainNames"`
 			}
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &got, jsonx.V1()))
 			assert.Len(t, got.DomainNames, tt.wantCount)
 
 			returnedNames := make(map[string]bool, len(got.DomainNames))
@@ -682,7 +684,7 @@ func Test_DomainStatus_DomainID(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createStatus, ok := createOut["DomainStatus"].(map[string]any)
 	require.True(t, ok, "DomainStatus missing")
 	assert.Equal(t, "123456789012/domainid-test", createStatus["DomainId"])
@@ -693,7 +695,7 @@ func Test_DomainStatus_DomainID(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeResp.StatusCode)
 
 	var describeOut map[string]any
-	require.NoError(t, json.NewDecoder(describeResp.Body).Decode(&describeOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(describeResp.Body), &describeOut, jsonx.V1()))
 	describeStatus, ok := describeOut["DomainStatus"].(map[string]any)
 	require.True(t, ok, "DomainStatus missing")
 	assert.Equal(t, "123456789012/domainid-test", describeStatus["DomainId"])
@@ -771,7 +773,7 @@ func TestOpenSearchHandler_ListDomainNames(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	names, ok := out["DomainNames"].([]any)
 	require.True(t, ok)
@@ -1122,7 +1124,7 @@ func TestInsights_HTTPHandler(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.path == "/2021-01-01/opensearch/insights" {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 				insights, ok := out["Insights"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, insights)

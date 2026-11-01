@@ -2,7 +2,7 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,12 +10,13 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -42,7 +43,7 @@ func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body
 func (h *Handler) handleDescribeClusters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -71,7 +72,7 @@ func (h *Handler) handleDescribeClusters(ctx context.Context, c *echo.Context, b
 func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -100,7 +101,7 @@ func (h *Handler) handleDeleteCluster(ctx context.Context, c *echo.Context, body
 func (h *Handler) handleUpdateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -121,7 +122,7 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, c *echo.Context, body
 func (h *Handler) handleBatchUpdateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req batchUpdateClusterRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -165,7 +166,7 @@ func (h *Handler) handleBatchUpdateCluster(ctx context.Context, c *echo.Context,
 func (h *Handler) handleFailoverShard(ctx context.Context, c *echo.Context, body []byte) error {
 	var req failoverShardRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -184,7 +185,7 @@ func (h *Handler) handleFailoverShard(ctx context.Context, c *echo.Context, body
 func (h *Handler) handleListAllowedNodeTypeUpdates(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listAllowedNodeTypeUpdatesRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

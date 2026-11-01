@@ -2,7 +2,7 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -1139,7 +1140,7 @@ func validateDocumentContent(docType, format, content string) error {
 	if format == documentFormatYAML {
 		err = yaml.Unmarshal([]byte(content), &doc)
 	} else {
-		err = json.Unmarshal([]byte(content), &doc)
+		err = json.Unmarshal([]byte(content), &doc, jsonx.V1())
 	}
 
 	if err != nil || doc == nil {

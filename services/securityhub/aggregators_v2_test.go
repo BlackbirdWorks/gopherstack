@@ -1,12 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAggregatorV2(t *testing.T) {
@@ -90,7 +92,7 @@ func TestAggregatorV2(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})
@@ -111,7 +113,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		arn := resp["AggregatorV2Arn"].(string)
 
 		rec2 := doRequest(t, h, http.MethodPatch, "/aggregatorv2/update/"+arn, map[string]any{
@@ -120,7 +122,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var resp2 map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 		require.Equal(t, "SPECIFIED_REGIONS", resp2["RegionLinkingMode"])
 	})
 
@@ -135,7 +137,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		arn := resp["AggregatorV2Arn"].(string)
 
 		rec2 := doRequest(t, h, http.MethodDelete, "/aggregatorv2/delete/"+arn, nil)
@@ -164,7 +166,7 @@ func TestCreateAggregatorV2_LinkedRegionsAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn, _ := resp["AggregatorV2Arn"].(string)
 	require.NotEmpty(t, arn)
 
@@ -175,7 +177,7 @@ func TestCreateAggregatorV2_LinkedRegionsAndTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, _ := tagResp["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 }

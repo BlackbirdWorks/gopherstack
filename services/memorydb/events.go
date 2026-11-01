@@ -2,10 +2,11 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AddEvent appends an event to the backend event log (used internally for seeding).
@@ -75,7 +76,7 @@ func (b *InMemoryBackend) DescribeEvents(ctx context.Context, req *describeEvent
 // field. Real aws-sdk-go-v2 clients serialize these TStamp shapes as a JSON
 // number of epoch seconds (awsjson1.1), so n arrives as json.Number, not an
 // RFC3339 string. Returns nil, nil when n is the empty (unset) value.
-func parseEpochRequestTime(n json.Number) (*time.Time, error) {
+func parseEpochRequestTime(n jsonx.Number) (*time.Time, error) {
 	if n == "" {
 		return nil, nil //nolint:nilnil // absent filter is a valid, distinct state from "parse failed"
 	}

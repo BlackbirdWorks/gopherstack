@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // defaultMemberDefinitions returns a minimal, real-shaped MemberDefinitions
@@ -33,7 +35,7 @@ func TestHandler_CreateWorkteam(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["WorkteamArn"], "my-team")
 }
 
@@ -50,7 +52,7 @@ func TestHandler_DescribeWorkteam(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wt := resp["Workteam"].(map[string]any)
 	assert.Equal(t, "team-1", wt["WorkteamName"])
 }
@@ -86,7 +88,7 @@ func TestHandler_ListWorkteams(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["Workteams"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -130,7 +132,7 @@ func TestHandler_ListWorkteams_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items := resp["Workteams"].([]any)
 			require.Len(t, items, len(tc.wantNames))
 
@@ -166,7 +168,7 @@ func TestHandler_CreateWorkteam_NotificationAndWorkerAccessConfig(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wt := resp["Workteam"].(map[string]any)
 
 	nc := wt["NotificationConfiguration"].(map[string]any)
@@ -196,7 +198,7 @@ func TestHandler_UpdateWorkteam_NotificationConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wt := resp["Workteam"].(map[string]any)
 	nc := wt["NotificationConfiguration"].(map[string]any)
 	assert.Equal(t, "arn:aws:sns:us-east-1:123456789012:updated", nc["NotificationTopicArn"])

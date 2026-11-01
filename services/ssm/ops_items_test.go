@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -30,7 +31,7 @@ func TestStubOps_DeleteOpsItem(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "DeleteOpsItem", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -59,7 +60,7 @@ func TestStubOps_GetOpsItem(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "GetOpsItem", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -79,7 +80,7 @@ func TestStubOps_UpdateOpsItem(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID, "Title": "updated-item"})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID, "Title": "updated-item"}, jsonx.V1())
 	rec := doRequest(t, h, "UpdateOpsItem", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -114,7 +115,7 @@ func TestCreateOpsItem_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateOpsItemOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.OpsItemID)
 			assert.NotEmpty(t, resp.OpsItemArn)
 			assert.True(t, strings.HasPrefix(resp.OpsItemID, "oi-"))
@@ -201,7 +202,7 @@ func TestAssociateOpsItemRelatedItem(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var createResp ssm.CreateOpsItemOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				body = `{"OpsItemId":"` + createResp.OpsItemID +
 					`","AssociationType":"RelatesTo","ResourceType":"AWS::EC2::Instance",` +
@@ -215,7 +216,7 @@ func TestAssociateOpsItemRelatedItem(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), tt.wantErr)
 			} else {
 				var resp ssm.AssociateOpsItemRelatedItemOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp.AssociationID)
 			}
 		})
@@ -901,7 +902,7 @@ func TestOpsItem_OperationalData_CreateAndUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// GetOpsItem should have initial OperationalData.
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "GetOpsItem", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "/aws/resources")
@@ -915,12 +916,12 @@ func TestOpsItem_OperationalData_CreateAndUpdate(t *testing.T) {
 				"Value": `[{"automationId":"auto-123"}]`,
 			},
 		},
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "UpdateOpsItem", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// GetOpsItem should have both keys.
-	body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec = doRequest(t, h, "GetOpsItem", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "/aws/resources")
@@ -974,11 +975,11 @@ func TestOpsItem_OperationalData_TableDriven(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"OpsItemId":       item.OpsItemID,
 				"OperationalData": tt.updateData,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "UpdateOpsItem", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+			body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 			rec = doRequest(t, h, "GetOpsItem", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -1001,12 +1002,12 @@ func TestOpsItemEvents_TrackCreates(t *testing.T) {
 	require.NoError(t, err)
 
 	// ListOpsItemEvents for this item should return at least one event.
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "ListOpsItemEvents", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["Summaries"].([]any)
 	assert.NotEmpty(t, summaries, "should have at least one event after create")
@@ -1027,16 +1028,16 @@ func TestOpsItemEvents_TrackUpdates(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"OpsItemId":   item.OpsItemID,
 		"Description": "Updated description",
-	})
+	}, jsonx.V1())
 	doRequest(t, h, "UpdateOpsItem", string(body))
 
 	// ListOpsItemEvents should have multiple events now.
-	body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID})
+	body, _ = json.Marshal(map[string]any{"OpsItemId": item.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "ListOpsItemEvents", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries := resp["Summaries"].([]any)
 	assert.GreaterOrEqual(t, len(summaries), 2, "create + update should each produce an event")
@@ -1054,7 +1055,7 @@ func TestOpsItemEvents_FilterByOpsItemID(t *testing.T) {
 	require.NoError(t, err)
 
 	// Filter by item1 — should only get item1 events.
-	body, _ := json.Marshal(map[string]any{"OpsItemId": item1.OpsItemID})
+	body, _ := json.Marshal(map[string]any{"OpsItemId": item1.OpsItemID}, jsonx.V1())
 	rec := doRequest(t, h, "ListOpsItemEvents", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), item1.OpsItemID)
@@ -1109,7 +1110,7 @@ func TestUpdateOpsItem_TableDriven(t *testing.T) {
 			payload := map[string]any{"OpsItemId": opsItemID}
 			maps.Copy(payload, tt.update)
 
-			body, _ := json.Marshal(payload)
+			body, _ := json.Marshal(payload, jsonx.V1())
 			rec := doRequest(t, h, "UpdateOpsItem", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 

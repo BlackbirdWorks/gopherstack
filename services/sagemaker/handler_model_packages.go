@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,23 +30,23 @@ type createModelPackageInput struct {
 	ModelApprovalStatus               string            `json:"ModelApprovalStatus"`
 	ModelPackageGroupName             string            `json:"ModelPackageGroupName"`
 	ModelPackageName                  string            `json:"ModelPackageName"`
-	InferenceSpecification            json.RawMessage   `json:"InferenceSpecification"`
-	ValidationSpecification           json.RawMessage   `json:"ValidationSpecification"`
-	DriftCheckBaselines               json.RawMessage   `json:"DriftCheckBaselines"`
-	ModelMetrics                      json.RawMessage   `json:"ModelMetrics"`
-	ModelCard                         json.RawMessage   `json:"ModelCard"`
-	ModelLifeCycle                    json.RawMessage   `json:"ModelLifeCycle"`
-	MetadataProperties                json.RawMessage   `json:"MetadataProperties"`
-	SecurityConfig                    json.RawMessage   `json:"SecurityConfig"`
-	AdditionalInferenceSpecifications json.RawMessage   `json:"AdditionalInferenceSpecifications"`
+	InferenceSpecification            jsontext.Value    `json:"InferenceSpecification"`
+	ValidationSpecification           jsontext.Value    `json:"ValidationSpecification"`
+	DriftCheckBaselines               jsontext.Value    `json:"DriftCheckBaselines"`
+	ModelMetrics                      jsontext.Value    `json:"ModelMetrics"`
+	ModelCard                         jsontext.Value    `json:"ModelCard"`
+	ModelLifeCycle                    jsontext.Value    `json:"ModelLifeCycle"`
+	MetadataProperties                jsontext.Value    `json:"MetadataProperties"`
+	SecurityConfig                    jsontext.Value    `json:"SecurityConfig"`
+	AdditionalInferenceSpecifications jsontext.Value    `json:"AdditionalInferenceSpecifications"`
 	Tags                              []tagObject       `json:"Tags"`
-	SourceAlgorithmSpecification      json.RawMessage   `json:"SourceAlgorithmSpecification"`
+	SourceAlgorithmSpecification      jsontext.Value    `json:"SourceAlgorithmSpecification"`
 }
 
 func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req createModelPackageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -92,7 +95,7 @@ func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyModelPackageArn: result.ModelPackageArn})
+	return json.Marshal(map[string]any{keyModelPackageArn: result.ModelPackageArn}, jsonx.V1())
 }
 
 // describeModelPackageInput is the wire request body for
@@ -106,7 +109,7 @@ type describeModelPackageInput struct {
 func (h *Handler) handleDescribeModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeModelPackageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -119,7 +122,7 @@ func (h *Handler) handleDescribeModelPackage(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteModelPackageInput is the wire request body for DeleteModelPackage
@@ -131,7 +134,7 @@ type deleteModelPackageInput struct {
 func (h *Handler) handleDeleteModelPackage(ctx context.Context, body []byte) error {
 	var req deleteModelPackageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -160,7 +163,7 @@ type listModelPackagesInput struct {
 func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]byte, error) {
 	var req listModelPackagesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -205,7 +208,7 @@ func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{
 		"ModelPackageSummaryList": summaries,
 		keyNextToken:              next,
-	})
+	}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +228,7 @@ type createModelPackageGroupInput struct {
 func (h *Handler) handleCreateModelPackageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req createModelPackageGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -247,7 +250,7 @@ func (h *Handler) handleCreateModelPackageGroup(ctx context.Context, body []byte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyModelPackageGroupArn: result.ModelPackageGroupArn})
+	return json.Marshal(map[string]any{keyModelPackageGroupArn: result.ModelPackageGroupArn}, jsonx.V1())
 }
 
 // describeModelPackageGroupInput is the wire request body for
@@ -260,7 +263,7 @@ type describeModelPackageGroupInput struct {
 func (h *Handler) handleDescribeModelPackageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeModelPackageGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -273,7 +276,7 @@ func (h *Handler) handleDescribeModelPackageGroup(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteModelPackageGroupInput is the wire request body for
@@ -286,7 +289,7 @@ type deleteModelPackageGroupInput struct {
 func (h *Handler) handleDeleteModelPackageGroup(ctx context.Context, body []byte) error {
 	var req deleteModelPackageGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -314,7 +317,7 @@ type listModelPackageGroupsInput struct {
 func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req listModelPackageGroupsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -353,7 +356,7 @@ func (h *Handler) handleListModelPackageGroups(ctx context.Context, body []byte)
 	return json.Marshal(map[string]any{
 		"ModelPackageGroupSummaryList": summaries,
 		keyNextToken:                   next,
-	})
+	}, jsonx.V1())
 }
 
 // getModelPackageGroupPolicyInput is the wire request body for
@@ -366,7 +369,7 @@ type getModelPackageGroupPolicyInput struct {
 func (h *Handler) handleGetModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req getModelPackageGroupPolicyInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -379,7 +382,7 @@ func (h *Handler) handleGetModelPackageGroupPolicy(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{"ResourcePolicy": policy})
+	return json.Marshal(map[string]string{"ResourcePolicy": policy}, jsonx.V1())
 }
 
 // putModelPackageGroupPolicyInput is the wire request body for
@@ -393,7 +396,7 @@ type putModelPackageGroupPolicyInput struct {
 func (h *Handler) handlePutModelPackageGroupPolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var req putModelPackageGroupPolicyInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -410,7 +413,7 @@ func (h *Handler) handlePutModelPackageGroupPolicy(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyModelPackageGroupArn: g.ModelPackageGroupArn})
+	return json.Marshal(map[string]string{keyModelPackageGroupArn: g.ModelPackageGroupArn}, jsonx.V1())
 }
 
 // deleteModelPackageGroupPolicyInput is the wire request body for
@@ -423,7 +426,7 @@ type deleteModelPackageGroupPolicyInput struct {
 func (h *Handler) handleDeleteModelPackageGroupPolicy(ctx context.Context, body []byte) error {
 	var req deleteModelPackageGroupPolicyInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -452,16 +455,16 @@ type updateModelPackageInput struct {
 	SourceURI                              string            `json:"SourceUri"`
 	CustomerMetadataProperties             map[string]string `json:"CustomerMetadataProperties"`
 	CustomerMetadataPropertiesToRemove     []string          `json:"CustomerMetadataPropertiesToRemove"`
-	InferenceSpecification                 json.RawMessage   `json:"InferenceSpecification"`
-	ModelCard                              json.RawMessage   `json:"ModelCard"`
-	ModelLifeCycle                         json.RawMessage   `json:"ModelLifeCycle"`
-	AdditionalInferenceSpecificationsToAdd json.RawMessage   `json:"AdditionalInferenceSpecificationsToAdd"`
+	InferenceSpecification                 jsontext.Value    `json:"InferenceSpecification"`
+	ModelCard                              jsontext.Value    `json:"ModelCard"`
+	ModelLifeCycle                         jsontext.Value    `json:"ModelLifeCycle"`
+	AdditionalInferenceSpecificationsToAdd jsontext.Value    `json:"AdditionalInferenceSpecificationsToAdd"`
 }
 
 func (h *Handler) handleUpdateModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateModelPackageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -489,7 +492,7 @@ func (h *Handler) handleUpdateModelPackage(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyModelPackageArn: mp.ModelPackageArn})
+	return json.Marshal(map[string]string{keyModelPackageArn: mp.ModelPackageArn}, jsonx.V1())
 }
 
 // batchDescribeModelPackageRequest is the request body for BatchDescribeModelPackage.
@@ -519,7 +522,7 @@ type batchDescribeModelPackageError struct {
 
 func (h *Handler) handleBatchDescribeModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req batchDescribeModelPackageRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -551,5 +554,5 @@ func (h *Handler) handleBatchDescribeModelPackage(ctx context.Context, body []by
 	return json.Marshal(map[string]any{
 		"ModelPackageSummaries":             modelPackageMap,
 		"BatchDescribeModelPackageErrorMap": errorsMap,
-	})
+	}, jsonx.V1())
 }

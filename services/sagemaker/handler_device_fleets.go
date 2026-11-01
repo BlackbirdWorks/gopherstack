@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -45,7 +47,7 @@ type createDeviceFleetInput struct {
 func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req createDeviceFleetInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -71,7 +73,7 @@ func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type describeDeviceFleetInput struct {
@@ -81,7 +83,7 @@ type describeDeviceFleetInput struct {
 func (h *Handler) handleDescribeDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeDeviceFleetInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -90,7 +92,7 @@ func (h *Handler) handleDescribeDeviceFleet(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(f)
+	return json.Marshal(f, jsonx.V1())
 }
 
 // listDeviceFleetsInput is ListDeviceFleets' request shape
@@ -110,7 +112,7 @@ type listDeviceFleetsInput struct {
 func (h *Handler) handleListDeviceFleets(ctx context.Context, body []byte) ([]byte, error) {
 	var req listDeviceFleetsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -150,7 +152,7 @@ type updateDeviceFleetInput struct {
 func (h *Handler) handleUpdateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateDeviceFleetInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -165,7 +167,7 @@ func (h *Handler) handleUpdateDeviceFleet(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type deleteDeviceFleetInput struct {
@@ -175,7 +177,7 @@ type deleteDeviceFleetInput struct {
 func (h *Handler) handleDeleteDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteDeviceFleetInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -183,7 +185,7 @@ func (h *Handler) handleDeleteDeviceFleet(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +215,7 @@ type registerDevicesInput struct {
 func (h *Handler) handleRegisterDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req registerDevicesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -226,7 +228,7 @@ func (h *Handler) handleRegisterDevices(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type deregisterDevicesInput struct {
@@ -237,7 +239,7 @@ type deregisterDevicesInput struct {
 func (h *Handler) handleDeregisterDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req deregisterDevicesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -245,7 +247,7 @@ func (h *Handler) handleDeregisterDevices(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // describeDeviceInput is DescribeDevice's request shape
@@ -262,7 +264,7 @@ type describeDeviceInput struct {
 func (h *Handler) handleDescribeDevice(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeDeviceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -271,7 +273,7 @@ func (h *Handler) handleDescribeDevice(ctx context.Context, body []byte) ([]byte
 		return nil, err
 	}
 
-	return json.Marshal(d)
+	return json.Marshal(d, jsonx.V1())
 }
 
 // listDevicesInput is ListDevices' request shape (api_op_ListDevices.go:
@@ -288,7 +290,7 @@ type listDevicesInput struct {
 func (h *Handler) handleListDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req listDevicesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

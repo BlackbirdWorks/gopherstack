@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateModelCard(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_CreateModelCard(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ModelCardArn"], "my-card")
 }
 
@@ -51,7 +53,7 @@ func TestHandler_DescribeModelCard(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "card-1", resp["ModelCardName"])
 }
 
@@ -70,7 +72,7 @@ func TestHandler_UpdateModelCard(t *testing.T) {
 	// Verify version incremented
 	rec = doSageMakerRequest(t, h, "DescribeModelCard", map[string]any{"ModelCardName": "card-upd"})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.InDelta(t, float64(2), resp["ModelCardVersion"], 0)
 }
 
@@ -101,7 +103,7 @@ func TestHandler_ListModelCards(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["ModelCardSummaries"])
 
 	// Create one
@@ -113,7 +115,7 @@ func TestHandler_ListModelCards(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "ListModelCards", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["ModelCardSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 
@@ -142,7 +144,7 @@ func TestHandler_ListModelCardVersions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions := resp["ModelCardVersionSummaryList"].([]any)
 	assert.Len(t, versions, 1)
 
@@ -178,7 +180,7 @@ func TestHandler_ListModelCardExportJobs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobs := resp["ModelCardExportJobSummaries"].([]any)
 	assert.Empty(t, jobs)
 }

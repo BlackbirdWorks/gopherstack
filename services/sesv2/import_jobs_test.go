@@ -1,12 +1,14 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestCreateImportJob tests the CreateImportJob operation.
@@ -48,7 +50,7 @@ func TestGetImportJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/import-jobs/"+jobID, nil)
@@ -175,7 +177,7 @@ func TestCreateImportJobWireShape(t *testing.T) {
 			}
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			jobID, ok := createResp["JobId"].(string)
 			require.True(t, ok)
 
@@ -183,7 +185,7 @@ func TestCreateImportJobWireShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			dest, ok := getResp["ImportDestination"].(map[string]any)
 			require.True(t, ok)
 

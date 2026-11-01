@@ -2,12 +2,14 @@ package ocimonitoring
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -231,9 +233,9 @@ func renderNotice(a *Alarm, kind string, now time.Time, hits []firing) (string, 
 	)
 
 	if a.MessageFormat == formatPretty {
-		out, err = json.MarshalIndent(w, "", "  ")
+		out, err = json.Marshal(w, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	} else {
-		out, err = json.Marshal(w)
+		out, err = json.Marshal(w, jsonx.V1())
 	}
 
 	if err != nil {

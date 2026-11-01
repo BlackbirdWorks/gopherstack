@@ -1,7 +1,7 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -153,7 +154,7 @@ func TestGetPrefetchSchedule_NoCreationTimeOnWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotContains(
 		t, resp, "CreationTime",
 		"GetPrefetchScheduleOutput has no CreationTime member on the real API; emitting one is a fabricated field",
@@ -224,7 +225,7 @@ func TestCreateChannel_NoLogConfigurationOnWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotContains(
 		t, createResp, "LogConfiguration",
 		"CreateChannelOutput has no LogConfiguration member on the real API",
@@ -236,7 +237,7 @@ func TestCreateChannel_NoLogConfigurationOnWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotContains(
 		t, updateResp, "LogConfiguration",
 		"UpdateChannelOutput has no LogConfiguration member on the real API",
@@ -246,7 +247,7 @@ func TestCreateChannel_NoLogConfigurationOnWire(t *testing.T) {
 	require.Equal(t, http.StatusOK, describeRec.Code, describeRec.Body.String())
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Contains(
 		t, describeResp, "LogConfiguration",
 		"DescribeChannelOutput.LogConfiguration IS required on the real API and must stay present",

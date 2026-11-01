@@ -1,11 +1,13 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseCertificateRoute(method, suffix string) mcRoute {
@@ -34,7 +36,7 @@ type associateCertificateInput struct {
 
 func (h *Handler) handleAssociateCertificate(c *echo.Context, body []byte) error {
 	var in associateCertificateInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

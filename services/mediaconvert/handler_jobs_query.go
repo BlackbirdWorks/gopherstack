@@ -1,11 +1,13 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseJobsQueriesRoute(method, suffix string) mcRoute {
@@ -61,7 +63,7 @@ type startJobsQueryOutput struct {
 
 func (h *Handler) handleStartJobsQuery(c *echo.Context, body []byte) error {
 	var in startJobsQueryInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

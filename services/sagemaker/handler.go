@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -908,7 +909,7 @@ func writeInternalServerError(c *echo.Context) error {
 	payload, err := json.Marshal(map[string]string{
 		keyTypeField:    "InternalFailure",
 		keyMessageField: "internal server error",
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -925,15 +926,12 @@ func wireMessage(err error) string {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrResourceNotFound):
@@ -945,14 +943,14 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceNotFound",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrConflictException):
@@ -964,21 +962,21 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ConflictException",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, awserr.ErrConflict):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceInUse",
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, errInvalidRequest), jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
 			keyMessageField: wireMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errUnknownAction):
@@ -1072,5 +1070,5 @@ func listResp(key string, items []map[string]any, nextToken string) ([]byte, err
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

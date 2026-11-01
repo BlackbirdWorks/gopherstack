@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -24,7 +25,7 @@ func TestDescribeProductsIsGETProducts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	products, _ := resp["Products"].([]any)
 	assert.NotEmpty(t, products)
@@ -49,7 +50,7 @@ func TestEnableImportFindingsForProductPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	subArn, _ := resp["ProductSubscriptionArn"].(string)
 	assert.NotEmpty(t, subArn)
@@ -69,7 +70,7 @@ func TestListEnabledProductsForImportIsGETProductSubscriptions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	subs, _ := resp["ProductSubscriptions"].([]any)
 	assert.Len(t, subs, 1)
@@ -170,7 +171,7 @@ func TestHandler_DisableImportFindingsForProduct(t *testing.T) {
 			require.Equal(t, http.StatusOK, enableRec.Code)
 
 			var enableResp map[string]any
-			require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp))
+			require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp, jsonx.V1()))
 			subArn, _ := enableResp["ProductSubscriptionArn"].(string)
 			require.NotEmpty(t, subArn)
 
@@ -308,7 +309,7 @@ func TestRecommendedPolicyV2(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})

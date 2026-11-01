@@ -2,7 +2,7 @@ package translate
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -38,7 +38,7 @@ const translateSnapshotVersion = 1
 // (see backend.go's InMemoryBackend field doc comment). It is persisted
 // directly here.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`

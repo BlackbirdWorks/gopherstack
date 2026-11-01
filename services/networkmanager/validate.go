@@ -1,13 +1,14 @@
 package networkmanager
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"unicode/utf8"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -93,7 +94,7 @@ func decodeObject(body []byte) (map[string]any, bool) {
 	}
 
 	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
+	if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
 		return nil, false
 	}
 

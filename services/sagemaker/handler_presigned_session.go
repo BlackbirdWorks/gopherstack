@@ -2,11 +2,13 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ type createPresignedDomainURLRequest struct {
 func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPresignedDomainURLRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -133,7 +135,7 @@ func (h *Handler) handleCreatePresignedDomainURL(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAuthorizedURL: url})
+	return json.Marshal(map[string]string{keyAuthorizedURL: url}, jsonx.V1())
 }
 
 // templateVarPattern matches simple Liquid-style "{{ task.input.<field> }}"
@@ -162,7 +164,7 @@ type renderUITemplateRequest struct {
 func (h *Handler) handleRenderUITemplate(ctx context.Context, body []byte) ([]byte, error) {
 	var req renderUITemplateRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -195,7 +197,7 @@ func (h *Handler) handleRenderUITemplate(ctx context.Context, body []byte) ([]by
 	return json.Marshal(map[string]any{
 		"RenderedContent": rendered,
 		"Errors":          []any{},
-	})
+	}, jsonx.V1())
 }
 
 // renderUITemplateContent substitutes "{{ task.input.<field> }}" variables in
@@ -206,7 +208,7 @@ func renderUITemplateContent(content, taskInput string) string {
 	}
 
 	var fields map[string]any
-	if err := json.Unmarshal([]byte(taskInput), &fields); err != nil {
+	if err := json.Unmarshal([]byte(taskInput), &fields, jsonx.V1()); err != nil {
 		return content
 	}
 
@@ -233,7 +235,7 @@ type startSessionRequest struct {
 func (h *Handler) handleStartSession(ctx context.Context, body []byte) ([]byte, error) {
 	var req startSessionRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -250,5 +252,5 @@ func (h *Handler) handleStartSession(ctx context.Context, body []byte) ([]byte, 
 		"SessionId":  result.SessionID,
 		"StreamUrl":  result.StreamURL,
 		"TokenValue": result.TokenValue,
-	})
+	}, jsonx.V1())
 }

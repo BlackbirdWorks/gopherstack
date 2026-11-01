@@ -1,12 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // vpcEndpointSummaryJSON mirrors types.VpcEndpointSummary: DomainArn, Status,
@@ -58,7 +59,7 @@ func (h *Handler) handleAuthorizeVpcEndpointAccess(
 	}
 
 	var req authorizeVpcEndpointAccessRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -95,7 +96,7 @@ func (h *Handler) handleVpcEndpointsRoutes(w http.ResponseWriter, r *http.Reques
 			VpcEndpointIDs []string `json:"VpcEndpointIds"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		endpoints, errs := h.Backend.DescribeVpcEndpoints(req.VpcEndpointIDs)
 		h.writeJSON(r, w, map[string]any{"VpcEndpoints": endpoints, "VpcEndpointErrors": errs})
@@ -130,7 +131,7 @@ func (h *Handler) handleUpdateVpcEndpoint(w http.ResponseWriter, r *http.Request
 		VpcEndpointID string         `json:"VpcEndpointId"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	ep, updateErr := h.Backend.UpdateVpcEndpoint(req.VpcEndpointID, req.VpcOptions)
@@ -158,7 +159,7 @@ func (h *Handler) handleVpcEndpointRootRoutes(w http.ResponseWriter, r *http.Req
 			DomainArn  string         `json:"DomainArn"`
 		}
 		if len(body) > 0 {
-			_ = json.Unmarshal(body, &req)
+			_ = json.Unmarshal(body, &req, jsonx.V1())
 		}
 		ep, createErr := h.Backend.CreateVpcEndpoint(req.DomainArn, req.VpcOptions)
 		if createErr != nil {

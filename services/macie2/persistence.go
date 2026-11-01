@@ -2,7 +2,7 @@ package macie2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -52,7 +52,7 @@ const macie2SnapshotVersion = 3
 // ClassExportConfig, FindingsPubConfig, and RevealConfig are single pointers,
 // not collections, and are persisted directly alongside the tables.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage            `json:"tables"`
+	Tables              map[string]jsontext.Value             `json:"tables"`
 	Session             *Session                              `json:"session,omitempty"`
 	Tags                map[string]map[string]string          `json:"tags"`
 	Administrator       *AdministratorAccount                 `json:"administrator,omitempty"`

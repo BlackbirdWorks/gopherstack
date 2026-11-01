@@ -1,13 +1,14 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -274,7 +275,7 @@ func (h *Handler) dispatchTransferOps(c *echo.Context, op string, body []byte) (
 
 func (h *Handler) handleAcceptHandshake(c *echo.Context, body []byte) error {
 	var req acceptHandshakeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -292,7 +293,7 @@ func (h *Handler) handleAcceptHandshake(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleCancelHandshake(c *echo.Context, body []byte) error {
 	var req cancelHandshakeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -310,7 +311,7 @@ func (h *Handler) handleCancelHandshake(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDeclineHandshake(c *echo.Context, body []byte) error {
 	var req declineHandshakeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -328,7 +329,7 @@ func (h *Handler) handleDeclineHandshake(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDescribeHandshake(c *echo.Context, body []byte) error {
 	var req describeHandshakeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -346,7 +347,7 @@ func (h *Handler) handleDescribeHandshake(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDescribeResponsibilityTransfer(c *echo.Context, body []byte) error {
 	var req describeResponsibilityTransferRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -376,7 +377,7 @@ func (h *Handler) handleEnableAllFeatures(c *echo.Context, _ []byte) error {
 
 func (h *Handler) handleInviteAccountToOrganization(c *echo.Context, body []byte) error {
 	var req inviteAccountToOrganizationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -398,7 +399,7 @@ func (h *Handler) handleInviteAccountToOrganization(c *echo.Context, body []byte
 
 func (h *Handler) handleInviteOrganizationToTransferResponsibility(c *echo.Context, body []byte) error {
 	var req inviteOrganizationToTransferResponsibilityRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -449,7 +450,7 @@ func (h *Handler) handleLeaveOrganization(c *echo.Context, _ []byte) error {
 func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) error {
 	var req listHandshakesFilterRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}
@@ -486,7 +487,7 @@ func (h *Handler) handleListHandshakesForAccount(c *echo.Context, body []byte) e
 func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []byte) error {
 	var req listHandshakesFilterRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}
@@ -522,7 +523,7 @@ func (h *Handler) handleListHandshakesForOrganization(c *echo.Context, body []by
 func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, body []byte) error {
 	var req listInboundResponsibilityTransfersRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}
@@ -556,7 +557,7 @@ func (h *Handler) handleListInboundResponsibilityTransfers(c *echo.Context, body
 func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, body []byte) error {
 	var req listOutboundResponsibilityTransfersRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}
@@ -589,7 +590,7 @@ func (h *Handler) handleListOutboundResponsibilityTransfers(c *echo.Context, bod
 
 func (h *Handler) handleTerminateResponsibilityTransfer(c *echo.Context, body []byte) error {
 	var req terminateResponsibilityTransferRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -616,7 +617,7 @@ func (h *Handler) handleTerminateResponsibilityTransfer(c *echo.Context, body []
 
 func (h *Handler) handleUpdateResponsibilityTransfer(c *echo.Context, body []byte) error {
 	var req updateResponsibilityTransferRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

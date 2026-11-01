@@ -1,7 +1,7 @@
 package timestreaminfluxdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"slices"
 	"strings"
@@ -129,11 +129,11 @@ type wClusterSummary struct {
 }
 
 type wParameterGroup struct {
-	Arn         string          `json:"arn"`
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Arn         string         `json:"arn"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  jsontext.Value `json:"parameters,omitempty"`
 }
 
 type wParameterGroupSummary struct {

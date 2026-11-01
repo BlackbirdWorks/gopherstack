@@ -2,10 +2,12 @@ package s3control
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -72,7 +74,7 @@ func newDirtyDTORegistry() (
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 	// batch2 additions (raw, non-*T maps -- never converted to store.Table)
 	BucketReplication     map[string]string            `json:"bucketReplication"`
 	StorageLensConfigs    map[string]string            `json:"storageLensConfigs"`
@@ -153,7 +155,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NextID:                       b.nextID,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "s3control: failed to snapshot backend", "error", err)
 
@@ -341,7 +343,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreDirtyTablesLocked restores the "dirty" tables (mrapRequests,
 // accessPointPABs) from tables via the ephemeral DTO registry, converting
 // each DTO back to its live type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, mrapDTOs, pabDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

@@ -2,7 +2,7 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createPermissionVersionRequest struct {
@@ -29,7 +30,7 @@ type createPermissionVersionResponse struct {
 
 func (h *Handler) handleCreatePermissionVersion(_ context.Context, body []byte) ([]byte, error) {
 	var req createPermissionVersionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) handleCreatePermissionVersion(_ context.Context, body []byte) 
 	pv := p.Versions[version]
 
 	return json.Marshal(
-		createPermissionVersionResponse{Permission: toPermissionDetailObject(p, pv)},
+		createPermissionVersionResponse{Permission: toPermissionDetailObject(p, pv)}, jsonx.V1(),
 	)
 }
 
@@ -113,7 +114,7 @@ func (h *Handler) handleDeletePermissionVersion(
 	}
 
 	return json.Marshal(
-		deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "DELETING"},
+		deletePermissionVersionResponse{ReturnValue: true, PermissionStatus: "DELETING"}, jsonx.V1(),
 	)
 }
 
@@ -146,7 +147,7 @@ func toPermissionVersionSummaryObject(p *Permission, pv *PermissionVersion) perm
 
 func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) ([]byte, error) {
 	var req listPermissionVersionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -175,7 +176,7 @@ func (h *Handler) handleListPermissionVersions(_ context.Context, body []byte) (
 		return nil, pErr2
 	}
 
-	return json.Marshal(listPermissionVersionsResponse{NextToken: nextToken, Permissions: paged})
+	return json.Marshal(listPermissionVersionsResponse{NextToken: nextToken, Permissions: paged}, jsonx.V1())
 }
 
 type setDefaultPermissionVersionRequest struct {
@@ -192,7 +193,7 @@ func (h *Handler) handleSetDefaultPermissionVersion(
 	body []byte,
 ) ([]byte, error) {
 	var req setDefaultPermissionVersionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -208,5 +209,5 @@ func (h *Handler) handleSetDefaultPermissionVersion(
 		return nil, err
 	}
 
-	return json.Marshal(setDefaultPermissionVersionResponse{ReturnValue: true})
+	return json.Marshal(setDefaultPermissionVersionResponse{ReturnValue: true}, jsonx.V1())
 }

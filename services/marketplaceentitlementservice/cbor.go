@@ -3,12 +3,15 @@ package marketplaceentitlementservice
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
 
 	"github.com/aws/smithy-go/encoding/cbor"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // The pinned SDK speaks Smithy RPCv2 CBOR (POST /service/AWSMPEntitlementService/operation/<Op>);
@@ -33,7 +36,7 @@ func cborToJSONBytes(body []byte) ([]byte, error) {
 		return nil, fail(ErrInvalidParameter, "expected a CBOR map")
 	}
 
-	return json.Marshal(cborToAny(m))
+	return json.Marshal(cborToAny(m), jsonx.V1())
 }
 
 func cborToAny(v cbor.Value) any {
@@ -55,13 +58,13 @@ func cborToAny(v cbor.Value) any {
 	case cbor.String:
 		return string(t)
 	case cbor.Uint:
-		return json.Number(strconv.FormatUint(uint64(t), 10))
+		return jsonx.Number(strconv.FormatUint(uint64(t), 10))
 	case cbor.NegInt:
 		if uint64(t) > math.MaxInt64 {
 			return float64(-1) - float64(t)
 		}
 
-		return json.Number(strconv.FormatInt(-1-int64(t), 10)) //nolint:gosec // bounded by the MaxInt64 check above
+		return jsonx.Number(strconv.FormatInt(-1-int64(t), 10)) //nolint:gosec // bounded by the MaxInt64 check above
 	case cbor.Float64:
 		return float64(t)
 	case cbor.Float32:
@@ -78,11 +81,10 @@ func cborToAny(v cbor.Value) any {
 }
 
 func jsonToCBORBytes(body []byte) ([]byte, error) {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, fail(ErrInternalServiceError, "encode response: %v", err)
 	}
 
@@ -109,14 +111,14 @@ func anyToCBOR(v any, key string) cbor.Value {
 		return cbor.String(t)
 	case bool:
 		return cbor.Bool(t)
-	case json.Number:
+	case jsonx.Number:
 		return numberToCBOR(t, cborTimeKeys[key])
 	default:
 		return &cbor.Nil{}
 	}
 }
 
-func numberToCBOR(n json.Number, timestamp bool) cbor.Value {
+func numberToCBOR(n jsonx.Number, timestamp bool) cbor.Value {
 	if !timestamp && !strings.ContainsAny(string(n), ".eE") {
 		if i, err := n.Int64(); err == nil {
 			if i >= 0 {

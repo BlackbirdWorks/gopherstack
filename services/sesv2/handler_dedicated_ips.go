@@ -1,11 +1,14 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetDedicatedIP(ip string) (any, error) {
@@ -41,7 +44,7 @@ type putDedicatedIPInPoolInput struct {
 func (h *Handler) handlePutDedicatedIPInPool(c *echo.Context, ip string) (any, error) {
 	var in putDedicatedIPInPoolInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -59,7 +62,7 @@ type putDedicatedIPWarmupInput struct {
 func (h *Handler) handlePutDedicatedIPWarmupAttributes(c *echo.Context, ip string) (any, error) {
 	var in putDedicatedIPWarmupInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

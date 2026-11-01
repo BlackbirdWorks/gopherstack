@@ -1,10 +1,12 @@
 package ses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // sesNotificationMail is the "mail" object of an SES SNS notification.
@@ -100,7 +102,7 @@ func buildSESNotificationPayload(
 	}
 
 	// map[string]any marshaling of these concrete field types cannot fail.
-	bs, _ := json.Marshal(data)
+	bs, _ := json.Marshal(data, jsonx.V1())
 
 	return bs
 }

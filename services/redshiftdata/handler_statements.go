@@ -2,11 +2,13 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleExecuteStatement: a positive SessionKeepAliveSeconds without SessionId mints a session
@@ -29,7 +31,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		WithEvent               bool           `json:"WithEvent"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -50,7 +52,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 
 	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
 		if stmt, descErr := h.Backend.DescribeStatement(ctx, id); descErr == nil {
-			return json.Marshal(statementCreateResponse(stmt))
+			return json.Marshal(statementCreateResponse(stmt), jsonx.V1())
 		}
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 		}
 	}
 
-	return json.Marshal(statementCreateResponse(stmt))
+	return json.Marshal(statementCreateResponse(stmt), jsonx.V1())
 }
 
 const maxSessionKeepAliveSeconds = 24 * 60 * 60
@@ -117,7 +119,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		WithEvent               bool           `json:"WithEvent"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -138,7 +140,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 
 	if id, ok := h.lookupIdempotentStatement(tokenKey); ok {
 		if stmt, descErr := h.Backend.DescribeStatement(ctx, id); descErr == nil {
-			return json.Marshal(statementCreateResponse(stmt))
+			return json.Marshal(statementCreateResponse(stmt), jsonx.V1())
 		}
 	}
 
@@ -166,7 +168,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		}
 	}
 
-	return json.Marshal(statementCreateResponse(stmt))
+	return json.Marshal(statementCreateResponse(stmt), jsonx.V1())
 }
 
 // statementCreateResponse builds the shared ExecuteStatementOutput/
@@ -205,7 +207,7 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -222,7 +224,7 @@ func (h *Handler) handleDescribeStatement(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(statementToDescribeResponse(stmt))
+	return json.Marshal(statementToDescribeResponse(stmt), jsonx.V1())
 }
 
 func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]byte, error) {
@@ -232,7 +234,7 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -282,7 +284,7 @@ func (h *Handler) handleGetStatementResult(ctx context.Context, body []byte) ([]
 		},
 		keyTotalNumRows: int64(1),
 		keyNextToken:    "",
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) ([]byte, error) {
@@ -292,7 +294,7 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 		WaitTimeSeconds int32  `json:"WaitTimeSeconds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -348,7 +350,7 @@ func (h *Handler) handleGetStatementResultV2(ctx context.Context, body []byte) (
 		keyTotalNumRows: int64(1),
 		keyResultFormat: resultFormatCSV,
 		keyNextToken:    "",
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte, error) {
@@ -363,7 +365,7 @@ func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -410,7 +412,7 @@ func (h *Handler) handleListStatements(ctx context.Context, body []byte) ([]byte
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleCancelStatement(ctx context.Context, body []byte) ([]byte, error) {
@@ -418,7 +420,7 @@ func (h *Handler) handleCancelStatement(ctx context.Context, body []byte) ([]byt
 		ID string `json:"Id"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -432,7 +434,7 @@ func (h *Handler) handleCancelStatement(ctx context.Context, body []byte) ([]byt
 
 	return json.Marshal(map[string]any{
 		keyStatusField: true,
-	})
+	}, jsonx.V1())
 }
 
 // epochSeconds converts a [time.Time] to Unix epoch seconds as float64,

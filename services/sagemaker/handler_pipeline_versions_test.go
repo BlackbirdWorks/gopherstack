@@ -1,13 +1,15 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	versions, _ := listOut["PipelineVersionSummaries"].([]any)
 	require.Len(t, versions, 1)
 	assert.InDelta(t, float64(1), versions[0].(map[string]any)["PipelineVersionId"], 0)
@@ -36,7 +38,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList2.Code)
 
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2, jsonx.V1()))
 	versions2, _ := listOut2["PipelineVersionSummaries"].([]any)
 	require.Len(t, versions2, 2)
 	// Newest first.
@@ -49,7 +51,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recAsc.Code)
 
 	var ascOut map[string]any
-	require.NoError(t, json.Unmarshal(recAsc.Body.Bytes(), &ascOut))
+	require.NoError(t, json.Unmarshal(recAsc.Body.Bytes(), &ascOut, jsonx.V1()))
 	ascVersions, _ := ascOut["PipelineVersionSummaries"].([]any)
 	require.Len(t, ascVersions, 2)
 	assert.InDelta(t, float64(1), ascVersions[0].(map[string]any)["PipelineVersionId"], 0)
@@ -63,7 +65,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recFuture.Code)
 
 	var futureOut map[string]any
-	require.NoError(t, json.Unmarshal(recFuture.Body.Bytes(), &futureOut))
+	require.NoError(t, json.Unmarshal(recFuture.Body.Bytes(), &futureOut, jsonx.V1()))
 	futureVersions, _ := futureOut["PipelineVersionSummaries"].([]any)
 	assert.Empty(t, futureVersions, "CreatedAfter in the future must exclude every version")
 
@@ -74,13 +76,13 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recPast.Code)
 
 	var pastOut map[string]any
-	require.NoError(t, json.Unmarshal(recPast.Body.Bytes(), &pastOut))
+	require.NoError(t, json.Unmarshal(recPast.Body.Bytes(), &pastOut, jsonx.V1()))
 	pastVersions, _ := pastOut["PipelineVersionSummaries"].([]any)
 	assert.Empty(t, pastVersions, "CreatedBefore in the past must exclude every version")
 
 	recDescribe := doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "ver-pipeline"})
 	var pipelineOut map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &pipelineOut))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &pipelineOut, jsonx.V1()))
 	pipelineArn, _ := pipelineOut["PipelineArn"].(string)
 	require.NotEmpty(t, pipelineArn)
 
@@ -93,7 +95,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recStart.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(recStart.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(recStart.Body.Bytes(), &startOut, jsonx.V1()))
 	execArn, _ := startOut["PipelineExecutionArn"].(string)
 	require.NotEmpty(t, execArn)
 
@@ -103,7 +105,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDefinition.Code)
 
 	var defOut map[string]any
-	require.NoError(t, json.Unmarshal(recDefinition.Body.Bytes(), &defOut))
+	require.NoError(t, json.Unmarshal(recDefinition.Body.Bytes(), &defOut, jsonx.V1()))
 	assert.JSONEq(t, `{"Version":"v2"}`, defOut["PipelineDefinition"].(string))
 
 	recUpdateExec := doSageMakerRequest(t, h, "UpdatePipelineExecution", map[string]any{
@@ -112,7 +114,7 @@ func TestHandler_PipelineVersions_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recUpdateExec.Code)
 
 	var updateExecOut map[string]any
-	require.NoError(t, json.Unmarshal(recUpdateExec.Body.Bytes(), &updateExecOut))
+	require.NoError(t, json.Unmarshal(recUpdateExec.Body.Bytes(), &updateExecOut, jsonx.V1()))
 	assert.Equal(t, execArn, updateExecOut["PipelineExecutionArn"])
 }
 

@@ -1,7 +1,7 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -26,7 +27,7 @@ func wafCreateRateBasedRule(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ruleMap, ok := resp["Rule"].(map[string]any)
 	require.True(t, ok)
 	id, ok := ruleMap["RuleId"].(string)
@@ -60,7 +61,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			ruleMap := getResp["Rule"].(map[string]any)
 			assert.Equal(t, "BlockBots", ruleMap["Name"])
 			assert.Equal(t, "IP", ruleMap["RateKey"])
@@ -88,7 +89,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			// Get to verify updates
 			rec = wafDo(t, h, "GetRateBasedRule", map[string]any{"RuleId": ruleID})
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			ruleMap = getResp["Rule"].(map[string]any)
 			assert.InEpsilon(t, float64(3000), ruleMap["RateLimit"], 0.001)
 			preds := ruleMap["MatchPredicates"].([]any)
@@ -117,7 +118,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "ListRateBasedRules", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			rules := listResp["Rules"].([]any)
 			assert.Len(t, rules, 1)
 
@@ -125,7 +126,7 @@ func TestRateBasedRuleLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "GetRateBasedRuleManagedKeys", map[string]any{"RuleId": ruleID})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var mkResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mkResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mkResp, jsonx.V1()))
 			assert.NotNil(t, mkResp["ManagedKeys"])
 
 			// Delete

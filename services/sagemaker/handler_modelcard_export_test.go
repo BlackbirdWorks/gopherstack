@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ModelCardExportJob_Lifecycle(t *testing.T) {
@@ -27,7 +29,7 @@ func TestHandler_ModelCardExportJob_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobArn, _ := createResp["ModelCardExportJobArn"].(string)
 	require.NotEmpty(t, jobArn)
 
@@ -37,7 +39,7 @@ func TestHandler_ModelCardExportJob_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "Completed", describeResp["Status"])
 	assert.Equal(t, "export-1", describeResp["ModelCardExportJobName"])
 	assert.Equal(t, "my-card", describeResp["ModelCardName"])
@@ -48,7 +50,7 @@ func TestHandler_ModelCardExportJob_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["ModelCardExportJobSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)

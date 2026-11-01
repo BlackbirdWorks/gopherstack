@@ -1,12 +1,13 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awscron"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxNextInvocations bounds how many upcoming ScheduledActionTime entries this
@@ -133,7 +134,7 @@ func slNextInvocations(sa *ServerlessScheduledAction, now time.Time) []float64 {
 		Cron string   `json:"cron"`
 	}
 
-	if json.Unmarshal(sa.Schedule, &sched) != nil {
+	if json.Unmarshal(sa.Schedule, &sched, jsonx.V1()) != nil {
 		return nil
 	}
 

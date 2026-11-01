@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // labelingOpsSupported returns the labeling-job / workteam-subscription
@@ -93,7 +95,7 @@ type createLabelingJobRequest struct {
 func (h *Handler) handleCreateLabelingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createLabelingJobRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -137,7 +139,7 @@ func (h *Handler) handleCreateLabelingJob(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyLabelingJobArn: result.LabelingJobArn})
+	return json.Marshal(map[string]any{keyLabelingJobArn: result.LabelingJobArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +203,7 @@ type describeLabelingJobInput struct {
 func (h *Handler) handleDescribeLabelingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeLabelingJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -214,7 +216,7 @@ func (h *Handler) handleDescribeLabelingJob(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(labelingJobResponseMap(result))
+	return json.Marshal(labelingJobResponseMap(result), jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -229,7 +231,7 @@ type stopLabelingJobInput struct {
 func (h *Handler) handleStopLabelingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopLabelingJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -241,7 +243,7 @@ func (h *Handler) handleStopLabelingJob(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -280,7 +282,7 @@ type listLabelingJobsInput struct {
 func (h *Handler) handleListLabelingJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listLabelingJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -319,7 +321,7 @@ func (h *Handler) handleListLabelingJobs(ctx context.Context, body []byte) ([]by
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +355,7 @@ type listLabelingJobsForWorkteamInput struct {
 func (h *Handler) handleListLabelingJobsForWorkteam(ctx context.Context, body []byte) ([]byte, error) {
 	var req listLabelingJobsForWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -395,7 +397,7 @@ func (h *Handler) handleListLabelingJobsForWorkteam(ctx context.Context, body []
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -422,11 +424,11 @@ type listSubscribedWorkteamsInput struct {
 func (h *Handler) handleListSubscribedWorkteams(_ context.Context, body []byte) ([]byte, error) {
 	var req listSubscribedWorkteamsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	return json.Marshal(map[string]any{"SubscribedWorkteams": []any{}})
+	return json.Marshal(map[string]any{"SubscribedWorkteams": []any{}}, jsonx.V1())
 }
 
 // describeSubscribedWorkteamInput mirrors DescribeSubscribedWorkteamInput
@@ -438,7 +440,7 @@ type describeSubscribedWorkteamInput struct {
 func (h *Handler) handleDescribeSubscribedWorkteam(_ context.Context, body []byte) error {
 	var req describeSubscribedWorkteamInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

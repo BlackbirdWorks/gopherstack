@@ -1,7 +1,7 @@
 package ocicontainerinstances
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -49,7 +49,7 @@ type (
 		ImageURL       string            `json:"imageUrl"`
 		DisplayName    string            `json:"displayName"`
 		WorkingDir     string            `json:"workingDirectory"`
-		SecurityCtx    json.RawMessage   `json:"securityContext"`
+		SecurityCtx    jsontext.Value    `json:"securityContext"`
 		Command        []string          `json:"command"`
 		Arguments      []string          `json:"arguments"`
 		VolumeMounts   []VolumeMount     `json:"volumeMounts"`
@@ -61,7 +61,7 @@ type (
 		Graceful    *int64               `json:"gracefulShutdownTimeoutInSeconds"`
 		Freeform    map[string]string    `json:"freeformTags"`
 		Defined     map[string]any       `json:"definedTags"`
-		SecurityCtx json.RawMessage      `json:"securityContext"`
+		SecurityCtx jsontext.Value       `json:"securityContext"`
 		Compartment string               `json:"compartmentId"`
 		AD          string               `json:"availabilityDomain"`
 		Shape       string               `json:"shape"`
@@ -114,7 +114,7 @@ type instanceSummaryWire struct {
 	Details     string            `json:"lifecycleDetails,omitempty"`
 	Shape       string            `json:"shape"`
 	Restart     string            `json:"containerRestartPolicy"`
-	Security    json.RawMessage   `json:"securityContext,omitempty"`
+	Security    jsontext.Value    `json:"securityContext,omitempty"`
 	ShapeConfig shapeConfigWire   `json:"shapeConfig"`
 	Count       int               `json:"containerCount"`
 	VolumeCount int               `json:"volumeCount"`
@@ -218,7 +218,7 @@ type containerSummaryWire struct {
 	Details     string            `json:"lifecycleDetails,omitempty"`
 	InstanceID  string            `json:"containerInstanceId"`
 	ImageURL    string            `json:"imageUrl"`
-	Security    json.RawMessage   `json:"securityContext,omitempty"`
+	Security    jsontext.Value    `json:"securityContext,omitempty"`
 	NoResource  bool              `json:"isResourcePrincipalDisabled"`
 }
 

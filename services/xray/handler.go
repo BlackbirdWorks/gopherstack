@@ -2,7 +2,7 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -336,7 +337,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		RuleName  string `json:"RuleName"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.GroupName != "" {
 		return req.GroupName
@@ -498,9 +499,6 @@ func invalidParameterExceptionName(err error) string {
 }
 
 func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -518,7 +516,7 @@ func (h *Handler) handleError(c *echo.Context, _ string, err error) error {
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownPath),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    errInvalidRequestException,
 			keyMessageField: err.Error(),

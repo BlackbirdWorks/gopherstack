@@ -2,7 +2,8 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -33,7 +35,7 @@ type irsaToken struct {
 func mintIRSAToken(t *testing.T, cluster string, body map[string]any) irsaToken {
 	t.Helper()
 
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	resp, err := testclient.New(t).Post(endpoint+"/_gopherstack/eks/"+cluster+"/serviceaccount-token",
@@ -47,7 +49,7 @@ func mintIRSAToken(t *testing.T, cluster string, body map[string]any) irsaToken 
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(out))
 
 	var tok irsaToken
-	require.NoError(t, json.Unmarshal(out, &tok))
+	require.NoError(t, json.Unmarshal(out, &tok, jsonx.V1()))
 
 	return tok
 }
@@ -100,7 +102,7 @@ func TestIntegration_EKS_IRSA(t *testing.T) {
 	defer disc.Body.Close()
 
 	var discDoc map[string]any
-	require.NoError(t, json.NewDecoder(disc.Body).Decode(&discDoc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(disc.Body), &discDoc, jsonx.V1()))
 	assert.Equal(t, issuer, discDoc["issuer"])
 
 	provider, err := iamClient.CreateOpenIDConnectProvider(ctx, &iamsdk.CreateOpenIDConnectProviderInput{

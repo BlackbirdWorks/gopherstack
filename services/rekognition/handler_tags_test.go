@@ -1,7 +1,7 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -29,7 +30,7 @@ func TestRekognition_Tags(t *testing.T) {
 			setup: func(h *rekognition.Handler) string {
 				rec := doRequest(t, h, "CreateCollection", map[string]any{"CollectionId": "tag-coll"})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["CollectionArn"].(string)
 			},
@@ -49,7 +50,7 @@ func TestRekognition_Tags(t *testing.T) {
 					map[string]any{"CollectionId": "ltfr-coll", "Tags": map[string]string{"k": "v"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["CollectionArn"].(string)
 			},
@@ -60,7 +61,7 @@ func TestRekognition_Tags(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				tags, _ := resp["Tags"].(map[string]any)
 				assert.Equal(t, "v", tags["k"])
 			},
@@ -76,7 +77,7 @@ func TestRekognition_Tags(t *testing.T) {
 					map[string]any{"CollectionId": "untag-coll", "Tags": map[string]string{"k": "v"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				arn := resp["CollectionArn"].(string)
 				doRequest(t, h, "TagResource", map[string]any{"ResourceArn": arn, "Tags": map[string]string{"k": "v"}})
 
@@ -125,7 +126,7 @@ func TestUntagResource_UnknownARN_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -144,7 +145,7 @@ func TestListTagsForResource_StreamProcessor_ReturnsTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	arn := createResp["StreamProcessorArn"].(string)
 
 	// Tag the stream processor.
@@ -158,7 +159,7 @@ func TestListTagsForResource_StreamProcessor_ReturnsTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, _ := tagResp["Tags"].(map[string]any)
 	assert.Equal(t, "staging", tags["env"])
 	assert.Equal(t, "ml", tags["team"])
@@ -222,7 +223,7 @@ func TestTagResource_KeyValueValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn := resp["CollectionArn"].(string)
 
 			rec = doRequest(t, h, "TagResource", map[string]any{"ResourceArn": arn, "Tags": tc.tags})
@@ -239,7 +240,7 @@ func TestTagResource_KeyValidation_ErrorType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn := resp["CollectionArn"].(string)
 
 	rec = doRequest(t, h, "TagResource", map[string]any{
@@ -249,7 +250,7 @@ func TestTagResource_KeyValidation_ErrorType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", errResp["__type"])
 }
 
@@ -265,7 +266,7 @@ func TestTagResource_CountLimit_Enforced(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn := resp["CollectionArn"].(string)
 
 	// Add 200 tags in batches of 50 (keys are "tag-000" through "tag-199").
@@ -297,7 +298,7 @@ func TestTagResource_UpdateExisting_DoesNotCountAgain(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn := resp["CollectionArn"].(string)
 
 	// Add one tag, then update it — should not fail due to count.
@@ -322,7 +323,7 @@ func TestTagResource_UnknownARN_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -341,7 +342,7 @@ func TestTagResource_StreamProcessor_TagsValidated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arn := resp["StreamProcessorArn"].(string)
 
 	// Valid tag.

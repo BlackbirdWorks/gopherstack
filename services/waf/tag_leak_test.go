@@ -1,7 +1,7 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -223,7 +224,7 @@ func TestWAF_Delete_ClearsTags(t *testing.T) {
 				rec := wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": id})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				resourceARN, ok := resp["WebACL"].(map[string]any)["WebACLArn"].(string)
 				require.True(t, ok)
 
@@ -257,7 +258,7 @@ func TestWAF_Delete_ClearsTags(t *testing.T) {
 			rec := wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": resourceARN})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			require.NotEmpty(t, listResp["TagInfoForResource"].(map[string]any)["TagList"])
 
 			token := wafGetToken(t, h)
@@ -277,7 +278,7 @@ func TestWAF_Delete_ClearsTags(t *testing.T) {
 			// Deleting one resource must not disturb another's tags.
 			rec = wafDo(t, h, "ListTagsForResource", map[string]any{"ResourceARN": otherARN})
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			assert.NotEmpty(t, listResp["TagInfoForResource"].(map[string]any)["TagList"])
 		})
 	}

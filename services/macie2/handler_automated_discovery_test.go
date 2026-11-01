@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -28,7 +29,7 @@ func TestAutomatedDiscovery(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var cfg map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 				assert.Equal(t, "DISABLED", cfg["status"])
 
 				// UpdateAutomatedDiscoveryConfiguration
@@ -41,7 +42,7 @@ func TestAutomatedDiscovery(t *testing.T) {
 				// Verify
 				rec = doRequest(t, h, http.MethodGet, "/automated-discovery/configuration", nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				assert.Equal(t, "ENABLED", updated["status"])
 				assert.Equal(t, "NEW", updated["autoEnableOrganizationMembers"])
 			},
@@ -65,7 +66,7 @@ func TestAutomatedDiscovery(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				items, _ := listResp["items"].([]any)
 				assert.Len(t, items, 2)
 			},

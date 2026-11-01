@@ -1,12 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListMembers_OnlyAssociated(t *testing.T) {
@@ -43,7 +45,7 @@ func TestListMembers_OnlyAssociated(t *testing.T) {
 						InvitationID string `json:"InvitationId"`
 					} `json:"Invitations"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inv))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &inv, jsonx.V1()))
 				require.Len(t, inv.Invitations, 1)
 
 				require.Equal(t, http.StatusOK, doRequest(t, h, http.MethodPost, "/administrator", map[string]any{
@@ -59,7 +61,7 @@ func TestListMembers_OnlyAssociated(t *testing.T) {
 					MemberStatus string `json:"MemberStatus"`
 				} `json:"Members"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Members, tt.wantCount)
 
 			if tt.accept {

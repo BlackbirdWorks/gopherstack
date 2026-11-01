@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -90,7 +91,7 @@ func TestGetFindingsV2_ReturnsSameStoreAsV1(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	findings, _ := resp["Findings"].([]any)
 	assert.NotEmpty(t, findings)
 }
@@ -213,7 +214,7 @@ func TestGetFindingsV2_CompositeFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			findings, _ := resp["Findings"].([]any)
 			assert.Len(t, findings, tc.wantCount)
 		})
@@ -573,7 +574,7 @@ func TestGetFindingsV2_CompositeFilters_DateMapIPBooleanNested(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			findings, _ := resp["Findings"].([]any)
 			assert.Len(t, findings, tc.wantCount)
 
@@ -652,7 +653,7 @@ func TestBatchUpdateFindingsV2_WireShape(t *testing.T) {
 		ProcessedFindings   []map[string]any `json:"ProcessedFindings"`
 		UnprocessedFindings []map[string]any `json:"UnprocessedFindings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ProcessedFindings, 1, "matching identifier must process")
 	assert.Empty(t, resp.UnprocessedFindings)
 
@@ -674,7 +675,7 @@ func TestBatchUpdateFindingsV2_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	findings, _ := getResp["Findings"].([]any)
 	require.Len(t, findings, 1)
 
@@ -718,7 +719,7 @@ func TestBatchUpdateFindingsV2_UnmatchedIdentifiers(t *testing.T) {
 		ProcessedFindings   []map[string]any `json:"ProcessedFindings"`
 		UnprocessedFindings []map[string]any `json:"UnprocessedFindings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp.ProcessedFindings)
 	require.Len(t, resp.UnprocessedFindings, 2)
 
@@ -749,7 +750,7 @@ func TestBatchUpdateFindingsV2_MetadataUids(t *testing.T) {
 			} `json:"metadata"`
 		} `json:"Findings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	require.Len(t, got.Findings, 1)
 	uid := got.Findings[0].Metadata.UID
 	require.NotEmpty(t, uid)
@@ -764,7 +765,7 @@ func TestBatchUpdateFindingsV2_MetadataUids(t *testing.T) {
 		ProcessedFindings   []map[string]any `json:"ProcessedFindings"`
 		UnprocessedFindings []map[string]any `json:"UnprocessedFindings"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ProcessedFindings, 1)
 	assert.Equal(t, uid, resp.ProcessedFindings[0]["MetadataUid"])
 	require.Len(t, resp.UnprocessedFindings, 1)

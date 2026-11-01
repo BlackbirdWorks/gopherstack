@@ -2,10 +2,12 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -37,7 +39,7 @@ const ssmSnapshotVersion = 1
 // store_setup.go's package doc for why each one doesn't fit Table's
 // func(*V) string keying requirement.
 type backendSnapshot struct {
-	Tables                     map[string]json.RawMessage                         `json:"tables"`
+	Tables                     map[string]jsontext.Value                          `json:"tables"`
 	History                    map[string]map[string][]ParameterHistory           `json:"history"`
 	Tags                       map[string]map[string]*tags.Tags                   `json:"tags"`
 	DocumentVersions           map[string]map[string][]DocumentVersion            `json:"document_versions"`
@@ -221,7 +223,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		NotifiedParameterPolicies:  b.notifiedParameterPolicies,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "ssm: failed to marshal snapshot", "error", err)
 
@@ -240,7 +242,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // silently dropped instead of restored. Each table name has the shape
 // "<resourceName>/<region>" (see store_setup.go's getOrCreateTable); regions
 // never contain "/", so splitting on the first one recovers both parts.
-func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]json.RawMessage) {
+func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]jsontext.Value) {
 	for key := range tables {
 		name, region, found := strings.Cut(key, "/")
 		if !found {

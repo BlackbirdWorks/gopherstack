@@ -1,13 +1,15 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestChannelPolicy_FullCycle's subtests share one Handler and depend on
@@ -43,7 +45,7 @@ func TestChannelPolicy_FullCycle(t *testing.T) { //nolint:tparallel // subtests 
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["Policy"], "2012-10-17")
 			},
 		},

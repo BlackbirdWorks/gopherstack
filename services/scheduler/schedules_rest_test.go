@@ -1,12 +1,15 @@
 package scheduler_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestRESTGetScheduleByPath verifies GET /schedules/{name} works with REST routing.
@@ -20,7 +23,7 @@ func TestRESTGetScheduleByPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "rest-sched", out["Name"])
 }
 
@@ -37,7 +40,7 @@ func TestRESTGetScheduleWithGroupName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "grp-sched", out["Name"])
 	assert.Equal(t, "default", out["GroupName"])
 }
@@ -99,7 +102,7 @@ func TestRESTUpdateSchedule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "rate(10 minutes)", out["ScheduleExpression"])
 }
 
@@ -124,7 +127,7 @@ func TestRESTListSchedulesWithGroupNameFilter(t *testing.T) {
 	var out struct {
 		Schedules []map[string]any `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Schedules, 1)
 	assert.Equal(t, "s-grp", out.Schedules[0]["Name"])
 }
@@ -143,7 +146,7 @@ func TestRESTCreateScheduleByPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["ScheduleArn"])
 
 	// Verify it can be retrieved.
@@ -166,11 +169,11 @@ func TestRESTListSchedules_MaxResultsQueryParam(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
-	var schedules []json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Schedules"], &schedules))
+	var schedules []jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Schedules"], &schedules, jsonx.V1()))
 	assert.Len(t, schedules, 2)
 }
 

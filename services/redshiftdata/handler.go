@@ -2,7 +2,7 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -178,7 +179,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	var data map[string]any
 
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -262,7 +263,7 @@ func writeInternalServerError(c *echo.Context) error {
 	payload, err := json.Marshal(map[string]string{
 		keyTypeField:    "InternalServerException",
 		keyMessageField: "internal server error",
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -271,15 +272,12 @@ func writeInternalServerError(c *echo.Context) error {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "ResourceNotFoundException",
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, ErrTerminalState),
@@ -288,7 +286,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    errValidationException,
 			keyMessageField: errMessage(err),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errUnknownAction):
@@ -297,7 +295,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 			keyMessageField: err.Error(),
 		})
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errMissingID),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			keyTypeField:    errValidationException,
 			keyMessageField: err.Error(),

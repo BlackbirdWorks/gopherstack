@@ -3,7 +3,7 @@ package sqs_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"fmt"
 	"maps"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -1335,7 +1336,7 @@ func TestReceiveMessage_MaxNumberOfMessages_Validation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp jsonErr
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp.Type)
 			}
 		})

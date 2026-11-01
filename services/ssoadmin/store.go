@@ -1,7 +1,7 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -34,9 +34,9 @@ type InMemoryBackend struct {
 	applicationAssignments  map[string][]*ApplicationAssignment
 	applicationScopes       map[string]map[string][]string
 	// applicationAuthMethods stores per-app authentication methods: appArn → methodType → full JSON body.
-	applicationAuthMethods map[string]map[string]json.RawMessage
+	applicationAuthMethods map[string]map[string]jsontext.Value
 	// applicationGrants stores per-app grants: appArn → grantType → full JSON body.
-	applicationGrants             map[string]map[string]json.RawMessage
+	applicationGrants             map[string]map[string]jsontext.Value
 	applicationAssignConfig       map[string]bool
 	applicationSessions           map[string]string
 	instanceACAs                  *store.Table[ABACConfig]
@@ -81,8 +81,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		customerManagedPolicies: make(map[string][]CustomerManagedPolicyReference),
 		applicationAssignments:  make(map[string][]*ApplicationAssignment),
 		applicationScopes:       make(map[string]map[string][]string),
-		applicationAuthMethods:  make(map[string]map[string]json.RawMessage),
-		applicationGrants:       make(map[string]map[string]json.RawMessage),
+		applicationAuthMethods:  make(map[string]map[string]jsontext.Value),
+		applicationGrants:       make(map[string]map[string]jsontext.Value),
 		applicationAssignConfig: make(map[string]bool),
 		applicationSessions:     make(map[string]string),
 		mu:                      lockmetrics.New("ssoadmin"),
@@ -115,8 +115,8 @@ func (b *InMemoryBackend) Reset() {
 	b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 	b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 	b.applicationScopes = make(map[string]map[string][]string)
-	b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
-	b.applicationGrants = make(map[string]map[string]json.RawMessage)
+	b.applicationAuthMethods = make(map[string]map[string]jsontext.Value)
+	b.applicationGrants = make(map[string]map[string]jsontext.Value)
 	b.applicationAssignConfig = make(map[string]bool)
 	b.applicationSessions = make(map[string]string)
 	// Re-seed the default instance.

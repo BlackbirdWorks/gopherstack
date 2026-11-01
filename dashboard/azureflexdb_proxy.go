@@ -1,12 +1,14 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -115,7 +117,7 @@ func flexProxyBody(method string, p []string, in []byte) ([]byte, bool) {
 			return nil, false
 		}
 
-		b, err := json.Marshal(map[string]any{"properties": props})
+		b, err := json.Marshal(map[string]any{"properties": props}, jsonx.V1())
 
 		return b, err == nil
 	}
@@ -129,7 +131,7 @@ type flexPropsIn struct {
 
 func flexDatabaseProps(in []byte) map[string]any {
 	var req flexPropsIn
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -153,7 +155,7 @@ func flexDatabaseProps(in []byte) map[string]any {
 
 func flexFirewallProps(in []byte) map[string]any {
 	var req flexPropsIn
-	if json.Unmarshal(in, &req) != nil {
+	if json.Unmarshal(in, &req, jsonx.V1()) != nil {
 		return nil
 	}
 

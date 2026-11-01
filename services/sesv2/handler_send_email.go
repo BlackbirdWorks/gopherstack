@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type sendEmailInput struct {
@@ -69,7 +72,7 @@ type sendEmailOutput struct {
 func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
 	var in sendEmailInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
@@ -137,7 +140,7 @@ type sendBulkEmailInput struct {
 func (h *Handler) handleSendBulkEmail(c *echo.Context) (any, error) {
 	var in sendBulkEmailInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -168,7 +171,7 @@ type sendCustomVerificationEmailInput struct {
 func (h *Handler) handleSendCustomVerificationEmail(c *echo.Context) (any, error) {
 	var in sendCustomVerificationEmailInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

@@ -3,7 +3,7 @@ package shield_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
@@ -59,7 +60,7 @@ func doShieldRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -89,7 +90,7 @@ func opaqueOffset(t *testing.T, token string) int {
 		O int `json:"o"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &obj), "token must be JSON with 'o' key")
+	require.NoError(t, json.Unmarshal(raw, &obj, jsonx.V1()), "token must be JSON with 'o' key")
 
 	return obj.O
 }

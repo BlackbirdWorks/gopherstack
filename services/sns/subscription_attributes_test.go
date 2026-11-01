@@ -2,7 +2,7 @@ package sns_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -300,7 +301,7 @@ func TestSetSubscriptionAttributesDLQExistenceCheck(t *testing.T) {
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
 				"deadLetterTargetArn": tt.dlqARN,
-			})
+			}, jsonx.V1())
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 
 			if tt.wantErr {
@@ -327,7 +328,7 @@ func TestSetSubscriptionAttributesDLQNoCheckerSkips(t *testing.T) {
 
 	redrivePolicy, _ := json.Marshal(map[string]string{
 		"deadLetterTargetArn": "arn:aws:sqs:us-east-1:123456789012:any-dlq",
-	})
+	}, jsonx.V1())
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 	require.NoError(t, err, "no checker means existence check is skipped")
 }

@@ -1,11 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -115,7 +116,7 @@ func (h *Handler) dispatchPolicy(c *echo.Context, op string, body []byte) (bool,
 
 func (h *Handler) handleCreatePolicy(c *echo.Context, body []byte) error {
 	var req createPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -133,7 +134,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDescribePolicy(c *echo.Context, body []byte) error {
 	var req describePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -147,7 +148,7 @@ func (h *Handler) handleDescribePolicy(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUpdatePolicy(c *echo.Context, body []byte) error {
 	var req updatePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -161,7 +162,7 @@ func (h *Handler) handleUpdatePolicy(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDeletePolicy(c *echo.Context, body []byte) error {
 	var req deletePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -174,7 +175,7 @@ func (h *Handler) handleDeletePolicy(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListPolicies(c *echo.Context, body []byte) error {
 	var req listPoliciesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -195,7 +196,7 @@ func (h *Handler) handleListPolicies(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleEnablePolicyType(c *echo.Context, body []byte) error {
 	var req enablePolicyTypeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -209,7 +210,7 @@ func (h *Handler) handleEnablePolicyType(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDisablePolicyType(c *echo.Context, body []byte) error {
 	var req disablePolicyTypeRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

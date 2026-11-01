@@ -2,12 +2,14 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Tags(t *testing.T) {
@@ -34,7 +36,7 @@ func TestHandler_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var addResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &addResp, jsonx.V1()))
 
 	addTags, ok := addResp["Tags"].([]any)
 	require.True(t, ok, "AddTags response body: %s", rec.Body.String())
@@ -47,7 +49,7 @@ func TestHandler_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, ok := resp["Tags"].([]any)
 	require.True(t, ok)
@@ -64,7 +66,7 @@ func TestHandler_Tags(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
 		"ResourceArn": m.ModelARN,
 	})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, ok = resp["Tags"].([]any)
 	require.True(t, ok)
@@ -203,7 +205,7 @@ func TestHandler_ListTags_MaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	page, ok := resp["Tags"].([]any)
 	require.True(t, ok)

@@ -2,10 +2,11 @@ package asl
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -66,13 +67,13 @@ func decodeParquetItems(data []byte) ([]any, error) {
 // normalizeJSONNumbers round-trips items so numbers carry the float64 type
 // every other ItemReader decoder yields.
 func normalizeJSONNumbers(items []any) ([]any, error) {
-	raw, err := json.Marshal(items)
+	raw, err := json.Marshal(items, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
 	}
 
 	var out []any
-	if err = json.Unmarshal(raw, &out); err != nil {
+	if err = json.Unmarshal(raw, &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrItemReaderInvalidData, err)
 	}
 

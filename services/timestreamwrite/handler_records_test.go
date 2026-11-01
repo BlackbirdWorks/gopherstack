@@ -1,7 +1,7 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
@@ -149,7 +150,7 @@ func TestHandler_WriteRecords_RequiresMeasureName(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 
 				assert.NotEmpty(t, errResp["__type"], "error response must include __type")
 			}
@@ -369,7 +370,7 @@ func TestHandler_WriteRecords_InvalidMeasureValueType(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -450,7 +451,7 @@ func TestHandler_WriteRecords_InvalidTimeUnit(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -527,7 +528,7 @@ func TestHandler_WriteRecords_DimensionCountLimit(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -562,7 +563,7 @@ func TestHandler_WriteRecords_InvalidMeasureValueTypeViaCommonAttributes(t *test
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 }
 
@@ -594,7 +595,7 @@ func TestHandler_WriteRecords_InvalidTimeUnitViaCommonAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 }
 
@@ -683,7 +684,7 @@ func TestHandler_WriteRecords_MultiMeasure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 1, int(ingested["Total"].(float64)))
@@ -722,7 +723,7 @@ func TestHandler_WriteRecords_CommonAttributes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 1, int(ingested["Total"].(float64)))
@@ -770,7 +771,7 @@ func TestHandler_WriteRecords_CommonAttributesMerge(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 2, int(ingested["Total"].(float64)))
@@ -814,7 +815,7 @@ func TestHandler_WriteRecords_CommonAttributesDimensionOverlapRejected(t *testin
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errBody["__type"])
 }
 
@@ -891,7 +892,7 @@ func TestHandler_WriteRecords_RejectedRecordsException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "RejectedRecordsException", errBody["__type"])
 
 	rejected, ok := errBody["RejectedRecords"].([]any)
@@ -963,7 +964,7 @@ func TestHandler_WriteRecords_MaxRecordsLimit(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var body map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 				assert.Equal(t, "ValidationException", body["__type"])
 			}
 		})
@@ -988,7 +989,7 @@ func TestHandler_WriteRecords_EmptyBatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 0, int(ingested["Total"].(float64)))
@@ -1035,7 +1036,7 @@ func TestHandler_WriteRecords_MagneticStoreInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 1, int(ingested["Total"].(float64)))
@@ -1069,7 +1070,7 @@ func TestHandler_WriteRecords_ReturnsIngestedTotal(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, 2, int(ingested["Total"].(float64)))
@@ -1097,7 +1098,7 @@ func TestHandler_WriteRecords_ReturnsMemoryStoreCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	ingested := out["RecordsIngested"].(map[string]any)
 	assert.Equal(t, int(3), int(ingested["Total"].(float64)))

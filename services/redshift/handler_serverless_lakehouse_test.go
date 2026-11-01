@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_UpdateLakehouseConfiguration_Errors(t *testing.T) {
@@ -42,7 +45,7 @@ func TestServerless_UpdateLakehouseConfiguration_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -68,14 +71,14 @@ func TestServerless_UpdateLakehouseConfiguration_DryRun(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "DryRunException", errResp["__type"])
 
 	rec = doServerlessOp(t, h, "GetNamespace", map[string]any{"namespaceName": "lh-dryrun-ns"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	ns, _ := getResp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
 	assert.Empty(t, ns["catalogArn"], "dry run must not mutate the namespace's catalogArn")
@@ -104,7 +107,7 @@ func TestServerless_UpdateLakehouseConfiguration_RegisterAndAssociate(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "lh-ns", resp["namespaceName"])
 	assert.Contains(t, resp["catalogArn"], "mycatalog")
 	assert.Equal(t, "Registered", resp["lakehouseRegistrationStatus"])
@@ -114,7 +117,7 @@ func TestServerless_UpdateLakehouseConfiguration_RegisterAndAssociate(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	ns, _ := getResp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
 	assert.Contains(t, ns["catalogArn"], "mycatalog")
@@ -131,7 +134,7 @@ func TestServerless_UpdateLakehouseConfiguration_RegisterAndAssociate(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp2, jsonx.V1()))
 	assert.Equal(t, "Deregistered", resp2["lakehouseRegistrationStatus"])
 	assert.Equal(t, "arn:aws:sso::000000000000:application/idc-app-1", resp2["lakehouseIdcApplicationArn"])
 
@@ -143,6 +146,6 @@ func TestServerless_UpdateLakehouseConfiguration_RegisterAndAssociate(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp3))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp3, jsonx.V1()))
 	assert.NotContains(t, resp3, "lakehouseIdcApplicationArn")
 }

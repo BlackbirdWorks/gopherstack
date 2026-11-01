@@ -2,13 +2,15 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -29,7 +31,7 @@ func TestHandler_DeleteLoggingConfiguration(t *testing.T) {
 				require.NoError(t, h.Backend.PutLoggingConfiguration(
 					context.Background(),
 					arnStr,
-					json.RawMessage(`{"ResourceArn":"`+arnStr+`"}`),
+					jsontext.Value(`{"ResourceArn":"`+arnStr+`"}`),
 				))
 
 				return arnStr
@@ -88,7 +90,7 @@ func TestLoggingConfigurationFullRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	webACLARN := createResp["Summary"].(map[string]any)["ARN"].(string)
 
 	// Put a full logging configuration.
@@ -111,7 +113,7 @@ func TestLoggingConfigurationFullRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	cfg, ok := getResp["LoggingConfiguration"].(map[string]any)
 	require.True(t, ok)
@@ -126,7 +128,7 @@ func TestLoggingConfigurationFullRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok := listResp["LoggingConfigurations"].([]any)
 	require.True(t, ok)
 	assert.Len(t, configs, 1)
@@ -155,7 +157,7 @@ func TestLoggingConfig_FirehoseDestination(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	cfg := resp["LoggingConfiguration"].(map[string]any)
 	dests := cfg["LogDestinationConfigs"].([]any)
 	require.Len(t, dests, 1)
@@ -182,7 +184,7 @@ func TestLoggingConfig_S3Destination(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	cfg := resp["LoggingConfiguration"].(map[string]any)
 	dests := cfg["LogDestinationConfigs"].([]any)
 	require.Len(t, dests, 1)
@@ -209,7 +211,7 @@ func TestLoggingConfig_CloudWatchDestination(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	cfg := resp["LoggingConfiguration"].(map[string]any)
 	dests := cfg["LogDestinationConfigs"].([]any)
 	require.Len(t, dests, 1)
@@ -275,7 +277,7 @@ func TestLoggingConfig_DeleteAndGetNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, getRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -290,7 +292,7 @@ func TestLoggingConfig_DeleteNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -335,7 +337,7 @@ func TestLoggingConfig_FullFieldRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	cfg := resp["LoggingConfiguration"].(map[string]any)
 
 	// RedactedFields should round-trip.
@@ -443,7 +445,7 @@ func TestListLoggingConfigurations_ReturnsStoredConfigs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	configs, _ := resp["LoggingConfigurations"].([]any)
 	assert.Len(t, configs, 2, "ListLoggingConfigurations should return 2 stored configs")
 }

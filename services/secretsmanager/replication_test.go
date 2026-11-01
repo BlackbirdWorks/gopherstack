@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -180,7 +181,7 @@ func TestReplication_ReplicaSecretReadableInReplicaRegion(t *testing.T) {
 		"replica region must serve the replicated secret, got: %s", getRec.Body.String())
 
 	var getOut secretsmanager.GetSecretValueOutput
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "replicated-value", getOut.SecretString)
 
 	descRec := doSMRequestInRegion(t, h, "us-west-2", "secretsmanager.DescribeSecret",
@@ -188,7 +189,7 @@ func TestReplication_ReplicaSecretReadableInReplicaRegion(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, secretsmanager.MockRegion, descOut.PrimaryRegion)
 	assert.Contains(t, descOut.ARN, "us-west-2")
 }
@@ -251,7 +252,7 @@ func TestReplication_Operations(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.ReplicateSecretToRegionsOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.ARN)
 				require.Len(t, out.ReplicationStatus, 1)
 				assert.Equal(t, "us-west-2", out.ReplicationStatus[0].Region)
@@ -279,7 +280,7 @@ func TestReplication_Operations(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.RemoveRegionsFromReplicationOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				require.Len(t, out.ReplicationStatus, 1)
 				assert.Equal(t, "ap-east-1", out.ReplicationStatus[0].Region)
 			},
@@ -305,7 +306,7 @@ func TestReplication_Operations(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.StopReplicationToReplicaOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.ARN)
 			},
 		},
@@ -474,7 +475,7 @@ func TestReplicateSecretToRegions_ExistingRegionErrorType_WireCode(t *testing.T)
 	var body struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", body.Type)
 	assert.NotEqual(t, "ResourceExistsException", body.Type)
 }

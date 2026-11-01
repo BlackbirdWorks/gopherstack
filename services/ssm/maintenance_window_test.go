@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -165,7 +166,7 @@ func TestPatchBaseline_DefaultOS(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp ssm.CreatePatchBaselineOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotEmpty(t, resp.BaselineID)
 
 			bl := backend.GetPatchBaselineInternal(resp.BaselineID)
@@ -734,12 +735,12 @@ func TestMaintenanceWindowsForTarget_NoMatchReturnsEmpty(t *testing.T) {
 		"Targets": []map[string]any{
 			{"Key": "InstanceIds", "Values": []string{"i-notregistered"}},
 		},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "DescribeMaintenanceWindowsForTarget", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	identities := resp["WindowIdentities"].([]any)
 	assert.Empty(t, identities)

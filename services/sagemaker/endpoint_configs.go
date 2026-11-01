@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -143,7 +143,7 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 	kmsKeyID string,
 	shadowProductionVariants []ProductionVariant,
 	enableNetworkIsolation bool,
-	explainerConfig, metricsConfig json.RawMessage,
+	explainerConfig, metricsConfig jsontext.Value,
 ) error {
 	b.mu.Lock("SetEndpointConfigExtras")
 	defer b.mu.Unlock()
@@ -177,11 +177,11 @@ func (b *InMemoryBackend) SetEndpointConfigExtras(
 	ec.EnableNetworkIsolation = enableNetworkIsolation
 
 	if len(explainerConfig) > 0 {
-		ec.ExplainerConfig = append(json.RawMessage(nil), explainerConfig...)
+		ec.ExplainerConfig = append(jsontext.Value(nil), explainerConfig...)
 	}
 
 	if len(metricsConfig) > 0 {
-		ec.MetricsConfig = append(json.RawMessage(nil), metricsConfig...)
+		ec.MetricsConfig = append(jsontext.Value(nil), metricsConfig...)
 	}
 
 	if len(shadowProductionVariants) > 0 {

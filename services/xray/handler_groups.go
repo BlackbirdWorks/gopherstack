@@ -2,9 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -42,7 +43,7 @@ type createGroupInput struct {
 func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, error) {
 	var in createGroupInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -76,7 +77,7 @@ func (h *Handler) handleCreateGroup(_ context.Context, body []byte) ([]byte, err
 
 	return json.Marshal(map[string]any{
 		keyGroup: toGroupView(g),
-	})
+	}, jsonx.V1())
 }
 
 type getGroupInput struct {
@@ -87,7 +88,7 @@ type getGroupInput struct {
 func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error) {
 	var in getGroupInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -113,7 +114,7 @@ func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error)
 
 	return json.Marshal(map[string]any{
 		keyGroup: toGroupView(g),
-	})
+	}, jsonx.V1())
 }
 
 // GetGroupsInput (xray@v1.39.4 api_op_GetGroups.go) has no page-size member,
@@ -125,7 +126,7 @@ type getGroupsInput struct {
 func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error) {
 	var in getGroupsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -147,7 +148,7 @@ func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error
 		keyNextToken: pg.Next,
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateGroupInput uses pointer fields for FilterExpression and InsightsConfiguration
@@ -165,7 +166,7 @@ type updateGroupInput struct {
 func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, error) {
 	var in updateGroupInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -194,7 +195,7 @@ func (h *Handler) handleUpdateGroup(_ context.Context, body []byte) ([]byte, err
 
 	return json.Marshal(map[string]any{
 		keyGroup: toGroupView(g),
-	})
+	}, jsonx.V1())
 }
 
 type deleteGroupInput struct {
@@ -205,7 +206,7 @@ type deleteGroupInput struct {
 func (h *Handler) handleDeleteGroup(_ context.Context, body []byte) ([]byte, error) {
 	var in deleteGroupInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -218,5 +219,5 @@ func (h *Handler) handleDeleteGroup(_ context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

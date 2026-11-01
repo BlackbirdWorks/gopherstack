@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/smithy-go"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -105,7 +106,7 @@ func invokeModelOutput(out any) any {
 	}
 
 	var parsed any
-	if json.Unmarshal(raw, &parsed) != nil {
+	if json.Unmarshal(raw, &parsed, jsonx.V1()) != nil {
 		parsed = string(raw)
 	}
 
@@ -183,7 +184,7 @@ func (s eksCallSpec) request(ctx context.Context, token string) (*http.Request, 
 	var body io.Reader
 
 	if s.body != nil {
-		b, err := json.Marshal(s.body)
+		b, err := json.Marshal(s.body, jsonx.V1())
 		if err != nil {
 			return nil, runtimeFailure("invalid RequestBody: %v", err)
 		}
@@ -279,7 +280,7 @@ func doEKSCall(client *http.Client, req *http.Request) (any, error) {
 	}
 
 	var parsed any
-	if json.Unmarshal(data, &parsed) != nil {
+	if json.Unmarshal(data, &parsed, jsonx.V1()) != nil {
 		parsed = string(data)
 	}
 
@@ -287,7 +288,7 @@ func doEKSCall(client *http.Client, req *http.Request) (any, error) {
 		return map[string]any{"ResponseBody": parsed}, nil
 	}
 
-	cause, _ := json.Marshal(parsed)
+	cause, _ := json.Marshal(parsed, jsonx.V1())
 
 	return nil, &asl.FailError{ErrCode: errCodeTaskFailed, Cause: string(cause)}
 }

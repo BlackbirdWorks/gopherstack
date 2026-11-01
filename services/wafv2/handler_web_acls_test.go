@@ -2,13 +2,14 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -57,7 +58,7 @@ func TestHandler_CreateWebACL(t *testing.T) {
 
 			if tt.wantID {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				summary, ok := result["Summary"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, summary["Id"])
@@ -162,7 +163,7 @@ func TestHandler_UpdateWebACL(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				assert.NotEmpty(t, result["NextLockToken"])
 			}
 		})
@@ -248,7 +249,7 @@ func TestHandler_ListWebACLs(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 			list, ok := result["WebACLs"].([]any)
 			require.True(t, ok)
@@ -275,7 +276,7 @@ func TestHandler_CreateWebACL_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var result map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "WAFDuplicateItemException", result["__type"])
 }
 
@@ -287,7 +288,7 @@ func TestHandler_GetWebACL_MissingID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var result map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidParameterException", result["__type"])
 }
 
@@ -362,7 +363,7 @@ func TestHandler_ListWebACLs_Scope_Filter(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 			list, ok := result["WebACLs"].([]any)
 			require.True(t, ok)
 			assert.Len(t, list, tt.wantCount)
@@ -408,7 +409,7 @@ func TestHandler_GetWebACL_BlockDefaultAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	webACL, ok := result["WebACL"].(map[string]any)
 	require.True(t, ok)
 	defaultAction, ok := webACL["DefaultAction"].(map[string]any)
@@ -443,7 +444,7 @@ func TestHandler_GetWebACL_WithVisibilityConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult, jsonx.V1()))
 	summary := createResult["Summary"].(map[string]any)
 	id := summary["Id"].(string)
 
@@ -455,7 +456,7 @@ func TestHandler_GetWebACL_WithVisibilityConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	webACL, ok := result["WebACL"].(map[string]any)
 	require.True(t, ok)
 	vis, ok := webACL["VisibilityConfig"].(map[string]any)
@@ -497,7 +498,7 @@ func createWebACLWithRules(t *testing.T, h *wafv2.Handler, name, scope string) (
 	require.Equal(t, http.StatusOK, rec.Code, "createWebACLWithRules: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summary := resp["Summary"].(map[string]any)
 
 	return summary["Id"].(string), summary["LockToken"].(string)
@@ -517,7 +518,7 @@ func TestWebACLRulesRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	webACL := resp["WebACL"].(map[string]any)
 
 	rules, ok := webACL["Rules"].([]any)
@@ -548,14 +549,14 @@ func TestDefaultActionRawJSONRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recAllow.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recAllow.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recAllow.Body.Bytes(), &createResp, jsonx.V1()))
 	idAllow := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	recGet := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": idAllow})
 	require.Equal(t, http.StatusOK, recGet.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &getResp, jsonx.V1()))
 	da := getResp["WebACL"].(map[string]any)["DefaultAction"].(map[string]any)
 	_, hasAllow := da["Allow"]
 	assert.True(t, hasAllow, "DefaultAction should contain Allow key")
@@ -572,14 +573,14 @@ func TestDefaultActionRawJSONRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recBlock.Code)
 
 	var createRespBlock map[string]any
-	require.NoError(t, json.Unmarshal(recBlock.Body.Bytes(), &createRespBlock))
+	require.NoError(t, json.Unmarshal(recBlock.Body.Bytes(), &createRespBlock, jsonx.V1()))
 	idBlock := createRespBlock["Summary"].(map[string]any)["Id"].(string)
 
 	recGetBlock := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": idBlock})
 	require.Equal(t, http.StatusOK, recGetBlock.Code)
 
 	var getRespBlock map[string]any
-	require.NoError(t, json.Unmarshal(recGetBlock.Body.Bytes(), &getRespBlock))
+	require.NoError(t, json.Unmarshal(recGetBlock.Body.Bytes(), &getRespBlock, jsonx.V1()))
 	daBlock := getRespBlock["WebACL"].(map[string]any)["DefaultAction"].(map[string]any)
 	_, hasBlock := daBlock["Block"]
 	assert.True(t, hasBlock, "DefaultAction should contain Block key")
@@ -616,14 +617,14 @@ func TestWebACLExtendedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	webACL := getResp["WebACL"].(map[string]any)
 
 	// TokenDomains should be round-tripped.
@@ -676,7 +677,7 @@ func TestCaptchaAction_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "Captcha action: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Verify round-trip.
@@ -684,7 +685,7 @@ func TestCaptchaAction_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -724,14 +725,14 @@ func TestChallengeAction_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "Challenge action: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -761,14 +762,14 @@ func TestChallengeConfig_WebACLLevel(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	webACL := getResp["WebACL"].(map[string]any)
 
 	challengeCfg, ok := webACL["ChallengeConfig"].(map[string]any)
@@ -809,14 +810,14 @@ func TestLabelMatchStatement_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "LabelMatchStatement: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -887,14 +888,14 @@ func TestAssociationConfig_RequestBodyDecryption(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "AssociationConfig: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	webACL := getResp["WebACL"].(map[string]any)
 
 	assocCfg, ok := webACL["AssociationConfig"].(map[string]any)
@@ -1020,14 +1021,14 @@ func TestWebACL_CustomResponseBodies_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "CustomResponseBodies: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	webACL := getResp["WebACL"].(map[string]any)
 
 	crb, ok := webACL["CustomResponseBodies"].(map[string]any)
@@ -1120,14 +1121,14 @@ func TestWebACL_AllActionTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "all action types: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	getRec := doWafv2Request(t, h, "GetWebACL", map[string]any{"Id": id})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	assert.Len(t, rules, 6, "all 6 rules should round-trip")
 }
@@ -1155,7 +1156,7 @@ func TestWebACL_Update_ClearsOldRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	rules := resp["WebACL"].(map[string]any)["Rules"].([]any)
 	assert.Empty(t, rules, "rules should be empty after clearing")
 }
@@ -1171,7 +1172,7 @@ func createWebACLHelper(t *testing.T, h *wafv2.Handler, name, scope string) (str
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summary, ok := resp["Summary"].(map[string]any)
 	require.True(t, ok)
@@ -1230,7 +1231,7 @@ func TestHandler_DeleteWebACL_CascadeLogging(t *testing.T) {
 	// Delete the WebACL.
 	var createResp map[string]any
 	rec2 := doWafv2Request(t, h, "ListWebACLs", map[string]any{"Scope": "REGIONAL"})
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &createResp, jsonx.V1()))
 	webACLs, _ := createResp["WebACLs"].([]any)
 	require.Len(t, webACLs, 1)
 	webACL := webACLs[0].(map[string]any)
@@ -1274,7 +1275,7 @@ func TestDeleteWebACL_FailsWhenAssociated(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFAssociatedItemException", errResp["__type"])
 
 	// After disassociation, delete should succeed.
@@ -1325,7 +1326,7 @@ func TestCreateWebACL_DuplicateNameScope(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFDuplicateItemException", errResp["__type"])
 }
 
@@ -1348,7 +1349,7 @@ func TestLockToken_RotatesOnUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "update with correct token: %s", rec.Body.String())
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	token2 := updateResp["NextLockToken"].(string)
 
 	assert.NotEmpty(t, token2)

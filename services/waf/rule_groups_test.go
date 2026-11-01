@@ -1,7 +1,7 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -24,7 +25,7 @@ func wafCreateRuleGroup(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rgMap, ok := resp["RuleGroup"].(map[string]any)
 	require.True(t, ok)
 	id, ok := rgMap["RuleGroupId"].(string)
@@ -60,7 +61,7 @@ func TestRuleGroupLifecycle(t *testing.T) {
 			rec := wafDo(t, h, "GetRuleGroup", map[string]any{"RuleGroupId": rgID})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			rgMap := getResp["RuleGroup"].(map[string]any)
 			assert.Equal(t, "MyGroup", rgMap["Name"])
 
@@ -89,7 +90,7 @@ func TestRuleGroupLifecycle(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listARResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listARResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listARResp, jsonx.V1()))
 			activated := listARResp["ActivatedRules"].([]any)
 			assert.Len(t, activated, 1)
 
@@ -116,7 +117,7 @@ func TestRuleGroupLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "ListRuleGroups", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listRGResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listRGResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listRGResp, jsonx.V1()))
 			groups := listRGResp["RuleGroups"].([]any)
 			assert.Len(t, groups, 1)
 
@@ -216,7 +217,7 @@ func TestUpdateRuleGroup_RejectsDuplicateRuleId(t *testing.T) {
 	rec = wafDo(t, h, "ListActivatedRulesInRuleGroup", map[string]any{"RuleGroupId": rgID})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	activated, _ := listResp["ActivatedRules"].([]any)
 	assert.Len(t, activated, 1, "group must still contain only the one successfully-inserted rule")
 }
@@ -291,7 +292,7 @@ func TestListSubscribedRuleGroups(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		groups := resp["RuleGroups"].([]any)
 		assert.Empty(t, groups)
 	})

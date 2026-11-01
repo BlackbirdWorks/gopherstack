@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -45,7 +46,7 @@ func TestHandler_DescribeReservedNodes(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			nodes := resp["ReservedNodes"].([]any)
 			assert.Len(t, nodes, tt.wantCount)
@@ -93,7 +94,7 @@ func TestHandler_DescribeReservedNodesOfferings(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			offerings := resp["ReservedNodesOfferings"].([]any)
 			assert.GreaterOrEqual(t, len(offerings), tt.wantMin)
@@ -150,7 +151,7 @@ func TestHandler_PurchaseReservedNodesOffering(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				rn, ok := resp["ReservedNode"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, rn["NodeType"])
@@ -179,7 +180,7 @@ func TestHandler_PurchaseReservedNodesOffering_ThenDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDescribe.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &resp, jsonx.V1()))
 
 	nodes := resp["ReservedNodes"].([]any)
 	assert.Len(t, nodes, 1)
@@ -196,7 +197,7 @@ func TestWireEpoch_ReservedNode_StartTimeIsNumber(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rn, _ := resp["ReservedNode"].(map[string]any)
 	require.NotNil(t, rn)
@@ -238,7 +239,7 @@ func TestHandler_ReservedNodes_PurchaseAndDescribe(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				rn, _ := resp["ReservedNode"].(map[string]any)
 				assert.NotNil(t, rn)
 				assert.NotEmpty(t, rn["ReservationId"])
@@ -257,7 +258,7 @@ func TestHandler_ReservedNodesOfferings_Seeded(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	offerings, _ := resp["ReservedNodesOfferings"].([]any)
 	assert.GreaterOrEqual(t, len(offerings), 3, "at least 3 reserved node offerings should be seeded")
 }
@@ -281,7 +282,7 @@ func TestHandler_ReservedNodes_DescribeAfterPurchase(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	nodes, _ := resp["ReservedNodes"].([]any)
 	assert.Len(t, nodes, 1)
 
@@ -345,7 +346,7 @@ func TestHandler_ReservedNodes_WithPurchase(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			nodes := resp["ReservedNodes"].([]any)
 			assert.Len(t, nodes, tt.wantCount)
@@ -384,7 +385,7 @@ func TestHandler_ReservedNodesOfferings_Filtered(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			offerings := resp["ReservedNodesOfferings"].([]any)
 			assert.Len(t, offerings, tt.wantCount)
@@ -441,7 +442,7 @@ func TestHandler_DescribeReservedNodesOfferings_DurationFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			offerings := resp["ReservedNodesOfferings"].([]any)
 			assert.GreaterOrEqual(t, len(offerings), tt.wantMinCount)
 

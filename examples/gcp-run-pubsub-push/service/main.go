@@ -4,7 +4,7 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"log"
 	"net/http"
 	"os"
@@ -33,7 +33,7 @@ type receiver struct {
 
 func (r *receiver) push(w http.ResponseWriter, req *http.Request) {
 	var env pushEnvelope
-	if err := json.NewDecoder(req.Body).Decode(&env); err != nil {
+	if err := json.UnmarshalRead(req.Body, &env); err != nil {
 		http.Error(w, "bad push envelope", http.StatusBadRequest)
 
 		return
@@ -62,7 +62,7 @@ func (r *receiver) list(w http.ResponseWriter, _ *http.Request) {
 	r.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	_ = json.MarshalWrite(w, out)
 }
 
 func main() {

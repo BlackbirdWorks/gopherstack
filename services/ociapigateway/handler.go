@@ -3,7 +3,8 @@ package ociapigateway
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
@@ -116,7 +118,7 @@ type errorBody struct {
 func (q *req) header(k, v string) { q.w.Header().Set(k, v) }
 
 func (q *req) json(status int, v any, etag string) error {
-	out, err := json.Marshal(v)
+	out, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("ociapigateway: encode response: %w", err)
 	}
@@ -162,10 +164,9 @@ func (q *req) decode(v any) error {
 		return errMissing("A request body is required")
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(q.body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(q.body))
 
-	if err := dec.Decode(v); err != nil {
+	if err := json.UnmarshalDecode(dec, v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return newErr(
 			http.StatusBadRequest,
 			"CannotParseRequest",
@@ -187,7 +188,10 @@ func (h *Handler) fail(q *req, err error) {
 	q.header("Content-Type", "application/json")
 	q.w.WriteHeader(ae.Status)
 
-	out, _ := json.Marshal(errorBody{Code: ae.Code, Message: ae.Message}) //nolint:errchkjson // static shape
+	out, _ := json.Marshal(
+		errorBody{Code: ae.Code, Message: ae.Message},
+		jsonx.V1(),
+	) //nolint:errchkjson // static shape
 	_, _ = q.w.Write(out)
 }
 
@@ -262,7 +266,7 @@ func (h *Handler) adminKeys(q *req) {
 		var in adminKeyReq
 
 		body, _ := io.ReadAll(io.LimitReader(q.r.Body, adminBodyLimit))
-		if err := json.Unmarshal(body, &in); err != nil || in.Tenancy == "" || in.User == "" {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil || in.Tenancy == "" || in.User == "" {
 			h.fail(q, errParam("tenancy, user and publicKey are required"))
 
 			return

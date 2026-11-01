@@ -2,7 +2,7 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -55,7 +56,7 @@ func TestHandler_TagResource_and_ListTags(t *testing.T) {
 			assert.Equal(t, http.StatusOK, listRec.Code)
 
 			var result map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &result, jsonx.V1()))
 
 			info, ok := result["TagInfoForResource"].(map[string]any)
 			require.True(t, ok)
@@ -188,7 +189,7 @@ func TestHandler_TagResource_Errors(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var result map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 			assert.Equal(t, tt.wantType, result["__type"])
 		})
 	}
@@ -228,7 +229,7 @@ func TestHandler_ListTagsForResource_Errors(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var result map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 			assert.Equal(t, tt.wantType, result["__type"])
 		})
 	}
@@ -264,7 +265,7 @@ func TestTagValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	arnStr := createResp["Summary"].(map[string]any)["ARN"].(string)
 
 	// More than 50 tags should fail.
@@ -280,7 +281,7 @@ func TestTagValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, tooManyRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(tooManyRec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(tooManyRec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFTagOperationException", errResp["__type"])
 
 	// Reserved prefix "aws:" should fail.
@@ -291,7 +292,7 @@ func TestTagValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, reservedRec.Code)
 
 	var reservedErr map[string]any
-	require.NoError(t, json.Unmarshal(reservedRec.Body.Bytes(), &reservedErr))
+	require.NoError(t, json.Unmarshal(reservedRec.Body.Bytes(), &reservedErr, jsonx.V1()))
 	assert.Equal(t, "WAFTagOperationException", reservedErr["__type"])
 }
 
@@ -324,7 +325,7 @@ func TestHandler_TagResource_RegexPatternSet(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tagInfo, ok := resp["TagInfoForResource"].(map[string]any)
 	require.True(t, ok)
 	tagList, ok := tagInfo["TagList"].([]any)
@@ -390,7 +391,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, firstRec.Code, firstRec.Body.String())
 
 	var first map[string]any
-	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &first))
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &first, jsonx.V1()))
 
 	firstInfo, ok := first["TagInfoForResource"].(map[string]any)
 	require.True(t, ok)
@@ -411,7 +412,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, secondRec.Code, secondRec.Body.String())
 
 	var second map[string]any
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &second))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &second, jsonx.V1()))
 
 	secondInfo, ok := second["TagInfoForResource"].(map[string]any)
 	require.True(t, ok)
@@ -428,7 +429,7 @@ func TestHandler_ListTagsForResource_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, allRec.Code)
 
 	var all map[string]any
-	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &all))
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &all, jsonx.V1()))
 	allInfo, ok := all["TagInfoForResource"].(map[string]any)
 	require.True(t, ok)
 	allList, ok := allInfo["TagList"].([]any)

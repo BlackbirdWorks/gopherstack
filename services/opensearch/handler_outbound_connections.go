@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleCCOutboundRoutes handles outbound cross-cluster connection sub-routes.
@@ -129,7 +130,7 @@ func (h *Handler) handleCreateOutboundConnection(w http.ResponseWriter, r *http.
 
 	var req createOutboundConnectionRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "failed to parse body")
 
 			return

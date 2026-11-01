@@ -1,10 +1,13 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDeleteApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
@@ -12,7 +15,7 @@ func (h *Handler) handleDeleteApplicationAuthenticationMethod(c *echo.Context, b
 		ApplicationArn string `json:"ApplicationArn"`
 		AuthMethodType string `json:"AuthenticationMethodType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -35,12 +38,12 @@ func (h *Handler) handleListApplicationAuthenticationMethods(c *echo.Context, bo
 
 func (h *Handler) handlePutApplicationAuthenticationMethod(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn       string          `json:"ApplicationArn"`
-		AuthMethodType       string          `json:"AuthenticationMethodType"`
-		AuthenticationType   string          `json:"AuthenticationType"`
-		AuthenticationMethod json.RawMessage `json:"AuthenticationMethod"`
+		ApplicationArn       string         `json:"ApplicationArn"`
+		AuthMethodType       string         `json:"AuthenticationMethodType"`
+		AuthenticationType   string         `json:"AuthenticationType"`
+		AuthenticationMethod jsontext.Value `json:"AuthenticationMethod"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	methodType := req.AuthMethodType
@@ -61,7 +64,7 @@ func (h *Handler) handleGetApplicationAuthenticationMethod(c *echo.Context, body
 		ApplicationArn           string `json:"ApplicationArn"`
 		AuthenticationMethodType string `json:"AuthenticationMethodType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.ApplicationArn == "" {

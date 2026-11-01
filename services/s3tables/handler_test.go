@@ -2,7 +2,8 @@ package s3tables_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3tables"
 )
 
@@ -46,7 +48,7 @@ func doS3TablesRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -68,7 +70,7 @@ func parseResponse(t *testing.T, rec *httptest.ResponseRecorder) map[string]any 
 	t.Helper()
 
 	var result map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&result))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &result, jsonx.V1()))
 
 	return result
 }

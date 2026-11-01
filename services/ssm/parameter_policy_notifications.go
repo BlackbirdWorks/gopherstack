@@ -2,11 +2,13 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ParameterPolicyNotifier receives Parameter Store policy-action
@@ -67,7 +69,7 @@ func parseParameterPolicies(policiesJSON string) []parameterStorePolicy {
 	}
 
 	var policies []parameterStorePolicy
-	if err := json.Unmarshal([]byte(policiesJSON), &policies); err != nil {
+	if err := json.Unmarshal([]byte(policiesJSON), &policies, jsonx.V1()); err != nil {
 		return nil
 	}
 
@@ -93,7 +95,7 @@ func parameterPoliciesToWire(policiesJSON string, lastModified float64, now time
 	wire := make([]ParameterInlinePolicy, 0, len(parsed))
 
 	for _, p := range parsed {
-		text, err := json.Marshal(p)
+		text, err := json.Marshal(p, jsonx.V1())
 		if err != nil {
 			continue
 		}

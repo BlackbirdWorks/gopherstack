@@ -2,8 +2,10 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Notification settings handlers ----
@@ -14,7 +16,7 @@ func (h *Handler) handlePutNotificationSettings(ctx context.Context, body []byte
 		NotificationSettings []NotificationSetting `json:"notificationSettings"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -32,7 +34,7 @@ func (h *Handler) handleResetNotificationSettings(ctx context.Context, body []by
 		NotificationSettingKeys []NotificationSettingKey `json:"notificationSettingKeys"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

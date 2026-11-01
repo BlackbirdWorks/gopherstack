@@ -2,11 +2,13 @@ package ocievents
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Delivery statuses.
@@ -96,13 +98,13 @@ func buildEnvelope(ev Event, id string) ([]byte, map[string]any, error) {
 			CompartmentID: ev.CompartmentID, ResourceName: ev.ResourceName, ResourceID: ev.ResourceID,
 			AvailabilityDomain: ad, AdditionalDetails: details,
 		},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return nil, nil, err //nolint:wrapcheck // plain marshal failure
 	}
 
 	var generic map[string]any
-	if err = json.Unmarshal(raw, &generic); err != nil {
+	if err = json.Unmarshal(raw, &generic, jsonx.V1()); err != nil {
 		return nil, nil, err //nolint:wrapcheck // plain unmarshal failure
 	}
 

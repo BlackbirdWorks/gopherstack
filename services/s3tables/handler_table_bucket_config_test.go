@@ -1,7 +1,7 @@
 package s3tables_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/s3tables"
 )
 
@@ -227,7 +228,7 @@ func TestHandler_ListTableBucketsIncludesType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	buckets, ok := out["tableBuckets"].([]any)
 	require.True(t, ok)
@@ -274,7 +275,7 @@ func TestHandler_GetTableBucketReplication_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	_, hasTopLevelDests := out["destinations"]
 	_, hasFabricatedWrapper := out["replicationConfiguration"]

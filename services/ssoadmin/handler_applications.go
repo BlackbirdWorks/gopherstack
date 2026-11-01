@@ -1,12 +1,14 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type applicationView struct {
@@ -40,7 +42,7 @@ func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 		ClientToken            string    `json:"ClientToken"`
 		Tags                   []tagView `json:"Tags"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -101,7 +103,7 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
 	var req struct {
 		ApplicationArn string `json:"ApplicationArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.ApplicationArn == "" {
@@ -119,7 +121,7 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 	var req struct {
 		ApplicationArn string `json:"ApplicationArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -163,7 +165,7 @@ func (h *Handler) handleDescribeApplicationProvider(c *echo.Context, body []byte
 	var req struct {
 		ApplicationProviderArn string `json:"ApplicationProviderArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -184,7 +186,7 @@ func (h *Handler) handleListApplicationProviders(c *echo.Context, body []byte) e
 		NextToken  string `json:"NextToken"`
 		MaxResults int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -221,7 +223,7 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 		NextToken  string `json:"NextToken"`
 		MaxResults int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	apps := h.Backend.ListApplications(req.InstanceArn)
@@ -276,7 +278,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
 		Description    string `json:"Description"`
 		Status         string `json:"Status"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

@@ -1,13 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -36,7 +37,7 @@ func TestHandlerActions_ListDeadLetterSourceQueues(t *testing.T) {
 				var attrResp struct {
 					Attributes map[string]string `json:"Attributes"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attrResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attrResp, jsonx.V1()))
 				dlqARN := attrResp.Attributes["QueueArn"]
 
 				policy := `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`
@@ -97,7 +98,7 @@ func TestHandlerActions_ListDeadLetterSourceQueues(t *testing.T) {
 					NextToken string   `json:"NextToken"`
 					QueueURLs []string `json:"queueUrls"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp.QueueURLs, tt.wantURLCount)
 			}
 		})

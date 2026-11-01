@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -34,7 +35,7 @@ func TestWireEpoch_DescribeServiceUpdates_DatesAreNumbers(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	updates, _ := resp["ServiceUpdates"].([]any)
 	require.NotEmpty(t, updates)
@@ -62,7 +63,7 @@ func TestHandler_DescribeServiceUpdates_Basic(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out["ServiceUpdates"])
 }
 
@@ -125,7 +126,7 @@ func TestHandler_DescribeServiceUpdates_Filtering(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			updates, _ := resp["ServiceUpdates"].([]any)
 			assert.GreaterOrEqual(t, len(updates), tt.wantMinCount)
 			assert.LessOrEqual(t, len(updates), tt.wantMaxCount)
@@ -172,7 +173,7 @@ func TestHandler_DescribeServiceUpdates_Filtered(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			updates := resp["ServiceUpdates"].([]any)
 			assert.Len(t, updates, tt.wantCount)
@@ -227,7 +228,7 @@ func TestHandler_DescribeServiceUpdates_SeededFixtures(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			updates := resp["ServiceUpdates"].([]any)
 			assert.GreaterOrEqual(t, len(updates), tt.wantMinCount)
 		})
@@ -244,7 +245,7 @@ func TestHandler_DescribeServiceUpdates_FieldsPopulated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	updates := resp["ServiceUpdates"].([]any)
 	require.NotEmpty(t, updates)
 
@@ -316,7 +317,7 @@ func TestHandler_DescribeServiceUpdates_ClusterNamesFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			updates := resp["ServiceUpdates"].([]any)
 			require.Len(t, updates, tt.wantCount)
 
@@ -352,7 +353,7 @@ func TestHandler_BatchUpdateCluster_ThenDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	updates := resp["ServiceUpdates"].([]any)
 	require.Len(t, updates, 1)
 	assert.Equal(t, "complete", updates[0].(map[string]any)["Status"])

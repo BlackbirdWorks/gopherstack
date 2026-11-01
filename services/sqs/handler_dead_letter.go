@@ -2,8 +2,10 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonListDeadLetterSourceQueuesReq struct {
@@ -23,7 +25,7 @@ func (h *Handler) handleListDeadLetterSourceQueues(
 	body []byte,
 ) (any, error) {
 	var req jsonListDeadLetterSourceQueuesReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

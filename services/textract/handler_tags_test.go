@@ -1,13 +1,14 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -22,7 +23,7 @@ func TestHandler_TagResource_HappyPath(t *testing.T) {
 		"FeatureTypes": []string{"FORMS"},
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 
 	tagRec := doTextractRequest(t, h, "TagResource", map[string]any{
@@ -37,7 +38,7 @@ func TestHandler_TagResource_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	assert.True(t, ok)
 	assert.Equal(t, "prod", tags["env"])
@@ -56,7 +57,7 @@ func TestHandler_UntagResource_HappyPath(t *testing.T) {
 		"Tags":         map[string]string{"env": "dev", "team": "ml"},
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 
 	untagRec := doTextractRequest(t, h, "UntagResource", map[string]any{
@@ -69,7 +70,7 @@ func TestHandler_UntagResource_HappyPath(t *testing.T) {
 		"ResourceARN": adapterID,
 	})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["Tags"].(map[string]any)
 	_, hasEnv := tags["env"]
 	assert.False(t, hasEnv)
@@ -93,7 +94,7 @@ func TestHandler_TagResource_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -129,7 +130,7 @@ func TestHandler_UntagResourceAndListTagsForResource_NotFound(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 		})
 	}
@@ -150,7 +151,7 @@ func TestHandler_TagResource_ByARNRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	adapterID := createResp["AdapterId"]
 
 	// Build an ARN using the backend helper.
@@ -172,7 +173,7 @@ func TestHandler_TagResource_ByARNRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "prod", tags["env"])
@@ -194,7 +195,7 @@ func TestHandler_TagResource_AdapterVersionARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, createAdapterRec.Code)
 
 	var createAdapterResp map[string]string
-	require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp))
+	require.NoError(t, json.Unmarshal(createAdapterRec.Body.Bytes(), &createAdapterResp, jsonx.V1()))
 	adapterID := createAdapterResp["AdapterId"]
 
 	createVersionRec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
@@ -212,7 +213,7 @@ func TestHandler_TagResource_AdapterVersionARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, createVersionRec.Code)
 
 	var createVersionResp map[string]string
-	require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp))
+	require.NoError(t, json.Unmarshal(createVersionRec.Body.Bytes(), &createVersionResp, jsonx.V1()))
 	adapterVersion := createVersionResp["AdapterVersion"]
 
 	versionARN := b.BuildAdapterVersionARN(adapterID, adapterVersion)
@@ -230,7 +231,7 @@ func TestHandler_TagResource_AdapterVersionARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "v1", tags["version-tag"])

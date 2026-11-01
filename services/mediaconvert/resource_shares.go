@@ -1,11 +1,13 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // CreateResourceShare records a resource-share request for the given job ID.
@@ -38,7 +40,7 @@ func (b *InMemoryBackend) CreateResourceShare(jobID, supportCaseID string) (stri
 	details, err := json.Marshal(struct {
 		ShareToken string  `json:"shareToken"`
 		SharedAt   float64 `json:"sharedAt"`
-	}{ShareToken: token, SharedAt: epochSeconds(time.Now())})
+	}{ShareToken: token, SharedAt: epochSeconds(time.Now())}, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("encode share details: %w", err)
 	}

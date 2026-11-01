@@ -2,8 +2,9 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -72,7 +73,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:    b.defaultRegion,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "redshiftdata: failed to marshal snapshot", "error", err)
 

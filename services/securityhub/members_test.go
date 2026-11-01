@@ -1,12 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestMembers(t *testing.T) {
@@ -196,7 +198,7 @@ func TestMembers(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})
@@ -242,7 +244,7 @@ func TestInviteMembers_UnknownAccountUnprocessed(t *testing.T) {
 			require.Equal(t, http.StatusOK, inviteRec.Code)
 
 			var inviteResp map[string]any
-			require.NoError(t, json.Unmarshal(inviteRec.Body.Bytes(), &inviteResp))
+			require.NoError(t, json.Unmarshal(inviteRec.Body.Bytes(), &inviteResp, jsonx.V1()))
 
 			unprocessed, _ := inviteResp["UnprocessedAccounts"].([]any)
 			assert.Len(t, unprocessed, tc.wantUnproc)
@@ -252,7 +254,7 @@ func TestInviteMembers_UnknownAccountUnprocessed(t *testing.T) {
 				require.Equal(t, http.StatusOK, membersRec.Code)
 
 				var membersResp map[string]any
-				require.NoError(t, json.Unmarshal(membersRec.Body.Bytes(), &membersResp))
+				require.NoError(t, json.Unmarshal(membersRec.Body.Bytes(), &membersResp, jsonx.V1()))
 
 				members, _ := membersResp["Members"].([]any)
 				require.Len(t, members, 1)

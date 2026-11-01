@@ -2,7 +2,7 @@ package sagemakerruntime_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 	"github.com/blackbirdworks/gopherstack/services/sagemakerruntime"
@@ -88,7 +89,7 @@ func TestHandler_EndpointValidation(t *testing.T) {
 
 				if want == http.StatusBadRequest {
 					var body map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 					assert.Equal(t, "ValidationError", body["__type"])
 					assert.Contains(t, body["message"], tt.endpointName)
 				}

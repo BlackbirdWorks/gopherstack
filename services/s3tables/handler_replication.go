@@ -2,10 +2,11 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -60,7 +61,7 @@ func (h *Handler) handleGetTableRecordExpirationConfiguration(
 
 	return json.Marshal(map[string]any{
 		keyConfiguration: configuration,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableReplication(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -83,7 +84,7 @@ func (h *Handler) handleGetTableReplication(ctx context.Context, r *http.Request
 			"rules": cfg.Rules,
 		},
 		keyVersionToken: cfg.VersionToken,
-	})
+	}, jsonx.V1())
 }
 
 // putTableReplicationRequest is the request body for PutTableReplication.
@@ -100,7 +101,7 @@ func (h *Handler) handlePutTableReplication(ctx context.Context, r *http.Request
 	versionToken := r.URL.Query().Get(keyVersionToken)
 
 	var req putTableReplicationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -117,7 +118,7 @@ func (h *Handler) handlePutTableReplication(ctx context.Context, r *http.Request
 	return json.Marshal(map[string]any{
 		keyStatusField:  replicationStatusCompleted,
 		keyVersionToken: cfg.VersionToken,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -149,7 +150,7 @@ func (h *Handler) handleGetTableReplicationStatus(ctx context.Context, r *http.R
 	return json.Marshal(map[string]any{
 		"sourceTableArn": tableArn,
 		"destinations":   destinations,
-	})
+	}, jsonx.V1())
 }
 
 // putTableRecordExpirationRequest is the request body for PutTableRecordExpirationConfiguration.
@@ -168,7 +169,7 @@ func (h *Handler) handlePutTableRecordExpirationConfiguration(
 	}
 
 	var req putTableRecordExpirationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -225,5 +226,5 @@ func (h *Handler) handleGetTableRecordExpirationJobStatus(
 
 	return json.Marshal(map[string]any{
 		keyStatusField: status,
-	})
+	}, jsonx.V1())
 }

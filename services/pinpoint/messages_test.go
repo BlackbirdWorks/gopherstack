@@ -1,13 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -91,7 +92,7 @@ func TestOTP_SendAndVerify(t *testing.T) {
 					"verify body: %s", verifyRec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "Valid")
 			}
 		})
@@ -135,7 +136,7 @@ func TestOTP_SendAndVerify_CodeMatch(t *testing.T) {
 				require.Equal(t, http.StatusOK, sendRec.Code)
 
 				var sendResp map[string]any
-				require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp))
+				require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &sendResp, jsonx.V1()))
 
 				results, _ := sendResp["Result"].(map[string]any)
 				assert.NotEmpty(t, results, "SendOTP should return results")
@@ -146,7 +147,7 @@ func TestOTP_SendAndVerify_CodeMatch(t *testing.T) {
 			require.Equal(t, http.StatusOK, verifyRec.Code)
 
 			var verifyResp map[string]any
-			require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &verifyResp))
+			require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &verifyResp, jsonx.V1()))
 			assert.Equal(t, tc.wantValid, verifyResp["Valid"], "Valid field")
 		})
 	}
@@ -181,7 +182,7 @@ func TestOTP_CodeMatch_CorrectCode(t *testing.T) {
 	require.Equal(t, http.StatusOK, verifyNoCode.Code)
 
 	var noCodeResp map[string]any
-	require.NoError(t, json.Unmarshal(verifyNoCode.Body.Bytes(), &noCodeResp))
+	require.NoError(t, json.Unmarshal(verifyNoCode.Body.Bytes(), &noCodeResp, jsonx.V1()))
 	assert.True(t, noCodeResp["Valid"].(bool), "empty code falls back to has-pending-OTP check")
 }
 
@@ -204,7 +205,7 @@ func TestOTP_CodeMatch_WrongCode(t *testing.T) {
 	require.Equal(t, http.StatusOK, verifyRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.False(t, resp["Valid"].(bool), "wrong OTP code must return Valid=false")
 }
 
@@ -222,7 +223,7 @@ func TestOTP_CodeMatch_NoOTPSent(t *testing.T) {
 	require.Equal(t, http.StatusOK, verifyRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(verifyRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.False(t, resp["Valid"].(bool), "no OTP sent → Valid=false")
 }
 
@@ -275,7 +276,7 @@ func TestSendUsersMessages_WithEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, sendRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	result, _ := resp["Result"].(map[string]any)
 	require.NotNil(t, result)
@@ -314,7 +315,7 @@ func TestSendUsersMessages_UnknownUser(t *testing.T) {
 	require.Equal(t, http.StatusOK, sendRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(sendRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	result, _ := resp["Result"].(map[string]any)
 	require.NotNil(t, result)
@@ -335,7 +336,7 @@ func TestSendUsersMessages_EmptyBody(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	result, _ := resp["Result"].(map[string]any)
 	assert.Empty(t, result, "no users in request → empty result")
 }
@@ -402,7 +403,7 @@ func TestPhoneNumberValidate_E164Input(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			_, wrapped := resp["NumberValidateResponse"]
 			assert.False(t, wrapped, "NumberValidateResponse must not appear as a wrapper key")
@@ -438,7 +439,7 @@ func TestPhoneNumberValidate_UnknownCountry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	inner := resp
 	assert.Equal(t, "ZZ", inner["CountryCodeIso2"], "unknown country returns ZZ")
@@ -459,7 +460,7 @@ func TestPhoneNumberValidate_NationalFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	inner := resp
 	assert.Equal(t, "+12125551234", inner["CleansedPhoneNumberE164"],
@@ -479,7 +480,7 @@ func TestPhoneNumberValidate_PhoneTypeAndCarrier(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	inner := resp
 	assert.NotEmpty(t, inner["PhoneType"], "PhoneType must be set")
@@ -514,7 +515,7 @@ func TestSendMessages_ResponseFlat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, wrapped := resp["MessageResponse"]
 	assert.False(t, wrapped, "MessageResponse must not appear as a wrapper key")
@@ -562,7 +563,7 @@ func createTestInAppCampaign(
 	require.Equal(t, http.StatusCreated, campRec.Code, campRec.Body.String())
 
 	var camp map[string]any
-	require.NoError(t, json.Unmarshal(campRec.Body.Bytes(), &camp))
+	require.NoError(t, json.Unmarshal(campRec.Body.Bytes(), &camp, jsonx.V1()))
 	campaignID, _ := camp["Id"].(string)
 	require.NotEmpty(t, campaignID)
 
@@ -589,7 +590,7 @@ func TestGetInAppMessages(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
 		require.True(t, ok, "InAppMessageCampaigns must be present and be an array")
 		assert.Empty(t, campaigns)
@@ -607,7 +608,7 @@ func TestGetInAppMessages(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
 		require.True(t, ok)
 		require.Len(t, campaigns, 1)
@@ -641,7 +642,7 @@ func TestGetInAppMessages(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		campaigns, ok := resp["InAppMessageCampaigns"].([]any)
 		require.True(t, ok)
 		assert.Empty(t, campaigns, "a paused campaign doesn't run, per real AWS's IsPaused semantics")
@@ -657,7 +658,7 @@ func TestGetInAppMessages(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "NotFoundException", resp["__type"])
 	})
 }

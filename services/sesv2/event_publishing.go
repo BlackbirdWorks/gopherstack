@@ -1,10 +1,12 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/mail"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type eventMail struct {
@@ -63,7 +65,7 @@ func (b *InMemoryBackend) publishSendEvents(email Email) {
 		}
 
 		if slices.Contains(d.MatchingEventTypes, "SEND") {
-			payload, _ := json.Marshal(map[string]any{"eventType": "Send", "mail": m, "send": struct{}{}})
+			payload, _ := json.Marshal(map[string]any{"eventType": "Send", "mail": m, "send": struct{}{}}, jsonx.V1())
 			_ = pub.PublishToTopic(d.SnsDestination.TopicArn, string(payload))
 		}
 
@@ -71,7 +73,7 @@ func (b *InMemoryBackend) publishSendEvents(email Email) {
 			payload, _ := json.Marshal(map[string]any{
 				"eventType": "Delivery", "mail": m,
 				"delivery": eventDelivery{Timestamp: ts, Recipients: email.To},
-			})
+			}, jsonx.V1())
 			_ = pub.PublishToTopic(d.SnsDestination.TopicArn, string(payload))
 		}
 	}

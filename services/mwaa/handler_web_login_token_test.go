@@ -1,13 +1,16 @@
 package mwaa_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateWebLoginToken_HTTP_NonAvailable_Returns404(t *testing.T) {
@@ -57,7 +60,7 @@ func TestHandler_WebToken_HappyPath(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["WebToken"])
 }
 
@@ -94,7 +97,7 @@ func TestHandler_CreateWebLoginToken(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["WebToken"])
 			}
 		})
@@ -117,7 +120,7 @@ func TestWebLoginToken_HTTP_ResponseStructure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotEmpty(t, resp["WebToken"])
 	assert.NotEmpty(t, resp["WebServerHostname"])

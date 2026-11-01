@@ -1,11 +1,12 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseAdminPath(method string, parts []string) (string, string) {
@@ -70,7 +71,7 @@ func (h *Handler) handleEnableOrganizationAdminAccount(body []byte) (int, error)
 		AdminAccountID string `json:"adminAccountId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -116,7 +117,7 @@ func (h *Handler) handleUpdateOrganizationConfiguration(body []byte) (int, error
 		AutoEnable bool `json:"autoEnable"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

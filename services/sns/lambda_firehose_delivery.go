@@ -2,13 +2,14 @@ package sns
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -87,7 +88,7 @@ func buildLambdaPayload(
 		},
 	}
 
-	payload, err := json.Marshal(map[string]any{"Records": []any{record}})
+	payload, err := json.Marshal(map[string]any{"Records": []any{record}}, jsonx.V1())
 	if err != nil {
 		return []byte(`{"Records":[]}`)
 	}
@@ -115,7 +116,7 @@ func buildFirehoseEnvelope(ev *events.SNSPublishedEvent, sub events.SNSSubscript
 		env.Subject = ev.Subject
 	}
 
-	enc, err := json.Marshal(env)
+	enc, err := json.Marshal(env, jsonx.V1())
 	if err != nil {
 		return []byte(sub.Body(ev.Message))
 	}
@@ -357,7 +358,12 @@ func sendLambdaDLQ(ctx context.Context, sender SQSSender, redrivePolicy, body st
 	var policy struct {
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
 	}
-	if err := json.Unmarshal([]byte(redrivePolicy), &policy); err != nil || policy.DeadLetterTargetArn == "" {
+	if err := json.Unmarshal(
+		[]byte(redrivePolicy),
+		&policy,
+		jsonx.V1(),
+	); err != nil ||
+		policy.DeadLetterTargetArn == "" {
 		return
 	}
 	_ = sender.SendMessageToQueue(ctx, policy.DeadLetterTargetArn, body)

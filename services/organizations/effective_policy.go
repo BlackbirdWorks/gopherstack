@@ -1,9 +1,11 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validEffectivePolicyTypes is the EffectivePolicyType enum (aws-sdk-go-v2 organizations v1.53.5 enums.go).
@@ -130,12 +132,12 @@ func (b *InMemoryBackend) mergeTagStyleChain(chain []effectivePolicyEntry) (stri
 
 	for _, entry := range slices.Backward(chain) {
 		var obj map[string]any
-		if err := json.Unmarshal([]byte(entry.content), &obj); err == nil {
+		if err := json.Unmarshal([]byte(entry.content), &obj, jsonx.V1()); err == nil {
 			mergeJSONObjects(merged, obj)
 		}
 	}
 
-	if data, err := json.Marshal(merged); err == nil {
+	if data, err := json.Marshal(merged, jsonx.V1()); err == nil {
 		return string(data), chain[0].id
 	}
 

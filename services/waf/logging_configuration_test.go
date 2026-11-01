@@ -1,12 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestLoggingConfigurationLifecycle(t *testing.T) {
@@ -40,14 +42,14 @@ func TestLoggingConfigurationLifecycle(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			assert.NotNil(t, putResp["LoggingConfiguration"])
 
 			// Get
 			rec = wafDo(t, h, "GetLoggingConfiguration", map[string]any{"ResourceArn": aclARN})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			cfgMap := getResp["LoggingConfiguration"].(map[string]any)
 			assert.Equal(t, aclARN, cfgMap["ResourceArn"])
 
@@ -55,7 +57,7 @@ func TestLoggingConfigurationLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "ListLoggingConfigurations", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			cfgs := listResp["LoggingConfigurations"].([]any)
 			assert.Len(t, cfgs, 1)
 
@@ -70,7 +72,7 @@ func TestLoggingConfigurationLifecycle(t *testing.T) {
 			// List after delete → empty
 			rec = wafDo(t, h, "ListLoggingConfigurations", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			cfgs = listResp["LoggingConfigurations"].([]any)
 			assert.Empty(t, cfgs)
 		})

@@ -1,12 +1,15 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- request types ----
@@ -71,7 +74,7 @@ type listEmailIdentitiesOutput struct {
 func (h *Handler) handleCreateEmailIdentity(c *echo.Context) (any, error) {
 	var in createEmailIdentityInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
@@ -178,7 +181,7 @@ func (h *Handler) handleCreateEmailIdentityPolicy(c *echo.Context, identity stri
 
 	var in createEmailIdentityPolicyInput
 
-	if decErr := json.NewDecoder(c.Request().Body).Decode(&in); decErr != nil {
+	if decErr := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); decErr != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, decErr.Error())
 	}
 
@@ -233,7 +236,7 @@ func (h *Handler) handleUpdateEmailIdentityPolicy(c *echo.Context, identity stri
 
 	var in createEmailIdentityPolicyInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -254,7 +257,7 @@ func (h *Handler) handlePutEmailIdentityConfigurationSetAttributes(
 		ConfigurationSetName string `json:"ConfigurationSetName"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -272,7 +275,7 @@ func (h *Handler) handlePutEmailIdentityDkimAttributes(
 		SigningEnabled bool `json:"SigningEnabled"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -307,7 +310,7 @@ func (h *Handler) handlePutEmailIdentityFeedbackAttributes(
 		EmailForwardingEnabled bool `json:"EmailForwardingEnabled"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -326,7 +329,7 @@ func (h *Handler) handlePutEmailIdentityMailFromAttributes(
 		BehaviorOnMxFailure string `json:"BehaviorOnMxFailure"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

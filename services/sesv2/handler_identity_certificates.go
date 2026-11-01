@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type identityCertificateOutput struct {
@@ -19,7 +22,7 @@ type listEmailIdentityCertificatesOutput struct {
 }
 
 func decodeBody(c *echo.Context, in any) error {
-	if err := json.NewDecoder(c.Request().Body).Decode(in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), in, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 

@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -259,10 +260,10 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 	// current memorydbSnapshotVersion constant.
 	var raw map[string]any
 
-	require.NoError(t, json.Unmarshal(original.Snapshot(ctx), &raw))
+	require.NoError(t, json.Unmarshal(original.Snapshot(ctx), &raw, jsonx.V1()))
 	raw["version"] = -1
 
-	badSnap, err := json.Marshal(raw)
+	badSnap, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	fresh := memorydb.NewInMemoryBackend("123456789012", "us-east-1")

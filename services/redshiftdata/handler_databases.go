@@ -2,8 +2,10 @@ package redshiftdata
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListDatabases(ctx context.Context, body []byte) ([]byte, error) {
@@ -17,7 +19,7 @@ func (h *Handler) handleListDatabases(ctx context.Context, body []byte) ([]byte,
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -40,7 +42,7 @@ func (h *Handler) handleListDatabases(ctx context.Context, body []byte) ([]byte,
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleListSchemas(ctx context.Context, body []byte) ([]byte, error) {
@@ -62,7 +64,7 @@ func (h *Handler) handleListSchemas(ctx context.Context, body []byte) ([]byte, e
 		MaxResults        int    `json:"MaxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -90,7 +92,7 @@ func (h *Handler) handleListSchemas(ctx context.Context, body []byte) ([]byte, e
 		resp[keyNextToken] = next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // paginateStrings applies cursor-based pagination to a sorted string slice.

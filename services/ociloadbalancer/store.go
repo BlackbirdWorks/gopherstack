@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"crypto/tls"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/netip"
 	"slices"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -164,13 +165,13 @@ func (b *InMemoryBackend) transitionAt() *time.Time {
 
 // clone deep-copies a load balancer; stored load balancers are immutable once published.
 func (lb *LoadBalancer) clone() *LoadBalancer {
-	raw, err := json.Marshal(lb)
+	raw, err := json.Marshal(lb, jsonx.V1())
 	if err != nil {
 		return lb
 	}
 
 	out := &LoadBalancer{}
-	if json.Unmarshal(raw, out) != nil {
+	if json.Unmarshal(raw, out, jsonx.V1()) != nil {
 		return lb
 	}
 

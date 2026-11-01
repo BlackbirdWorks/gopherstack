@@ -2,10 +2,12 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -94,21 +96,21 @@ type backendSnapshot struct {
 	// wait-before-recreate rule for any queue deleted just before the
 	// snapshot. Keyed by queueKey(region, name) since the deleted queue no
 	// longer has a live Queue struct to attach this to.
-	RecentlyDeleted map[string]int64           `json:"recentlyDeleted,omitempty"`
-	Tables          map[string]json.RawMessage `json:"tables"`
-	AccountID       string                     `json:"accountID"`
-	Region          string                     `json:"region"`
-	Version         int                        `json:"version"`
+	RecentlyDeleted map[string]int64          `json:"recentlyDeleted,omitempty"`
+	Tables          map[string]jsontext.Value `json:"tables"`
+	AccountID       string                    `json:"accountID"`
+	Region          string                    `json:"region"`
+	Version         int                       `json:"version"`
 }
 
 // marshalQueuesLocked marshals each queue's DTO to JSON while q.mu is held, then reassembles the JSON array.
 // queues must already be sorted, as [store.Table.Snapshot] returns them, to keep the wire format unchanged.
-func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
+func marshalQueuesLocked(queues []*Queue) (jsontext.Value, error) {
 	if len(queues) == 0 {
-		return json.RawMessage("null"), nil
+		return jsontext.Value("null"), nil
 	}
 
-	parts := make([]json.RawMessage, len(queues))
+	parts := make([]jsontext.Value, len(queues))
 
 	for i, q := range queues {
 		q.mu.Lock()
@@ -135,7 +137,7 @@ func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
 			IsFIFO:                q.IsFIFO,
 			FifoSeqCounter:        q.fifoSeqCounter,
 			LastPurgedAtUnixMilli: lastPurgedAtMillis,
-		})
+		}, jsonx.V1())
 
 		q.mu.Unlock()
 
@@ -146,7 +148,7 @@ func marshalQueuesLocked(queues []*Queue) (json.RawMessage, error) {
 		parts[i] = data
 	}
 
-	return json.Marshal(parts)
+	return json.Marshal(parts, jsonx.V1())
 }
 
 // Snapshot serialises the backend state to JSON.

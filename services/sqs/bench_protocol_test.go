@@ -2,7 +2,7 @@ package sqs_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -82,7 +83,7 @@ func jsonSendBody(b *testing.B, qURL string) []byte {
 			"attr-one": map[string]any{"DataType": "String", "StringValue": "value-one"},
 			"attr-two": map[string]any{"DataType": "Number", "StringValue": "42"},
 		},
-	})
+	}, jsonx.V1())
 	if err != nil {
 		b.Fatalf("marshal send body: %v", err)
 	}
@@ -144,7 +145,7 @@ func BenchmarkJSONSendMessageBatch10(b *testing.B) {
 		}
 	}
 
-	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "Entries": entries})
+	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "Entries": entries}, jsonx.V1())
 	if err != nil {
 		b.Fatalf("marshal batch body: %v", err)
 	}
@@ -196,7 +197,7 @@ func BenchmarkJSONReceiveMessage10_Depth10000(b *testing.B) {
 	h := sqs.NewHandler(backend)
 	qURL := setupReceiveDepthQueue(b, backend, "bench-json-recv-q")
 
-	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "MaxNumberOfMessages": 10})
+	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "MaxNumberOfMessages": 10}, jsonx.V1())
 	if err != nil {
 		b.Fatalf("marshal receive body: %v", err)
 	}
@@ -271,7 +272,7 @@ func BenchmarkJSONReceiveMessage10_FIFOManyGroups(b *testing.B) {
 	h := sqs.NewHandler(backend)
 	qURL := setupFIFOManyGroups(b, backend, "bench-json-fifo-recv-q", 1000, 10)
 
-	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "MaxNumberOfMessages": 10})
+	body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "MaxNumberOfMessages": 10}, jsonx.V1())
 	if err != nil {
 		b.Fatalf("marshal receive body: %v", err)
 	}
@@ -332,7 +333,7 @@ func BenchmarkJSONDeleteMessage(b *testing.B) {
 
 	bodies := make([][]byte, len(handles))
 	for i, rh := range handles {
-		body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "ReceiptHandle": rh})
+		body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "ReceiptHandle": rh}, jsonx.V1())
 		if err != nil {
 			b.Fatalf("marshal delete body: %v", err)
 		}
@@ -385,7 +386,7 @@ func BenchmarkJSONDeleteMessageBatch10(b *testing.B) {
 		for i, m := range recv.Messages {
 			entries[i] = map[string]any{"Id": strconv.Itoa(i), "ReceiptHandle": m.ReceiptHandle}
 		}
-		body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "Entries": entries})
+		body, err := json.Marshal(map[string]any{"QueueUrl": qURL, "Entries": entries}, jsonx.V1())
 		if err != nil {
 			b.Fatalf("marshal delete batch body: %v", err)
 		}

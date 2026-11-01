@@ -2,7 +2,7 @@ package scheduler_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -27,7 +28,7 @@ func doSchedulerRequest(t *testing.T, h *scheduler.Handler, action string, body 
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -78,7 +79,7 @@ func doRESTRequest(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 

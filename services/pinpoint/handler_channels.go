@@ -1,7 +1,7 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) extractChannelOp(method, channelType string) string {
@@ -186,7 +187,7 @@ func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 
 func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
 	var req updateGCMChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return false, nil
 	}
 
@@ -205,7 +206,7 @@ func parseGCMChannelExtra(body []byte) (bool, map[string]any) {
 
 func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
 	var req updateAPNSChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return false, nil
 	}
 
@@ -225,7 +226,7 @@ func parseAPNSChannelExtra(body []byte) (bool, map[string]any) {
 
 func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
 	var req updateEmailChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return false, nil
 	}
 
@@ -246,7 +247,7 @@ func parseEmailChannelExtra(body []byte) (bool, map[string]any) {
 
 func parseSMSChannelExtra(body []byte) (bool, map[string]any) {
 	var req updateSMSChannelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return false, nil
 	}
 
@@ -276,7 +277,7 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 		return parseSMSChannelExtra(body)
 	case channelKeyADM:
 		var req updateADMChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return false, nil
 		}
 
@@ -293,7 +294,7 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 		return req.Enabled, extra
 	case channelKeyBaidu:
 		var req updateBaiduChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return false, nil
 		}
 
@@ -310,7 +311,7 @@ func parseChannelExtra(channelType string, body []byte) (bool, map[string]any) {
 		return req.Enabled, extra
 	default:
 		var req updateChannelRequest
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return false, nil
 		}
 

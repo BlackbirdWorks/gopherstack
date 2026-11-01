@@ -2,7 +2,7 @@ package support_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/support"
 )
 
@@ -24,7 +25,7 @@ func newTestSupportHandler(t *testing.T) *support.Handler {
 func doSupportRequest(t *testing.T, h *support.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -47,7 +48,7 @@ func decodeSupportResponse(t *testing.T, rec *httptest.ResponseRecorder) map[str
 	t.Helper()
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 	return result
 }

@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -22,7 +23,7 @@ func wafCreateIPSet(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["IPSet"].(map[string]any)
 	id := m["IPSetId"].(string)
 	require.NotEmpty(t, id)
@@ -41,7 +42,7 @@ func TestWAF_IPSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec := wafDo(t, h, "GetIPSet", map[string]any{"IPSetId": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ipSet := resp["IPSet"].(map[string]any)
 	assert.Equal(t, "my-ips", ipSet["Name"])
 	descs := ipSet["IPSetDescriptors"].([]any)
@@ -66,7 +67,7 @@ func TestWAF_IPSet_CreateGetUpdateDeleteList(t *testing.T) {
 
 	// Verify
 	rec = wafDo(t, h, "GetIPSet", map[string]any{"IPSetId": id})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ipSet = resp["IPSet"].(map[string]any)
 	descs = ipSet["IPSetDescriptors"].([]any)
 	require.Len(t, descs, 1)
@@ -92,7 +93,7 @@ func TestWAF_IPSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = wafDo(t, h, "GetIPSet", map[string]any{"IPSetId": id})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ipSet = resp["IPSet"].(map[string]any)
 	descs = ipSet["IPSetDescriptors"].([]any)
 	assert.Empty(t, descs)
@@ -101,7 +102,7 @@ func TestWAF_IPSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "ListIPSets", map[string]any{"Limit": 100})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	sets := listResp["IPSets"].([]any)
 	assert.Len(t, sets, 1)
 
@@ -139,7 +140,7 @@ func TestWAF_IPSet_IPv6Descriptor(t *testing.T) {
 
 	rec = wafDo(t, h, "GetIPSet", map[string]any{"IPSetId": id})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ipSet := resp["IPSet"].(map[string]any)
 	descs := ipSet["IPSetDescriptors"].([]any)
 	require.Len(t, descs, 1)
@@ -155,7 +156,7 @@ func TestWAF_MultipleIPSets_List(t *testing.T) {
 
 	rec := wafDo(t, h, "ListIPSets", map[string]any{"Limit": 100})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sets := resp["IPSets"].([]any)
 	assert.Len(t, sets, 2)
 }

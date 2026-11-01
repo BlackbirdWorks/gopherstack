@@ -1,8 +1,10 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseDatasourcesPath(method string, parts []string) (string, string) {
@@ -71,7 +73,7 @@ func (h *Handler) handleDescribeBuckets(body []byte) (any, int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -104,7 +106,7 @@ func (h *Handler) handleGetBucketStatistics(body []byte) (any, int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -208,7 +210,7 @@ func (h *Handler) handleSearchResources(body []byte) (any, int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}

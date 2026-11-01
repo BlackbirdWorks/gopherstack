@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // importDataSourceInput mirrors types.ImportDataSource. Both members are
@@ -85,7 +88,7 @@ type createImportJobInput struct {
 func (h *Handler) handleCreateImportJob(c *echo.Context) (any, error) {
 	var in createImportJobInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

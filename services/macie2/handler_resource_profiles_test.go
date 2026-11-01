@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -30,7 +31,7 @@ func TestResourceProfiles(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var profile map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 				assert.Equal(t, arn, profile["resourceArn"])
 
 				// UpdateResourceProfile
@@ -42,7 +43,7 @@ func TestResourceProfiles(t *testing.T) {
 				// Verify
 				rec = doRequest(t, h, http.MethodGet, "/resource-profiles?resourceArn="+arn, nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				assert.EqualValues(t, 75, updated["sensitivityScore"])
 				assert.True(t, updated["sensitivityScoreOverridden"].(bool))
 			},
@@ -59,7 +60,7 @@ func TestResourceProfiles(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var artResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &artResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &artResp, jsonx.V1()))
 				artifacts, _ := artResp["artifacts"].([]any)
 				assert.Empty(t, artifacts)
 
@@ -68,7 +69,7 @@ func TestResourceProfiles(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var detResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detResp, jsonx.V1()))
 				detections, _ := detResp["detections"].([]any)
 				assert.Empty(t, detections)
 

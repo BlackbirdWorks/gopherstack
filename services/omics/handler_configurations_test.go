@@ -1,12 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestOmics_Configuration exercises the Configuration CRUD family.
@@ -39,7 +41,7 @@ func TestOmics_Configuration(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "cfg1", resp["name"])
 				assert.Equal(t, "ACTIVE", resp["status"])
 				assert.NotEmpty(t, resp["arn"])
@@ -101,14 +103,14 @@ func TestS3AccessPolicy_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 	assert.Equal(t, apArn, putResp["s3AccessPointArn"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/s3accesspolicy/"+apArn, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	policy, _ := getResp["s3AccessPolicy"].(string)
 	assert.JSONEq(t, `{"Version":"2012-10-17"}`, policy, "real wire key is s3AccessPolicy")
 	assert.Nil(t, getResp["policy"], "policy is not a real wire key")

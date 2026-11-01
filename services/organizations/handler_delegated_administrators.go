@@ -1,11 +1,12 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -81,7 +82,7 @@ func (h *Handler) dispatchDelegatedAdmin(c *echo.Context, op string, body []byte
 
 func (h *Handler) handleRegisterDelegatedAdministrator(c *echo.Context, body []byte) error {
 	var req registerDelegatedAdministratorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -94,7 +95,7 @@ func (h *Handler) handleRegisterDelegatedAdministrator(c *echo.Context, body []b
 
 func (h *Handler) handleDeregisterDelegatedAdministrator(c *echo.Context, body []byte) error {
 	var req deregisterDelegatedAdministratorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -107,7 +108,7 @@ func (h *Handler) handleDeregisterDelegatedAdministrator(c *echo.Context, body [
 
 func (h *Handler) handleListDelegatedAdministrators(c *echo.Context, body []byte) error {
 	var req listDelegatedAdministratorsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -144,7 +145,7 @@ func (h *Handler) handleListDelegatedAdministrators(c *echo.Context, body []byte
 
 func (h *Handler) handleListDelegatedServicesForAccount(c *echo.Context, body []byte) error {
 	var req listDelegatedServicesForAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

@@ -2,7 +2,7 @@ package translate
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -106,7 +107,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var values map[string]any
-	if unmarshalErr := json.Unmarshal(body, &values); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &values, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -147,7 +148,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 
 	var input map[string]any
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 		}
 	}
@@ -161,7 +162,7 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(output)
+	return json.Marshal(output, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {

@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -27,7 +28,7 @@ func TestHandler_CreateModelPackage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ModelPackageArn"], "my-pkg")
 }
 
@@ -42,7 +43,7 @@ func TestHandler_DescribeModelPackage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "pkg-1", resp["ModelPackageName"])
 }
 
@@ -71,7 +72,7 @@ func TestHandler_ListModelPackages(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["ModelPackageSummaryList"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -91,7 +92,7 @@ func TestHandler_CreateModelPackageGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["ModelPackageGroupArn"], "my-group")
 }
 
@@ -106,7 +107,7 @@ func TestHandler_DescribeModelPackageGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "grp-1", resp["ModelPackageGroupName"])
 	assert.Equal(t, "Completed", resp["ModelPackageGroupStatus"])
 }
@@ -136,7 +137,7 @@ func TestHandler_ListModelPackageGroups(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["ModelPackageGroupSummaryList"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -294,7 +295,7 @@ func TestAddTags_ModelPackage(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 			tags := resp["Tags"].([]any)
 			require.Len(t, tags, 1)
@@ -382,7 +383,7 @@ func TestHandler_ModelPackageGroupPolicy_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recPut.Code)
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(recPut.Body.Bytes(), &putOut, jsonx.V1()))
 	assert.NotEmpty(t, putOut["ModelPackageGroupArn"])
 
 	recGet2 := doSageMakerRequest(t, h, "GetModelPackageGroupPolicy", map[string]any{
@@ -391,7 +392,7 @@ func TestHandler_ModelPackageGroupPolicy_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recGet2.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(recGet2.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(recGet2.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, policy, getOut["ResourcePolicy"])
 
 	recDelete := doSageMakerRequest(t, h, "DeleteModelPackageGroupPolicy", map[string]any{
@@ -479,7 +480,7 @@ func TestHandler_UpdateModelPackage(t *testing.T) {
 	})
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	pkgArn := createResp["ModelPackageArn"]
 	require.NotEmpty(t, pkgArn)
 
@@ -490,7 +491,7 @@ func TestHandler_UpdateModelPackage(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, pkgArn, resp["ModelPackageArn"])
 
 	// Describe and verify approval status
@@ -498,7 +499,7 @@ func TestHandler_UpdateModelPackage(t *testing.T) {
 		"ModelPackageName": "my-pkg",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Approved", descResp["ModelApprovalStatus"])
 }
 
@@ -593,7 +594,7 @@ func TestHandler_BatchDescribeModelPackage(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "ModelPackageSummaries")
 				assert.Contains(t, resp, "BatchDescribeModelPackageErrorMap")
 			}
@@ -624,7 +625,7 @@ func TestHandler_BatchDescribeModelPackage_ExistingAndMissing(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["ModelPackageSummaries"].(map[string]any)
 	require.True(t, ok)

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateCodeRepository(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_CreateCodeRepository(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["CodeRepositoryArn"], "my-repo")
 }
 
@@ -73,7 +75,7 @@ func TestHandler_DescribeCodeRepository(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "repo-1", resp["CodeRepositoryName"])
 
 	// The awsjson1.1 protocol encodes timestamps as epoch-seconds numbers, not
@@ -108,12 +110,12 @@ func TestHandler_UpdateCodeRepository(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["CodeRepositoryArn"], "repo-upd")
 
 	descRec := doSageMakerRequest(t, h, "DescribeCodeRepository", map[string]any{"CodeRepositoryName": "repo-upd"})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	gitConfig, ok := descResp["GitConfig"].(map[string]any)
 	require.True(t, ok, "GitConfig must be present")
 	assert.Equal(t, "https://github.com/test/repo", gitConfig["RepositoryUrl"],
@@ -155,7 +157,7 @@ func TestHandler_ListCodeRepositories(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["CodeRepositorySummaryList"].([]any)
 	assert.Len(t, items, 2)
 }

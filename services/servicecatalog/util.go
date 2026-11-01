@@ -2,7 +2,7 @@ package servicecatalog
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"slices"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func sortedKeys[V any](m map[string]V) []string {
@@ -91,6 +92,6 @@ func idemReplay[T any](b *InMemoryBackend, opName, token string, req any, do fun
 	return res, err
 }
 
-func jsonUnmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v) }
+func jsonUnmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v, jsonx.V1()) }
 
 func awsmetaCaller(ctx context.Context) string { return awsmeta.CallerArn(ctx) }

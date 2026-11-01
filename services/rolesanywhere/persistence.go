@@ -2,7 +2,7 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -72,7 +72,7 @@ func buildPersistenceDTORegistry() (
 // maps left unconverted by Phase 3.3 (see store_setup.go) and are persisted
 // here directly, as before.
 type backendSnapshot struct {
-	Tables               map[string]json.RawMessage                  `json:"tables"`
+	Tables               map[string]jsontext.Value                   `json:"tables"`
 	Tags                 map[string]map[string][]TagEntry            `json:"tags"`
 	AttributeMappings    map[string]map[string][]AttributeMapping    `json:"attributeMappings"`
 	NotificationSettings map[string]map[string][]NotificationSetting `json:"notificationSettings"`
@@ -181,7 +181,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // profiles, crls, subjects) from tables via the ephemeral DTO registry,
 // factored out of Restore to keep Restore's own cognitive complexity low.
 // Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtoReg, taDTOs, profileDTOs, crlDTOs, subjectDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("rolesanywhere: restore snapshot resource tables: %w", err)

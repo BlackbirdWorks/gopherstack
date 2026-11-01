@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -13,8 +15,8 @@ type createEndpointConfigRequest struct {
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
-	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
-	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
+	ExplainerConfig          jsontext.Value        `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            jsontext.Value        `json:"MetricsConfig,omitempty"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
 	KmsKeyID                 string                `json:"KmsKeyId,omitempty"`
@@ -36,8 +38,8 @@ type describeEndpointConfigResponse struct {
 	DataCaptureConfig        *DataCaptureConfig    `json:"DataCaptureConfig,omitempty"`
 	AsyncInferenceConfig     *AsyncInferenceConfig `json:"AsyncInferenceConfig,omitempty"`
 	VpcConfig                *VpcConfig            `json:"VpcConfig,omitempty"`
-	ExplainerConfig          json.RawMessage       `json:"ExplainerConfig,omitempty"`
-	MetricsConfig            json.RawMessage       `json:"MetricsConfig,omitempty"`
+	ExplainerConfig          jsontext.Value        `json:"ExplainerConfig,omitempty"`
+	MetricsConfig            jsontext.Value        `json:"MetricsConfig,omitempty"`
 	EndpointConfigArn        string                `json:"EndpointConfigArn"`
 	EndpointConfigName       string                `json:"EndpointConfigName"`
 	ExecutionRoleArn         string                `json:"ExecutionRoleArn,omitempty"`
@@ -50,7 +52,7 @@ type describeEndpointConfigResponse struct {
 
 func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req createEndpointConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -91,7 +93,7 @@ func (h *Handler) handleCreateEndpointConfig(ctx context.Context, body []byte) (
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created endpoint config", "name", ec.EndpointConfigName)
 
-	return json.Marshal(map[string]string{"EndpointConfigArn": ec.EndpointConfigARN})
+	return json.Marshal(map[string]string{"EndpointConfigArn": ec.EndpointConfigARN}, jsonx.V1())
 }
 
 // describeEndpointConfigRequest is the request body for DescribeEndpointConfig.
@@ -102,7 +104,7 @@ type describeEndpointConfigRequest struct {
 func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeEndpointConfigRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -139,13 +141,13 @@ func (h *Handler) handleDescribeEndpointConfig(ctx context.Context, body []byte)
 		resp.ShadowProductionVariants = nil
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req nameTimeListRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -171,7 +173,7 @@ func (h *Handler) handleListEndpointConfigs(ctx context.Context, body []byte) ([
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteEndpointConfigRequest is the request body for DeleteEndpointConfig.
@@ -182,7 +184,7 @@ type deleteEndpointConfigRequest struct {
 func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) error {
 	var req deleteEndpointConfigRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

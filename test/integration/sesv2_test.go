@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -21,7 +22,7 @@ func sesv2Do(t *testing.T, method, path string, body any) *http.Response {
 	var bodyReader io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		bodyReader = bytes.NewReader(b)
@@ -62,7 +63,7 @@ func TestIntegration_SESv2_CreateEmailIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 	assert.Equal(t, true, out["VerifiedForSendingStatus"])
 }
@@ -83,7 +84,7 @@ func TestIntegration_SESv2_GetEmailIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 }
 
@@ -105,7 +106,7 @@ func TestIntegration_SESv2_ListEmailIdentities(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 
 	identities, ok := out["EmailIdentities"].([]any)
 	require.True(t, ok)
@@ -165,7 +166,7 @@ func TestIntegration_SESv2_SendEmail(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["MessageId"])
 }
 
@@ -197,7 +198,7 @@ func TestIntegration_SESv2_GetConfigurationSet(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, name, out["ConfigurationSetName"])
 }
 
@@ -218,7 +219,7 @@ func TestIntegration_SESv2_ListConfigurationSets(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 
 	sets, ok := out["ConfigurationSets"].([]any)
 	require.True(t, ok)
@@ -267,7 +268,7 @@ func TestIntegration_SESv2_URLEncodedIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET with percent-encoded identity should succeed; body: %s", body)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, "EMAIL_ADDRESS", out["IdentityType"])
 
 	// DELETE with percent-encoded path.

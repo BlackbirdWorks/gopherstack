@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -94,7 +95,7 @@ func TestHandler_GetGroups(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			groups, ok := resp["Groups"].([]any)
 			require.True(t, ok)
@@ -259,7 +260,7 @@ func TestHandler_UpdateGroup_AppliesInsightsConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	group, ok := resp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -299,7 +300,7 @@ func TestHandler_UpdateGroup_OmittedFieldsAreNotWiped(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &resp, jsonx.V1()))
 	group, ok := resp["Group"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, `service("original")`, group["FilterExpression"],
@@ -313,7 +314,7 @@ func TestHandler_UpdateGroup_OmittedFieldsAreNotWiped(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(updRec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(updRec2.Body.Bytes(), &resp2, jsonx.V1()))
 	group2, ok := resp2["Group"].(map[string]any)
 	require.True(t, ok)
 	ic, ok := group2["InsightsConfiguration"].(map[string]any)
@@ -353,7 +354,7 @@ func TestGroup_ARNBasedLookup(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	group, ok := createResp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -369,7 +370,7 @@ func TestGroup_ARNBasedLookup(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	g2, ok := getResp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -428,7 +429,7 @@ func TestHandler_GetGroups_Pagination(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			groups, ok := resp["Groups"].([]any)
 			require.True(t, ok, "Groups field must be present and array")
@@ -462,7 +463,7 @@ func TestHandler_GetGroups_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	groups1 := resp1["Groups"].([]any)
 	assert.Len(t, groups1, defaultPageSize)
@@ -474,7 +475,7 @@ func TestHandler_GetGroups_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	groups2 := resp2["Groups"].([]any)
 	assert.Len(t, groups2, total-defaultPageSize)
@@ -490,7 +491,7 @@ func TestHandler_GetGroups_EmptyBodyAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "Groups")
 	assert.Contains(t, resp, "NextToken")
 }
@@ -504,7 +505,7 @@ func TestGroups_ARNBasedLookup(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	group, ok := createResp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -517,7 +518,7 @@ func TestGroups_ARNBasedLookup(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	g2, ok := getResp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -533,7 +534,7 @@ func TestGroups_UpdateByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	group, _ := createResp["Group"].(map[string]any)
 	groupARN, _ := group["GroupARN"].(string)
@@ -545,7 +546,7 @@ func TestGroups_UpdateByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, updRec.Code)
 
 	var updResp map[string]any
-	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp, jsonx.V1()))
 
 	g2, ok := updResp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -561,7 +562,7 @@ func TestGroups_DeleteByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	group, _ := createResp["Group"].(map[string]any)
 	groupARN, _ := group["GroupARN"].(string)
@@ -603,7 +604,7 @@ func TestGroups_FilterExpressionStoredAndReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			g, ok := resp["Group"].(map[string]any)
 			require.True(t, ok)
@@ -621,7 +622,7 @@ func TestGroups_ARNPresentInCreateResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	group, ok := resp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -647,7 +648,7 @@ func TestGroups_ListGroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	groups, ok := resp["Groups"].([]any)
 	require.True(t, ok)

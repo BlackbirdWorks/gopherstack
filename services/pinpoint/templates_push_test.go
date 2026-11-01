@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -25,7 +27,7 @@ func TestListTemplates_SMSListed(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Item"].([]any)
 	require.NotEmpty(t, items)
 
@@ -119,7 +121,7 @@ func TestSmsTemplate_BodyPersistence(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code, "get status")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantBody != "" {
 				assert.Equal(t, tc.wantBody, resp["Body"], "Body")
@@ -231,7 +233,7 @@ func TestPushTemplate_BodyPersistence(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code, "get status")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantDescription != "" {
 				assert.Equal(t, tc.wantDescription, resp["TemplateDescription"])
@@ -339,7 +341,7 @@ func TestPushTemplate_PerPlatformOverrides(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	assert.Equal(t, "PUSH", tmpl["TemplateType"])
 	assert.Equal(t, "reco-1", tmpl["RecommenderId"])
@@ -388,7 +390,7 @@ func TestPushTemplate_UpdatePerPlatform(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	def := tmpl["Default"].(map[string]any)
 	assert.Equal(t, "v2 body", def["Body"])
@@ -431,7 +433,7 @@ func TestSMSTemplate_RecommenderID(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var tmpl map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 			assert.Equal(t, "Hello from {{sender}}", tmpl["Body"])
 
@@ -458,7 +460,7 @@ func TestSMSTemplate_UpdateRecommenderID(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	assert.Equal(t, "Hello v2", tmpl["Body"])
 	assert.Equal(t, "reco-new", tmpl["RecommenderId"])
@@ -565,7 +567,7 @@ func TestHandler_CreatePushTemplate(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, "Created", resp["Message"])
 			}
@@ -600,7 +602,7 @@ func TestHandler_CreateSmsTemplate(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, "Created", resp["Message"])
 			}

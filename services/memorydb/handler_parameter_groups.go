@@ -2,17 +2,19 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createParameterGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -35,7 +37,7 @@ func (h *Handler) handleCreateParameterGroup(ctx context.Context, c *echo.Contex
 func (h *Handler) handleDescribeParameterGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeParameterGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -63,7 +65,7 @@ func (h *Handler) handleDescribeParameterGroups(ctx context.Context, c *echo.Con
 func (h *Handler) handleDeleteParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteParameterGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -82,7 +84,7 @@ func (h *Handler) handleDeleteParameterGroup(ctx context.Context, c *echo.Contex
 func (h *Handler) handleUpdateParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateParameterGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -103,7 +105,7 @@ func (h *Handler) handleUpdateParameterGroup(ctx context.Context, c *echo.Contex
 func (h *Handler) handleDescribeParameters(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeParametersRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleDescribeParameters(ctx context.Context, c *echo.Context,
 func (h *Handler) handleResetParameterGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req resetParameterGroupRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

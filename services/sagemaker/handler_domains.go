@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -18,26 +20,26 @@ import (
 // are carried as opaque json.RawMessage passthrough per this file's
 // established convention (algorithms.go, ai_workload_configs.go).
 type createDomainInput struct {
-	DomainName                 string          `json:"DomainName"`
-	AuthMode                   string          `json:"AuthMode"`
-	AppNetworkAccessType       string          `json:"AppNetworkAccessType"`
-	AppSecurityGroupManagement string          `json:"AppSecurityGroupManagement"`
-	HomeEfsFileSystemCreation  string          `json:"HomeEfsFileSystemCreation"`
-	KmsKeyID                   string          `json:"KmsKeyId"`
-	HomeEfsFileSystemKmsKeyID  string          `json:"HomeEfsFileSystemKmsKeyId"`
-	VpcID                      string          `json:"VpcId"`
-	TagPropagation             string          `json:"TagPropagation"`
-	SubnetIDs                  []string        `json:"SubnetIds"`
-	DefaultUserSettings        json.RawMessage `json:"DefaultUserSettings"`
-	DefaultSpaceSettings       json.RawMessage `json:"DefaultSpaceSettings"`
-	DomainSettings             json.RawMessage `json:"DomainSettings"`
-	Tags                       []tagObject     `json:"Tags"`
+	DomainName                 string         `json:"DomainName"`
+	AuthMode                   string         `json:"AuthMode"`
+	AppNetworkAccessType       string         `json:"AppNetworkAccessType"`
+	AppSecurityGroupManagement string         `json:"AppSecurityGroupManagement"`
+	HomeEfsFileSystemCreation  string         `json:"HomeEfsFileSystemCreation"`
+	KmsKeyID                   string         `json:"KmsKeyId"`
+	HomeEfsFileSystemKmsKeyID  string         `json:"HomeEfsFileSystemKmsKeyId"`
+	VpcID                      string         `json:"VpcId"`
+	TagPropagation             string         `json:"TagPropagation"`
+	SubnetIDs                  []string       `json:"SubnetIds"`
+	DefaultUserSettings        jsontext.Value `json:"DefaultUserSettings"`
+	DefaultSpaceSettings       jsontext.Value `json:"DefaultSpaceSettings"`
+	DomainSettings             jsontext.Value `json:"DomainSettings"`
+	Tags                       []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, error) {
 	var req createDomainInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -76,7 +78,7 @@ func (h *Handler) handleCreateDomain(ctx context.Context, body []byte) ([]byte, 
 		InfoContext(ctx, "sagemaker: created domain", "name", d.DomainName, "id", d.DomainID)
 
 	return json.Marshal(
-		map[string]string{keyDomainArn: d.DomainArn, keyDomainID: d.DomainID, keyURL: d.URL},
+		map[string]string{keyDomainArn: d.DomainArn, keyDomainID: d.DomainID, keyURL: d.URL}, jsonx.V1(),
 	)
 }
 
@@ -87,7 +89,7 @@ type describeDomainInput struct {
 func (h *Handler) handleDescribeDomain(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeDomainInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -155,7 +157,7 @@ func (h *Handler) handleDescribeDomain(ctx context.Context, body []byte) ([]byte
 		resp["DomainSettings"] = d.DomainSettings
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type domainSummary struct {
@@ -174,7 +176,7 @@ type listDomainsInput struct {
 func (h *Handler) handleListDomains(ctx context.Context, body []byte) ([]byte, error) {
 	var req listDomainsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -196,7 +198,7 @@ func (h *Handler) handleListDomains(ctx context.Context, body []byte) ([]byte, e
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type deleteDomainInput struct {
@@ -209,7 +211,7 @@ type deleteDomainInput struct {
 func (h *Handler) handleDeleteDomain(ctx context.Context, body []byte) error {
 	var req deleteDomainInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -237,22 +239,22 @@ func (h *Handler) handleDeleteDomain(ctx context.Context, body []byte) error {
 // distinct, separately-shaped type from Create's DomainSettings, so it gets
 // its own opaque passthrough field on the wire.
 type updateDomainInput struct {
-	DomainID                   string          `json:"DomainId"`
-	AppNetworkAccessType       string          `json:"AppNetworkAccessType"`
-	AppSecurityGroupManagement string          `json:"AppSecurityGroupManagement"`
-	HomeEfsFileSystemCreation  string          `json:"HomeEfsFileSystemCreation"`
-	TagPropagation             string          `json:"TagPropagation"`
-	VpcID                      string          `json:"VpcId"`
-	SubnetIDs                  []string        `json:"SubnetIds"`
-	DefaultUserSettings        json.RawMessage `json:"DefaultUserSettings"`
-	DefaultSpaceSettings       json.RawMessage `json:"DefaultSpaceSettings"`
-	DomainSettingsForUpdate    json.RawMessage `json:"DomainSettingsForUpdate"`
+	DomainID                   string         `json:"DomainId"`
+	AppNetworkAccessType       string         `json:"AppNetworkAccessType"`
+	AppSecurityGroupManagement string         `json:"AppSecurityGroupManagement"`
+	HomeEfsFileSystemCreation  string         `json:"HomeEfsFileSystemCreation"`
+	TagPropagation             string         `json:"TagPropagation"`
+	VpcID                      string         `json:"VpcId"`
+	SubnetIDs                  []string       `json:"SubnetIds"`
+	DefaultUserSettings        jsontext.Value `json:"DefaultUserSettings"`
+	DefaultSpaceSettings       jsontext.Value `json:"DefaultSpaceSettings"`
+	DomainSettingsForUpdate    jsontext.Value `json:"DomainSettingsForUpdate"`
 }
 
 func (h *Handler) handleUpdateDomain(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateDomainInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -281,5 +283,5 @@ func (h *Handler) handleUpdateDomain(ctx context.Context, body []byte) ([]byte, 
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated domain", "id", req.DomainID)
 
-	return json.Marshal(map[string]string{keyDomainArn: d.DomainArn})
+	return json.Marshal(map[string]string{keyDomainArn: d.DomainArn}, jsonx.V1())
 }

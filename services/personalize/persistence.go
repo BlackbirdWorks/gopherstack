@@ -2,7 +2,7 @@ package personalize
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -38,7 +38,7 @@ const personalizeSnapshotVersion = 1
 // *T, so it does not fit store.Table's keyed-by-identity-value shape) and is
 // persisted here directly instead.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountId"`
 	Region    string                       `json:"region"`

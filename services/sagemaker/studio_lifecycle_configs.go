@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrStudioLifecycleConfigNotFound is returned when a studio lifecycle config does not exist.
@@ -52,7 +53,7 @@ func (s *StudioLifecycleConfig) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(s),
 		CreationTime:     epochSeconds(s.CreationTime),
 		LastModifiedTime: epochSeconds(s.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [StudioLifecycleConfig.MarshalJSON], read
@@ -66,7 +67,7 @@ func (s *StudioLifecycleConfig) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(s)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

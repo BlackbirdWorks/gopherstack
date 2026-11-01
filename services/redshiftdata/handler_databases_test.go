@@ -1,12 +1,14 @@
 package redshiftdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListDatabases(t *testing.T) {
@@ -17,7 +19,7 @@ func TestHandler_ListDatabases(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Databases"])
 }
 
@@ -38,7 +40,7 @@ func TestHandler_ListSchemas(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Schemas"])
 }
 
@@ -59,7 +61,7 @@ func TestHandler_ListDatabases_ReturnsNonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dbs, ok := resp["Databases"].([]any)
 	require.True(t, ok)
@@ -74,7 +76,7 @@ func TestHandler_ListDatabases_NextTokenOmittedWhenComplete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["NextToken"]
 	assert.False(t, ok, "NextToken should be omitted when the demo database list fits on one page")
@@ -88,7 +90,7 @@ func TestHandler_ListDatabases_MaxResults1_PaginatesWithToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dbs, ok := resp["Databases"].([]any)
 	require.True(t, ok)
@@ -117,7 +119,7 @@ func TestHandler_ListDatabases_NextToken_ResumesFromCursor(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 
 	token, _ := page1["NextToken"].(string)
 	require.NotEmpty(t, token)
@@ -127,7 +129,7 @@ func TestHandler_ListDatabases_NextToken_ResumesFromCursor(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 
 	dbs2, _ := page2["Databases"].([]any)
 	dbs1, _ := page1["Databases"].([]any)
@@ -143,7 +145,7 @@ func TestHandler_ListSchemas_ReturnsNonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schemas, ok := resp["Schemas"].([]any)
 	require.True(t, ok)
@@ -175,7 +177,7 @@ func TestHandler_ListSchemas_SchemaPattern_WildcardMatchesAll(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			schemas, ok := resp["Schemas"].([]any)
 			require.True(t, ok)
@@ -195,7 +197,7 @@ func TestHandler_ListSchemas_SchemaPattern_NoMatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schemas, _ := resp["Schemas"].([]any)
 	assert.Empty(t, schemas, "non-matching pattern should return empty schemas")
@@ -237,7 +239,7 @@ func TestHandler_ListSchemas_SQLLike_UnderscoreWildcard(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			schemas, _ := resp["Schemas"].([]any)
 			if tt.want {
@@ -262,7 +264,7 @@ func TestListDatabases_ReturnsDemoData(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	dbs, ok := resp["Databases"].([]any)
 	require.True(t, ok)
@@ -283,7 +285,7 @@ func TestListSchemas_ReturnsDemoData(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schemas, ok := resp["Schemas"].([]any)
 	require.True(t, ok)
@@ -303,7 +305,7 @@ func TestListDatabases_HasNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	token, ok := resp["NextToken"]
 	assert.True(t, ok, "NextToken should be present when more pages remain")

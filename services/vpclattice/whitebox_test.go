@@ -2,7 +2,7 @@ package vpclattice
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func ruleCount(b *InMemoryBackend) int {
@@ -24,7 +26,7 @@ func doWhiteboxRequest(t *testing.T, h *Handler, method, path string, body any) 
 
 	var buf *bytes.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		buf = bytes.NewReader(data)
 	} else {
@@ -49,7 +51,7 @@ func parseWhiteboxBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }

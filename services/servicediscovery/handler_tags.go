@@ -2,10 +2,11 @@ package servicediscovery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type listTagsForResourceRequest struct {
@@ -14,7 +15,7 @@ type listTagsForResourceRequest struct {
 
 func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]byte, error) {
 	var req listTagsForResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -31,7 +32,7 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		keyTags: tagList,
-	})
+	}, jsonx.V1())
 }
 
 type tagResourceRequest struct {
@@ -41,7 +42,7 @@ type tagResourceRequest struct {
 
 func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -67,7 +68,7 @@ type untagResourceRequest struct {
 
 func (h *Handler) handleUntagResource(_ context.Context, body []byte) ([]byte, error) {
 	var req untagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

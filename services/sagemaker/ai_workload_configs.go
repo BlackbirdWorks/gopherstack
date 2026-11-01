@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -49,8 +51,8 @@ type AIWorkloadConfig struct {
 	Tags                 map[string]string `json:"Tags,omitempty"`
 	AIWorkloadConfigName string            `json:"AIWorkloadConfigName"`
 	AIWorkloadConfigArn  string            `json:"AIWorkloadConfigArn"`
-	WorkloadSpec         json.RawMessage   `json:"AIWorkloadConfigs,omitempty"`
-	DatasetConfig        json.RawMessage   `json:"DatasetConfig,omitempty"`
+	WorkloadSpec         jsontext.Value    `json:"AIWorkloadConfigs,omitempty"`
+	DatasetConfig        jsontext.Value    `json:"DatasetConfig,omitempty"`
 }
 
 // MarshalJSON emits CreationTime as an AWS awsjson1.1 epoch-seconds number
@@ -69,7 +71,7 @@ func (c *AIWorkloadConfig) MarshalJSON() ([]byte, error) {
 		alias:        (*alias)(c),
 		Tags:         toTagObjects(c.Tags),
 		CreationTime: epochSeconds(c.CreationTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [AIWorkloadConfig.MarshalJSON], used by
@@ -82,7 +84,7 @@ func (c *AIWorkloadConfig) UnmarshalJSON(data []byte) error {
 		CreationTime float64 `json:"CreationTime"`
 	}{alias: (*alias)(c)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -94,8 +96,8 @@ func (c *AIWorkloadConfig) UnmarshalJSON(data []byte) error {
 func cloneAIWorkloadConfig(c *AIWorkloadConfig) *AIWorkloadConfig {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
-	cp.WorkloadSpec = append(json.RawMessage(nil), c.WorkloadSpec...)
-	cp.DatasetConfig = append(json.RawMessage(nil), c.DatasetConfig...)
+	cp.WorkloadSpec = append(jsontext.Value(nil), c.WorkloadSpec...)
+	cp.DatasetConfig = append(jsontext.Value(nil), c.DatasetConfig...)
 
 	return &cp
 }
@@ -170,8 +172,8 @@ func (b *InMemoryBackend) aiWorkloadConfigARNIndexStoreRO(r string) map[string]s
 type CreateAIWorkloadConfigOptions struct {
 	Tags                 map[string]string
 	AIWorkloadConfigName string
-	WorkloadSpec         json.RawMessage
-	DatasetConfig        json.RawMessage
+	WorkloadSpec         jsontext.Value
+	DatasetConfig        jsontext.Value
 }
 
 // CreateAIWorkloadConfig creates an AI workload configuration.

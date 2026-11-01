@@ -1,7 +1,7 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestApplicationDateRangeKpi_RequiredTimeRange covers gopherstack-6flj:
@@ -216,7 +218,7 @@ func TestCreateSegment_RawImportDefinitionFieldIgnored(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "DIMENSIONAL", out["SegmentType"],
 		"CreateSegment must not accept ImportDefinition; the real WriteSegmentRequest has no such member")
 	assert.Nil(t, out["ImportDefinition"])
@@ -245,7 +247,7 @@ func TestCreateJourney_RawTagsFieldIgnored(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Nil(t, out["tags"],
 		"CreateJourney must not accept or echo tags; the real WriteJourneyRequest/JourneyResponse have no such member")
 

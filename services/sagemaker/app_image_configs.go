@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrAppImageConfigNotFound is returned when an app image config does not exist.
@@ -32,17 +34,17 @@ type AppImageConfig struct {
 	Tags                     map[string]string `json:"Tags,omitempty"`
 	AppImageConfigName       string            `json:"AppImageConfigName"`
 	AppImageConfigArn        string            `json:"AppImageConfigArn"`
-	KernelGatewayImageConfig json.RawMessage   `json:"KernelGatewayImageConfig,omitempty"`
-	JupyterLabAppImageConfig json.RawMessage   `json:"JupyterLabAppImageConfig,omitempty"`
-	CodeEditorAppImageConfig json.RawMessage   `json:"CodeEditorAppImageConfig,omitempty"`
+	KernelGatewayImageConfig jsontext.Value    `json:"KernelGatewayImageConfig,omitempty"`
+	JupyterLabAppImageConfig jsontext.Value    `json:"JupyterLabAppImageConfig,omitempty"`
+	CodeEditorAppImageConfig jsontext.Value    `json:"CodeEditorAppImageConfig,omitempty"`
 }
 
 func cloneAppImageConfig(a *AppImageConfig) *AppImageConfig {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
-	cp.KernelGatewayImageConfig = append(json.RawMessage(nil), a.KernelGatewayImageConfig...)
-	cp.JupyterLabAppImageConfig = append(json.RawMessage(nil), a.JupyterLabAppImageConfig...)
-	cp.CodeEditorAppImageConfig = append(json.RawMessage(nil), a.CodeEditorAppImageConfig...)
+	cp.KernelGatewayImageConfig = append(jsontext.Value(nil), a.KernelGatewayImageConfig...)
+	cp.JupyterLabAppImageConfig = append(jsontext.Value(nil), a.JupyterLabAppImageConfig...)
+	cp.CodeEditorAppImageConfig = append(jsontext.Value(nil), a.CodeEditorAppImageConfig...)
 
 	return &cp
 }
@@ -61,7 +63,7 @@ func (a *AppImageConfig) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(a),
 		CreationTime:     epochSeconds(a.CreationTime),
 		LastModifiedTime: epochSeconds(a.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [AppImageConfig.MarshalJSON], read by
@@ -75,7 +77,7 @@ func (a *AppImageConfig) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(a)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -90,9 +92,9 @@ func (a *AppImageConfig) UnmarshalJSON(data []byte) error {
 type CreateAppImageConfigOptions struct {
 	AppImageConfigName       string
 	Tags                     map[string]string
-	KernelGatewayImageConfig json.RawMessage
-	JupyterLabAppImageConfig json.RawMessage
-	CodeEditorAppImageConfig json.RawMessage
+	KernelGatewayImageConfig jsontext.Value
+	JupyterLabAppImageConfig jsontext.Value
+	CodeEditorAppImageConfig jsontext.Value
 }
 
 // CreateAppImageConfig creates an app image config.
@@ -154,9 +156,9 @@ func (b *InMemoryBackend) DescribeAppImageConfig(ctx context.Context, name strin
 // an image's kernel/container/filesystem config had every field silently
 // dropped -- the same "accept and drop" bug class as UpdateTrainingJob.
 type UpdateAppImageConfigOptions struct {
-	KernelGatewayImageConfig json.RawMessage
-	JupyterLabAppImageConfig json.RawMessage
-	CodeEditorAppImageConfig json.RawMessage
+	KernelGatewayImageConfig jsontext.Value
+	JupyterLabAppImageConfig jsontext.Value
+	CodeEditorAppImageConfig jsontext.Value
 }
 
 // UpdateAppImageConfig updates an app image config's kernel/container

@@ -15,7 +15,7 @@ package omics_test
 // batch *records* — the reverse of what those two real operations do.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -23,6 +23,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Test_ListRunsInBatch_ReachableOnlyViaGET proves the real AWS wire shape
@@ -37,14 +39,14 @@ func Test_ListRunsInBatch_ReachableOnlyViaGET(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID+"/run", nil)
 	assert.Equal(t, http.StatusOK, getRec.Code, "real ListRunsInBatch is GET")
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotNil(t, getResp["runs"], "GET must be classified as ListRunsInBatch")
 
 	e := echo.New()
@@ -68,7 +70,7 @@ func Test_DeleteBatch_DeletesBatchResourceViaURIID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	delRec := doRequest(t, h, http.MethodDelete, "/runBatch/"+batchID, nil)
@@ -92,7 +94,7 @@ func Test_DeleteRunBatch_DeletesOnlyRunsLeavesBatchIntact(t *testing.T) {
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
-	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 	batchID := batch["id"].(string)
 
 	runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
@@ -104,7 +106,7 @@ func Test_DeleteRunBatch_DeletesOnlyRunsLeavesBatchIntact(t *testing.T) {
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
 	var run map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run, jsonx.V1()))
 	runID := run["id"].(string)
 
 	delRec := doRequest(t, h, http.MethodPost, "/runBatch/delete", map[string]any{
@@ -113,7 +115,7 @@ func Test_DeleteRunBatch_DeletesOnlyRunsLeavesBatchIntact(t *testing.T) {
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp, jsonx.V1()))
 	assert.Empty(t, delResp, "real DeleteRunBatchOutput is empty — no errors array")
 
 	getBatchRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID, nil)

@@ -1,7 +1,7 @@
 package ocimonitoring
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"regexp"
 	"slices"
@@ -63,57 +63,57 @@ type SuppressionWire struct {
 // CreateAlarmIn is the CreateAlarm request body.
 type CreateAlarmIn struct {
 	Tags
-	InSubtree     *bool             `json:"metricCompartmentIdInSubtree"`
-	PerDimension  *bool             `json:"isNotificationsPerMetricDimensionEnabled"`
-	Enabled       *bool             `json:"isEnabled"`
-	Suppression   *SuppressionWire  `json:"suppression"`
-	ResourceGroup *string           `json:"resourceGroup"`
-	Resolution    *string           `json:"resolution"`
-	Pending       *string           `json:"pendingDuration"`
-	Body          *string           `json:"body"`
-	MessageFormat *string           `json:"messageFormat"`
-	Repeat        *string           `json:"repeatNotificationDuration"`
-	RuleName      *string           `json:"ruleName"`
-	NotifVersion  *string           `json:"notificationVersion"`
-	NotifTitle    *string           `json:"notificationTitle"`
-	EvalSlack     *string           `json:"evaluationSlackDuration"`
-	AlarmSummary  *string           `json:"alarmSummary"`
-	Name          string            `json:"displayName"`
-	Compartment   string            `json:"compartmentId"`
-	MetricComp    string            `json:"metricCompartmentId"`
-	Namespace     string            `json:"namespace"`
-	Query         string            `json:"query"`
-	Severity      string            `json:"severity"`
-	Destinations  []string          `json:"destinations"`
-	Overrides     []json.RawMessage `json:"overrides"`
+	InSubtree     *bool            `json:"metricCompartmentIdInSubtree"`
+	PerDimension  *bool            `json:"isNotificationsPerMetricDimensionEnabled"`
+	Enabled       *bool            `json:"isEnabled"`
+	Suppression   *SuppressionWire `json:"suppression"`
+	ResourceGroup *string          `json:"resourceGroup"`
+	Resolution    *string          `json:"resolution"`
+	Pending       *string          `json:"pendingDuration"`
+	Body          *string          `json:"body"`
+	MessageFormat *string          `json:"messageFormat"`
+	Repeat        *string          `json:"repeatNotificationDuration"`
+	RuleName      *string          `json:"ruleName"`
+	NotifVersion  *string          `json:"notificationVersion"`
+	NotifTitle    *string          `json:"notificationTitle"`
+	EvalSlack     *string          `json:"evaluationSlackDuration"`
+	AlarmSummary  *string          `json:"alarmSummary"`
+	Name          string           `json:"displayName"`
+	Compartment   string           `json:"compartmentId"`
+	MetricComp    string           `json:"metricCompartmentId"`
+	Namespace     string           `json:"namespace"`
+	Query         string           `json:"query"`
+	Severity      string           `json:"severity"`
+	Destinations  []string         `json:"destinations"`
+	Overrides     []jsontext.Value `json:"overrides"`
 }
 
 // UpdateAlarmIn is the UpdateAlarm request body.
 type UpdateAlarmIn struct {
 	Tags
-	Name          *string           `json:"displayName"`
-	Compartment   *string           `json:"compartmentId"`
-	MetricComp    *string           `json:"metricCompartmentId"`
-	InSubtree     *bool             `json:"metricCompartmentIdInSubtree"`
-	Namespace     *string           `json:"namespace"`
-	ResourceGroup *string           `json:"resourceGroup"`
-	Query         *string           `json:"query"`
-	Resolution    *string           `json:"resolution"`
-	Pending       *string           `json:"pendingDuration"`
-	Severity      *string           `json:"severity"`
-	Body          *string           `json:"body"`
-	PerDimension  *bool             `json:"isNotificationsPerMetricDimensionEnabled"`
-	MessageFormat *string           `json:"messageFormat"`
-	Destinations  []string          `json:"destinations"`
-	Repeat        *string           `json:"repeatNotificationDuration"`
-	Suppression   *SuppressionWire  `json:"suppression"`
-	Enabled       *bool             `json:"isEnabled"`
-	RuleName      *string           `json:"ruleName"`
-	NotifVersion  *string           `json:"notificationVersion"`
-	NotifTitle    *string           `json:"notificationTitle"`
-	EvalSlack     *string           `json:"evaluationSlackDuration"`
-	AlarmSummary  *string           `json:"alarmSummary"`
-	Overrides     []json.RawMessage `json:"overrides"`
+	Name          *string          `json:"displayName"`
+	Compartment   *string          `json:"compartmentId"`
+	MetricComp    *string          `json:"metricCompartmentId"`
+	InSubtree     *bool            `json:"metricCompartmentIdInSubtree"`
+	Namespace     *string          `json:"namespace"`
+	ResourceGroup *string          `json:"resourceGroup"`
+	Query         *string          `json:"query"`
+	Resolution    *string          `json:"resolution"`
+	Pending       *string          `json:"pendingDuration"`
+	Severity      *string          `json:"severity"`
+	Body          *string          `json:"body"`
+	PerDimension  *bool            `json:"isNotificationsPerMetricDimensionEnabled"`
+	MessageFormat *string          `json:"messageFormat"`
+	Destinations  []string         `json:"destinations"`
+	Repeat        *string          `json:"repeatNotificationDuration"`
+	Suppression   *SuppressionWire `json:"suppression"`
+	Enabled       *bool            `json:"isEnabled"`
+	RuleName      *string          `json:"ruleName"`
+	NotifVersion  *string          `json:"notificationVersion"`
+	NotifTitle    *string          `json:"notificationTitle"`
+	EvalSlack     *string          `json:"evaluationSlackDuration"`
+	AlarmSummary  *string          `json:"alarmSummary"`
+	Overrides     []jsontext.Value `json:"overrides"`
 }
 
 // AlarmWire is the Alarm response shape.
@@ -145,7 +145,7 @@ type AlarmWire struct {
 	Repeat         string                    `json:"repeatNotificationDuration,omitempty"`
 	LifecycleState string                    `json:"lifecycleState"`
 	Destinations   []string                  `json:"destinations"`
-	Overrides      []json.RawMessage         `json:"overrides,omitempty"`
+	Overrides      []jsontext.Value          `json:"overrides,omitempty"`
 	Enabled        bool                      `json:"isEnabled"`
 }
 

@@ -1,13 +1,15 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPrefetchSchedule_CRUD(t *testing.T) {
@@ -28,7 +30,7 @@ func TestPrefetchSchedule_CRUD(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "sched1", resp["Name"])
 				assert.Equal(t, "pc1", resp["PlaybackConfigurationName"])
 				assert.Contains(t, resp["Arn"], ":mediatailor:")
@@ -58,7 +60,7 @@ func TestPrefetchSchedule_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "sched1", resp["Name"])
 
 	// list
@@ -66,7 +68,7 @@ func TestPrefetchSchedule_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items, _ := listResp["Items"].([]any)
 	assert.Len(t, items, 1)
 
@@ -136,7 +138,7 @@ func TestListPrefetchSchedules_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -167,7 +169,7 @@ func TestListPrefetchSchedules_PostWithBodyPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 1, "body MaxResults must limit the page size")
 	assert.NotEmpty(t, resp["NextToken"], "a NextToken must be returned when more pages remain")
@@ -204,7 +206,7 @@ func TestCreatePrefetchSchedule_RetrievalAndConsumption(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	retrieval, ok := resp["Retrieval"].(map[string]any)
 	require.True(t, ok, "Retrieval must be present in response")
@@ -246,7 +248,7 @@ func TestListPrefetchSchedules_FiltersByScheduleTypeAndStreamID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2, "ScheduleType=SINGLE must exclude the RECURRING schedule")
 
@@ -255,7 +257,7 @@ func TestListPrefetchSchedules_FiltersByScheduleTypeAndStreamID(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ = resp["Items"].([]any)
 	assert.Len(t, items, 2, "StreamId=stream-1 must match single-a and recurring-a only")
 }
@@ -278,7 +280,7 @@ func TestPrefetchSchedule_TagsAndScheduleTypeRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "RECURRING", resp["ScheduleType"])
 	assert.Equal(t, "stream-9", resp["StreamId"])
 	tags, _ := resp["tags"].(map[string]any)

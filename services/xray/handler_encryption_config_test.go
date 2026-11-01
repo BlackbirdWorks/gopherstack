@@ -1,12 +1,14 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetEncryptionConfig(t *testing.T) {
@@ -143,7 +145,7 @@ func TestEncryption_UpdatingStatusAfterPut(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 
 	enc, ok := putResp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)
@@ -154,7 +156,7 @@ func TestEncryption_UpdatingStatusAfterPut(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	enc2, ok := getResp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)
@@ -200,7 +202,7 @@ func TestGetEncryptionConfig_DefaultIsNONE(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	enc, ok := resp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok, "EncryptionConfig must be present in response")
@@ -294,7 +296,7 @@ func TestHandler_EncryptionConfig_KMSRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	cfg, ok := resp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)
@@ -309,7 +311,7 @@ func TestHandler_EncryptionConfig_KMSRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var resp4 map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4, jsonx.V1()))
 	cfg4, _ := resp4["EncryptionConfig"].(map[string]any)
 	assert.Equal(t, "NONE", cfg4["Type"])
 }
@@ -358,7 +360,7 @@ func TestEncryptionConfig_UpdatingThenActiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 
 	enc, ok := putResp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)
@@ -368,7 +370,7 @@ func TestEncryptionConfig_UpdatingThenActiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	enc2, ok := getResp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)
@@ -384,7 +386,7 @@ func TestEncryptionConfig_NoneTypeAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	enc, ok := resp["EncryptionConfig"].(map[string]any)
 	require.True(t, ok)

@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrSpaceNotFound is returned when a space does not exist.
@@ -34,17 +36,17 @@ type Space struct {
 	DomainID             string            `json:"DomainId"`
 	SpaceStatus          string            `json:"Status"`
 	SpaceDisplayName     string            `json:"SpaceDisplayName,omitempty"`
-	OwnershipSettings    json.RawMessage   `json:"OwnershipSettings,omitempty"`
-	SpaceSettings        json.RawMessage   `json:"SpaceSettings,omitempty"`
-	SpaceSharingSettings json.RawMessage   `json:"SpaceSharingSettings,omitempty"`
+	OwnershipSettings    jsontext.Value    `json:"OwnershipSettings,omitempty"`
+	SpaceSettings        jsontext.Value    `json:"SpaceSettings,omitempty"`
+	SpaceSharingSettings jsontext.Value    `json:"SpaceSharingSettings,omitempty"`
 }
 
 func cloneSpace(s *Space) *Space {
 	cp := *s
 	cp.Tags = maps.Clone(s.Tags)
-	cp.OwnershipSettings = append(json.RawMessage(nil), s.OwnershipSettings...)
-	cp.SpaceSettings = append(json.RawMessage(nil), s.SpaceSettings...)
-	cp.SpaceSharingSettings = append(json.RawMessage(nil), s.SpaceSharingSettings...)
+	cp.OwnershipSettings = append(jsontext.Value(nil), s.OwnershipSettings...)
+	cp.SpaceSettings = append(jsontext.Value(nil), s.SpaceSettings...)
+	cp.SpaceSharingSettings = append(jsontext.Value(nil), s.SpaceSharingSettings...)
 
 	return &cp
 }
@@ -63,7 +65,7 @@ func (s *Space) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(s),
 		CreationTime:     epochSeconds(s.CreationTime),
 		LastModifiedTime: epochSeconds(s.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [Space.MarshalJSON], read by
@@ -77,7 +79,7 @@ func (s *Space) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(s)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -94,9 +96,9 @@ func spaceKey(domainID, spaceName string) string {
 // CreateSpaceOptions bundles CreateSpace's optional fields.
 type CreateSpaceOptions struct {
 	SpaceDisplayName     string
-	OwnershipSettings    json.RawMessage
-	SpaceSettings        json.RawMessage
-	SpaceSharingSettings json.RawMessage
+	OwnershipSettings    jsontext.Value
+	SpaceSettings        jsontext.Value
+	SpaceSharingSettings jsontext.Value
 }
 
 // CreateSpace creates a SageMaker Studio space.
@@ -249,7 +251,7 @@ func (b *InMemoryBackend) ListSpaces(ctx context.Context, params ListSpacesParam
 // unset, so only a non-empty value is applied.
 type UpdateSpaceOptions struct {
 	SpaceDisplayName string
-	SpaceSettings    json.RawMessage
+	SpaceSettings    jsontext.Value
 }
 
 // UpdateSpace updates a space in a domain. Returns the updated space.

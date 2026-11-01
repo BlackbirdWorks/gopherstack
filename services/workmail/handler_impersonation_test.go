@@ -1,7 +1,7 @@
 package workmail_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workmail"
 )
 
@@ -167,7 +168,7 @@ func TestGetImpersonationRoleEffect(t *testing.T) {
 			h := newTestHandler(t)
 			orgID := createTestOrg(t, h, "imp-effect-org")
 
-			targetJSON, _ := json.Marshal(tc.targetUsers)
+			targetJSON, _ := json.Marshal(tc.targetUsers, jsonx.V1())
 			roleBody := fmt.Sprintf(
 				`{"OrganizationId":%q,"Name":"test-role","Type":"FULL_ACCESS","Rules":[{"ImpersonationRuleId":"rule-1","Name":"rule-one","Effect":%q,"TargetUsers":%s}]}`, //nolint:lll // existing issue.
 				orgID,

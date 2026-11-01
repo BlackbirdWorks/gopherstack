@@ -2,7 +2,7 @@ package timestreamwrite_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_DescribeEndpoints(t *testing.T) {
@@ -20,7 +22,7 @@ func TestHandler_DescribeEndpoints(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints, ok := resp["Endpoints"].([]any)
 	assert.True(t, ok)
 	assert.NotEmpty(t, endpoints)
@@ -40,7 +42,7 @@ func TestHandler_DescribeEndpoints_CachePeriodIs1440(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	endpoints := out["Endpoints"].([]any)
 	require.NotEmpty(t, endpoints)
@@ -60,7 +62,7 @@ func TestHandler_DescribeEndpoints_CachePeriodPositive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	endpoints, ok := out["Endpoints"].([]any)
 	require.True(t, ok)
@@ -95,7 +97,7 @@ func TestHandler_DescribeEndpoints_EchoesRequestHost(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	endpoints := resp["Endpoints"].([]any)
 	require.NotEmpty(t, endpoints)
 

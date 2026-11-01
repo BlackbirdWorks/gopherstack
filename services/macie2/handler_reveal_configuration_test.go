@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -28,7 +29,7 @@ func TestRevealConfiguration(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 				cfg, _ := getResp["configuration"].(map[string]any)
 				assert.Equal(t, "DISABLED", cfg["status"])
 
@@ -44,7 +45,7 @@ func TestRevealConfiguration(t *testing.T) {
 				// Verify
 				rec = doRequest(t, h, http.MethodGet, "/reveal-configuration", nil)
 				var updated map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 				updCfg, _ := updated["configuration"].(map[string]any)
 				assert.Equal(t, "ENABLED", updCfg["status"])
 				assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/reveal-key", updCfg["kmsKeyId"])
@@ -93,7 +94,7 @@ func TestSensitiveDataOccurrences(t *testing.T) {
 				// Get finding IDs
 				rec := doRequest(t, h, http.MethodPost, "/findings", nil)
 				var listResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 				findingIDs, _ := listResp["findingIds"].([]any)
 				require.NotEmpty(t, findingIDs)
 				findingID, _ := findingIDs[0].(string)
@@ -107,7 +108,7 @@ func TestSensitiveDataOccurrences(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var avail map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &avail))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &avail, jsonx.V1()))
 				assert.Equal(t, "AVAILABLE", avail["code"])
 			},
 		},

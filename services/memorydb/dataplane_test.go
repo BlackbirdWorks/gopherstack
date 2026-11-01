@@ -3,7 +3,7 @@ package memorydb_test
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -114,7 +115,7 @@ func describeClusterObj(t *testing.T, h *memorydb.Handler, name string) map[stri
 	var resp struct {
 		Clusters []map[string]any `json:"Clusters"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Clusters, 1)
 
 	return resp.Clusters[0]

@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -493,7 +494,7 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 				t.Helper()
 
 				var out ssm.GetParametersOutput
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.Len(t, out.Parameters, 2)
 				assert.Empty(t, out.InvalidParameters)
 			},
@@ -512,7 +513,7 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 				t.Helper()
 
 				var out ssm.GetParametersOutput
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.Len(t, out.Parameters, 1)
 				assert.Len(t, out.InvalidParameters, 1)
 				assert.Equal(t, "/absent", out.InvalidParameters[0])
@@ -533,7 +534,7 @@ func TestSSMHandler_GetParameters(t *testing.T) {
 				t.Helper()
 
 				var out ssm.GetParametersOutput
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.Len(t, out.Parameters, 1)
 				assert.Equal(t, "topsecret", out.Parameters[0].Value)
 			},
@@ -708,7 +709,7 @@ func TestSecureStringHistory_WithDecryption(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"Name":           "/secure/pwd",
 				"WithDecryption": tt.withDecryption,
-			})
+			}, jsonx.V1())
 
 			rec := doRequest(t, h, "GetParameterHistory", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)

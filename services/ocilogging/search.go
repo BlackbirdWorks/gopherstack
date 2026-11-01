@@ -1,13 +1,14 @@
 package ocilogging
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -106,7 +107,7 @@ func (b *InMemoryBackend) buildRow(l *Log, e *Entry) *row {
 	var data any = e.Data
 
 	var parsed any
-	if json.Unmarshal([]byte(e.Data), &parsed) == nil {
+	if json.Unmarshal([]byte(e.Data), &parsed, jsonx.V1()) == nil {
 		if _, isMap := parsed.(map[string]any); isMap {
 			data = parsed
 		}

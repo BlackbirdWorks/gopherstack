@@ -1,13 +1,14 @@
 package translate_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/translate"
 )
 
@@ -255,7 +256,7 @@ func TestUpdateParallelData_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"])
 }
 
@@ -283,7 +284,7 @@ func TestCreateParallelData_DuplicateNameReturnsConflictException(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var respBody map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &respBody, jsonx.V1()))
 	assert.Equal(t, "ConflictException", respBody["__type"])
 }
 
@@ -435,7 +436,7 @@ func TestUpdateParallelData_ConcurrentModification(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ConcurrentModificationException", body["__type"])
 		})
 	}
@@ -494,7 +495,7 @@ func TestCreateParallelData_TooManyTagsRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "TooManyTagsException", body["__type"])
 }
 

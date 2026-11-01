@@ -2,10 +2,11 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -35,7 +36,7 @@ func buildTraceView(t *Trace) map[string]any {
 
 	for _, rawSeg := range t.Segments {
 		var doc segmentDoc
-		if err := json.Unmarshal([]byte(rawSeg), &doc); err == nil {
+		if err := json.Unmarshal([]byte(rawSeg), &doc, jsonx.V1()); err == nil {
 			spans = append(spans, map[string]any{
 				"Document": rawSeg,
 				"Id":       doc.ID,
@@ -66,7 +67,7 @@ func buildTraceView(t *Trace) map[string]any {
 func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]byte, error) {
 	var in listRetrievedTracesInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -101,7 +102,7 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		resp[keyNextToken] = pg.Next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type startTraceRetrievalInput struct {
@@ -113,7 +114,7 @@ type startTraceRetrievalInput struct {
 func (h *Handler) handleStartTraceRetrieval(_ context.Context, body []byte) ([]byte, error) {
 	var in startTraceRetrievalInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -134,7 +135,7 @@ func (h *Handler) handleStartTraceRetrieval(_ context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		"RetrievalToken": token,
-	})
+	}, jsonx.V1())
 }
 
 const (
@@ -148,7 +149,7 @@ type cancelTraceRetrievalInput struct {
 func (h *Handler) handleCancelTraceRetrieval(_ context.Context, body []byte) ([]byte, error) {
 	var in cancelTraceRetrievalInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -161,7 +162,7 @@ func (h *Handler) handleCancelTraceRetrieval(_ context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type getRetrievedTracesGraphInput struct {
@@ -172,7 +173,7 @@ type getRetrievedTracesGraphInput struct {
 func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) ([]byte, error) {
 	var in getRetrievedTracesGraphInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -196,5 +197,5 @@ func (h *Handler) handleGetRetrievedTracesGraph(_ context.Context, body []byte) 
 		"RetrievalStatus": status,
 		keyServices:       pg.Data,
 		keyNextToken:      pg.Next,
-	})
+	}, jsonx.V1())
 }

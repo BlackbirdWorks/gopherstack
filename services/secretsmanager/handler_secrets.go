@@ -2,8 +2,9 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -11,7 +12,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"CreateSecret": func(ctx context.Context, region string, b []byte) (any, error) {
 			var input CreateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			input.Region = region
@@ -23,7 +24,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		"GetSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input GetSecretValueInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -31,7 +32,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		"PutSecretValue": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input PutSecretValueInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -39,7 +40,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		"DeleteSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DeleteSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -47,7 +48,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		opListSecrets: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input ListSecretsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -55,7 +56,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		opDescribeSecret: func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input DescribeSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -63,7 +64,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		"UpdateSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input UpdateSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -71,7 +72,7 @@ func (h *Handler) smSecretsActions() map[string]smActionFn {
 		},
 		"RestoreSecret": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input RestoreSecretInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

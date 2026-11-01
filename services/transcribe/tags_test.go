@@ -1,13 +1,14 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -307,7 +308,7 @@ func TestHTTP_ListTagsForResource_ReturnsStoredTags(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tagMap := make(map[string]string, len(resp.Tags))
 	for _, tag := range resp.Tags {
 		tagMap[tag.Key] = tag.Value
@@ -344,7 +345,7 @@ func TestHTTP_UntagResource(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tagMap := make(map[string]string, len(resp.Tags))
 	for _, tag := range resp.Tags {
 		tagMap[tag.Key] = tag.Value

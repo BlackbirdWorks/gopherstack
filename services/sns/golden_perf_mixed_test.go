@@ -19,7 +19,7 @@ package sns_test
 // To regenerate: SNS_GOLDEN_UPDATE=1 go test -run TestGolden ./services/sns/...
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -28,6 +28,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -109,7 +110,7 @@ func TestSignature_SharedAcrossHTTPSubscribers(t *testing.T) {
 		select {
 		case body := <-received:
 			var env map[string]any
-			require.NoError(t, json.Unmarshal([]byte(body), &env))
+			require.NoError(t, json.Unmarshal([]byte(body), &env, jsonx.V1()))
 			envelopes = append(envelopes, env)
 		case <-time.After(2 * time.Second):
 			t.Fatal("HTTP delivery did not arrive in time")

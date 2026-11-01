@@ -1,12 +1,13 @@
 package sns
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseReplayFromTimestamp parses the replayFromTimestamp field from a ReplayPolicy JSON string.
@@ -20,7 +21,7 @@ func parseReplayFromTimestamp(replayPolicy string) (time.Time, error) {
 		ReplayFromTimestamp string `json:"replayFromTimestamp"`
 	}
 
-	if err := json.Unmarshal([]byte(replayPolicy), &p); err != nil {
+	if err := json.Unmarshal([]byte(replayPolicy), &p, jsonx.V1()); err != nil {
 		return time.Time{}, fmt.Errorf(
 			"%w: ReplayPolicy is not valid JSON: %s",
 			ErrInvalidParameter,

@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -38,7 +39,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	clusterArn := createResp["ClusterArn"]
 	assert.Contains(t, clusterArn, "arn:aws:sagemaker")
 	assert.Contains(t, clusterArn, "cluster/my-cluster")
@@ -48,7 +49,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "my-cluster", descResp["ClusterName"])
 	assert.Equal(t, "InService", descResp["ClusterStatus"])
 	assert.Equal(t, "Automatic", descResp["NodeRecovery"])
@@ -70,7 +71,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["ClusterSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)
@@ -80,7 +81,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var nodesResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodesResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodesResp, jsonx.V1()))
 	nodeSummaries, ok := nodesResp["ClusterNodeSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, nodeSummaries, 2)
@@ -102,7 +103,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var nodeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodeResp, jsonx.V1()))
 	nodeDetails, ok := nodeResp["NodeDetails"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, nodeID, nodeDetails["InstanceId"])
@@ -121,7 +122,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 
 	rec = doSageMakerRequest(t, h, "DescribeCluster", map[string]any{"ClusterName": "my-cluster"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "None", descResp["NodeRecovery"])
 	groups, ok = descResp["InstanceGroups"].([]any)
 	require.True(t, ok)
@@ -134,7 +135,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var softwareResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &softwareResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &softwareResp, jsonx.V1()))
 	assert.Equal(t, clusterArn, softwareResp["ClusterArn"])
 
 	// ListClusterEvents / DescribeClusterEvent: correct empty shape, no events ever exist.
@@ -142,7 +143,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var eventsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &eventsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &eventsResp, jsonx.V1()))
 	events, ok := eventsResp["Events"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, events)
@@ -162,7 +163,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var attachResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attachResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &attachResp, jsonx.V1()))
 	assert.Equal(t, clusterArn, attachResp["ClusterArn"])
 	assert.Equal(t, nodeID, attachResp["NodeId"])
 	assert.Equal(t, "vol-123", attachResp["VolumeId"])
@@ -178,7 +179,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var detachResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detachResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detachResp, jsonx.V1()))
 	assert.Equal(t, clusterArn, detachResp["ClusterArn"])
 	assert.Equal(t, nodeID, detachResp["NodeId"])
 	assert.Equal(t, "vol-123", detachResp["VolumeId"])
@@ -198,7 +199,7 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp, jsonx.V1()))
 	assert.Equal(t, clusterArn, deleteResp["ClusterArn"])
 
 	// Verify deleted.
@@ -225,7 +226,7 @@ func TestHandler_CreateCluster_ClusterRoleAndVpcConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "arn:aws:iam::000000000000:role/HyperPodClusterRole", descResp["ClusterRole"])
 
 	vpcConfig, ok := descResp["VpcConfig"].(map[string]any)
@@ -309,7 +310,7 @@ func TestHandler_UpdateCluster_DeleteInstanceGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	groups, ok := resp["InstanceGroups"].([]any)
 	require.True(t, ok)
 	assert.Len(t, groups, 1)
@@ -318,7 +319,7 @@ func TestHandler_UpdateCluster_DeleteInstanceGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var nodesResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodesResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &nodesResp, jsonx.V1()))
 	nodes, ok := nodesResp["ClusterNodeSummaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, nodes, 2) // only group-a's 2 nodes remain
@@ -427,7 +428,7 @@ func TestHandler_ListClusters_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		summaries, ok := resp["ClusterSummaries"].([]any)
 		require.True(t, ok)
@@ -463,7 +464,7 @@ func TestHandler_ListClusters_NameContains(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["ClusterSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, summaries, 1)
@@ -672,7 +673,7 @@ func TestHandler_AttachClusterNodeVolume(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["ClusterArn"], "arn:aws:sagemaker")
 				assert.Equal(t, "node-1", resp["NodeId"])
 				assert.Equal(t, "vol-1", resp["VolumeId"])
@@ -761,7 +762,7 @@ func TestHandler_BatchAddClusterNodes(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "ClusterArn")
 				assert.IsType(t, []any{}, resp["Failed"])
 				assert.IsType(t, []any{}, resp["Successful"])
@@ -844,7 +845,7 @@ func TestHandler_BatchDeleteClusterNodes(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "ClusterArn")
 				assert.Contains(t, resp, "Failed")
 				assert.Contains(t, resp, "Successful")
@@ -924,7 +925,7 @@ func TestHandler_BatchRebootClusterNodes(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "ClusterArn")
 				assert.Contains(t, resp, "Failed")
 				assert.Contains(t, resp, "Successful")
@@ -1004,7 +1005,7 @@ func TestHandler_BatchReplaceClusterNodes(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "ClusterArn")
 				assert.Contains(t, resp, "Failed")
 				assert.Contains(t, resp, "Successful")
@@ -1154,7 +1155,7 @@ func TestHandler_CreateCluster_OrchestratorValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ValidationException", body["__type"])
 		})
 	}
@@ -1433,7 +1434,7 @@ func TestHandler_CreateCluster_InstanceStorageConfigUnion_Validation(t *testing.
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ValidationException", body["__type"])
 		})
 	}
@@ -1489,7 +1490,7 @@ func TestHandler_CreateCluster_RestrictedInstanceGroupsConfig_Validation(t *test
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "ValidationException", body["__type"])
 		})
 	}
@@ -1548,7 +1549,7 @@ func TestHandler_StartClusterHealthCheck(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["ClusterArn"], "hc-cluster")
 			}
 		})

@@ -1,7 +1,7 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -105,7 +106,7 @@ func TestRateBasedStatement_WithScopeDown(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "RateBasedStatement with ScopeDown: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Summary"].(map[string]any)["Id"].(string)
 
 	// Retrieve and verify the rule is stored with ScopeDownStatement.
@@ -113,7 +114,7 @@ func TestRateBasedStatement_WithScopeDown(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules := getResp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -275,7 +276,7 @@ func TestGetRateBasedStatementManagedKeys_Valid(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "GetRateBasedStatementManagedKeys: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	ipv4, ok := resp["ManagedKeysIPV4"].(map[string]any)
 	require.True(t, ok, "ManagedKeysIPV4 should be present")
@@ -349,7 +350,7 @@ func TestValidation_RuleNameUniqueness(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "duplicate rule names should be rejected")
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFInvalidParameterException", errResp["__type"])
 }
 
@@ -541,7 +542,7 @@ func TestGetTopPathStatisticsByTraffic(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "PathStatistics", "PathStatistics is a required response member")
 			assert.Empty(t, resp["PathStatistics"], "no real traffic in emulator")
 			assert.Contains(t, resp, "TotalRequestCount", "TotalRequestCount is a required response member")
@@ -675,7 +676,7 @@ func TestGetRateBasedStatementManagedKeys(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "ManagedKeysIPV4")
 				assert.Contains(t, resp, "ManagedKeysIPV6")
 			}
@@ -809,7 +810,7 @@ func TestGetSampledRequests(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "SampledRequests")
 				assert.Empty(t, resp["SampledRequests"], "no real traffic in emulator")
 				assert.Contains(t, resp, "TimeWindow")
@@ -1053,7 +1054,7 @@ func TestGetRevenueStatistics(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// No-fabrication assertion: whichever statistic list is populated for this
 			// StatisticType must be empty -- this emulator has no real AI-bot traffic to
@@ -1135,7 +1136,7 @@ func TestGetRevenueStatisticsSummary(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			breakdown, ok := resp["RevenueBreakdown"].(map[string]any)
 			require.True(t, ok, "RevenueBreakdown must be present")
@@ -1269,7 +1270,7 @@ func TestGetRevenueStatisticsTimeSeries(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "DataPoints")
 			assert.Empty(t, resp["DataPoints"], "no revenue events exist in this emulator to bucket into a time series")
 		})
@@ -1364,7 +1365,7 @@ func TestListSettlementRecords(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, "Settlements")
 			// No-fabrication assertion: no real payment/settlement pipeline exists in
 			// this emulator, so there must never be an invented PayerAddress,

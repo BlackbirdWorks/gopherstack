@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -22,7 +23,7 @@ func wafCreateRegexPatternSet(t *testing.T, h *waf.Handler, name string) string 
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	setMap, ok := resp["RegexPatternSet"].(map[string]any)
 	require.True(t, ok)
 	id, ok := setMap["RegexPatternSetId"].(string)
@@ -55,7 +56,7 @@ func TestRegexPatternSetLifecycle(t *testing.T) {
 			rec := wafDo(t, h, "GetRegexPatternSet", map[string]any{"RegexPatternSetId": setID})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			setMap := getResp["RegexPatternSet"].(map[string]any)
 			assert.Equal(t, "SqlPatterns", setMap["Name"])
 			assert.Empty(t, setMap["RegexPatternStrings"])
@@ -73,7 +74,7 @@ func TestRegexPatternSetLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			rec = wafDo(t, h, "GetRegexPatternSet", map[string]any{"RegexPatternSetId": setID})
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			setMap = getResp["RegexPatternSet"].(map[string]any)
 			assert.Len(t, setMap["RegexPatternStrings"], 2)
 
@@ -89,7 +90,7 @@ func TestRegexPatternSetLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			rec = wafDo(t, h, "GetRegexPatternSet", map[string]any{"RegexPatternSetId": setID})
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			setMap = getResp["RegexPatternSet"].(map[string]any)
 			assert.Len(t, setMap["RegexPatternStrings"], 1)
 
@@ -97,7 +98,7 @@ func TestRegexPatternSetLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "ListRegexPatternSets", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			sets := listResp["RegexPatternSets"].([]any)
 			assert.Len(t, sets, 1)
 

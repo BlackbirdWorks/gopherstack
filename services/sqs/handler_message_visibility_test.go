@@ -1,12 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSQSHandler_ChangeMessageVisibility_InvalidJSON(t *testing.T) {
@@ -73,7 +75,7 @@ func TestSQSHandler_ChangeMessageVisibility_Success(t *testing.T) {
 				} `json:"Messages"`
 			}
 
-			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+			require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 			require.Len(t, recvResp.Messages, 1)
 
 			rec := doRequest(t, h, "ChangeMessageVisibility", map[string]any{
@@ -107,7 +109,7 @@ func TestHandlerActions_ChangeMessageVisibility(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp))
+		require.NoError(t, json.Unmarshal(recvRec.Body.Bytes(), &recvResp, jsonx.V1()))
 		require.Len(t, recvResp.Messages, 1)
 
 		receipt := recvResp.Messages[0].ReceiptHandle
@@ -162,7 +164,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp))
+		require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp, jsonx.V1()))
 		require.Len(t, rcvResp.Messages, 1)
 
 		handle := rcvResp.Messages[0].ReceiptHandle
@@ -213,7 +215,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp))
+		require.NoError(t, json.Unmarshal(rcvRec.Body.Bytes(), &rcvResp, jsonx.V1()))
 		require.Len(t, rcvResp.Messages, 2)
 
 		rec := doRequest(t, h, "ChangeMessageVisibilityBatch", map[string]any{
@@ -236,7 +238,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 				SenderFault bool   `json:"SenderFault"`
 			} `json:"Failed"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 		require.Len(t, body.Successful, 2)
 		assert.ElementsMatch(t, []string{"good-1", "good-2"}, []string{body.Successful[0].ID, body.Successful[1].ID})
@@ -261,7 +263,7 @@ func TestHandlerActions_ChangeMessageVisibilityBatch(t *testing.T) {
 				ReceiptHandle string `json:"ReceiptHandle"`
 			} `json:"Messages"`
 		}
-		require.NoError(t, json.Unmarshal(reRcvRec.Body.Bytes(), &reRcvResp))
+		require.NoError(t, json.Unmarshal(reRcvRec.Body.Bytes(), &reRcvResp, jsonx.V1()))
 		assert.Len(t, reRcvResp.Messages, 2)
 	})
 }

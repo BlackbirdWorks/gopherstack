@@ -1,13 +1,15 @@
 package ses
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxRecipientsPerMessage is the AWS SES limit on the combined number of
@@ -637,7 +639,7 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput)
 			return nil, err
 		}
 
-		mergedJSON, err := json.Marshal(merged)
+		mergedJSON, err := json.Marshal(merged, jsonx.V1())
 		if err != nil {
 			return nil, fmt.Errorf("%w: failed to encode template data", ErrInvalidParameter)
 		}

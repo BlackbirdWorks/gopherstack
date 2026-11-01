@@ -1,12 +1,14 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
@@ -15,7 +17,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 		ResourceArn string    `json:"ResourceArn"`
 		Tags        []tagView `json:"Tags"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -42,7 +44,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 		ResourceArn string   `json:"ResourceArn"`
 		TagKeys     []string `json:"TagKeys"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		ResourceArn string `json:"ResourceArn"`
 		NextToken   string `json:"NextToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

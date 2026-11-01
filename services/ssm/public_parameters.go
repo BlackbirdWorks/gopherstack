@@ -2,7 +2,7 @@ package ssm
 
 import (
 	_ "embed" // public_parameters.json
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"sort"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed public_parameters.json
@@ -45,7 +46,7 @@ type publicCatalog struct {
 //nolint:gochecknoglobals // read-only catalog built once from embedded data
 var loadPublicCatalog = sync.OnceValue(func() *publicCatalog {
 	var f publicParametersFile
-	if err := json.Unmarshal(publicParametersJSON, &f); err != nil {
+	if err := json.Unmarshal(publicParametersJSON, &f, jsonx.V1()); err != nil {
 		panic("ssm: corrupt embedded public_parameters.json: " + err.Error())
 	}
 

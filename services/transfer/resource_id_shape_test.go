@@ -1,12 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Patterns are the SDK-documented ID shapes; terraform-provider-aws validates workflow and server IDs against them.
@@ -87,11 +89,11 @@ func TestResourceIDShapes(t *testing.T) {
 			require.Equal(t, http.StatusOK, srv.Code)
 
 			var srvOut, profOut map[string]any
-			require.NoError(t, json.Unmarshal(srv.Body.Bytes(), &srvOut))
+			require.NoError(t, json.Unmarshal(srv.Body.Bytes(), &srvOut, jsonx.V1()))
 
 			prof := doTransferRequest(t, h, "CreateProfile", map[string]any{"As2Id": "AS2", "ProfileType": "LOCAL"})
 			require.Equal(t, http.StatusOK, prof.Code)
-			require.NoError(t, json.Unmarshal(prof.Body.Bytes(), &profOut))
+			require.NoError(t, json.Unmarshal(prof.Body.Bytes(), &profOut, jsonx.V1()))
 
 			rec := doTransferRequest(
 				t,
@@ -102,7 +104,7 @@ func TestResourceIDShapes(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Regexp(t, tt.pattern, out[tt.idField])
 		})
 	}
@@ -116,7 +118,7 @@ func TestSSHKeyAndExecutionIDShapes(t *testing.T) {
 	srv := doTransferRequest(t, h, "CreateServer", map[string]any{})
 
 	var srvOut map[string]any
-	require.NoError(t, json.Unmarshal(srv.Body.Bytes(), &srvOut))
+	require.NoError(t, json.Unmarshal(srv.Body.Bytes(), &srvOut, jsonx.V1()))
 
 	doTransferRequest(t, h, "CreateUser", map[string]any{
 		"ServerId": srvOut["ServerId"], "UserName": "alice", "Role": "arn:aws:iam::000000000000:role/r",
@@ -128,6 +130,6 @@ func TestSSHKeyAndExecutionIDShapes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Regexp(t, `^key-[0-9a-f]{17}$`, out["SshPublicKeyId"])
 }

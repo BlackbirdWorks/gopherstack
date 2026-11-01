@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -104,7 +105,7 @@ func TestHandler_ActivityOperations(t *testing.T) {
 					rec := sfnPost(ctx, t, h, e, "CreateActivity", `{"name":"setup-act-`+tt.name+`"}`)
 					require.Equal(t, http.StatusOK, rec.Code)
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 					actARN = resp["activityArn"].(string)
 				}
 			case "CreateActivity":
@@ -162,7 +163,7 @@ func TestHandler_CreateAndListActivities(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			activities, ok := resp["activities"].([]any)
 			require.True(t, ok)
@@ -249,7 +250,7 @@ func TestHandler_SendTaskSuccess_WithRealToken(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var actResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp, jsonx.V1()))
 				actARN := actResp["activityArn"].(string)
 
 				// Enqueue a task by calling InvokeActivity from the backend.
@@ -276,7 +277,7 @@ func TestHandler_SendTaskSuccess_WithRealToken(t *testing.T) {
 				body, _ := json.Marshal(map[string]string{
 					"taskToken": task.TaskToken,
 					"output":    tt.output,
-				})
+				}, jsonx.V1())
 				rec = sfnPost(ctx, t, h, e, "SendTaskSuccess", string(body))
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -315,19 +316,19 @@ func TestHandler_GetActivityTask_HTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var actResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &actResp, jsonx.V1()))
 			actARN := actResp["activityArn"].(string)
 
 			// GetActivityTask with a short timeout — should return empty.
 			pollCtx, cancel := context.WithTimeout(ctx, tt.timeout)
 			defer cancel()
 
-			body, _ := json.Marshal(map[string]string{"activityArn": actARN, "workerName": "w1"})
+			body, _ := json.Marshal(map[string]string{"activityArn": actARN, "workerName": "w1"}, jsonx.V1())
 			rec = sfnPost(pollCtx, t, h, e, "GetActivityTask", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			// With no task available, taskToken should be absent or empty.
 			token, _ := resp["taskToken"].(string)
 			assert.Empty(t, token)
@@ -402,20 +403,20 @@ func TestHandler_StartSyncExecution_HTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var smResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &smResp, jsonx.V1()))
 			smARN := smResp["stateMachineArn"].(string)
 
 			body, _ := json.Marshal(map[string]string{
 				"stateMachineArn": smARN,
 				"name":            "sync-exec-" + tt.name,
 				"input":           `{}`,
-			})
+			}, jsonx.V1())
 			rec = sfnPost(ctx, t, h, e, "StartSyncExecution", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantStatus != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus, resp["status"])
 			}
 		})
@@ -466,7 +467,7 @@ func TestHandler_Reset(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Empty(t, resp["tags"])
 		})
 	}
@@ -718,7 +719,7 @@ func TestActivityName_Validation(t *testing.T) {
 			ctx := t.Context()
 			h, e := newSFNHandler(t)
 
-			body, err := json.Marshal(map[string]string{"name": tt.actName})
+			body, err := json.Marshal(map[string]string{"name": tt.actName}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
@@ -1429,23 +1430,23 @@ func TestCreateActivity_EncryptionConfiguration(t *testing.T) {
 			"kmsKeyId":                     "arn:aws:kms:us-east-1:123456789012:key/test-key",
 			"kmsDataKeyReusePeriodSeconds": 300,
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	actARN, _ := createResp["activityArn"].(string)
 	require.NotEmpty(t, actARN)
 
-	descBody, _ := json.Marshal(map[string]string{"activityArn": actARN})
+	descBody, _ := json.Marshal(map[string]string{"activityArn": actARN}, jsonx.V1())
 	descRec := sfnPost(ctx, t, h, e, "DescribeActivity", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	encCfg, ok := descResp["encryptionConfiguration"].(map[string]any)
 	require.True(t, ok, "expected encryptionConfiguration echoed back on DescribeActivity")
 	assert.Equal(t, "CUSTOMER_MANAGED_KMS_KEY", encCfg["type"])
@@ -1465,23 +1466,23 @@ func TestCreateActivity_InlineTags(t *testing.T) {
 		"tags": []map[string]string{
 			{"key": "env", "value": "prod"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	actARN, _ := createResp["activityArn"].(string)
 	require.NotEmpty(t, actARN)
 
-	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN})
+	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN}, jsonx.V1())
 	tagsRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(tagsBody))
 	require.Equal(t, http.StatusOK, tagsRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tagList, _ := tagsResp["tags"].([]any)
 	require.Len(t, tagList, 1)
 
@@ -1499,32 +1500,32 @@ func TestDeleteActivity_ClearsTags(t *testing.T) {
 	ctx := t.Context()
 	h, e := newSFNHandler(t)
 
-	createBody, _ := json.Marshal(map[string]any{"name": "del-tagged-activity"})
+	createBody, _ := json.Marshal(map[string]any{"name": "del-tagged-activity"}, jsonx.V1())
 	rec := sfnPost(ctx, t, h, e, "CreateActivity", string(createBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	actARN, _ := createResp["activityArn"].(string)
 	require.NotEmpty(t, actARN)
 
 	tagBody, _ := json.Marshal(map[string]any{
 		"resourceArn": actARN,
 		"tags":        []map[string]string{{"key": "k", "value": "v"}},
-	})
+	}, jsonx.V1())
 	tagRec := sfnPost(ctx, t, h, e, "TagResource", string(tagBody))
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
-	delBody, _ := json.Marshal(map[string]string{"activityArn": actARN})
+	delBody, _ := json.Marshal(map[string]string{"activityArn": actARN}, jsonx.V1())
 	delRec := sfnPost(ctx, t, h, e, "DeleteActivity", string(delBody))
 	require.Equal(t, http.StatusOK, delRec.Code)
 
-	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN})
+	tagsBody, _ := json.Marshal(map[string]string{"resourceArn": actARN}, jsonx.V1())
 	tagsRec := sfnPost(ctx, t, h, e, "ListTagsForResource", string(tagsBody))
 	require.Equal(t, http.StatusOK, tagsRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tagList, _ := tagsResp["tags"].([]any)
 	assert.Empty(t, tagList, "tags must be cleared after DeleteActivity")
 }

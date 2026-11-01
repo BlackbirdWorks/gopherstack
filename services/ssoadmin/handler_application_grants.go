@@ -1,10 +1,13 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDeleteApplicationGrant(c *echo.Context, body []byte) error {
@@ -12,7 +15,7 @@ func (h *Handler) handleDeleteApplicationGrant(c *echo.Context, body []byte) err
 		ApplicationArn string `json:"ApplicationArn"`
 		GrantType      string `json:"GrantType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if err := h.Backend.DeleteApplicationGrant(req.ApplicationArn, req.GrantType); err != nil {
@@ -34,11 +37,11 @@ func (h *Handler) handleListApplicationGrants(c *echo.Context, body []byte) erro
 
 func (h *Handler) handlePutApplicationGrant(c *echo.Context, body []byte) error {
 	var req struct {
-		ApplicationArn string          `json:"ApplicationArn"`
-		GrantType      string          `json:"GrantType"`
-		Grant          json.RawMessage `json:"Grant"`
+		ApplicationArn string         `json:"ApplicationArn"`
+		GrantType      string         `json:"GrantType"`
+		Grant          jsontext.Value `json:"Grant"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if err := h.Backend.PutApplicationGrant(req.ApplicationArn, req.GrantType, req.Grant); err != nil {
@@ -53,7 +56,7 @@ func (h *Handler) handleGetApplicationGrant(c *echo.Context, body []byte) error 
 		ApplicationArn string `json:"ApplicationArn"`
 		GrantType      string `json:"GrantType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.ApplicationArn == "" {

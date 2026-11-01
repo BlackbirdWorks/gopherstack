@@ -1,13 +1,15 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateApplication_NameLength(t *testing.T) {
@@ -36,7 +38,7 @@ func TestCreateApplication_NameLength(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["message"], "Name must be at most")
 			}
 		})
@@ -108,7 +110,7 @@ func TestCreateApplication_AuthorLength(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["message"], "Author must be at most")
 			}
 		})
@@ -141,7 +143,7 @@ func TestCreateApplication_DescriptionLength(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["message"], "Description must be at most")
 			}
 		})
@@ -266,7 +268,7 @@ func TestCreateApplication_LabelsValidation(t *testing.T) {
 
 			if tt.wantMessage != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["message"], tt.wantMessage)
 			}
 		})

@@ -3,7 +3,7 @@ package vpclattice_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/vpclattice"
 )
 
@@ -33,7 +34,7 @@ func doRequestWithRegion(
 
 	var buf *bytes.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		buf = bytes.NewReader(data)
 	} else {
@@ -71,7 +72,7 @@ func doRequest(
 
 	var buf *bytes.Reader
 	if body != nil {
-		data, err := json.Marshal(body)
+		data, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		buf = bytes.NewReader(data)
 	} else {
@@ -95,7 +96,7 @@ func doRequest(
 func parseBody(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 
 	return m
 }

@@ -1,7 +1,7 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
@@ -29,7 +30,7 @@ func TestConnectionStatus_Available_IsDisconnected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	statuses := resp["WorkspacesConnectionStatus"].([]any)
 	require.Len(t, statuses, 1)
 	assert.Equal(t, "DISCONNECTED", statuses[0].(map[string]any)["ConnectionState"],
@@ -48,7 +49,7 @@ func TestConnectionStatus_Stopped_IsNotConnected(t *testing.T) {
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopResp map[string]any
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 	stopFailures, _ := stopResp["FailedRequests"].([]any)
 	require.Empty(t, stopFailures, "StopWorkspaces must succeed to reach STOPPED")
 
@@ -58,7 +59,7 @@ func TestConnectionStatus_Stopped_IsNotConnected(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	statuses := resp["WorkspacesConnectionStatus"].([]any)
 	require.Len(t, statuses, 1)
 	assert.Equal(t, "NOT_CONNECTED", statuses[0].(map[string]any)["ConnectionState"],
@@ -80,7 +81,7 @@ func TestConnectionStatus_AllWorkspaces_NoFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	statuses := resp["WorkspacesConnectionStatus"].([]any)
 	assert.Len(t, statuses, 2, "empty WorkspaceIds must return status for all workspaces")
 
@@ -103,7 +104,7 @@ func TestConnectionStatus_UnknownID_Excluded(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	statuses := resp["WorkspacesConnectionStatus"].([]any)
 	assert.Empty(t, statuses, "unknown workspace ID must be silently excluded from status results")
 }
@@ -205,7 +206,7 @@ func TestRebootRebuildWorkspaces_StatePrecondition(t *testing.T) {
 					ErrorMessage string `json:"ErrorMessage"`
 				} `json:"FailedRequests"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if !tc.wantFailed {
 				assert.Empty(t, out.FailedRequests)
@@ -247,7 +248,7 @@ func TestRebootWorkspaces_AllowsAvailableAndStopped(t *testing.T) {
 				require.Equal(t, http.StatusOK, stopRec.Code)
 
 				var stopResp map[string]any
-				require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp))
+				require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopResp, jsonx.V1()))
 				stopFailures, _ := stopResp["FailedRequests"].([]any)
 				require.Empty(t, stopFailures, "StopWorkspaces must succeed to reach STOPPED")
 			}
@@ -262,7 +263,7 @@ func TestRebootWorkspaces_AllowsAvailableAndStopped(t *testing.T) {
 					ErrorCode string `json:"ErrorCode"`
 				} `json:"FailedRequests"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tc.stop {
 				require.Len(t, out.FailedRequests, 1)
@@ -292,7 +293,7 @@ func TestMigrateWorkspace_SourceRemovedTargetCreated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Original workspace must no longer exist.
 	assert.Empty(t, workspaces.WorkspaceState(backend, srcID),
@@ -375,7 +376,7 @@ func TestDescribeWorkspaces_EmptyList_WhenNoWorkspaces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList := resp["Workspaces"].([]any)
 	assert.Empty(t, wsList)
 
@@ -396,7 +397,7 @@ func TestDescribeWorkspaces_MultipleIDs_AllReturned(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList := resp["Workspaces"].([]any)
 	assert.Len(t, wsList, 2)
 }
@@ -416,7 +417,7 @@ func TestDescribeWorkspaces_FilterByUserName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	wsList := resp["Workspaces"].([]any)
 	assert.Len(t, wsList, 2, "UserName filter must return only Alice's workspaces")
 
@@ -446,7 +447,7 @@ func TestCreateWorkspaces_VolumeEncryption_Propagated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	pending := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
@@ -460,7 +461,7 @@ func TestCreateWorkspaces_VolumeEncryption_Propagated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 	descWs := wsList[0].(map[string]any)
@@ -512,7 +513,7 @@ func TestErrorMessages_AreNotGarbledByExtraFormatArgs(t *testing.T) {
 
 			var resp map[string]string
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotContains(t, resp["message"], "%!(EXTRA",
 				"error message must not contain a garbled fmt.Sprintf EXTRA marker")
 			assert.NotEmpty(t, resp["message"])
@@ -565,7 +566,7 @@ func TestCreateWorkspaces_PartialFailure_DoesNotAbortWholeBatch(t *testing.T) {
 		} `json:"PendingRequests"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	require.Len(t, resp.PendingRequests, 1, "the valid spec must succeed")
 	assert.Equal(t, "gooduser", resp.PendingRequests[0].UserName)

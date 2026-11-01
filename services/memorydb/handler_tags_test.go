@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -42,7 +43,7 @@ func TestHandler_Tags(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			clusterMap := createResp["Cluster"].(map[string]any)
 			clusterARN := clusterMap["ARN"].(string)
@@ -52,7 +53,7 @@ func TestHandler_Tags(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var tagsResp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 				tagList := tagsResp["TagList"].([]any)
 				require.NotEmpty(t, tagList)
 			}
@@ -470,7 +471,7 @@ func TestHandler_CreateCluster_TagsStored(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList, _ := listResp["TagList"].([]any)
 	require.Len(t, tagList, 2)
 
@@ -504,7 +505,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 					"Tags":            []map[string]any{{"Key": "Env", "Value": "prod"}},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["SubnetGroup"].(map[string]any)["ARN"].(string)
 			},
@@ -523,7 +524,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 					"Tags": []map[string]any{{"Key": "Env", "Value": "prod"}},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["User"].(map[string]any)["ARN"].(string)
 			},
@@ -538,7 +539,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 					"Tags":               []map[string]any{{"Key": "Env", "Value": "prod"}},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ParameterGroup"].(map[string]any)["ARN"].(string)
 			},
@@ -559,7 +560,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 					"Tags":         []map[string]any{{"Key": "Env", "Value": "prod"}},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["Snapshot"].(map[string]any)["ARN"].(string)
 			},
@@ -578,7 +579,7 @@ func TestHandler_Tags_AllResources(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			tagList := resp["TagList"].([]any)
 			assert.NotEmpty(t, tagList)
 
@@ -664,7 +665,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			resourceARN := tt.getARN(createResp)
 			require.NotEmpty(t, resourceARN)
 
@@ -683,7 +684,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			tagList, _ := listResp["TagList"].([]any)
 			assert.Len(t, tagList, 2)
 
@@ -697,7 +698,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			// Verify only 1 tag remains.
 			listRec2 := doRequest(t, h, "ListTags", map[string]any{"ResourceArn": resourceARN})
 			require.Equal(t, http.StatusOK, listRec2.Code)
-			require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp, jsonx.V1()))
 			tagList2, _ := listResp["TagList"].([]any)
 			assert.Len(t, tagList2, 1)
 		})
@@ -794,7 +795,7 @@ func TestHandler_TagResource_Limit(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterMap := createResp["Cluster"].(map[string]any)
 			arn := clusterMap["ARN"].(string)
 
@@ -890,7 +891,7 @@ func TestHandler_Tags_Extended(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tagList := resp["TagList"].([]any)
 				tags := make(map[string]string)
 				for _, t := range tagList {
@@ -931,7 +932,7 @@ func TestHandler_UntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	tagList := resp["TagList"].([]any)
 	assert.Len(t, tagList, 1)
 	tag := tagList[0].(map[string]any)

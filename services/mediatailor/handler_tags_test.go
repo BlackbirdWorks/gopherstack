@@ -1,7 +1,7 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTags_FullCycle(t *testing.T) {
@@ -25,7 +27,7 @@ func TestTags_FullCycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 	resourceARN, _ := putResp["PlaybackConfigurationArn"].(string)
 
 	// TagResource
@@ -38,7 +40,7 @@ func TestTags_FullCycle(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "media", tags["team"])
@@ -53,7 +55,7 @@ func TestTags_FullCycle(t *testing.T) {
 
 	// Verify tag removed
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ = listResp["tags"].(map[string]any)
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "media", tags["team"])
@@ -94,7 +96,7 @@ func TestTagResource(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				arn, _ = resp["PlaybackConfigurationArn"].(string)
 			} else {
 				arn = "arn:aws:mediatailor:us-east-1:000000000000:playbackConfiguration/nonexistent"
@@ -132,7 +134,7 @@ func TestListTagsForResource(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				arn, _ = resp["PlaybackConfigurationArn"].(string)
 			} else {
 				arn = "arn:aws:mediatailor:us-east-1:000000000000:playbackConfiguration/nonexistent"
@@ -170,7 +172,7 @@ func TestUntagResource(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				arn, _ = resp["PlaybackConfigurationArn"].(string)
 
 				// Actually tag it first

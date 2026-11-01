@@ -1,12 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // -- Error __type wire-shape regression tests -------------------------------
@@ -22,7 +24,7 @@ func responseType(t *testing.T, body []byte) string {
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	typ, _ := resp["__type"].(string)
 
@@ -105,7 +107,7 @@ func TestDeleteUser_CascadesFromACL(t *testing.T) {
 			UserNames []string `json:"UserNames"`
 		} `json:"ACLs"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.ACLs, 1)
 	assert.NotContains(t, resp.ACLs[0].UserNames, "in-use-user")
 }

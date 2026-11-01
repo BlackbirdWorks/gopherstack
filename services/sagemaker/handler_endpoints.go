@@ -2,9 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -14,15 +16,15 @@ import (
 
 // createEndpointInput mirrors CreateEndpointInput (api_op_CreateEndpoint.go:1-49).
 type createEndpointInput struct {
-	DeploymentConfig   json.RawMessage `json:"DeploymentConfig"`
-	EndpointName       string          `json:"EndpointName"`
-	EndpointConfigName string          `json:"EndpointConfigName"`
-	Tags               []tagObject     `json:"Tags"`
+	DeploymentConfig   jsontext.Value `json:"DeploymentConfig"`
+	EndpointName       string         `json:"EndpointName"`
+	EndpointConfigName string         `json:"EndpointConfigName"`
+	Tags               []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateEndpointFSM(ctx context.Context, body []byte) ([]byte, error) {
 	var req createEndpointInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.EndpointName == "" {
@@ -48,24 +50,24 @@ func (h *Handler) handleCreateEndpointFSM(ctx context.Context, body []byte) ([]b
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created endpoint (FSM)", "name", ep.EndpointName)
 
-	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn})
+	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn}, jsonx.V1())
 }
 
 // updateEndpointInput mirrors UpdateEndpointInput (api_op_UpdateEndpoint.go:1-56).
 type updateEndpointInput struct {
-	DeploymentConfig                 json.RawMessage `json:"DeploymentConfig"`
-	EndpointConfigName               string          `json:"EndpointConfigName"`
-	EndpointName                     string          `json:"EndpointName"`
-	ExcludeRetainedVariantProperties []string        `json:"ExcludeRetainedVariantProperties"`
-	RetainAllVariantProperties       bool            `json:"RetainAllVariantProperties"`
-	RetainDeploymentConfig           bool            `json:"RetainDeploymentConfig"`
+	DeploymentConfig                 jsontext.Value `json:"DeploymentConfig"`
+	EndpointConfigName               string         `json:"EndpointConfigName"`
+	EndpointName                     string         `json:"EndpointName"`
+	ExcludeRetainedVariantProperties []string       `json:"ExcludeRetainedVariantProperties"`
+	RetainAllVariantProperties       bool           `json:"RetainAllVariantProperties"`
+	RetainDeploymentConfig           bool           `json:"RetainDeploymentConfig"`
 }
 
 // handleUpdateEndpointFSM replaces the basic UpdateEndpoint handler with one
 // that properly drives Updating → InService via the lifecycle simulator.
 func (h *Handler) handleUpdateEndpointFSM(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateEndpointInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.EndpointName == "" {
@@ -86,7 +88,7 @@ func (h *Handler) handleUpdateEndpointFSM(ctx context.Context, body []byte) ([]b
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: updated endpoint (FSM)", "name", ep.EndpointName)
 
-	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn})
+	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +107,7 @@ func (h *Handler) handleUpdateEndpointWeightsAndCapacitiesFull(
 	body []byte,
 ) ([]byte, error) {
 	var req updateEndpointWeightsAndCapacitiesInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.EndpointName == "" {
@@ -129,7 +131,7 @@ func (h *Handler) handleUpdateEndpointWeightsAndCapacitiesFull(
 		req.EndpointName,
 	)
 
-	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn})
+	return json.Marshal(map[string]string{keyEndpointArn: ep.EndpointArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +201,7 @@ func endpointResponseMap(ep *Endpoint) map[string]any {
 func (h *Handler) handleDescribeEndpoint(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeEndpointInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -212,7 +214,7 @@ func (h *Handler) handleDescribeEndpoint(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(endpointResponseMap(ep))
+	return json.Marshal(endpointResponseMap(ep), jsonx.V1())
 }
 
 type endpointSummary struct {
@@ -240,7 +242,7 @@ type listEndpointsInput struct {
 func (h *Handler) handleListEndpoints(ctx context.Context, body []byte) ([]byte, error) {
 	var req listEndpointsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -273,7 +275,7 @@ func (h *Handler) handleListEndpoints(ctx context.Context, body []byte) ([]byte,
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteEndpointInput mirrors DeleteEndpointInput (api_op_DeleteEndpoint.go:29-37).
@@ -284,7 +286,7 @@ type deleteEndpointInput struct {
 func (h *Handler) handleDeleteEndpoint(ctx context.Context, body []byte) error {
 	var req deleteEndpointInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

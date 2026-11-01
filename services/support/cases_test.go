@@ -2,7 +2,7 @@ package support_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/support"
 )
 
@@ -25,7 +26,7 @@ func opaqueToken(t *testing.T, token string) int {
 		O int `json:"o"`
 	}
 
-	require.NoError(t, json.Unmarshal(raw, &obj), "token must be JSON with 'o' key")
+	require.NoError(t, json.Unmarshal(raw, &obj, jsonx.V1()), "token must be JSON with 'o' key")
 
 	return obj.O
 }

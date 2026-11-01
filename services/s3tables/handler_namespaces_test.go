@@ -1,13 +1,15 @@
 package s3tables_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Namespace_CRUD(t *testing.T) {
@@ -153,7 +155,7 @@ func TestHandler_ListNamespacesIncludesTableBucketId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	namespaces, ok := out["namespaces"].([]any)
 	require.True(t, ok)

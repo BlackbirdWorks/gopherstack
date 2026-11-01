@@ -2,10 +2,11 @@ package s3tables
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -48,7 +49,7 @@ func (h *Handler) handleGetTableMaintenanceJobStatus(
 	return json.Marshal(map[string]any{
 		keyTableARN:    table.ARN,
 		keyStatusField: jobStatus,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableMetadataLocation(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -73,7 +74,7 @@ func (h *Handler) handleGetTableMetadataLocation(ctx context.Context, r *http.Re
 		keyVersionToken:     table.VersionToken,
 		"warehouseLocation": table.WarehouseLocation,
 		keyMetadataLocation: table.MetadataLocation,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -96,7 +97,7 @@ func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request,
 
 	return json.Marshal(map[string]any{
 		"encryptionConfiguration": encCfg,
-	})
+	}, jsonx.V1())
 }
 
 // createTableRequest is the request body for CreateTable.
@@ -123,7 +124,7 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 	nsName := segs[2]
 
 	var req createTableRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -155,7 +156,7 @@ func (h *Handler) handleCreateTable(ctx context.Context, r *http.Request, body [
 	return json.Marshal(map[string]string{
 		keyTableARN:     table.ARN,
 		keyVersionToken: table.VersionToken,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -211,7 +212,7 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 		keyCreatedBy:        table.OwnerAccountID,
 		"modifiedBy":        table.OwnerAccountID,
 		keyOwnerAccountID:   table.OwnerAccountID,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTable(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -286,7 +287,7 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 		resp[keyContinuationToken] = pg.Next
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // renameTableRequest is the request body for RenameTable.
@@ -307,7 +308,7 @@ func (h *Handler) handleRenameTable(ctx context.Context, r *http.Request, body [
 	name := segs[3]
 
 	var req renameTableRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -353,7 +354,7 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 	name := segs[3]
 
 	var req updateTableMetadataLocationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -387,7 +388,7 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 		keyNamespace:        table.Namespace,
 		keyVersionToken:     table.VersionToken,
 		keyMetadataLocation: table.MetadataLocation,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleGetTableMaintenanceConfiguration(
@@ -419,7 +420,7 @@ func (h *Handler) handleGetTableMaintenanceConfiguration(
 	return json.Marshal(map[string]any{
 		keyTableARN:      tableARN,
 		keyConfiguration: cfg,
-	})
+	}, jsonx.V1())
 }
 
 // putTableMaintenanceRequest is the request body for PutTableMaintenanceConfiguration.
@@ -443,7 +444,7 @@ func (h *Handler) handlePutTableMaintenanceConfiguration(
 	maintenanceType := segs[5]
 
 	var req putTableMaintenanceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -500,7 +501,7 @@ func (h *Handler) handleGetTablePolicy(ctx context.Context, r *http.Request, _ [
 
 	return json.Marshal(map[string]string{
 		"resourcePolicy": policy,
-	})
+	}, jsonx.V1())
 }
 
 // putTablePolicyRequest is the request body for PutTablePolicy.
@@ -519,7 +520,7 @@ func (h *Handler) handlePutTablePolicy(ctx context.Context, r *http.Request, bod
 	name := segs[3]
 
 	var req putTablePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -579,5 +580,5 @@ func (h *Handler) handleGetTableStorageClass(ctx context.Context, r *http.Reques
 		"storageClassConfiguration": map[string]any{
 			"storageClass": sc,
 		},
-	})
+	}, jsonx.V1())
 }

@@ -1,7 +1,7 @@
 package redshiftdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSessionKeepAlive_Expiry(t *testing.T) {
@@ -82,7 +84,7 @@ func decodeBody(t *testing.T, rec interface{ Bytes() []byte }) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Bytes(), &out, jsonx.V1()))
 
 	return out
 }

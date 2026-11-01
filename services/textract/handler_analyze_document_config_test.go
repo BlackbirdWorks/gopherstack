@@ -1,7 +1,7 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -103,7 +104,7 @@ func TestAnalyzeDocument_AdaptersConfig(t *testing.T) {
 			}
 
 			var errResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -159,7 +160,7 @@ func TestAnalyzeDocument_HumanLoopConfig(t *testing.T) {
 			var out struct {
 				HumanLoopActivationOutput *struct{} `json:"HumanLoopActivationOutput"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Nil(
 				t,
 				out.HumanLoopActivationOutput,
@@ -189,7 +190,7 @@ func newTestHandlerT(t *testing.T) *testHandlerT {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	versionRec := doTextractRequest(t, h, "CreateAdapterVersion", map[string]any{
 		"AdapterId": createResp["AdapterId"],
@@ -206,7 +207,7 @@ func newTestHandlerT(t *testing.T) *testHandlerT {
 	require.Equal(t, http.StatusOK, versionRec.Code)
 
 	var versionResp map[string]string
-	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &versionResp))
+	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &versionResp, jsonx.V1()))
 
 	return &testHandlerT{
 		h:              h,

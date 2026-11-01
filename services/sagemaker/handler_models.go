@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -42,7 +43,7 @@ type describeModelResponse struct {
 
 func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, error) {
 	var req createModelRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -96,7 +97,7 @@ func (h *Handler) handleCreateModel(ctx context.Context, body []byte) ([]byte, e
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created model", "name", m.ModelName)
 
-	return json.Marshal(map[string]string{"ModelArn": m.ModelARN})
+	return json.Marshal(map[string]string{"ModelArn": m.ModelARN}, jsonx.V1())
 }
 
 // describeModelRequest is the request body for DescribeModel.
@@ -107,7 +108,7 @@ type describeModelRequest struct {
 func (h *Handler) handleDescribeModel(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeModelRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -136,13 +137,13 @@ func (h *Handler) handleDescribeModel(ctx context.Context, body []byte) ([]byte,
 		resp.Containers = nil
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, error) {
 	var req nameTimeListRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -168,7 +169,7 @@ func (h *Handler) handleListModels(ctx context.Context, body []byte) ([]byte, er
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteModelRequest is the request body for DeleteModel.
@@ -179,7 +180,7 @@ type deleteModelRequest struct {
 func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) error {
 	var req deleteModelRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

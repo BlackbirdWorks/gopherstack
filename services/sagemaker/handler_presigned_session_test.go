@@ -1,13 +1,15 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_RenderUiTemplate(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_RenderUiTemplate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "<p>hello world</p>", out["RenderedContent"])
 	assert.Empty(t, out["Errors"])
 }
@@ -70,7 +72,7 @@ func TestHandler_StartSession(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["SessionId"])
 	assert.NotEmpty(t, out["StreamUrl"])
 	assert.NotEmpty(t, out["TokenValue"])
@@ -95,7 +97,7 @@ func TestHandler_CreatePresignedDomainUrl(t *testing.T) {
 		"DefaultUserSettings": map[string]any{},
 	})
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID, _ := domainOut["DomainId"].(string)
 	require.NotEmpty(t, domainID)
 
@@ -109,7 +111,7 @@ func TestHandler_CreatePresignedDomainUrl(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["AuthorizedUrl"])
 }
 

@@ -1,13 +1,16 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -126,7 +129,7 @@ func TestCreateTags_VisibleInDescribeTags(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"TagList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags := make(map[string]string, len(resp.TagList))
 	for _, tag := range resp.TagList {
@@ -172,7 +175,7 @@ func TestDeleteTags_RemovedFromDescribeTags(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"TagList"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags := make(map[string]string, len(resp.TagList))
 	for _, tag := range resp.TagList {
@@ -206,9 +209,9 @@ func TestDescribeWorkspaces_NoTagsField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Workspaces []map[string]json.RawMessage `json:"Workspaces"`
+		Workspaces []map[string]jsontext.Value `json:"Workspaces"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Workspaces, 1)
 	assert.NotContains(t, resp.Workspaces[0], "Tags")
 }
@@ -238,7 +241,7 @@ func TestCreateWorkspaces_Tags_VisibleInDescribeTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	pending, _ := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
 	wsID := pending[0].(map[string]any)["WorkspaceId"].(string)
@@ -249,7 +252,7 @@ func TestCreateWorkspaces_Tags_VisibleInDescribeTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tagList, _ := tagResp["TagList"].([]any)
 
 	found := false

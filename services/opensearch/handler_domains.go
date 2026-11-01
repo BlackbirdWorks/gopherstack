@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -124,7 +125,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req domainJSON
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -249,7 +250,7 @@ func (h *Handler) handleDescribeDomains(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	domains, err := h.Backend.DescribeDomains(req.DomainNames)
@@ -430,7 +431,7 @@ func (h *Handler) handleStartServiceSoftwareUpdate(w http.ResponseWriter, r *htt
 	}
 
 	var req startServiceSoftwareUpdateRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -482,7 +483,7 @@ func (h *Handler) handleRollbackServiceSoftwareUpdate(w http.ResponseWriter, r *
 	}
 
 	var req rollbackServiceSoftwareUpdateRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -552,7 +553,7 @@ func (h *Handler) handleCancelServiceSoftwareUpdate(w http.ResponseWriter, r *ht
 	}
 
 	var req cancelServiceSoftwareUpdateRequest
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

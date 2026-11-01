@@ -2,7 +2,8 @@ package mediaconvert_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -41,7 +43,7 @@ func TestDescribeEndpoints_POST(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	endpoints, ok := out["endpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 1)
@@ -73,7 +75,7 @@ func TestDescribeEndpoints_WithModeAndMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	endpoints, ok := out["endpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 1)
@@ -93,7 +95,7 @@ func TestDescribeEndpoints_MaxResultsCaps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	endpoints, ok := out["endpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 1)

@@ -1,10 +1,12 @@
 package s3tables
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Real S3 Tables naming rules, confirmed against
@@ -133,7 +135,7 @@ func validateNamespaceParts(namespace []string) error {
 // validatePolicyDocument rejects a resource policy that is not a JSON object.
 func validatePolicyDocument(policy string) error {
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(policy), &doc); err != nil || doc == nil {
+	if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil || doc == nil {
 		return fmt.Errorf("%w: resourcePolicy must be a valid JSON policy document", errInvalidRequest)
 	}
 

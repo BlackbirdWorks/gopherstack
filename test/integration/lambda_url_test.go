@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -57,7 +58,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 		"PackageType":  "Image",
 		"Code":         map[string]string{"ImageUri": "test:latest"},
 		"Role":         "arn:aws:iam::000000000000:role/test",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	resp, err := doLambdaRequest(ctx, http.MethodPost, server.URL+"/2015-03-31/functions",
@@ -67,7 +68,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	// Create function URL config
-	urlBody, err := json.Marshal(map[string]any{"AuthType": "NONE"})
+	urlBody, err := json.Marshal(map[string]any{"AuthType": "NONE"}, jsonx.V1())
 	require.NoError(t, err)
 
 	urlResp, err := doLambdaRequest(ctx, http.MethodPost,
@@ -80,7 +81,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	var cfg lambdapkg.FunctionURLConfig
 	respBody, err := io.ReadAll(urlResp.Body)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(respBody, &cfg))
+	require.NoError(t, json.Unmarshal(respBody, &cfg, jsonx.V1()))
 
 	assert.NotEmpty(t, cfg.FunctionURL, "FunctionURL should not be empty")
 	assert.Equal(t, "NONE", cfg.AuthType)
@@ -100,7 +101,7 @@ func TestLambdaFunctionURL_CreateGetDelete(t *testing.T) {
 	var getCfg lambdapkg.FunctionURLConfig
 	getBody, err := io.ReadAll(getResp.Body)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(getBody, &getCfg))
+	require.NoError(t, json.Unmarshal(getBody, &getCfg, jsonx.V1()))
 	assert.Equal(t, cfg.FunctionURL, getCfg.FunctionURL)
 
 	// Delete function URL config

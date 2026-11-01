@@ -1,13 +1,15 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -137,7 +139,7 @@ func TestDescribeEffectivePolicy_MergeTagPolicy(t *testing.T) {
 
 	// Merged content should have both "env" (from child) and "owner" (from parent).
 	var merged map[string]any
-	require.NoError(t, json.Unmarshal([]byte(ep.PolicyContent), &merged))
+	require.NoError(t, json.Unmarshal([]byte(ep.PolicyContent), &merged, jsonx.V1()))
 
 	tags, hasTags := merged["tags"].(map[string]any)
 	require.True(t, hasTags, "merged policy should have 'tags' object")
@@ -234,7 +236,7 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 				require.Equal(t, http.StatusOK, acctRec.Code)
 
 				var acctResp map[string]any
-				require.NoError(t, json.NewDecoder(acctRec.Body).Decode(&acctResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(acctRec.Body), &acctResp, jsonx.V1()))
 				status := acctResp["CreateAccountStatus"].(map[string]any)
 				targetID = status["AccountId"].(string)
 
@@ -247,7 +249,7 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 				require.Equal(t, http.StatusOK, policyRec.Code)
 
 				var policyResp map[string]any
-				require.NoError(t, json.NewDecoder(policyRec.Body).Decode(&policyResp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(policyRec.Body), &policyResp, jsonx.V1()))
 				policyObj := policyResp["Policy"].(map[string]any)
 				summary := policyObj["PolicySummary"].(map[string]any)
 				policyID := summary["Id"].(string)
@@ -274,7 +276,7 @@ func TestHandler_DescribeEffectivePolicy(t *testing.T) {
 
 			if tt.wantContent {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				ep, ok := resp["EffectivePolicy"].(map[string]any)
 				require.True(t, ok, "response must have EffectivePolicy")
 				assert.NotEmpty(t, ep["PolicyContent"])

@@ -26,7 +26,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,6 +38,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dirModuleOverride maps services/<dir> to its aws-sdk-go-v2/service module
@@ -370,10 +373,9 @@ func writeJSON(path string, results map[string]serviceResult) {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", " ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(" "))
 
-	if encErr := enc.Encode(results); encErr != nil {
+	if encErr := json.MarshalEncode(enc, results); encErr != nil {
 		fmt.Fprintln(os.Stderr, "error:", encErr)
 	}
 

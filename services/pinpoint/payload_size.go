@@ -1,10 +1,13 @@
 package pinpoint
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Payload size ceilings sourced from
@@ -54,10 +57,10 @@ func checkPayloadSize(c *echo.Context, body []byte, limit int) bool {
 func putEventsExceedsEventQuota(body []byte) bool {
 	var raw struct {
 		BatchItem map[string]struct {
-			Events map[string]json.RawMessage `json:"Events"`
+			Events map[string]jsontext.Value `json:"Events"`
 		} `json:"BatchItem"`
 	}
-	if json.Unmarshal(body, &raw) != nil {
+	if json.Unmarshal(body, &raw, jsonx.V1()) != nil {
 		return false
 	}
 

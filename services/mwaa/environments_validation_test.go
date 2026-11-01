@@ -2,7 +2,7 @@ package mwaa_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mwaa"
 )
 
@@ -441,7 +442,7 @@ func TestWorkerReplacementStrategy_AbsentFromCreate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "an unknown/invented field on Create must not fail validation")
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasField := resp["WorkerReplacementStrategy"]
 	assert.False(t, hasField, "CreateEnvironment response must never echo WorkerReplacementStrategy")
 }

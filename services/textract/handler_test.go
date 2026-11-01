@@ -2,7 +2,7 @@ package textract_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
@@ -34,7 +35,7 @@ func doTextractRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -122,7 +123,7 @@ func TestHandler_UnknownAction_ErrorEnvelope(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errResp["__type"])
 }
 
@@ -214,7 +215,7 @@ func TestHandler_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
@@ -380,7 +381,7 @@ func TestHandler_HandleError_AdapterNotFound(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp["__type"])
 }
 
@@ -397,7 +398,7 @@ func TestHandler_HandleError_JobNotFound(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidJobIdException", errResp["__type"])
 }
 
@@ -520,7 +521,7 @@ func TestHandler_ErrorEnvelope_TypeAndMessage(t *testing.T) {
 			assert.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
 
 			var m map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 			assert.Equal(t, tt.wantType, m["__type"], "__type must match expected error code")
 			assert.NotEmpty(t, m["message"], "message must be present in error envelope")
 		})

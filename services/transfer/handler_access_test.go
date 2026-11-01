@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -26,7 +27,7 @@ func TestHandler_UpdateAccessFullFieldsRoundtrip(t *testing.T) {
 	var srvOut struct {
 		ServerID string `json:"ServerId"`
 	}
-	require.NoError(t, json.Unmarshal(createSrvRec.Body.Bytes(), &srvOut))
+	require.NoError(t, json.Unmarshal(createSrvRec.Body.Bytes(), &srvOut, jsonx.V1()))
 
 	createAccessRec := doTransferRequest(t, h, "CreateAccess", map[string]any{
 		"ServerId":          srvOut.ServerID,
@@ -65,7 +66,7 @@ func TestHandler_UpdateAccessFullFieldsRoundtrip(t *testing.T) {
 			Policy            string `json:"Policy"`
 		} `json:"Access"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.Equal(t, "LOGICAL", descOut.Access.HomeDirectoryType)
 	assert.JSONEq(t, `{"Version":"2012-10-17","Statement":[]}`, descOut.Access.Policy)
@@ -118,7 +119,7 @@ func TestHandler_ListAccessesIncludesHomeDirectoryType(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	accesses := listResp["Accesses"].([]any)
 	require.Len(t, accesses, 1)
@@ -167,7 +168,7 @@ func TestHandler_CreateAccess(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantKey])
 			}
 		})
@@ -302,7 +303,7 @@ func TestHandler_DescribeAccess(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Access"])
 }
 
@@ -381,7 +382,7 @@ func TestHandler_CreateAccessPosixProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	access := descResp["Access"].(map[string]any)
 	posix := access["PosixProfile"].(map[string]any)
 

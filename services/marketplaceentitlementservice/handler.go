@@ -1,7 +1,7 @@
 package marketplaceentitlementservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"slices"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -46,7 +47,7 @@ func decode(body []byte, v any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(body, v); err != nil {
+	if err := json.Unmarshal(body, v, jsonx.V1()); err != nil {
 		return fail(ErrInvalidParameter, "malformed request body: %v", err)
 	}
 
@@ -148,7 +149,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 func (h *Handler) writeCBOR(c *echo.Context, out any) error {
-	raw, err := json.Marshal(out)
+	raw, err := json.Marshal(out, jsonx.V1())
 	if err == nil {
 		var enc []byte
 

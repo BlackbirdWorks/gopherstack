@@ -1,12 +1,13 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -366,11 +367,11 @@ func TestManagedBlockchain_PersistenceVersionMismatch(t *testing.T) {
 			require.NotNil(t, snap)
 
 			var raw map[string]any
-			require.NoError(t, json.Unmarshal(snap, &raw))
+			require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 
 			tt.mutate(t, raw)
 
-			mutated, err := json.Marshal(raw)
+			mutated, err := json.Marshal(raw, jsonx.V1())
 			require.NoError(t, err)
 
 			// Seed b2 with unrelated pre-existing state so a discarded

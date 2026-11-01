@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // edge deployment operation name constants.
@@ -105,9 +108,9 @@ func (h *Handler) dispatchEdgeDeploymentOps(
 // ---------------------------------------------------------------------------
 
 type edgeDeploymentStageRequest struct {
-	StageName             string          `json:"StageName"`
-	DeviceSelectionConfig json.RawMessage `json:"DeviceSelectionConfig,omitempty"`
-	DeploymentConfig      json.RawMessage `json:"DeploymentConfig,omitempty"`
+	StageName             string         `json:"StageName"`
+	DeviceSelectionConfig jsontext.Value `json:"DeviceSelectionConfig,omitempty"`
+	DeploymentConfig      jsontext.Value `json:"DeploymentConfig,omitempty"`
 }
 
 func toEdgeDeploymentStageInputs(reqs []edgeDeploymentStageRequest) []EdgeDeploymentStageInput {
@@ -133,7 +136,7 @@ type createEdgeDeploymentPlanInput struct {
 func (h *Handler) handleCreateEdgeDeploymentPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req createEdgeDeploymentPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -156,7 +159,7 @@ func (h *Handler) handleCreateEdgeDeploymentPlan(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyEdgeDeploymentPlanArn: p.EdgeDeploymentPlanArn})
+	return json.Marshal(map[string]string{keyEdgeDeploymentPlanArn: p.EdgeDeploymentPlanArn}, jsonx.V1())
 }
 
 // stageStatusSummary builds the DeploymentStageStatusSummary shape for a
@@ -193,7 +196,7 @@ type describeEdgeDeploymentPlanInput struct {
 func (h *Handler) handleDescribeEdgeDeploymentPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeEdgeDeploymentPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -234,7 +237,7 @@ func (h *Handler) handleDescribeEdgeDeploymentPlan(ctx context.Context, body []b
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type deleteEdgeDeploymentPlanInput struct {
@@ -244,7 +247,7 @@ type deleteEdgeDeploymentPlanInput struct {
 func (h *Handler) handleDeleteEdgeDeploymentPlan(ctx context.Context, body []byte) error {
 	var req deleteEdgeDeploymentPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -267,7 +270,7 @@ type listEdgeDeploymentPlansInput struct {
 func (h *Handler) handleListEdgeDeploymentPlans(ctx context.Context, body []byte) ([]byte, error) {
 	var req listEdgeDeploymentPlansInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -313,7 +316,7 @@ type createEdgeDeploymentStageInput struct {
 func (h *Handler) handleCreateEdgeDeploymentStage(ctx context.Context, body []byte) error {
 	var req createEdgeDeploymentStageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -328,7 +331,7 @@ type deleteEdgeDeploymentStageInput struct {
 func (h *Handler) handleDeleteEdgeDeploymentStage(ctx context.Context, body []byte) error {
 	var req deleteEdgeDeploymentStageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -343,7 +346,7 @@ type startEdgeDeploymentStageInput struct {
 func (h *Handler) handleStartEdgeDeploymentStage(ctx context.Context, body []byte) error {
 	var req startEdgeDeploymentStageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -358,7 +361,7 @@ type stopEdgeDeploymentStageInput struct {
 func (h *Handler) handleStopEdgeDeploymentStage(ctx context.Context, body []byte) error {
 	var req stopEdgeDeploymentStageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -376,7 +379,7 @@ type getDeviceFleetReportInput struct {
 func (h *Handler) handleGetDeviceFleetReport(ctx context.Context, body []byte) ([]byte, error) {
 	var req getDeviceFleetReportInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -410,7 +413,7 @@ func (h *Handler) handleGetDeviceFleetReport(ctx context.Context, body []byte) (
 		resp["OutputConfig"] = outputConfig
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type listStageDevicesInput struct {
@@ -424,7 +427,7 @@ type listStageDevicesInput struct {
 func (h *Handler) handleListStageDevices(ctx context.Context, body []byte) ([]byte, error) {
 	var req listStageDevicesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -470,7 +473,7 @@ type updateDevicesInput struct {
 func (h *Handler) handleUpdateDevices(ctx context.Context, body []byte) error {
 	var req updateDevicesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

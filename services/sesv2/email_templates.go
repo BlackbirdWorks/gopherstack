@@ -1,7 +1,7 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -187,7 +188,7 @@ func parseTemplateVars(data string) (map[string]string, error) {
 	}
 
 	raw := map[string]any{}
-	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+	if err := json.Unmarshal([]byte(data), &raw, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: TemplateData must be valid JSON", ErrInvalidInput)
 	}
 

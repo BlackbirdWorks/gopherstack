@@ -6,7 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
 )
 
@@ -123,7 +124,7 @@ func newLBDashboard(t *testing.T) lbFixture {
 				"sslConfiguration": map[string]any{"certificateName": "tls"},
 			},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := httptest.NewRecorder()
@@ -139,7 +140,7 @@ func newLBDashboard(t *testing.T) lbFixture {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &items), list.Body.String())
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &items, jsonx.V1()), list.Body.String())
 	require.Len(t, items, 1)
 	f.id = items[0].ID
 
@@ -287,7 +288,7 @@ func TestOCILoadBalancerProxyActions(t *testing.T) {
 		} `json:"backendSets"`
 	}
 
-	require.NoError(t, json.Unmarshal(lbDo(t, f.h, http.MethodGet, lb, "").Body.Bytes(), &detail))
+	require.NoError(t, json.Unmarshal(lbDo(t, f.h, http.MethodGet, lb, "").Body.Bytes(), &detail, jsonx.V1()))
 
 	var found bool
 
@@ -320,7 +321,7 @@ func TestOCILoadBalancerProxyActions(t *testing.T) {
 		DeleteProtected bool   `json:"isDeleteProtectionEnabled"`
 	}
 
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &items), list.Body.String())
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &items, jsonx.V1()), list.Body.String())
 	require.Len(t, items, 1)
 	assert.Equal(t, "flexible", items[0].Shape)
 	assert.False(t, items[0].DeleteProtected)
@@ -349,7 +350,7 @@ func TestOCILoadBalancerProxyTryItRoundRobin(t *testing.T) {
 			Status  int               `json:"status"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, 200, out.Status)
 		assert.NotContains(t, out.Headers, "Connection")
 		assert.NotContains(t, out.Body, "evil.example")

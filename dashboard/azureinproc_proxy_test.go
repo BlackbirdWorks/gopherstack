@@ -2,7 +2,7 @@ package dashboard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -110,7 +111,7 @@ func jsonField(t *testing.T, raw []byte, path ...any) string {
 	t.Helper()
 
 	var doc any
-	require.NoError(t, json.Unmarshal(raw, &doc))
+	require.NoError(t, json.Unmarshal(raw, &doc, jsonx.V1()))
 
 	for _, p := range path {
 		switch k := p.(type) {

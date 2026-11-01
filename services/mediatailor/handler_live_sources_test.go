@@ -1,7 +1,7 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -40,7 +41,7 @@ func TestLiveSource_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "ls1", resp["LiveSourceName"])
 				assert.Equal(t, "sl1", resp["SourceLocationName"])
 				assert.Contains(t, resp["Arn"], ":mediatailor:")
@@ -105,7 +106,7 @@ func TestLiveSource_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ls1", resp["LiveSourceName"])
 
 	// update
@@ -117,7 +118,7 @@ func TestLiveSource_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	cfgs, _ := updated["HttpPackageConfigurations"].([]any)
 	require.Len(t, cfgs, 1)
 	cfg0, _ := cfgs[0].(map[string]any)
@@ -128,7 +129,7 @@ func TestLiveSource_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	items, _ := listResp["Items"].([]any)
 	assert.Len(t, items, 1)
 
@@ -202,7 +203,7 @@ func TestListLiveSources_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2)
 }

@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,7 @@ type createTrainingPlanInput struct {
 func (h *Handler) handleCreateTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req createTrainingPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -45,7 +47,7 @@ func (h *Handler) handleCreateTrainingPlan(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyTrainingPlanArn: result.TrainingPlanArn})
+	return json.Marshal(map[string]any{keyTrainingPlanArn: result.TrainingPlanArn}, jsonx.V1())
 }
 
 // describeTrainingPlanInput mirrors DescribeTrainingPlanInput
@@ -58,7 +60,7 @@ type describeTrainingPlanInput struct {
 func (h *Handler) handleDescribeTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTrainingPlanInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -71,5 +73,5 @@ func (h *Handler) handleDescribeTrainingPlan(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }

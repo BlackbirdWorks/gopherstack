@@ -2,10 +2,11 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -17,7 +18,7 @@ type deleteResourcePolicyInput struct {
 func (h *Handler) handleDeleteResourcePolicy(_ context.Context, body []byte) ([]byte, error) {
 	var in deleteResourcePolicyInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -30,7 +31,7 @@ func (h *Handler) handleDeleteResourcePolicy(_ context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }
 
 type resourcePolicyView struct {
@@ -55,7 +56,7 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, body []byte) ([]
 		MaxResults int    `json:"MaxResults"`
 	}
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &in)
+		_ = json.Unmarshal(body, &in, jsonx.V1())
 	}
 
 	policies := h.Backend.ListResourcePolicies()
@@ -71,7 +72,7 @@ func (h *Handler) handleListResourcePolicies(_ context.Context, body []byte) ([]
 	pg := page.New(views, in.NextToken, in.MaxResults, defaultResourcePoliciesPageSize)
 	resp := map[string]any{"ResourcePolicies": pg.Data, keyNextToken: pg.Next}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type putResourcePolicyInput struct {
@@ -84,7 +85,7 @@ type putResourcePolicyInput struct {
 func (h *Handler) handlePutResourcePolicy(ctx context.Context, body []byte) ([]byte, error) {
 	var in putResourcePolicyInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -107,5 +108,5 @@ func (h *Handler) handlePutResourcePolicy(ctx context.Context, body []byte) ([]b
 
 	return json.Marshal(map[string]any{
 		"ResourcePolicy": toResourcePolicyView(p),
-	})
+	}, jsonx.V1())
 }

@@ -2,13 +2,14 @@ package route53resolver
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/miekg/dns"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -152,7 +153,7 @@ func (b *InMemoryBackend) queryLogJSON(e queryLogEntry) string {
 		})
 	}
 
-	out, _ := json.Marshal(rec)
+	out, _ := json.Marshal(rec, jsonx.V1())
 
 	return string(out)
 }

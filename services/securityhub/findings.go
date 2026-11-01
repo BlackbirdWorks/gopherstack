@@ -1,7 +1,7 @@
 package securityhub
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // findingCustomerManagedFields lists ASFF fields that AWS documents as
@@ -304,7 +305,7 @@ func findingSortValue(f map[string]any, field string) string {
 		return s
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprintf("%v", v)
 	}
@@ -649,7 +650,7 @@ func historyValueString(v any) *string {
 		return &s
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		s := fmt.Sprintf("%v", v)
 

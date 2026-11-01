@@ -2,10 +2,13 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -27,7 +30,7 @@ import (
 // JobInput/JobOutputConfig blocks plus the shared JobResources/NetworkConfig/
 // StoppingCondition/BaselineConfig) is kept verbatim in Config.
 type jobDefRequest struct {
-	Config            map[string]json.RawMessage
+	Config            map[string]jsontext.Value
 	Tags              map[string]string
 	JobDefinitionName string
 	RoleArn           string
@@ -38,26 +41,26 @@ type jobDefRequest struct {
 // wire field name of the type's JobInput block (e.g. "DataQualityJobInput"),
 // used to derive EndpointName for List filtering/summaries.
 func parseJobDefRequest(body []byte, jobInputKey string) (jobDefRequest, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(body, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(body, &raw, jsonx.V1()); err != nil {
 		return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	req := jobDefRequest{Config: make(map[string]json.RawMessage, len(raw))}
+	req := jobDefRequest{Config: make(map[string]jsontext.Value, len(raw))}
 
 	for k, v := range raw {
 		switch k {
 		case keyJobDefinitionName:
-			if err := json.Unmarshal(v, &req.JobDefinitionName); err != nil {
+			if err := json.Unmarshal(v, &req.JobDefinitionName, jsonx.V1()); err != nil {
 				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 			}
 		case "RoleArn":
-			if err := json.Unmarshal(v, &req.RoleArn); err != nil {
+			if err := json.Unmarshal(v, &req.RoleArn, jsonx.V1()); err != nil {
 				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 			}
 		case keyTagsField:
 			var tags []tagObject
-			if err := json.Unmarshal(v, &tags); err != nil {
+			if err := json.Unmarshal(v, &tags, jsonx.V1()); err != nil {
 				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 			}
 
@@ -83,7 +86,7 @@ func parseJobDefRequest(body []byte, jobInputKey string) (jobDefRequest, error) 
 // AppSpecification/JobInput/JobOutputConfig, whose wire names share the
 // type's name prefix derived from jobInputKey (e.g. "DataQualityJobInput" ->
 // "DataQuality"). Returns the decoded JobInput block on success.
-func validateJobDefRequest(req jobDefRequest, jobInputKey string) (json.RawMessage, error) {
+func validateJobDefRequest(req jobDefRequest, jobInputKey string) (jsontext.Value, error) {
 	if req.JobDefinitionName == "" {
 		return nil, fmt.Errorf("%w: JobDefinitionName is required", errInvalidRequest)
 	}
@@ -117,14 +120,14 @@ func validateJobDefRequest(req jobDefRequest, jobInputKey string) (json.RawMessa
 // extractEndpointName pulls EndpointInput.EndpointName out of a job input
 // block (DataQualityJobInput / ModelBiasJobInput / ModelQualityJobInput /
 // ModelExplainabilityJobInput all share this shape).
-func extractEndpointName(jobInput json.RawMessage) string {
+func extractEndpointName(jobInput jsontext.Value) string {
 	var in struct {
 		EndpointInput *struct {
 			EndpointName string `json:"EndpointName"`
 		} `json:"EndpointInput"`
 	}
 
-	if err := json.Unmarshal(jobInput, &in); err != nil || in.EndpointInput == nil {
+	if err := json.Unmarshal(jobInput, &in, jsonx.V1()); err != nil || in.EndpointInput == nil {
 		return ""
 	}
 
@@ -144,7 +147,7 @@ type jobDefinitionNameInput struct {
 func parseJobDefinitionName(body []byte) (string, error) {
 	var req jobDefinitionNameInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -201,7 +204,7 @@ type jobDefinitionListInput struct {
 func parseJobDefinitionListRequest(body []byte) (jobDefListRequest, error) {
 	var req jobDefinitionListInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return jobDefListRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -268,7 +271,7 @@ func (h *Handler) handleCreateDataQualityJobDefinition(ctx context.Context, body
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
+	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeDataQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
@@ -282,7 +285,7 @@ func (h *Handler) handleDescribeDataQualityJobDefinition(ctx context.Context, bo
 		return nil, err
 	}
 
-	return json.Marshal(buildJobDefinitionResponse(result))
+	return json.Marshal(buildJobDefinitionResponse(result), jsonx.V1())
 }
 
 func (h *Handler) handleDeleteDataQualityJobDefinition(ctx context.Context, body []byte) error {
@@ -302,7 +305,7 @@ func (h *Handler) handleListDataQualityJobDefinitions(ctx context.Context, body 
 
 	items, next := h.Backend.ListDataQualityJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return json.Marshal(buildJobDefinitionListResponse(items, next))
+	return json.Marshal(buildJobDefinitionListResponse(items, next), jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +325,7 @@ func (h *Handler) handleCreateModelBiasJobDefinition(ctx context.Context, body [
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
+	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeModelBiasJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
@@ -336,7 +339,7 @@ func (h *Handler) handleDescribeModelBiasJobDefinition(ctx context.Context, body
 		return nil, err
 	}
 
-	return json.Marshal(buildJobDefinitionResponse(result))
+	return json.Marshal(buildJobDefinitionResponse(result), jsonx.V1())
 }
 
 func (h *Handler) handleDeleteModelBiasJobDefinition(ctx context.Context, body []byte) error {
@@ -356,7 +359,7 @@ func (h *Handler) handleListModelBiasJobDefinitions(ctx context.Context, body []
 
 	items, next := h.Backend.ListModelBiasJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return json.Marshal(buildJobDefinitionListResponse(items, next))
+	return json.Marshal(buildJobDefinitionListResponse(items, next), jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -376,7 +379,7 @@ func (h *Handler) handleCreateModelQualityJobDefinition(ctx context.Context, bod
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
+	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeModelQualityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
@@ -390,7 +393,7 @@ func (h *Handler) handleDescribeModelQualityJobDefinition(ctx context.Context, b
 		return nil, err
 	}
 
-	return json.Marshal(buildJobDefinitionResponse(result))
+	return json.Marshal(buildJobDefinitionResponse(result), jsonx.V1())
 }
 
 func (h *Handler) handleDeleteModelQualityJobDefinition(ctx context.Context, body []byte) error {
@@ -410,7 +413,7 @@ func (h *Handler) handleListModelQualityJobDefinitions(ctx context.Context, body
 
 	items, next := h.Backend.ListModelQualityJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return json.Marshal(buildJobDefinitionListResponse(items, next))
+	return json.Marshal(buildJobDefinitionListResponse(items, next), jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +433,7 @@ func (h *Handler) handleCreateModelExplainabilityJobDefinition(ctx context.Conte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn})
+	return json.Marshal(map[string]any{keyJobDefinitionArn: result.JobDefinitionArn}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeModelExplainabilityJobDefinition(ctx context.Context, body []byte) ([]byte, error) {
@@ -444,7 +447,7 @@ func (h *Handler) handleDescribeModelExplainabilityJobDefinition(ctx context.Con
 		return nil, err
 	}
 
-	return json.Marshal(buildJobDefinitionResponse(result))
+	return json.Marshal(buildJobDefinitionResponse(result), jsonx.V1())
 }
 
 func (h *Handler) handleDeleteModelExplainabilityJobDefinition(ctx context.Context, body []byte) error {
@@ -464,5 +467,5 @@ func (h *Handler) handleListModelExplainabilityJobDefinitions(ctx context.Contex
 
 	items, next := h.Backend.ListModelExplainabilityJobDefinitions(ctx, req.NextToken, req.Filter)
 
-	return json.Marshal(buildJobDefinitionListResponse(items, next))
+	return json.Marshal(buildJobDefinitionListResponse(items, next), jsonx.V1())
 }

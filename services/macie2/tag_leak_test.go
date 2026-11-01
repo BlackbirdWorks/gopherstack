@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -31,7 +32,7 @@ func TestMacie2_Delete_ClearsTags(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var created map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 		arnStr, id := created["arn"], created["id"]
 		require.NotEmpty(t, arnStr)
 
@@ -45,7 +46,7 @@ func TestMacie2_Delete_ClearsTags(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, otherRec.Code)
 		var otherCreated map[string]string
-		require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherCreated))
+		require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherCreated, jsonx.V1()))
 		otherArn := otherCreated["arn"]
 		otherRec = doRequest(
 			t, h, http.MethodPost, "/tags/"+otherArn, map[string]any{"tags": map[string]string{"k": "v"}},
@@ -61,7 +62,7 @@ func TestMacie2_Delete_ClearsTags(t *testing.T) {
 		rec = doRequest(t, h, http.MethodGet, "/tags/"+otherArn, nil)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var otherTags map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &otherTags))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &otherTags, jsonx.V1()))
 		assert.NotEmpty(t, otherTags["tags"])
 	})
 
@@ -76,7 +77,7 @@ func TestMacie2_Delete_ClearsTags(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var created map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 		arnStr, id := created["arn"], created["id"]
 		require.NotEmpty(t, arnStr)
 
@@ -96,6 +97,6 @@ func assertMacie2SnapshotTagsCleared(t *testing.T, h *macie2.Handler, arnStr str
 	var probe struct {
 		Tags map[string]map[string]string `json:"tags"`
 	}
-	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &probe))
+	require.NoError(t, json.Unmarshal(h.Snapshot(t.Context()), &probe, jsonx.V1()))
 	assert.NotContains(t, probe.Tags, arnStr)
 }

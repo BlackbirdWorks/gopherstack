@@ -2,9 +2,11 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type listResourceSharePermissionsRequest struct {
@@ -24,7 +26,7 @@ func (h *Handler) handleListResourceSharePermissions(
 	body []byte,
 ) ([]byte, error) {
 	var req listResourceSharePermissionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -45,7 +47,7 @@ func (h *Handler) handleListResourceSharePermissions(
 	}
 
 	return json.Marshal(
-		listResourceSharePermissionsResponse{NextToken: nextToken, Permissions: page},
+		listResourceSharePermissionsResponse{NextToken: nextToken, Permissions: page}, jsonx.V1(),
 	)
 }
 
@@ -65,7 +67,7 @@ func (h *Handler) handleAssociateResourceSharePermission(
 	body []byte,
 ) ([]byte, error) {
 	var req associateResourceSharePermissionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -83,7 +85,7 @@ func (h *Handler) handleAssociateResourceSharePermission(
 		return nil, err
 	}
 
-	return json.Marshal(associateResourceSharePermissionResponse{ReturnValue: true})
+	return json.Marshal(associateResourceSharePermissionResponse{ReturnValue: true}, jsonx.V1())
 }
 
 type disassociateResourceSharePermissionRequest struct {
@@ -100,7 +102,7 @@ func (h *Handler) handleDisassociateResourceSharePermission(
 	body []byte,
 ) ([]byte, error) {
 	var req disassociateResourceSharePermissionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -116,7 +118,7 @@ func (h *Handler) handleDisassociateResourceSharePermission(
 		return nil, err
 	}
 
-	return json.Marshal(disassociateResourceSharePermissionResponse{ReturnValue: true})
+	return json.Marshal(disassociateResourceSharePermissionResponse{ReturnValue: true}, jsonx.V1())
 }
 
 type replacePermissionAssociationsRequest struct {
@@ -166,7 +168,7 @@ func (h *Handler) handleReplacePermissionAssociations(
 	body []byte,
 ) ([]byte, error) {
 	var req replacePermissionAssociationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -189,7 +191,7 @@ func (h *Handler) handleReplacePermissionAssociations(
 
 	return json.Marshal(replacePermissionAssociationsResponse{
 		ReplacePermissionAssociationsWork: toReplacePermissionAssociationsWorkObject(work),
-	})
+	}, jsonx.V1())
 }
 
 // permissionAssociationObject matches types.AssociatedPermission
@@ -221,7 +223,7 @@ type listPermissionAssociationsResponse struct {
 
 func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byte) ([]byte, error) {
 	var req listPermissionAssociationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -250,7 +252,7 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(listPermissionAssociationsResponse{NextToken: nextToken, Permissions: page})
+	return json.Marshal(listPermissionAssociationsResponse{NextToken: nextToken, Permissions: page}, jsonx.V1())
 }
 
 // shareMatchesPermissionFilter applies the featureSet and associationStatus filters.
@@ -288,7 +290,7 @@ func (h *Handler) handleListReplacePermissionAssociationsWork(
 	body []byte,
 ) ([]byte, error) {
 	var req listReplacePermissionAssociationsWorkRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -307,5 +309,5 @@ func (h *Handler) handleListReplacePermissionAssociationsWork(
 	return json.Marshal(listReplacePermissionAssociationsWorkResponse{
 		NextToken:                          nextToken,
 		ReplacePermissionAssociationsWorks: page,
-	})
+	}, jsonx.V1())
 }

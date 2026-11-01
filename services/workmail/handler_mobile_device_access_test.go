@@ -1,13 +1,15 @@
 package workmail_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Mobile Device Access Rules ----
@@ -35,11 +37,11 @@ func TestMobileDeviceAccessRuleLifecycle(t *testing.T) {
 		body := fmt.Sprintf(`{"OrganizationId":%q,"Name":%q,"Effect":%q,"Description":%q`,
 			orgID, tc.name, tc.effect, tc.description)
 		if len(tc.deviceModels) > 0 {
-			modelsJSON, _ := json.Marshal(tc.deviceModels)
+			modelsJSON, _ := json.Marshal(tc.deviceModels, jsonx.V1())
 			body += fmt.Sprintf(`,"DeviceModels":%s`, string(modelsJSON))
 		}
 		if len(tc.deviceTypes) > 0 {
-			typesJSON, _ := json.Marshal(tc.deviceTypes)
+			typesJSON, _ := json.Marshal(tc.deviceTypes, jsonx.V1())
 			body += fmt.Sprintf(`,"DeviceTypes":%s`, string(typesJSON))
 		}
 		body += "}"
@@ -163,7 +165,7 @@ func TestGetMobileDeviceAccessEffect(t *testing.T) {
 			h := newTestHandler(t)
 			orgID := createTestOrg(t, h, "effect-org-"+tc.name)
 
-			modelsJSON, _ := json.Marshal(tc.deviceModels)
+			modelsJSON, _ := json.Marshal(tc.deviceModels, jsonx.V1())
 			doOp(t, h, "CreateMobileDeviceAccessRule", fmt.Sprintf(
 				`{"OrganizationId":%q,"Name":"test-rule","Effect":%q,"DeviceModels":%s}`,
 				orgID, tc.ruleEffect, string(modelsJSON),

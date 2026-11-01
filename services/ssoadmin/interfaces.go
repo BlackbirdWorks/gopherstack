@@ -2,7 +2,7 @@ package ssoadmin
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // StorageBackend is the interface for SSO Admin storage operations.
@@ -74,9 +74,9 @@ type StorageBackend interface {
 	PutApplicationAccessScope(applicationArn, scope string, authorizedTargets []string) error
 	PutApplicationAssignmentConfiguration(applicationArn string, assignmentRequired bool) error
 	// PutApplicationAuthenticationMethod stores a structured auth method body; authMethodType must be IAM.
-	PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body json.RawMessage) error
+	PutApplicationAuthenticationMethod(applicationArn, authMethodType string, body jsontext.Value) error
 	// PutApplicationGrant stores a structured grant body; grantType must be a valid AWS grant type enum value.
-	PutApplicationGrant(applicationArn, grantType string, body json.RawMessage) error
+	PutApplicationGrant(applicationArn, grantType string, body jsontext.Value) error
 	// PutApplicationSessionConfiguration sets the UserBackgroundSessionApplicationStatus
 	// (ENABLED or DISABLED) for an application. Matches the real
 	// PutApplicationSessionConfigurationInput wire shape -- this is NOT a
@@ -116,8 +116,8 @@ type StorageBackend interface {
 	GetApplicationAssignmentConfiguration(applicationArn string) (bool, error)
 	GetApplicationSessionConfiguration(applicationArn string) (string, error)
 	GetApplicationAccessScope(applicationArn, scope string) ([]string, error)
-	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (json.RawMessage, error)
-	GetApplicationGrant(applicationArn, grantType string) (json.RawMessage, error)
+	GetApplicationAuthenticationMethod(applicationArn, authMethodType string) (jsontext.Value, error)
+	GetApplicationGrant(applicationArn, grantType string) (jsontext.Value, error)
 	ListCustomerManagedPolicyReferencesInPermissionSet(
 		instanceArn, permissionSetArn string,
 	) ([]CustomerManagedPolicyReference, error)

@@ -1,12 +1,14 @@
 package asl
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"strings"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxVariableNameLen is the AWS limit ("Variable name syntax").
@@ -75,7 +77,7 @@ func (e *Executor) setVars(vals map[string]any) error {
 	assignTotal := 0
 
 	for name, v := range vals {
-		b, err := json.Marshal(v)
+		b, err := json.Marshal(v, jsonx.V1())
 		if err != nil {
 			return dataLimitError("variable %q cannot be serialized: %v", name, err)
 		}

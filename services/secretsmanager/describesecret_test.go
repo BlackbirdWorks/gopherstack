@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -251,7 +252,7 @@ func TestDescribeSecret_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "alias/http-key", out.KmsKeyID)
 }
 
@@ -282,7 +283,7 @@ func TestDescribeSecret_HasAllFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "full-meta", desc.Name)
 	assert.Equal(t, "full metadata", desc.Description)
 	assert.Equal(t, "alias/mykey", desc.KmsKeyID)
@@ -306,7 +307,7 @@ func TestDescribeSecret_HasCreatedDate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.NotNil(t, desc.CreatedDate)
 	assert.Greater(t, *desc.CreatedDate, float64(0))
 }

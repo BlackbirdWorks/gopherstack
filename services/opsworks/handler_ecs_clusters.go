@@ -2,9 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -21,7 +22,7 @@ func (h *Handler) handleRegisterEcsCluster(_ context.Context, body []byte) (any,
 		StackID       string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -39,7 +40,7 @@ func (h *Handler) handleDeregisterEcsCluster(_ context.Context, body []byte) (an
 		EcsClusterArn string `json:"EcsClusterArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -60,7 +61,7 @@ func (h *Handler) handleDescribeEcsClusters(_ context.Context, body []byte) (any
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}

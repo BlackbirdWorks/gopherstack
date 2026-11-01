@@ -1,13 +1,15 @@
 package route53resolver_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestOutpostResolverCRUD(t *testing.T) {
@@ -143,7 +145,7 @@ func TestCreateOutpostResolver_DefaultInstanceCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	resolver, ok := resp["OutpostResolver"].(map[string]any)
 	require.True(t, ok)
 	assert.InDelta(t, 4, resolver["InstanceCount"], 0)
@@ -213,7 +215,7 @@ func TestCreateOutpostResolver(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				r, ok := resp["OutpostResolver"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantName, r["Name"])
@@ -336,7 +338,7 @@ func TestListOutpostResolvers_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListOutpostResolvers", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			resolvers, _ := out["OutpostResolvers"].([]any)
 			assert.Len(t, resolvers, tt.wantLen)
 			if tt.wantNextToken {
@@ -389,7 +391,7 @@ func TestListOutpostResolvers_OutpostArnFilter(t *testing.T) {
 			listRec := doRequest(t, h, "ListOutpostResolvers", map[string]any{"OutpostArn": tt.outpostArn})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			resolvers, _ := out["OutpostResolvers"].([]any)
 			assert.Len(t, resolvers, tt.wantLen)
 		})

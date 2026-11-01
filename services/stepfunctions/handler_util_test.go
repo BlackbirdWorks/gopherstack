@@ -2,12 +2,14 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ValidateStateMachineDefinition(t *testing.T) {
@@ -55,14 +57,14 @@ func TestHandler_ValidateStateMachineDefinition(t *testing.T) {
 			ctx := t.Context()
 			h, e := newSFNHandler(t)
 
-			reqBody, err := json.Marshal(map[string]string{"definition": tt.definition})
+			reqBody, err := json.Marshal(map[string]string{"definition": tt.definition}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "ValidateStateMachineDefinition", string(reqBody))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantResult, resp["result"])
 
 			diag, ok := resp["diagnostics"].([]any)
@@ -83,7 +85,7 @@ func TestValidateStateMachineDefinition_Valid(t *testing.T) {
 	ctx := t.Context()
 	h, e := newSFNHandler(t)
 
-	body, err := json.Marshal(map[string]any{"definition": validPassDef})
+	body, err := json.Marshal(map[string]any{"definition": validPassDef}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := sfnPost(ctx, t, h, e, "ValidateStateMachineDefinition", string(body))
@@ -96,7 +98,7 @@ func TestValidateStateMachineDefinition_Invalid(t *testing.T) {
 	ctx := t.Context()
 	h, e := newSFNHandler(t)
 
-	body, err := json.Marshal(map[string]any{"definition": `{"not":"valid-asl"}`})
+	body, err := json.Marshal(map[string]any{"definition": `{"not":"valid-asl"}`}, jsonx.V1())
 	require.NoError(t, err)
 
 	// AWS returns 200 with Result:"FAIL" and diagnostics — not a 4xx.
@@ -104,7 +106,7 @@ func TestValidateStateMachineDefinition_Invalid(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "FAIL", out["result"])
 }
@@ -168,7 +170,7 @@ func TestTestState_NextState(t *testing.T) {
 			body, err := json.Marshal(map[string]any{
 				"definition": tt.definition,
 				"input":      tt.input,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "TestState", string(body))
@@ -179,7 +181,7 @@ func TestTestState_NextState(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tt.wantStatus, resp["status"])
 
@@ -223,14 +225,14 @@ func TestValidateStateMachineDefinition(t *testing.T) {
 			t.Parallel()
 
 			h, e := newSFNHandler(t)
-			body, err := json.Marshal(map[string]string{"definition": tt.def})
+			body, err := json.Marshal(map[string]string{"definition": tt.def}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(t.Context(), t, h, e, "ValidateStateMachineDefinition", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantResult, resp["result"])
 		})
 	}

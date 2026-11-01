@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const statusClosed = "closed"
@@ -61,7 +63,7 @@ func loadIssues(path string) (map[string]issue, error) {
 		}
 
 		var iss issue
-		if unmarshalErr := json.Unmarshal([]byte(text), &iss); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal([]byte(text), &iss, jsonx.V1()); unmarshalErr != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, line, unmarshalErr)
 		}
 		if iss.ID == "" {

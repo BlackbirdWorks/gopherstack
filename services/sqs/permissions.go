@@ -1,11 +1,12 @@
 package sqs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // iamPolicyDocument represents the IAM resource policy document stored in the
@@ -81,7 +82,7 @@ func buildQueueIAMPolicy(q *Queue) {
 		Statement: stmts,
 	}
 
-	raw, err := json.Marshal(doc)
+	raw, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		return
 	}

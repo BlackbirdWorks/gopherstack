@@ -1,7 +1,9 @@
 package stepfunctions
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type describeMapRunInput struct {
@@ -53,7 +55,7 @@ func (h *Handler) mapRunActions() map[string]actionFn {
 	return map[string]actionFn{
 		"DescribeMapRun": func(b []byte) (any, error) {
 			var input describeMapRunInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -61,7 +63,7 @@ func (h *Handler) mapRunActions() map[string]actionFn {
 		},
 		"ListMapRuns": func(b []byte) (any, error) {
 			var input listMapRunsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -86,7 +88,7 @@ func (h *Handler) mapRunActions() map[string]actionFn {
 		},
 		"UpdateMapRun": func(b []byte) (any, error) {
 			var input updateMapRunInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

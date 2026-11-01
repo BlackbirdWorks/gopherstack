@@ -3,7 +3,7 @@ package rdsdata
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -257,7 +258,7 @@ func writeInternalServerError(c *echo.Context) error {
 	payload, err := json.Marshal(map[string]string{
 		keyTypeField:    "InternalServerErrorException",
 		keyMessageField: "internal server error",
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -270,32 +271,32 @@ func stripCode(err error, code string) string {
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	var apiErr *apiError
 
 	switch {
 	case errors.As(err, &apiErr):
-		payload, _ := json.Marshal(map[string]string{keyTypeField: apiErr.code, keyMessageField: apiErr.msg})
+		payload, _ := json.Marshal(
+			map[string]string{keyTypeField: apiErr.code, keyMessageField: apiErr.msg},
+			jsonx.V1(),
+		)
 
 		return c.JSONBlob(apiErr.status, payload)
 	case errors.Is(err, ErrTransactionNotFound):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "TransactionNotFoundException",
 			keyMessageField: stripCode(err, "TransactionNotFoundException"),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusNotFound, payload)
 	case errIsValidation(err):
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "BadRequestException",
 			keyMessageField: stripCode(err, "BadRequestException"),
-		})
+		}, jsonx.V1())
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		// These branches used to omit keyTypeField entirely, so
 		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
 		// decoder_util.go:15) found no code in the header (unset) or the
@@ -410,7 +411,7 @@ func validateRequiredFields(fields ...requiredField) error {
 
 func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req executeStatementRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -489,7 +490,7 @@ func marshalExecuteResponse(
 		}
 	}
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("marshal response: %w", err)
 	}
@@ -532,7 +533,7 @@ func formatRecordsAsJSONString(records [][]Field, columns []ColumnMetadata) (str
 		rows[i] = row
 	}
 
-	out, err := json.Marshal(rows)
+	out, err := json.Marshal(rows, jsonx.V1())
 	if err != nil {
 		return "", fmt.Errorf("marshal formatted records: %w", err)
 	}
@@ -571,7 +572,7 @@ type batchExecuteStatementResponse struct {
 
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req batchExecuteStatementRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -600,7 +601,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		return nil, err
 	}
 
-	return json.Marshal(batchExecuteStatementResponse{UpdateResults: results})
+	return json.Marshal(batchExecuteStatementResponse{UpdateResults: results}, jsonx.V1())
 }
 
 type beginTransactionRequest struct {
@@ -616,7 +617,7 @@ type beginTransactionResponse struct {
 
 func (h *Handler) handleBeginTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req beginTransactionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -634,7 +635,7 @@ func (h *Handler) handleBeginTransaction(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(beginTransactionResponse{TransactionID: txID})
+	return json.Marshal(beginTransactionResponse{TransactionID: txID}, jsonx.V1())
 }
 
 type commitTransactionRequest struct {
@@ -649,7 +650,7 @@ type commitTransactionResponse struct {
 
 func (h *Handler) handleCommitTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req commitTransactionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -666,7 +667,7 @@ func (h *Handler) handleCommitTransaction(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(commitTransactionResponse{TransactionStatus: status})
+	return json.Marshal(commitTransactionResponse{TransactionStatus: status}, jsonx.V1())
 }
 
 type rollbackTransactionRequest struct {
@@ -681,7 +682,7 @@ type rollbackTransactionResponse struct {
 
 func (h *Handler) handleRollbackTransaction(ctx context.Context, body []byte) ([]byte, error) {
 	var req rollbackTransactionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -698,7 +699,7 @@ func (h *Handler) handleRollbackTransaction(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(rollbackTransactionResponse{TransactionStatus: status})
+	return json.Marshal(rollbackTransactionResponse{TransactionStatus: status}, jsonx.V1())
 }
 
 type executeSQLRequest struct {
@@ -715,7 +716,7 @@ type executeSQLResponse struct {
 
 func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, error) {
 	var req executeSQLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -734,7 +735,7 @@ func (h *Handler) handleExecuteSQL(ctx context.Context, body []byte) ([]byte, er
 		return nil, err
 	}
 
-	return json.Marshal(executeSQLResponse{SQLStatementResults: results})
+	return json.Marshal(executeSQLResponse{SQLStatementResults: results}, jsonx.V1())
 }
 
 func arrayToJSONValue(a *ArrayValue) any {

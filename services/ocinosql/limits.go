@@ -1,8 +1,9 @@
 package ocinosql
 
 import (
-	"encoding/json"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Service limits from Oracle's "Oracle NoSQL Database Cloud Service Limits"
@@ -18,7 +19,7 @@ func valueBytes(v any) int {
 	switch x := v.(type) {
 	case string:
 		return len(x)
-	case json.Number:
+	case jsonx.Number:
 		return len(x.String())
 	case map[string]any:
 		n := 0

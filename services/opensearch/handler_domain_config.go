@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dryRunResultsJSON mirrors aws-sdk-go-v2 types.DryRunResults.
@@ -209,7 +210,7 @@ func (h *Handler) handleCancelDomainConfigChange(
 
 	var req cancelDomainConfigChangeRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return

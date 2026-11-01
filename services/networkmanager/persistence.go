@@ -2,7 +2,7 @@ package networkmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -20,11 +20,11 @@ const networkManagerSnapshotVersion = 1
 // backendSnapshot is the top-level on-disk shape for the Network Manager
 // backend.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	OrgStatus *organizationStatus        `json:"orgStatus"`
-	AccountID string                     `json:"accountId"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	OrgStatus *organizationStatus       `json:"orgStatus"`
+	AccountID string                    `json:"accountId"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

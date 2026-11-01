@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const realismRole = "arn:aws:iam::000000000000:role/r"
@@ -37,7 +39,7 @@ func errorOf(t *testing.T, body []byte) (string, string) {
 	t.Helper()
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out["__type"], out["message"]
 }
@@ -188,7 +190,7 @@ func TestRequestRealism_TrainingSecondaryStatusProgression(t *testing.T) {
 			r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "progress"})
 			got.SecondaryStatusTransitions = nil
 
-			return json.Unmarshal(r.Body.Bytes(), &got) == nil && got.TrainingJobStatus == "Completed"
+			return json.Unmarshal(r.Body.Bytes(), &got, jsonx.V1()) == nil && got.TrainingJobStatus == "Completed"
 		}, 5*time.Second, 5*time.Millisecond)
 
 		statuses := make([]string, 0, len(got.SecondaryStatusTransitions))
@@ -217,7 +219,7 @@ func TestRequestRealism_StopCompletedTrainingJobIsNoop(t *testing.T) {
 			}
 			r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "done"})
 
-			return json.Unmarshal(r.Body.Bytes(), &out) == nil && out.TrainingJobStatus == "Completed"
+			return json.Unmarshal(r.Body.Bytes(), &out, jsonx.V1()) == nil && out.TrainingJobStatus == "Completed"
 		}, 5*time.Second, 5*time.Millisecond)
 
 		require.Equal(t, http.StatusOK,
@@ -227,7 +229,7 @@ func TestRequestRealism_StopCompletedTrainingJobIsNoop(t *testing.T) {
 			TrainingJobStatus string `json:"TrainingJobStatus"`
 		}
 		r := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{"TrainingJobName": "done"})
-		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "Completed", out.TrainingJobStatus)
 	})
 }
@@ -254,7 +256,7 @@ func TestRequestRealism_StopFinishedProcessingJobKeepsStatus(t *testing.T) {
 				ProcessingJobStatus string `json:"ProcessingJobStatus"`
 			}
 			r := doSageMakerRequest(t, h, "DescribeProcessingJob", map[string]any{"ProcessingJobName": "pj"})
-			_ = json.Unmarshal(r.Body.Bytes(), &out)
+			_ = json.Unmarshal(r.Body.Bytes(), &out, jsonx.V1())
 
 			return out.ProcessingJobStatus
 		}

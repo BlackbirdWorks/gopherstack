@@ -2,13 +2,16 @@ package asl
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // runJSONataState runs one JSONata-mode state (Arguments, body, then the
@@ -396,7 +399,7 @@ func (e *Executor) jxItemSelector(state *State, items []any) ([]any, error) {
 type jxMapConfig struct {
 	readerParams map[string]any
 	writerParams map[string]any
-	batchInput   json.RawMessage
+	batchInput   jsontext.Value
 	maxItems     int
 	maxBytes     int
 }
@@ -445,7 +448,7 @@ func (s *jxScope) resolveBatcher(b *ItemBatcher, cfg *jxMapConfig) error {
 		return err
 	}
 
-	if cfg.batchInput, err = json.Marshal(v); err != nil {
+	if cfg.batchInput, err = json.Marshal(v, jsonx.V1()); err != nil {
 		return queryEvalError(err)
 	}
 

@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCancelExportJob(jobID string) (any, error) {
@@ -25,8 +28,8 @@ func (h *Handler) handleCancelExportJob(jobID string) (any, error) {
 // accepted opaquely via json.RawMessage rather than decoded into a typed
 // shape -- only which branch was set is used, to derive ExportSourceType.
 type exportDataSourceInput struct {
-	MetricsDataSource         json.RawMessage `json:"MetricsDataSource,omitempty"`
-	MessageInsightsDataSource json.RawMessage `json:"MessageInsightsDataSource,omitempty"`
+	MetricsDataSource         jsontext.Value `json:"MetricsDataSource,omitempty"`
+	MessageInsightsDataSource jsontext.Value `json:"MessageInsightsDataSource,omitempty"`
 }
 
 // sourceType validates that exactly one branch is set (real SES v2 requires
@@ -65,7 +68,7 @@ type createExportJobInput struct {
 func (h *Handler) handleCreateExportJob(c *echo.Context) (any, error) {
 	var in createExportJobInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

@@ -2,9 +2,11 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Tag handlers ----
@@ -15,7 +17,7 @@ func (h *Handler) handleTagResource(ctx context.Context, body []byte) (any, int,
 		Tags        []TagEntry `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 
@@ -39,7 +41,7 @@ func (h *Handler) handleUntagResource(ctx context.Context, body []byte) (any, in
 		TagKeys     []string `json:"tagKeys"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, 0, ErrValidation
 	}
 

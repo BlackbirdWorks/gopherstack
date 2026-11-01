@@ -2,7 +2,7 @@ package xray_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestPutResourcePolicy_LockoutPrevention(t *testing.T) {
@@ -70,7 +71,7 @@ func TestPutResourcePolicy_LockoutPrevention(t *testing.T) {
 			h := newTestHandler(t)
 			payload, err := json.Marshal(map[string]any{
 				"PolicyName": "p", "PolicyDocument": tt.doc, "BypassPolicyLockoutCheck": tt.bypass,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			req := httptest.NewRequest(http.MethodPost, "/PutResourcePolicy", bytes.NewReader(payload))
@@ -89,7 +90,7 @@ func TestPutResourcePolicy_LockoutPrevention(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})

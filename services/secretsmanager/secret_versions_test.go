@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -302,7 +303,7 @@ func TestSecretSizeValidation_Handler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", errResp.Type)
 }
 
@@ -388,7 +389,7 @@ func TestPutSecretValueLabelRotation(t *testing.T) {
 	putBody, _ := json.Marshal(map[string]string{
 		"SecretId":     "rotate-test",
 		"SecretString": "v2",
-	})
+	}, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(putBody)))
 	req.Header.Set("X-Amz-Target", "secretsmanager.PutSecretValue")
 	rec := httptest.NewRecorder()
@@ -396,7 +397,7 @@ func TestPutSecretValueLabelRotation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var putOut secretsmanager.PutSecretValueOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putOut, jsonx.V1()))
 	assert.Contains(t, putOut.VersionStages, secretsmanager.StagingLabelCurrent)
 
 	// Current should be v2

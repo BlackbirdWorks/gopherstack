@@ -1,7 +1,8 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -21,7 +23,7 @@ func createDomainAndGetARN(t *testing.T, h *opensearch.Handler, domainName strin
 	})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	status := createOut["DomainStatus"].(map[string]any)
@@ -50,7 +52,7 @@ func TestOpenSearchHandler_AddTags(t *testing.T) {
 	defer listResp.Body.Close()
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 
 	tagList, ok := listOut["TagList"].([]any)
 	require.True(t, ok)
@@ -84,7 +86,7 @@ func TestOpenSearchHandler_RemoveTags(t *testing.T) {
 	defer listResp.Body.Close()
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 
 	tagList, ok := listOut["TagList"].([]any)
 	require.True(t, ok)
@@ -105,7 +107,7 @@ func TestOpenSearchHandler_ListTags_EmptyDomain(t *testing.T) {
 	defer resp.Body.Close()
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	tagList, ok := out["TagList"].([]any)
 	require.True(t, ok)

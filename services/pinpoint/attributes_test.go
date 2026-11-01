@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestAudit6_RemoveAttributes_RemovesBlacklistedNamesOnly verifies
@@ -36,14 +38,14 @@ func TestRemoveAttributes_RemovesBlacklistedNamesOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "endpoint-custom-attributes", resp["AttributeType"])
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/endpoints/ep-1", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var ep map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &ep, jsonx.V1()))
 
 	attrs, _ := ep["Attributes"].(map[string]any)
 	_, hasInterests := attrs["Interests"]

@@ -1,10 +1,12 @@
 package sns
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AWS/SNS metrics per docs.aws.amazon.com/sns/latest/dg/sns-monitoring-using-cloudwatch.html (dimension TopicName).
@@ -64,7 +66,7 @@ func classifyAttributeRejection(attrs map[string]MessageAttribute) filterRejecti
 		}
 
 		var elems []any
-		if json.Unmarshal([]byte(a.StringValue), &elems) != nil {
+		if json.Unmarshal([]byte(a.StringValue), &elems, jsonx.V1()) != nil {
 			return rejectInvalidAttributes
 		}
 	}
@@ -74,8 +76,8 @@ func classifyAttributeRejection(attrs map[string]MessageAttribute) filterRejecti
 
 // classifyBodyRejection names why message failed a body-scope filter policy.
 func classifyBodyRejection(message string) filterRejection {
-	var body map[string]json.RawMessage
-	if json.Unmarshal([]byte(message), &body) != nil {
+	var body map[string]jsontext.Value
+	if json.Unmarshal([]byte(message), &body, jsonx.V1()) != nil {
 		return rejectInvalidBody
 	}
 

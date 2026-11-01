@@ -1,7 +1,7 @@
 package pipes_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
@@ -60,7 +61,7 @@ func TestKinesisStreamSourceParameters_UnmarshalJSON_TimeIsEpochSeconds(t *testi
 			t.Parallel()
 
 			var params pipes.KinesisStreamSourceParameters
-			err := json.Unmarshal([]byte(tt.body), &params)
+			err := json.Unmarshal([]byte(tt.body), &params, jsonx.V1())
 
 			if tt.wantErr {
 				require.Error(t, err)

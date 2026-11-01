@@ -1,12 +1,13 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createIndexRealRequest and updateIndexRealRequest mirror
@@ -46,7 +47,7 @@ func (h *Handler) handleCreateIndexRealRoute(w http.ResponseWriter, r *http.Requ
 
 	var req createIndexRealRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if req.IndexName == "" {
@@ -79,7 +80,7 @@ func (h *Handler) handleUpdateIndexRoute(w http.ResponseWriter, r *http.Request,
 	body, _ := httputils.ReadBody(r)
 	var req updateIndexRealRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	_, err := h.Backend.UpdateIndex(parts[0], parts[1], nil, nil, req.IndexSchema)
@@ -301,7 +302,7 @@ func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp i
 	}
 
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if _, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases, nil); err != nil {
@@ -322,7 +323,7 @@ func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp
 	body, _ := httputils.ReadBody(r)
 	var doc map[string]any
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &doc); err != nil {
+		if err := json.Unmarshal(body, &doc, jsonx.V1()); err != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid document body")
 
 			return
@@ -360,7 +361,7 @@ func (h *Handler) handleSearchIndex(w http.ResponseWriter, r *http.Request, sp i
 		Size  *int           `json:"size"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid search body")
 
 			return

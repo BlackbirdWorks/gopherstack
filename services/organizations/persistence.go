@@ -2,11 +2,13 @@ package organizations
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -67,7 +69,7 @@ func newDirtyDTORegistry() (*store.Registry, *store.Table[delegatedAdminSnapshot
 // preserves that existing gap rather than fixing it as a side effect of the
 // datalayer swap.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage   `json:"tables"`
+	Tables           map[string]jsontext.Value    `json:"tables"`
 	Org              *Organization                `json:"org"`
 	Root             *Root                        `json:"root"`
 	ResourcePolicy   *ResourcePolicy              `json:"resourcePolicy,omitempty"`
@@ -159,7 +161,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		StatusCounter:    b.statusCounter,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "organizations: failed to marshal snapshot", "error", err)
 
@@ -229,7 +231,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreDelegatedAdminsLocked restores the "dirty" delegatedAdmins table
 // from tables via the ephemeral DTO registry, converting each DTO back to
 // its live *DelegatedAdmin. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDelegatedAdminsLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDelegatedAdminsLocked(tables map[string]jsontext.Value) error {
 	dtoReg, daDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

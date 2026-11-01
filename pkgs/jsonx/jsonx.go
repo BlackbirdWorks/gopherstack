@@ -23,11 +23,27 @@
 //	dec.DisallowUnknownFields()   json.RejectUnknownMembers(true)
 //	dec.UseNumber(), json.Number  jsonx.UseNumber(), jsonx.Number
 //	json.RawMessage               jsontext.Value
+//	dec.Token()                   dec.ReadToken() (Kind: '{' '[' '"' '0' 't' 'f' 'n')
+//	dec.More()                    inside a container dec.PeekKind() not '}' or ']'; at top level
+//	                              compare InputOffset against the input (PeekKind()!=0 accepts garbage)
+//	dec.Buffered()                bytes.NewReader(dec.UnreadBuffer())
+//	json.Delim                    jsontext.Kind
 //	json.Valid(b)                 jsontext.Value(b).IsValid(jsonx.V1())
 //	json.Compact / Indent         jsontext.Value.Compact / Indent
 //	json.Marshaler, Unmarshaler   same names in v2 (MarshalJSON / UnmarshalJSON still honored)
 //	*json.SyntaxError             jsonx.SyntaxError / IsSyntaxError
 //	*json.UnmarshalTypeError      jsonx.TypeError / IsTypeError
+//
+// Error types: with V1 the v2 engine returns the v1 types (*json.SyntaxError,
+// *json.UnmarshalTypeError), not jsontext.SyntacticError or json.SemanticError,
+// so errors.As on the v2 types silently misses and turns client errors into
+// 500s. Always classify with SyntaxError, IsSyntaxError, TypeError and
+// IsTypeError, which accept both families.
+//
+// A jsontext.Token is invalidated by the next decoder call; copy String()
+// before reading on. Whitespace options (Multiline, WithIndent) belong on
+// jsontext.NewEncoder, not on MarshalEncode. SDKDecoder returns a v1 Decoder
+// for SDK helpers that require one.
 //
 // Use UnmarshalRead instead of UnmarshalDecode only when trailing data after
 // the first value must be an error; v1 Decoder.Decode ignored it.

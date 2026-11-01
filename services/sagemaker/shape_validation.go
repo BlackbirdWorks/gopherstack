@@ -3,12 +3,15 @@ package sagemaker
 import (
 	"bytes"
 	_ "embed" // shape_table.json
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errShapeInvalid = errors.New("invalid document")
@@ -34,7 +37,7 @@ type shapeTableDoc struct {
 //nolint:gochecknoglobals // lazily parsed read-only schema
 var loadShapeTable = sync.OnceValue(func() shapeTableDoc {
 	var doc shapeTableDoc
-	if err := json.Unmarshal(shapeTableJSON, &doc); err != nil {
+	if err := json.Unmarshal(shapeTableJSON, &doc, jsonx.V1()); err != nil {
 		panic(fmt.Sprintf("sagemaker: invalid shape_table.json: %v", err))
 	}
 
@@ -49,7 +52,7 @@ func validateRequestShapes(op string, req any) error {
 
 	for i := range v.NumField() {
 		f := v.Type().Field(i)
-		if f.Type != reflect.TypeFor[json.RawMessage]() {
+		if f.Type != reflect.TypeFor[jsontext.Value]() {
 			continue
 		}
 
@@ -60,7 +63,7 @@ func validateRequestShapes(op string, req any) error {
 			continue
 		}
 
-		raw, _ := reflect.TypeAssert[json.RawMessage](v.Field(i))
+		raw, _ := reflect.TypeAssert[jsontext.Value](v.Field(i))
 		if isAbsentJSON(raw) {
 			continue
 		}
@@ -73,13 +76,13 @@ func validateRequestShapes(op string, req any) error {
 	return nil
 }
 
-func isAbsentJSON(raw json.RawMessage) bool {
+func isAbsentJSON(raw jsontext.Value) bool {
 	t := bytes.TrimSpace(raw)
 
 	return len(t) == 0 || bytes.Equal(t, []byte("null"))
 }
 
-func validateShape(table shapeTableDoc, raw json.RawMessage, shape, path string) error {
+func validateShape(table shapeTableDoc, raw jsontext.Value, shape, path string) error {
 	rule, ok := table.Shapes[shape]
 	if !ok {
 		return nil
@@ -89,8 +92,8 @@ func validateShape(table shapeTableDoc, raw json.RawMessage, shape, path string)
 		return validateShapeList(table, raw, rule.List, path)
 	}
 
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &obj, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %s must be an object", errShapeInvalid, path)
 	}
 
@@ -115,7 +118,7 @@ func validateShape(table shapeTableDoc, raw json.RawMessage, shape, path string)
 	return nil
 }
 
-func validateShapeMember(table shapeTableDoc, raw json.RawMessage, shape, path string) error {
+func validateShapeMember(table shapeTableDoc, raw jsontext.Value, shape, path string) error {
 	if isAbsentJSON(raw) {
 		return nil
 	}
@@ -123,9 +126,9 @@ func validateShapeMember(table shapeTableDoc, raw json.RawMessage, shape, path s
 	return validateShape(table, raw, shape, path)
 }
 
-func validateShapeList(table shapeTableDoc, raw json.RawMessage, elem, path string) error {
-	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err != nil {
+func validateShapeList(table shapeTableDoc, raw jsontext.Value, elem, path string) error {
+	var items []jsontext.Value
+	if err := json.Unmarshal(raw, &items, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %s must be a list", errShapeInvalid, path)
 	}
 

@@ -3,7 +3,7 @@ package stepfunctions
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -20,6 +20,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/sdkwire"
@@ -418,7 +419,7 @@ func withJSONString(m map[string]any, key string, blob bool) map[string]any {
 
 	raw, isStr := val.(string)
 	if !isStr {
-		b, _ := json.Marshal(val)
+		b, _ := json.Marshal(val, jsonx.V1())
 		raw = string(b)
 	}
 

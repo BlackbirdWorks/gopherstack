@@ -9,7 +9,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/textproto"
@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errNXDomain = errors.New("nxdomain")
@@ -249,7 +251,7 @@ func TestInboundAuthVerdicts(t *testing.T) {
 				} `json:"receipt"`
 			}
 
-			require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n))
+			require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n, jsonx.V1()))
 			assert.Equal(t, tc.wantSPF, n.Receipt.SPF.Status)
 			assert.Equal(t, tc.wantDKIM, n.Receipt.DKIM.Status)
 			assert.Equal(t, tc.wantDMARC, n.Receipt.DMARC.Status)

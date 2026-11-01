@@ -2,7 +2,7 @@ package servicecatalog_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/servicecatalog"
 )
@@ -103,7 +104,7 @@ type fakeTemplate struct {
 
 func (f *fakeEngine) InspectTemplate(_ context.Context, body string) (servicecatalog.TemplateInfo, error) {
 	var t fakeTemplate
-	if err := json.Unmarshal([]byte(body), &t); err != nil {
+	if err := json.Unmarshal([]byte(body), &t, jsonx.V1()); err != nil {
 		return servicecatalog.TemplateInfo{}, err
 	}
 
@@ -145,7 +146,7 @@ func sortedMapKeys[V any](m map[string]V) []string {
 
 func (f *fakeEngine) outputsOf(template string) []servicecatalog.Output {
 	var t fakeTemplate
-	_ = json.Unmarshal([]byte(template), &t)
+	_ = json.Unmarshal([]byte(template), &t, jsonx.V1())
 
 	out := make([]servicecatalog.Output, 0, len(t.Outputs))
 	for _, k := range sortedMapKeys(t.Outputs) {

@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -155,7 +156,7 @@ type createHubInput struct {
 func (h *Handler) handleCreateHub(ctx context.Context, body []byte) ([]byte, error) {
 	var req createHubInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -182,7 +183,7 @@ func (h *Handler) handleCreateHub(ctx context.Context, body []byte) ([]byte, err
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created hub", "name", hub.HubName)
 
-	return json.Marshal(map[string]string{keyHubArn: hub.HubArn})
+	return json.Marshal(map[string]string{keyHubArn: hub.HubArn}, jsonx.V1())
 }
 
 func hubToDescribeResponse(hub *Hub) map[string]any {
@@ -226,7 +227,7 @@ type describeHubInput struct {
 func (h *Handler) handleDescribeHub(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeHubInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -239,7 +240,7 @@ func (h *Handler) handleDescribeHub(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(hubToDescribeResponse(hub))
+	return json.Marshal(hubToDescribeResponse(hub), jsonx.V1())
 }
 
 type hubInfoSummary struct {
@@ -270,7 +271,7 @@ type listHubsInput struct {
 func (h *Handler) handleListHubs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listHubsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -305,7 +306,7 @@ func (h *Handler) handleListHubs(ctx context.Context, body []byte) ([]byte, erro
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // updateHubInput is the UpdateHub request shape (named, not inline — see
@@ -320,7 +321,7 @@ type updateHubInput struct {
 func (h *Handler) handleUpdateHub(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateHubInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -339,7 +340,7 @@ func (h *Handler) handleUpdateHub(ctx context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyHubArn: hub.HubArn})
+	return json.Marshal(map[string]string{keyHubArn: hub.HubArn}, jsonx.V1())
 }
 
 // deleteHubInput is the DeleteHub request shape (named, not inline — see
@@ -351,7 +352,7 @@ type deleteHubInput struct {
 func (h *Handler) handleDeleteHub(ctx context.Context, body []byte) error {
 	var req deleteHubInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -393,7 +394,7 @@ type importHubContentInput struct {
 func (h *Handler) handleImportHubContent(ctx context.Context, body []byte) ([]byte, error) {
 	var req importHubContentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -423,7 +424,7 @@ func (h *Handler) handleImportHubContent(ctx context.Context, body []byte) ([]by
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: imported hub content",
 		"hub", hc.HubName, "name", hc.HubContentName, "version", hc.HubContentVersion)
 
-	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn}, jsonx.V1())
 }
 
 // requireImportHubContentFields returns the name of the first missing required
@@ -535,7 +536,7 @@ type describeHubContentInput struct {
 func (h *Handler) handleDescribeHubContent(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeHubContentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -552,7 +553,7 @@ func (h *Handler) handleDescribeHubContent(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(hubContentToDescribeResponse(hc))
+	return json.Marshal(hubContentToDescribeResponse(hc), jsonx.V1())
 }
 
 type hubContentInfoSummary struct {
@@ -613,7 +614,7 @@ type listHubContentsInput struct {
 func (h *Handler) handleListHubContents(ctx context.Context, body []byte) ([]byte, error) {
 	var req listHubContentsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -642,7 +643,7 @@ func (h *Handler) handleListHubContents(ctx context.Context, body []byte) ([]byt
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listHubContentVersionsInput is the ListHubContentVersions request shape
@@ -665,7 +666,7 @@ type listHubContentVersionsInput struct {
 func (h *Handler) handleListHubContentVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listHubContentVersionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -698,7 +699,7 @@ func (h *Handler) handleListHubContentVersions(ctx context.Context, body []byte)
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteHubContentInput is the DeleteHubContent request shape (named, not
@@ -714,7 +715,7 @@ type deleteHubContentInput struct {
 func (h *Handler) handleDeleteHubContent(ctx context.Context, body []byte) error {
 	var req deleteHubContentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -750,7 +751,7 @@ type createHubContentReferenceInput struct {
 func (h *Handler) handleCreateHubContentReference(ctx context.Context, body []byte) ([]byte, error) {
 	var req createHubContentReferenceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -768,7 +769,7 @@ func (h *Handler) handleCreateHubContentReference(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn}, jsonx.V1())
 }
 
 // deleteHubContentReferenceInput is the DeleteHubContentReference request
@@ -783,7 +784,7 @@ type deleteHubContentReferenceInput struct {
 func (h *Handler) handleDeleteHubContentReference(ctx context.Context, body []byte) error {
 	var req deleteHubContentReferenceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -814,7 +815,7 @@ type updateHubContentInput struct {
 func (h *Handler) handleUpdateHubContent(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateHubContentInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -838,7 +839,7 @@ func (h *Handler) handleUpdateHubContent(ctx context.Context, body []byte) ([]by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn}, jsonx.V1())
 }
 
 // updateHubContentReferenceInput is the UpdateHubContentReference request
@@ -854,7 +855,7 @@ type updateHubContentReferenceInput struct {
 func (h *Handler) handleUpdateHubContentReference(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateHubContentReferenceInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -871,7 +872,7 @@ func (h *Handler) handleUpdateHubContentReference(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn})
+	return json.Marshal(map[string]string{keyHubArn: hc.HubArn, keyHubContentArn: hc.HubContentArn}, jsonx.V1())
 }
 
 // presignedURLAccessConfigJSON is the wire shape of PresignedUrlAccessConfig
@@ -898,7 +899,7 @@ type createHubContentPresignedURLsInput struct {
 func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body []byte) ([]byte, error) {
 	var req createHubContentPresignedURLsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -938,5 +939,5 @@ func (h *Handler) handleCreateHubContentPresignedURLs(ctx context.Context, body 
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

@@ -2,7 +2,7 @@ package rekognition
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"slices"
@@ -35,7 +35,7 @@ const rekognitionSnapshotVersion = 1
 // a snapshot from an incompatible (older/newer/absent) build of this backend
 // as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables         map[string]json.RawMessage   `json:"tables"`
+	Tables         map[string]jsontext.Value    `json:"tables"`
 	Tags           map[string]map[string]string `json:"tags"`
 	DatasetEntries map[string][]string          `json:"datasetEntries"`
 	AccountID      string                       `json:"accountId"`

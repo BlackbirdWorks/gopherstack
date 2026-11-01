@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type assignmentView struct {
@@ -23,7 +25,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 		PrincipalID      string `json:"PrincipalId"`
 		PrincipalType    string `json:"PrincipalType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -71,7 +73,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 		InstanceArn                        string `json:"InstanceArn"`
 		AccountAssignmentCreationRequestID string `json:"AccountAssignmentCreationRequestId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -97,7 +99,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 		PrincipalID      string `json:"PrincipalId"`
 		PrincipalType    string `json:"PrincipalType"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.PrincipalType != "" && req.PrincipalType != principalTypeUser && req.PrincipalType != principalTypeGroup {
@@ -130,7 +132,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 		InstanceArn                        string `json:"InstanceArn"`
 		AccountAssignmentDeletionRequestID string `json:"AccountAssignmentDeletionRequestId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -155,7 +157,7 @@ func (h *Handler) handleListAccountAssignments(c *echo.Context, body []byte) err
 		NextToken        string `json:"NextToken"`
 		MaxResults       int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -212,7 +214,7 @@ func (h *Handler) handleListAccountAssignmentsForPrincipal(c *echo.Context, body
 		NextToken  string `json:"NextToken"`
 		MaxResults int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

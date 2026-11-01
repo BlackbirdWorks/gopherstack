@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -42,7 +43,7 @@ func TestWireAuthType_DefaultUserIsNoPassword(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	user, _ := resp["User"].(map[string]any)
 	auth, _ := user["Authentication"].(map[string]any)
@@ -86,7 +87,7 @@ func TestWireAuthType_UpdateUserValidatesType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	user, _ := resp["User"].(map[string]any)
 	auth, _ := user["Authentication"].(map[string]any)
 	assert.Equal(t, "no-password", auth["Type"])
@@ -172,7 +173,7 @@ func TestHandler_UserResponse_NoEngineField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	u, _ := resp["User"].(map[string]any)
 	_, hasEngine := u["Engine"]
 	assert.False(t, hasEngine, "Engine must not appear in the User response (not part of the real SDK type)")
@@ -192,7 +193,7 @@ func TestHandler_UserResponse_ACLNames_CreateReturnsEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	u, _ := resp["User"].(map[string]any)
 
 	aclNames, hasField := u["ACLNames"]

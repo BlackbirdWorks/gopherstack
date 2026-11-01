@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListNotebookInstances_Filters verifies that ListNotebookInstances honors
@@ -65,7 +67,7 @@ func TestListNotebookInstances_Filters(t *testing.T) {
 				} `json:"NotebookInstances"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			gotNames := make([]string, 0, len(resp.NotebookInstances))
 			for _, nb := range resp.NotebookInstances {

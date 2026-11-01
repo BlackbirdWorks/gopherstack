@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -241,7 +242,7 @@ func TestStubOps_DeleteAssociation(t *testing.T) {
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(
-		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID},
+		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID}, jsonx.V1(),
 	)
 	rec := doRequest(t, h, "DeleteAssociation", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -260,7 +261,7 @@ func TestStubOps_DescribeAssociation(t *testing.T) {
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(
-		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID},
+		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID}, jsonx.V1(),
 	)
 	rec := doRequest(t, h, "DescribeAssociation", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -279,7 +280,7 @@ func TestStubOps_UpdateAssociation(t *testing.T) {
 	require.NoError(t, err)
 
 	body, _ := json.Marshal(
-		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID},
+		map[string]any{"AssociationId": assoc.AssociationDescription.AssociationID}, jsonx.V1(),
 	)
 	rec := doRequest(t, h, "UpdateAssociation", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -356,7 +357,7 @@ func TestCreateAssociation_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateAssociationOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.AssociationDescription.AssociationID)
 			assert.Equal(t, "MyDoc", resp.AssociationDescription.Name)
 			assert.Equal(t, 1, backend.AssociationCount())
@@ -423,7 +424,7 @@ func TestCreateAssociationBatch(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateAssociationBatchOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Successful, tt.wantSuccessful)
 			assert.Len(t, resp.Failed, tt.wantFailed)
 			assert.Equal(t, tt.wantSuccessful, backend.AssociationCount())
@@ -703,7 +704,7 @@ func TestDeleteAssociation_TableDriven(t *testing.T) {
 				assocID = assoc.AssociationDescription.AssociationID
 			}
 
-			body, _ := json.Marshal(map[string]any{"AssociationId": assocID})
+			body, _ := json.Marshal(map[string]any{"AssociationId": assocID}, jsonx.V1())
 			rec := doRequest(t, h, "DeleteAssociation", string(body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 

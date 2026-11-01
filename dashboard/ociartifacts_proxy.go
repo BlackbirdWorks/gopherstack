@@ -2,7 +2,8 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -306,7 +309,7 @@ func (in *ociArtReadmeIn) build() (map[string]any, bool) {
 }
 
 func ociArtMarshal(v map[string]any) ([]byte, bool) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 
 	return b, err == nil
 }
@@ -383,7 +386,11 @@ func ociArtRestoreBody(c *echo.Context) ([]byte, bool) {
 		Version *string `json:"version"`
 	}
 
-	err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, ociInprocMaxBody)).Decode(&in)
+	err := json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, ociInprocMaxBody)),
+		&in,
+		jsonx.V1(),
+	)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, false
 	}
@@ -442,7 +449,7 @@ func ociArtScrubSignatures(raw []byte) []byte {
 		Items []map[string]any `json:"items"`
 	}
 
-	if json.Unmarshal(raw, &env) != nil {
+	if json.Unmarshal(raw, &env, jsonx.V1()) != nil {
 		return []byte("{}")
 	}
 
@@ -455,7 +462,7 @@ func ociArtScrubSignatures(raw []byte) []byte {
 		env.Items = []map[string]any{}
 	}
 
-	out, err := json.Marshal(env)
+	out, err := json.Marshal(env, jsonx.V1())
 	if err != nil {
 		return []byte("{}")
 	}
@@ -476,7 +483,7 @@ func ociArtDownload(c *echo.Context, inner *echo.Echo, contentPath string) error
 		Size int64  `json:"sizeInBytes"`
 	}
 
-	_ = json.Unmarshal(meta.Body.Bytes(), &art)
+	_ = json.Unmarshal(meta.Body.Bytes(), &art, jsonx.V1())
 
 	if art.Size > ociArtMaxDownload {
 		return cloudJSONFail(c, http.StatusRequestEntityTooLarge, "PayloadTooLarge",

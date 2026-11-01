@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -40,7 +42,7 @@ func TestMediaConvert_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&tagsOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &tagsOut, jsonx.V1()))
 	resourceTags, _ := tagsOut["resourceTags"].(map[string]any)
 	tags, _ := resourceTags["tags"].(map[string]any)
 	assert.Equal(t, "test", tags["env"])
@@ -55,7 +57,7 @@ func TestMediaConvert_Tags(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/2017-08-29/tags/"+arn, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	tagsOut = map[string]any{}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&tagsOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &tagsOut, jsonx.V1()))
 	resourceTags, _ = tagsOut["resourceTags"].(map[string]any)
 	assert.Empty(t, resourceTags["tags"])
 }

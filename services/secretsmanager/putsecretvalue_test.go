@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -486,7 +487,7 @@ func TestPutSecretValue_Idempotency(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out1 secretsmanager.PutSecretValueOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1, jsonx.V1()))
 	assert.Equal(t, token, out1.VersionID)
 
 	// Second put with same token + content: should return the existing version.
@@ -494,7 +495,7 @@ func TestPutSecretValue_Idempotency(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out2 secretsmanager.PutSecretValueOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2, jsonx.V1()))
 	assert.Equal(t, token, out2.VersionID)
 	assert.Equal(t, out1.VersionID, out2.VersionID)
 }

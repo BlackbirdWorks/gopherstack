@@ -1,7 +1,7 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseMembersPath(method string, parts []string) (string, string) {
@@ -156,7 +157,7 @@ func (h *Handler) handleCreateMember(body []byte) (int, error) {
 		Tags    map[string]string `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -249,7 +250,7 @@ func (h *Handler) handleUpdateMemberSession(accountID string, body []byte) (int,
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -272,7 +273,7 @@ func (h *Handler) handleCreateInvitations(body []byte) (any, int, error) {
 		DisableEmailNotification bool     `json:"disableEmailNotification"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -291,7 +292,7 @@ func (h *Handler) handleAcceptInvitation(body []byte) (int, error) {
 		MasterAccount          string `json:"masterAccount"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -312,7 +313,7 @@ func (h *Handler) handleDeclineInvitations(body []byte) (any, int, error) {
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -329,7 +330,7 @@ func (h *Handler) handleDeleteInvitations(body []byte) (any, int, error) {
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

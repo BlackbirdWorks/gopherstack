@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -24,7 +25,7 @@ func TestEnableSecurityHubPath(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// EnableSecurityHub returns an empty object, not a hub object
 	assert.NotContains(t, resp, "HubArn", "EnableSecurityHub must return empty body")
 }
@@ -41,7 +42,7 @@ func TestDescribeHubIsGETAccounts(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "HubArn")
 	assert.Contains(t, resp, "SubscribedAt")
@@ -97,7 +98,7 @@ func TestUpdateSecurityHubConfigurationIsPATCHAccounts(t *testing.T) {
 	// Verify the change
 	rec2 := doRequest(t, h, http.MethodGet, "/accounts", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, false, resp["AutoEnableControls"])
 	assert.Equal(t, "NONE", resp["AutoEnableStandards"])
@@ -115,7 +116,7 @@ func TestHubArnFormat(t *testing.T) {
 
 	rec := doRequest(t, h, http.MethodGet, "/accounts", nil)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	hubArn, _ := resp["HubArn"].(string)
 	assert.Equal(t, "arn:aws:securityhub:eu-west-1:123456789012:hub/default", hubArn)
@@ -214,7 +215,7 @@ func TestHubV2(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})
@@ -404,7 +405,7 @@ func TestHubV2Features(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})

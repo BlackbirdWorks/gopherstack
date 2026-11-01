@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -45,7 +47,7 @@ func (h *Handler) engineStatementResult(
 		keyColumnMetadata: rs.Columns,
 		keyTotalNumRows:   int64(len(rs.Rows)),
 		keyNextToken:      "",
-	})
+	}, jsonx.V1())
 }
 
 func renderCSVResult(rs *ResultSet) ([]byte, error) {
@@ -76,7 +78,7 @@ func renderCSVResult(rs *ResultSet) ([]byte, error) {
 		keyTotalNumRows:   int64(len(rs.Rows)),
 		keyResultFormat:   resultFormatCSV,
 		keyNextToken:      "",
-	})
+	}, jsonx.V1())
 }
 
 func csvCell(f Field) string {

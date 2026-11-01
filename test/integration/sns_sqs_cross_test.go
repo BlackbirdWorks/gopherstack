@@ -1,7 +1,7 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestIntegration_SNS_SQS_CrossService(t *testing.T) {
@@ -71,7 +73,7 @@ func TestIntegration_SNS_SQS_CrossService(t *testing.T) {
 
 	// Message body should be SNS envelope JSON
 	var envelope map[string]any
-	require.NoError(t, json.Unmarshal([]byte(*recvOut.Messages[0].Body), &envelope))
+	require.NoError(t, json.Unmarshal([]byte(*recvOut.Messages[0].Body), &envelope, jsonx.V1()))
 	assert.Equal(t, "Notification", envelope["Type"])
 
 	// Cleanup
@@ -286,7 +288,7 @@ func TestIntegration_SNS_SQS_RedrivePolicy(t *testing.T) {
 	// DLQ receives the same body that was attempted to the failed queue.
 	// Without RawMessageDelivery=true, that body is the SNS envelope JSON.
 	var dlqEnvelope map[string]any
-	require.NoError(t, json.Unmarshal([]byte(*recvOut.Messages[0].Body), &dlqEnvelope))
+	require.NoError(t, json.Unmarshal([]byte(*recvOut.Messages[0].Body), &dlqEnvelope, jsonx.V1()))
 	assert.Equal(t, "Notification", dlqEnvelope["Type"])
 	assert.Equal(t, msgBody, dlqEnvelope["Message"])
 

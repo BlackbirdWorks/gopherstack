@@ -1,13 +1,14 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -105,7 +106,7 @@ func TestHandler_ACL_Tags(t *testing.T) {
 
 	// Get ACL ARN
 	var aclResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &aclResp, jsonx.V1()))
 	aclMap := aclResp["ACL"].(map[string]any)
 	aclARN := aclMap["ARN"].(string)
 
@@ -290,7 +291,7 @@ func TestHandler_Pagination_NextToken(t *testing.T) {
 	rec1 := doRequest(t, h, "DescribeACLs", map[string]any{"MaxResults": 2})
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	acls1, _ := resp1["ACLs"].([]any)
 	assert.Len(t, acls1, 2)
 	nextToken, _ := resp1["NextToken"].(string)
@@ -303,7 +304,7 @@ func TestHandler_Pagination_NextToken(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	acls2, _ := resp2["ACLs"].([]any)
 	assert.NotEmpty(t, acls2)
 

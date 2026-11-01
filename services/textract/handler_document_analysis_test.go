@@ -2,7 +2,7 @@ package textract_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -27,7 +28,7 @@ func startDocumentAnalysisJob(t *testing.T, h *textract.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobID := resp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -46,7 +47,7 @@ func startTextDetectionJob(t *testing.T, h *textract.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobID := resp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -58,7 +59,7 @@ func blocksOfType(t *testing.T, body []byte, blockType string) []map[string]any 
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	raw, ok := resp["Blocks"].([]any)
 	require.True(t, ok, "response should have Blocks array")
@@ -121,7 +122,7 @@ func TestHandler_AnalyzeDocument(t *testing.T) {
 
 			if tt.wantBlocks {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				blocks, ok := resp["Blocks"].([]any)
 				assert.True(t, ok)
 				assert.NotEmpty(t, blocks)
@@ -164,7 +165,7 @@ func TestHandler_StartAndGetDocumentAnalysis(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var startResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID := startResp["JobId"]
 			assert.NotEmpty(t, jobID)
 
@@ -174,7 +175,7 @@ func TestHandler_StartAndGetDocumentAnalysis(t *testing.T) {
 			assert.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 			blocks, ok := getResp["Blocks"].([]any)
 			assert.True(t, ok)
@@ -235,7 +236,7 @@ func TestHandler_GetDocumentAnalysis_RejectsTextDetectionJobID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidJobIdException", resp["__type"],
 		"cross-type access must return InvalidJobIdException, not a different error")
 }
@@ -475,7 +476,7 @@ func TestHandler_AnalyzeDocument_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "1.0", resp["AnalyzeDocumentModelVersion"])
 }
 
@@ -494,7 +495,7 @@ func TestHandler_AnalyzeDocument_DocumentMetadataPages(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	meta, ok := m["DocumentMetadata"].(map[string]any)
 	require.True(t, ok, "AnalyzeDocument response must have DocumentMetadata")
 	pages, ok2 := meta["Pages"].(float64)
@@ -518,7 +519,7 @@ func TestHandler_AnalyzeDocument_BytesInput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	blocks, ok := m["Blocks"].([]any)
 	assert.True(t, ok && len(blocks) > 0, "AnalyzeDocument with Bytes must return Blocks")
 }
@@ -539,7 +540,7 @@ func TestHandler_GetDocumentAnalysis_PaginationNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{
@@ -549,7 +550,7 @@ func TestHandler_GetDocumentAnalysis_PaginationNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	blocks, _ := getResp["Blocks"].([]any)
 	assert.Len(t, blocks, 2)
@@ -574,14 +575,14 @@ func TestHandler_GetDocumentAnalysis_BlocksHaveGeometry(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]any{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	blocks, _ := getResp["Blocks"].([]any)
 	require.NotEmpty(t, blocks)
@@ -619,14 +620,14 @@ func TestHandler_GetDocumentAnalysis_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]string{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m, jsonx.V1()))
 	ver, ok := m["AnalyzeDocumentModelVersion"].(string)
 	assert.True(t, ok, "GetDocumentAnalysis must have AnalyzeDocumentModelVersion")
 	assert.Equal(t, "1.0", ver)
@@ -647,14 +648,14 @@ func TestHandler_GetDocumentAnalysis_JobStatusSucceeded(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 
 	getRec := doTextractRequest(t, h, "GetDocumentAnalysis", map[string]string{"JobId": jobID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", m["JobStatus"], "synchronous backend job must SUCCEED immediately")
 }
 
@@ -679,7 +680,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInProgressThenSucceeded(t *testing.T
 		require.Equal(t, http.StatusOK, startRec.Code)
 
 		var startResp map[string]string
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 		jobID := startResp["JobId"]
 
 		// Immediately after start, job should be IN_PROGRESS.
@@ -687,7 +688,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInProgressThenSucceeded(t *testing.T
 		require.Equal(t, http.StatusOK, getRec1.Code)
 
 		var getResp1 map[string]any
-		require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1))
+		require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &getResp1, jsonx.V1()))
 		assert.Equal(t, "IN_PROGRESS", getResp1["JobStatus"])
 
 		// After delay, job should be SUCCEEDED.
@@ -698,7 +699,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInProgressThenSucceeded(t *testing.T
 		require.Equal(t, http.StatusOK, getRec2.Code)
 
 		var getResp2 map[string]any
-		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2))
+		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getResp2, jsonx.V1()))
 		assert.Equal(t, "SUCCEEDED", getResp2["JobStatus"])
 	})
 }
@@ -725,7 +726,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInitialStatusInProgress(t *testing.T
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -734,7 +735,7 @@ func TestHandler_StartDocumentAnalysis_AsyncInitialStatusInProgress(t *testing.T
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "IN_PROGRESS", getResp["JobStatus"],
 		"job must be IN_PROGRESS immediately after Start when async delay is non-zero")
 }
@@ -758,14 +759,14 @@ func TestHandler_StartDocumentAnalysis_ClientRequestTokenIdempotency(t *testing.
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	jobID1 := resp1["JobId"]
 
 	rec2 := doTextractRequest(t, h, "StartDocumentAnalysis", startBody)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	jobID2 := resp2["JobId"]
 
 	assert.Equal(t, jobID1, jobID2, "same ClientRequestToken should return the same JobId")
@@ -786,7 +787,7 @@ func TestHandler_StartDocumentAnalysis_JobIdNonEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	jobID, ok := m["JobId"].(string)
 	assert.True(t, ok, "StartDocumentAnalysis response must have string JobId")
 	assert.NotEmpty(t, jobID, "JobId must not be empty")
@@ -879,7 +880,7 @@ func TestHandler_AnalyzeDocumentAndStart_ValidationErrorsUseInvalidParameterExce
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", errResp["__type"])
 		})
 	}

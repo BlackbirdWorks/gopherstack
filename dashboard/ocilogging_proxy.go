@@ -1,13 +1,15 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -95,7 +97,7 @@ func ociLoggingToggle(c *echo.Context, parts []string, raw string) (string, []by
 		return "", nil, false
 	}
 
-	b, err := json.Marshal(map[string]any{"isEnabled": *in.Enabled})
+	b, err := json.Marshal(map[string]any{"isEnabled": *in.Enabled}, jsonx.V1())
 
 	return ociLoggingMgmt + raw, b, err == nil
 }
@@ -140,7 +142,7 @@ func ociLoggingSearchRequest(c *echo.Context) (string, []byte, bool) {
 
 	b, err := json.Marshal(map[string]any{
 		"timeStart": in.TimeStart, "timeEnd": in.TimeEnd, "searchQuery": in.SearchQuery, "isReturnFieldInfo": true,
-	})
+	}, jsonx.V1())
 
 	return ociLoggingSearch, b, err == nil
 }
@@ -161,7 +163,7 @@ func ociLoggingPushRequest(c *echo.Context, logID string) (string, []byte, bool)
 			"source": "dashboard", "type": "dashboard.test", "defaultlogentrytime": now,
 			"entries": []any{map[string]any{"data": in.Data, "id": uuid.NewString(), "time": now}},
 		}},
-	})
+	}, jsonx.V1())
 
 	return ociLoggingIngest + "/logs/" + logID + "/actions/push", b, err == nil
 }

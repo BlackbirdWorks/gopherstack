@@ -2,9 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -85,7 +86,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ResourceTags:         b.resourceTags,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "xray: failed to marshal snapshot", "error", err)
 
@@ -182,7 +183,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	for _, t := range b.traces.All() {
 		for _, rawSeg := range t.Segments {
 			var seg Segment
-			if err := json.Unmarshal([]byte(rawSeg), &seg); err == nil {
+			if err := json.Unmarshal([]byte(rawSeg), &seg, jsonx.V1()); err == nil {
 				seg.Document = rawSeg
 				b.parsedSegments.Put(&seg)
 			}

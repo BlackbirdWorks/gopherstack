@@ -2,7 +2,8 @@ package organizations_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -38,7 +40,7 @@ func doRequest(t *testing.T, h *organizations.Handler, op string, body any) *htt
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -81,7 +83,7 @@ func newHandlerWithOrg(t *testing.T) (*organizations.Handler, string) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var rootsResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&rootsResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &rootsResp, jsonx.V1()))
 	roots := rootsResp["Roots"].([]any)
 	rootID := roots[0].(map[string]any)["Id"].(string)
 
@@ -99,7 +101,7 @@ func createAccountViaHandler(t *testing.T, h *organizations.Handler, name, email
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	status := resp["CreateAccountStatus"].(map[string]any)
 
 	return status["AccountId"].(string)
@@ -118,7 +120,7 @@ func createPolicyViaHandler(t *testing.T, h *organizations.Handler, name string)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	policy := resp["Policy"].(map[string]any)
 	summary := policy["PolicySummary"].(map[string]any)
 

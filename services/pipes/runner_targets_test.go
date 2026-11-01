@@ -8,7 +8,7 @@ package pipes_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -40,7 +41,7 @@ func b3Do(t *testing.T, h *pipes.Handler, method, path string, body any) *httpte
 
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -63,7 +64,7 @@ func b3Create(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -75,7 +76,7 @@ func b3Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -276,7 +277,7 @@ func b4Do(t *testing.T, h *pipes.Handler, method, path string, body any) *httpte
 	var b []byte
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -297,7 +298,7 @@ func b4Create(t *testing.T, h *pipes.Handler, name string, body map[string]any) 
 	rec := b4Do(t, h, http.MethodPost, "/v1/pipes/"+name, body)
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -307,7 +308,7 @@ func b4Describe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	rec := b4Do(t, h, http.MethodGet, "/v1/pipes/"+name, nil)
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -925,7 +926,7 @@ func TestTarget_Firehose_InputTemplate(t *testing.T) {
 			} else {
 				// No template → SQS records JSON is forwarded.
 				var event map[string]any
-				require.NoError(t, json.Unmarshal(records[0], &event))
+				require.NoError(t, json.Unmarshal(records[0], &event, jsonx.V1()))
 				_, hasRecords := event["Records"]
 				assert.True(t, hasRecords, "Firehose should receive SQS records payload")
 			}

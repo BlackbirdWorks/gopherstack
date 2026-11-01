@@ -2,7 +2,7 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/endpointstrategy"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -293,7 +294,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 
 	var req extractQueueURLInput
 
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -368,7 +369,7 @@ func (h *Handler) sqsRoute(
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // handleError writes an SQS error response using the standard error details mapping.
@@ -386,7 +387,7 @@ func (h *Handler) sqsRoute(
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	errType, message, status := errorDetails(err)
 
-	payload, marshalErr := json.Marshal(jsonSQSError{Type: errType, Message: message})
+	payload, marshalErr := json.Marshal(jsonSQSError{Type: errType, Message: message}, jsonx.V1())
 	if marshalErr != nil {
 		return marshalErr
 	}

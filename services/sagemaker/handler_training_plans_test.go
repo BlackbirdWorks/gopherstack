@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateTrainingPlan(t *testing.T) {
@@ -21,7 +23,7 @@ func TestHandler_CreateTrainingPlan(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["TrainingPlanArn"], "my-plan")
 }
 
@@ -38,7 +40,7 @@ func TestHandler_DescribeTrainingPlan(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "plan-1", resp["TrainingPlanName"])
 
 	// TargetResources/TotalInstanceCount/UpfrontFee were previously tagged

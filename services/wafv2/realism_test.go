@@ -1,7 +1,7 @@
 package wafv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func decodeError(t *testing.T, body []byte) (string, string) {
@@ -18,7 +20,7 @@ func decodeError(t *testing.T, body []byte) (string, string) {
 		Type    string `json:"__type"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	return out.Type, out.Message
 }
@@ -115,7 +117,7 @@ func TestLoggingDestinationNaming(t *testing.T) {
 					ARN string `json:"ARN"`
 				} `json:"Summary"`
 			}
-			require.NoError(t, json.Unmarshal(acl.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(acl.Body.Bytes(), &created, jsonx.V1()))
 
 			rec := doWafv2Request(t, h, "PutLoggingConfiguration", map[string]any{
 				"LoggingConfiguration": map[string]any{

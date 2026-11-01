@@ -2,10 +2,11 @@ package serverlessrepo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -33,7 +34,7 @@ func (h *Handler) handleGetApplicationPolicy(req *http.Request) ([]byte, error) 
 		return nil, backendErr
 	}
 
-	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(stmts)})
+	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(stmts)}, jsonx.V1())
 }
 
 func (h *Handler) handlePutApplicationPolicy(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
@@ -43,7 +44,7 @@ func (h *Handler) handlePutApplicationPolicy(ctx context.Context, req *http.Requ
 	}
 
 	var putReq putApplicationPolicyRequest
-	if jsonErr := json.Unmarshal(body, &putReq); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &putReq, jsonx.V1()); jsonErr != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, jsonErr)
 	}
 
@@ -65,7 +66,7 @@ func (h *Handler) handlePutApplicationPolicy(ctx context.Context, req *http.Requ
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "serverlessrepo: updated application policy", "app", appName)
 
-	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(result)})
+	return json.Marshal(map[string]any{"statements": toPolicyStatementsResponse(result)}, jsonx.V1())
 }
 
 func toPolicyStatementsResponse(stmts []*ApplicationPolicyStatement) []map[string]any {

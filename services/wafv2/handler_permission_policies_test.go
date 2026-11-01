@@ -2,13 +2,14 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -107,7 +108,7 @@ func TestPermissionPolicy_PutGetDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code, "GetPermissionPolicy: %s", getRec.Body.String())
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	storedPolicy, ok := getResp["Policy"].(string)
 	require.True(t, ok, "Policy field should be present")
 	assert.Equal(t, policy, storedPolicy)
@@ -125,7 +126,7 @@ func TestPermissionPolicy_PutGetDelete(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, getRec2.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -140,7 +141,7 @@ func TestPermissionPolicy_DeleteNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 
@@ -184,7 +185,7 @@ func TestPermissionPolicy_UpdateReplace(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, policy2, resp["Policy"])
 }
 
@@ -259,7 +260,7 @@ func TestHandler_PutAndGetPermissionPolicy(t *testing.T) {
 
 				if tt.wantGetStatus == http.StatusOK {
 					var resp map[string]any
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 					assert.Contains(t, resp, "Policy")
 				}
 			}

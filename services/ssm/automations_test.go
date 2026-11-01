@@ -2,7 +2,8 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -54,7 +56,7 @@ func TestChangeRequest(t *testing.T) {
 	var startResp struct {
 		AutomationExecutionID string `json:"AutomationExecutionId"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &startResp, jsonx.V1()))
 
 	// Runbooks must round-trip on GetAutomationExecution.
 	rec = doRequest(t, h, "GetAutomationExecution",
@@ -69,7 +71,7 @@ func TestChangeRequest(t *testing.T) {
 			} `json:"Runbooks"`
 		} `json:"AutomationExecution"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	require.Len(t, getResp.AutomationExecution.Runbooks, 1)
 	assert.Equal(t, "AWS-RunShellScript", getResp.AutomationExecution.Runbooks[0].DocumentName)
 	assert.Equal(t, "1", getResp.AutomationExecution.Runbooks[0].MaxConcurrency)
@@ -412,17 +414,17 @@ func TestAutomationExecution_ParametersRoundTrip(t *testing.T) {
 				"DocumentName": "AWS-RunShellScript",
 				"Parameters":   tt.parameters,
 				"Mode":         tt.mode,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "StartAutomationExecution", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			execID := startResp["AutomationExecutionId"].(string)
 			assert.NotEmpty(t, execID)
 
 			// GetAutomationExecution should return parameters.
-			body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID})
+			body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID}, jsonx.V1())
 			rec = doRequest(t, h, "GetAutomationExecution", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -444,19 +446,19 @@ func TestAutomationApprovals_ApproveSignal(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execID := startResp["AutomationExecutionId"].(string)
 
 	// Send Approve signal.
 	body, _ := json.Marshal(map[string]any{
 		"AutomationExecutionId": execID,
 		"SignalType":            "Approve",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "SendAutomationSignal", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// GetAutomationExecution should show Approved status.
-	body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID})
+	body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID}, jsonx.V1())
 	rec = doRequest(t, h, "GetAutomationExecution", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Approved")
@@ -470,17 +472,17 @@ func TestAutomationApprovals_RejectSignal(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execID := startResp["AutomationExecutionId"].(string)
 
 	body, _ := json.Marshal(map[string]any{
 		"AutomationExecutionId": execID,
 		"SignalType":            "Reject",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "SendAutomationSignal", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID})
+	body, _ = json.Marshal(map[string]any{"AutomationExecutionId": execID}, jsonx.V1())
 	rec = doRequest(t, h, "GetAutomationExecution", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Rejected")
@@ -524,7 +526,7 @@ func TestAutomationExecution_WarningMessageAbsentFromWire(t *testing.T) {
 			require.Equal(t, http.StatusOK, start.Code)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(start.Body.Bytes(), &startResp, jsonx.V1()))
 			execID, _ := startResp["AutomationExecutionId"].(string)
 			require.NotEmpty(t, execID)
 
@@ -542,7 +544,7 @@ func TestGetCalendarState_MissingDocumentReturnsError(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"CalendarNames": []string{"DoesNotExist"},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "GetCalendarState", string(body))
 	assert.NotEqual(t, http.StatusOK, rec.Code, "missing calendar should return error")
 }

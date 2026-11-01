@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleRegisterElasticIP handles RegisterElasticIp requests. The real
@@ -16,7 +18,7 @@ func (h *Handler) handleRegisterElasticIP(_ context.Context, body []byte) (any, 
 		StackID   string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -34,7 +36,7 @@ func (h *Handler) handleDeregisterElasticIP(_ context.Context, body []byte) (any
 		ElasticIP string `json:"ElasticIp"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -52,7 +54,7 @@ func (h *Handler) handleAssociateElasticIP(_ context.Context, body []byte) (any,
 		InstanceID string `json:"InstanceId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -69,7 +71,7 @@ func (h *Handler) handleDisassociateElasticIP(_ context.Context, body []byte) (a
 		ElasticIP string `json:"ElasticIp"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -89,7 +91,7 @@ func (h *Handler) handleDescribeElasticIps(_ context.Context, body []byte) (any,
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -109,7 +111,7 @@ func (h *Handler) handleUpdateElasticIP(_ context.Context, body []byte) (any, er
 		Name      string `json:"Name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

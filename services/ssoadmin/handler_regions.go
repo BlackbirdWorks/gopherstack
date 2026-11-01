@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleAddRegion(c *echo.Context, body []byte) error {
@@ -12,7 +14,7 @@ func (h *Handler) handleAddRegion(c *echo.Context, body []byte) error {
 		InstanceArn string `json:"InstanceArn"`
 		RegionName  string `json:"RegionName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -31,7 +33,7 @@ func (h *Handler) handleRemoveRegion(c *echo.Context, body []byte) error {
 		InstanceArn string `json:"InstanceArn"`
 		RegionName  string `json:"RegionName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -56,7 +58,7 @@ func (h *Handler) handleListRegions(c *echo.Context, body []byte) error {
 		NextToken   string `json:"NextToken"`
 		MaxResults  int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -100,7 +102,7 @@ func (h *Handler) handleDescribeRegion(c *echo.Context, body []byte) error {
 		InstanceArn string `json:"InstanceArn"`
 		RegionName  string `json:"RegionName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

@@ -1,7 +1,7 @@
 package s3control
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/xml"
 	"net/http"
 	"slices"
@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -421,7 +423,7 @@ func (h *Handler) handlePutAccessPointPolicy(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if !json.Valid([]byte(body.Policy)) {
+	if !jsontext.Value([]byte(body.Policy)).IsValid(jsonx.V1()) {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedPolicy", "Policy is not valid JSON")
 	}
 

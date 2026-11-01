@@ -2,7 +2,8 @@ package organizations_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -33,7 +35,7 @@ func TestHandshakeOps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var inviteResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&inviteResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &inviteResp, jsonx.V1()))
 	invited := inviteResp["Handshake"].(map[string]any)
 	handshakeID, ok := invited["Id"].(string)
 	require.True(t, ok, "InviteAccountToOrganization must return a Handshake.Id")
@@ -55,7 +57,7 @@ func handshakeListContains(t *testing.T, rec *httptest.ResponseRecorder, handsha
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	handshakes, ok := resp["Handshakes"].([]any)
 	require.True(t, ok)
@@ -110,7 +112,7 @@ func TestEnableAllFeatures(t *testing.T) {
 
 			if tt.wantAction != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				hs, ok := resp["Handshake"].(map[string]any)
 				require.True(t, ok, "response must contain Handshake")
 				assert.Equal(t, tt.wantAction, hs["Action"])
@@ -193,7 +195,7 @@ func TestHandshakeFilter_Handler(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			handshakes := resp["Handshakes"].([]any)
 			assert.Len(t, handshakes, tt.wantCount)
@@ -333,7 +335,7 @@ func TestHandshakeExpiration_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	handshake := resp["Handshake"].(map[string]any)
 	assert.Equal(t, "EXPIRED", handshake["State"].(string))
 }
@@ -355,7 +357,7 @@ func TestInviteAccount_DuplicateOpen_ViaHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, r2.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "DuplicateHandshakeException", errResp["__type"])
 }
 
@@ -513,7 +515,7 @@ func TestHandler_HandshakeLifecycle(t *testing.T) {
 
 			if tt.wantState != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				hs, ok := resp["Handshake"].(map[string]any)
 				require.True(t, ok, "response must have Handshake field")
@@ -582,7 +584,7 @@ func TestHandler_DescribeResponsibilityTransfer(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				details, ok := resp["ResponsibilityTransfer"].(map[string]any)
 				require.True(t, ok, "response must have ResponsibilityTransfer")
 				assert.Equal(t, tt.transferID, details["Id"])

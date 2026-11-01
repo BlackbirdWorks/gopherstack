@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +20,7 @@ import (
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -103,7 +104,7 @@ func (v *TokenVerifier) getJSON(rawURL string, out any) error {
 		return fmt.Errorf("read %s: %w", rawURL, err)
 	}
 
-	if err = json.Unmarshal(body, out); err != nil {
+	if err = json.Unmarshal(body, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode %s: %w", rawURL, err)
 	}
 

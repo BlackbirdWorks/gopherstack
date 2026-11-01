@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -53,12 +55,12 @@ type AIRecommendationJob struct {
 	AIWorkloadConfigIdentifier string            `json:"AIWorkloadConfigIdentifier"`
 	RoleArn                    string            `json:"RoleArn"`
 	FailureReason              string            `json:"FailureReason,omitempty"`
-	ModelSource                json.RawMessage   `json:"ModelSource"`
-	OutputConfig               json.RawMessage   `json:"OutputConfig"`
-	PerformanceTarget          json.RawMessage   `json:"PerformanceTarget,omitempty"`
-	ComputeSpec                json.RawMessage   `json:"ComputeSpec,omitempty"`
-	InferenceSpecification     json.RawMessage   `json:"InferenceSpecification,omitempty"`
-	AdapterSource              json.RawMessage   `json:"AdapterSource,omitempty"`
+	ModelSource                jsontext.Value    `json:"ModelSource"`
+	OutputConfig               jsontext.Value    `json:"OutputConfig"`
+	PerformanceTarget          jsontext.Value    `json:"PerformanceTarget,omitempty"`
+	ComputeSpec                jsontext.Value    `json:"ComputeSpec,omitempty"`
+	InferenceSpecification     jsontext.Value    `json:"InferenceSpecification,omitempty"`
+	AdapterSource              jsontext.Value    `json:"AdapterSource,omitempty"`
 }
 
 // MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1
@@ -83,7 +85,7 @@ func (j *AIRecommendationJob) MarshalJSON() ([]byte, error) {
 		StartTime:    epochSecondsPtr(j.StartTime),
 		EndTime:      epochSecondsPtr(j.EndTime),
 		Tags:         toTagObjects(j.Tags),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [AIRecommendationJob.MarshalJSON], used by
@@ -98,7 +100,7 @@ func (j *AIRecommendationJob) UnmarshalJSON(data []byte) error {
 		CreationTime float64  `json:"CreationTime"`
 	}{alias: (*alias)(j)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -112,12 +114,12 @@ func (j *AIRecommendationJob) UnmarshalJSON(data []byte) error {
 func cloneAIRecommendationJob(j *AIRecommendationJob) *AIRecommendationJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
-	cp.ModelSource = append(json.RawMessage(nil), j.ModelSource...)
-	cp.OutputConfig = append(json.RawMessage(nil), j.OutputConfig...)
-	cp.PerformanceTarget = append(json.RawMessage(nil), j.PerformanceTarget...)
-	cp.ComputeSpec = append(json.RawMessage(nil), j.ComputeSpec...)
-	cp.InferenceSpecification = append(json.RawMessage(nil), j.InferenceSpecification...)
-	cp.AdapterSource = append(json.RawMessage(nil), j.AdapterSource...)
+	cp.ModelSource = append(jsontext.Value(nil), j.ModelSource...)
+	cp.OutputConfig = append(jsontext.Value(nil), j.OutputConfig...)
+	cp.PerformanceTarget = append(jsontext.Value(nil), j.PerformanceTarget...)
+	cp.ComputeSpec = append(jsontext.Value(nil), j.ComputeSpec...)
+	cp.InferenceSpecification = append(jsontext.Value(nil), j.InferenceSpecification...)
+	cp.AdapterSource = append(jsontext.Value(nil), j.AdapterSource...)
 
 	if j.StartTime != nil {
 		t := *j.StartTime
@@ -169,12 +171,12 @@ type CreateAIRecommendationJobOptions struct {
 	AIRecommendationJobName    string
 	AIWorkloadConfigIdentifier string
 	RoleArn                    string
-	ModelSource                json.RawMessage
-	OutputConfig               json.RawMessage
-	PerformanceTarget          json.RawMessage
-	ComputeSpec                json.RawMessage
-	InferenceSpecification     json.RawMessage
-	AdapterSource              json.RawMessage
+	ModelSource                jsontext.Value
+	OutputConfig               jsontext.Value
+	PerformanceTarget          jsontext.Value
+	ComputeSpec                jsontext.Value
+	InferenceSpecification     jsontext.Value
+	AdapterSource              jsontext.Value
 }
 
 // CreateAIRecommendationJob creates an AI recommendation job and schedules

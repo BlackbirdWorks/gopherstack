@@ -1,12 +1,14 @@
 package rolesanywhere_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListTrustAnchors_Pagination_DeletedMidPage proves that deleting
@@ -29,7 +31,7 @@ func TestHandler_ListTrustAnchors_Pagination_DeletedMidPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1, jsonx.V1()))
 	items1, _ := resp1["trustAnchors"].([]any)
 	require.Len(t, items1, 2)
 
@@ -50,7 +52,7 @@ func TestHandler_ListTrustAnchors_Pagination_DeletedMidPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp2, jsonx.V1()))
 	items2, _ := resp2["trustAnchors"].([]any)
 
 	for _, item := range items2 {
@@ -90,7 +92,7 @@ func TestHandler_ListTrustAnchors_Pagination_TiedNamesTotalOrder(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, _ := resp["trustAnchors"].([]any)
 
 		for _, item := range items {

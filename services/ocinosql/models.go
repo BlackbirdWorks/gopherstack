@@ -1,7 +1,7 @@
 package ocinosql
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -46,9 +46,9 @@ type Limits struct {
 
 // Row is one stored table row.
 type Row struct {
-	Expire  *time.Time      `json:"expire,omitempty"`
-	Version string          `json:"version"`
-	Value   json.RawMessage `json:"value"`
+	Expire  *time.Time     `json:"expire,omitempty"`
+	Version string         `json:"version"`
+	Value   jsontext.Value `json:"value"`
 }
 
 // IndexKey is one key of a secondary index.

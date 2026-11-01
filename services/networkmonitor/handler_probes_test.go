@@ -1,12 +1,15 @@
 package networkmonitor_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerProbeLifecycle(t *testing.T) {
@@ -38,7 +41,7 @@ func TestHandlerProbeLifecycle(t *testing.T) {
 	}
 
 	var probeResp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &probeResp); err != nil {
+	if err := json.Unmarshal(rr.Body.Bytes(), &probeResp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal probe: %v", err)
 	}
 
@@ -96,15 +99,15 @@ func TestHandlerProbeTimestampsEpochFloat(t *testing.T) {
 			rec := doNMRequest(t, h, http.MethodGet, "/monitors/ts-mon/probes/"+probeID, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			createdAtRaw, hasCreatedAt := raw["createdAt"]
 			assert.True(t, hasCreatedAt, "createdAt must be present in GetProbe response")
 
 			if hasCreatedAt {
 				var asFloat float64
-				require.NoError(t, json.Unmarshal(createdAtRaw, &asFloat),
+				require.NoError(t, json.Unmarshal(createdAtRaw, &asFloat, jsonx.V1()),
 					"createdAt must be a JSON number (epoch seconds), got: %s", string(createdAtRaw))
 				assert.Greater(t, asFloat, float64(0), "createdAt epoch value must be positive")
 			}
@@ -145,7 +148,7 @@ func TestHandlerProbeAddressFamilyAutoDetect(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantFamily, out["addressFamily"], "addressFamily for %s", tt.destination)
 		})
 	}
@@ -169,6 +172,6 @@ func TestHandlerUpdateProbeStatePending(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "PENDING", out["state"], "probe state after UpdateProbe with state=PENDING")
 }

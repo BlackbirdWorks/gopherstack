@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_RestoreFromSnapshot(t *testing.T) {
@@ -26,7 +29,7 @@ func TestServerless_RestoreFromSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "rfs-snap", resp["snapshotName"])
 	ns, _ := resp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
@@ -76,7 +79,7 @@ func TestServerless_RestoreFromSnapshot_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -104,7 +107,7 @@ func TestServerless_RestoreFromSnapshot_WorkgroupNamespaceMismatch(t *testing.T)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errResp["__type"])
 }
 
@@ -123,7 +126,7 @@ func TestServerless_ConvertRecoveryPointToSnapshot(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	snap, _ := resp["snapshot"].(map[string]any)
 	require.NotNil(t, snap)
 	assert.Equal(t, "crp-snap", snap["snapshotName"])
@@ -167,7 +170,7 @@ func TestServerless_ConvertRecoveryPointToSnapshot_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -191,6 +194,6 @@ func TestServerless_ConvertRecoveryPointToSnapshot_DuplicateName(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errResp["__type"])
 }

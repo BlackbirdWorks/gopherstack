@@ -2,7 +2,7 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -188,7 +189,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -226,7 +227,7 @@ type smActionFn func(ctx context.Context, region string, body []byte) (any, erro
 func decodeAction[I any](fn func(ctx context.Context, input *I) (any, error)) smActionFn {
 	return func(ctx context.Context, _ string, body []byte) (any, error) {
 		var input I
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 
@@ -250,7 +251,7 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request, action string, 
 		return nil, err
 	}
 
-	return json.Marshal(response)
+	return json.Marshal(response, jsonx.V1())
 }
 
 // handleError writes a structured error response for a Secrets Manager operation failure.
@@ -307,7 +308,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	payload, _ := json.Marshal(ErrorResponse{
 		Type:    errorType,
 		Message: awserr.StripCode(errorType, reqErr.Error()),
-	})
+	}, jsonx.V1())
 
 	return c.JSONBlob(statusCode, payload)
 }

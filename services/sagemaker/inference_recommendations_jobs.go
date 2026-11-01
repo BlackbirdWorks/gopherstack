@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -50,17 +52,17 @@ type InferenceRecommendationsJob struct {
 	JobDescription     string            `json:"JobDescription,omitempty"`
 	Status             string            `json:"Status"`
 	RoleArn            string            `json:"RoleArn,omitempty"`
-	InputConfig        json.RawMessage   `json:"InputConfig,omitempty"`
-	OutputConfig       json.RawMessage   `json:"OutputConfig,omitempty"`
-	StoppingConditions json.RawMessage   `json:"StoppingConditions,omitempty"`
+	InputConfig        jsontext.Value    `json:"InputConfig,omitempty"`
+	OutputConfig       jsontext.Value    `json:"OutputConfig,omitempty"`
+	StoppingConditions jsontext.Value    `json:"StoppingConditions,omitempty"`
 }
 
 func cloneInferenceRecommendationsJob(j *InferenceRecommendationsJob) *InferenceRecommendationsJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
-	cp.InputConfig = append(json.RawMessage(nil), j.InputConfig...)
-	cp.OutputConfig = append(json.RawMessage(nil), j.OutputConfig...)
-	cp.StoppingConditions = append(json.RawMessage(nil), j.StoppingConditions...)
+	cp.InputConfig = append(jsontext.Value(nil), j.InputConfig...)
+	cp.OutputConfig = append(jsontext.Value(nil), j.OutputConfig...)
+	cp.StoppingConditions = append(jsontext.Value(nil), j.StoppingConditions...)
 
 	return &cp
 }
@@ -74,10 +76,10 @@ type inputConfigModelIdentity struct {
 	ModelPackageVersionArn string `json:"ModelPackageVersionArn"`
 }
 
-func decodeInputConfigModelIdentity(raw json.RawMessage) inputConfigModelIdentity {
+func decodeInputConfigModelIdentity(raw jsontext.Value) inputConfigModelIdentity {
 	var id inputConfigModelIdentity
 
-	_ = json.Unmarshal(raw, &id)
+	_ = json.Unmarshal(raw, &id, jsonx.V1())
 
 	return id
 }
@@ -89,9 +91,9 @@ type CreateInferenceRecommendationsJobOptions struct {
 	JobType            string
 	JobDescription     string
 	RoleArn            string
-	InputConfig        json.RawMessage
-	OutputConfig       json.RawMessage
-	StoppingConditions json.RawMessage
+	InputConfig        jsontext.Value
+	OutputConfig       jsontext.Value
+	StoppingConditions jsontext.Value
 }
 
 // CreateInferenceRecommendationsJob creates an inference recommendations job.

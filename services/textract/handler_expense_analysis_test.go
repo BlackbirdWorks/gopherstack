@@ -1,13 +1,14 @@
 package textract_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -57,7 +58,7 @@ func TestHandler_AnalyzeExpense(t *testing.T) {
 
 			if tt.wantDocs {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				docs, ok := resp["ExpenseDocuments"].([]any)
 				assert.True(t, ok)
 				assert.NotEmpty(t, docs)
@@ -110,7 +111,7 @@ func TestHandler_StartExpenseAnalysis_ClientRequestTokenIdempotency(t *testing.T
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	jobID1 := resp1["JobId"]
 	require.NotEmpty(t, jobID1)
 
@@ -118,7 +119,7 @@ func TestHandler_StartExpenseAnalysis_ClientRequestTokenIdempotency(t *testing.T
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	assert.Equal(t, jobID1, resp2["JobId"], "same ClientRequestToken must return same JobId")
 	assert.Equal(t, 1, textract.ExpenseJobCount(h.Backend.(*textract.InMemoryBackend)))
@@ -140,7 +141,7 @@ func TestHandler_StartExpenseAnalysis_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -148,7 +149,7 @@ func TestHandler_StartExpenseAnalysis_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", getResp["JobStatus"])
 	assert.Equal(t, "1.0", getResp["AnalyzeExpenseModelVersion"])
 	docs, ok := getResp["ExpenseDocuments"].([]any)
@@ -185,7 +186,7 @@ func TestHandler_AnalyzeExpense_SummaryFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, ok := resp["ExpenseDocuments"].([]any)
 	require.True(t, ok)
@@ -232,7 +233,7 @@ func TestHandler_AnalyzeExpense_LineItemGroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, _ := resp["ExpenseDocuments"].([]any)
 	require.NotEmpty(t, docs)
@@ -264,7 +265,7 @@ func TestHandler_AnalyzeExpense_ExpenseIndex(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m, jsonx.V1()))
 	docs, ok := m["ExpenseDocuments"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, docs)
@@ -290,7 +291,7 @@ func TestHandler_GetExpenseAnalysis_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID := startResp["JobId"]
 	require.NotEmpty(t, jobID)
 
@@ -298,7 +299,7 @@ func TestHandler_GetExpenseAnalysis_ModelVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &m, jsonx.V1()))
 	ver, ok := m["AnalyzeExpenseModelVersion"].(string)
 	assert.True(t, ok, "GetExpenseAnalysis must have AnalyzeExpenseModelVersion")
 	assert.Equal(t, "1.0", ver)
@@ -344,14 +345,14 @@ func TestHandler_GetExpenseAnalysis_RejectsDocumentJobID(t *testing.T) {
 			require.Equal(t, http.StatusOK, startRec.Code)
 
 			var startResp map[string]string
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID := startResp["JobId"]
 
 			getRec := doTextractRequest(t, h, "GetExpenseAnalysis", map[string]any{"JobId": jobID})
 			assert.Equal(t, http.StatusBadRequest, getRec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidJobIdException", errResp["__type"],
 				"expense analysis must not accept a document job ID")
 		})
@@ -376,7 +377,7 @@ func TestHandler_AnalyzeExpense_CurrencyAndTypeWireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	docs, ok := resp["ExpenseDocuments"].([]any)
 	require.True(t, ok)
@@ -453,7 +454,7 @@ func TestHandler_GetExpenseAnalysis_Pagination(t *testing.T) {
 		NextToken        string           `json:"NextToken"`
 		ExpenseDocuments []map[string]any `json:"ExpenseDocuments"`
 	}
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 	assert.Len(t, resp1.ExpenseDocuments, 2)
 	require.NotEmpty(t, resp1.NextToken, "first page must return a NextToken")
 
@@ -467,7 +468,7 @@ func TestHandler_GetExpenseAnalysis_Pagination(t *testing.T) {
 		NextToken        string           `json:"NextToken"`
 		ExpenseDocuments []map[string]any `json:"ExpenseDocuments"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Len(t, resp2.ExpenseDocuments, 3, "remaining 3 documents on the second page")
 	assert.Empty(t, resp2.NextToken, "no more pages")
 }

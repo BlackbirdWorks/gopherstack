@@ -1,13 +1,14 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -31,7 +32,7 @@ func TestBuckets_DescribeBuckets_MaxResultsHonoured(t *testing.T) {
 		NextToken string           `json:"nextToken"`
 		Buckets   []map[string]any `json:"buckets"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 	require.Len(t, page1.Buckets, 1, "maxResults=1 must limit the page to 1 item")
 	require.NotEmpty(t, page1.NextToken, "a partial page must return a nextToken")
 
@@ -44,7 +45,7 @@ func TestBuckets_DescribeBuckets_MaxResultsHonoured(t *testing.T) {
 		NextToken string           `json:"nextToken"`
 		Buckets   []map[string]any `json:"buckets"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 	assert.Len(t, page2.Buckets, 2, "second page must return the remainder")
 }
 
@@ -72,7 +73,7 @@ func TestBuckets_DescribeBuckets_SortCriteriaHonoured(t *testing.T) {
 	var resp struct {
 		Buckets []map[string]any `json:"buckets"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Buckets, 3)
 
 	assert.Equal(t, "bbb-bucket", resp.Buckets[0]["bucketName"])
@@ -106,7 +107,7 @@ func TestGetFindingStatistics_FindingCriteriaHonoured(t *testing.T) {
 	var stats struct {
 		CountsByGroup []map[string]any `json:"countsByGroup"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &stats))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &stats, jsonx.V1()))
 	require.Len(t, stats.CountsByGroup, 1, "FindingCriteria must exclude TypeB's group")
 	assert.Equal(t, "Policy:IAMUser/TypeA", stats.CountsByGroup[0]["groupKey"])
 }
@@ -142,7 +143,7 @@ func TestFindingsFilter_ArchiveActionHonoured(t *testing.T) {
 	var listResp struct {
 		FindingIDs []string `json:"findingIds"`
 	}
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.FindingIDs, 2)
 
 	rec4 := doRequest(t, h, http.MethodPost, "/findings/describe", map[string]any{
@@ -153,7 +154,7 @@ func TestFindingsFilter_ArchiveActionHonoured(t *testing.T) {
 	var describeResp struct {
 		Findings []map[string]any `json:"findings"`
 	}
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &describeResp, jsonx.V1()))
 	require.Len(t, describeResp.Findings, 2)
 
 	for _, f := range describeResp.Findings {
@@ -189,7 +190,7 @@ func TestListFindings_SortCriteriaHonoured(t *testing.T) {
 	var listResp struct {
 		FindingIDs []string `json:"findingIds"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.FindingIDs, 2)
 
 	rec3 := doRequest(t, h, http.MethodPost, "/findings/describe", map[string]any{
@@ -200,7 +201,7 @@ func TestListFindings_SortCriteriaHonoured(t *testing.T) {
 	var describeResp struct {
 		Findings []macie2.Finding `json:"findings"`
 	}
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &describeResp, jsonx.V1()))
 
 	byID := make(map[string]string, len(describeResp.Findings))
 	for _, f := range describeResp.Findings {
@@ -236,7 +237,7 @@ func TestListClassificationJobs_SortCriteriaHonoured(t *testing.T) {
 	var resp struct {
 		Items []map[string]any `json:"items"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Items, 2)
 
 	assert.Equal(t, "zzz-job", resp.Items[0]["name"])

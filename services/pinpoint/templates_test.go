@@ -1,7 +1,7 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestVoiceTemplate_FullCRUD(t *testing.T) {
@@ -62,7 +64,7 @@ func TestVoiceTemplate_FullCRUD(t *testing.T) {
 				"body: %s", createRec.Body.String())
 
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			assert.NotEmpty(t, cr["Message"])
 
 			getRec := doPinpointRequest(t, h, http.MethodGet,
@@ -70,7 +72,7 @@ func TestVoiceTemplate_FullCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var gr map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr, jsonx.V1()))
 			assert.Equal(t, templateName, gr["TemplateName"])
 			if tc.wantBody != "SKIP" {
 				assert.Equal(t, tc.wantBody, gr["Body"])
@@ -118,7 +120,7 @@ func TestVoiceTemplate_FullFieldSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var gr map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr, jsonx.V1()))
 
 	assert.Equal(t, templateName, gr["TemplateName"])
 	assert.Equal(t, "VOICE", gr["TemplateType"])
@@ -139,7 +141,7 @@ func TestVoiceTemplate_FullFieldSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec2.Code)
 
 	var gr2 map[string]any
-	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &gr2))
+	require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &gr2, jsonx.V1()))
 
 	assert.Equal(t, "Matthew", gr2["VoiceId"])
 	assert.Equal(t, "en-GB", gr2["LanguageCode"])
@@ -190,7 +192,7 @@ func TestVoiceTemplate_VersionHistory(t *testing.T) {
 			require.Equal(t, http.StatusOK, versionsRec.Code)
 
 			var versionsResp map[string]any
-			require.NoError(t, json.Unmarshal(versionsRec.Body.Bytes(), &versionsResp))
+			require.NoError(t, json.Unmarshal(versionsRec.Body.Bytes(), &versionsResp, jsonx.V1()))
 			items, _ := versionsResp["Item"].([]any)
 			assert.Len(t, items, tc.wantVersions)
 		})
@@ -214,7 +216,7 @@ func TestListTemplates_VoiceListed(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Item"].([]any)
 	require.NotEmpty(t, items)
 
@@ -243,7 +245,7 @@ func TestListTemplates_MixedTypes(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Item"].([]any)
 	assert.GreaterOrEqual(t, len(items), 3)
 }
@@ -365,7 +367,7 @@ func TestListTemplates_PrefixFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tc.wantCount, "Item count with prefix=%q", tc.prefix)
@@ -456,7 +458,7 @@ func TestListTemplates_TypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tc.wantCount,
@@ -545,7 +547,7 @@ func TestListTemplates_PrefixAndTypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tc.wantCount,
@@ -622,7 +624,7 @@ func TestTemplateVersionHistory(t *testing.T) {
 			require.Equal(t, http.StatusOK, verRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tc.wantVersions,
@@ -687,7 +689,7 @@ func TestTemplate_LastModifiedDate(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec1.Code)
 
 			var resp1 map[string]any
-			require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &resp1))
+			require.NoError(t, json.Unmarshal(getRec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 			assert.NotEmpty(t, resp1["CreationDate"], "CreationDate should be set")
 			assert.NotEmpty(t, resp1["LastModifiedDate"], "LastModifiedDate should be set after create")
@@ -701,7 +703,7 @@ func TestTemplate_LastModifiedDate(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec2.Code)
 
 			var resp2 map[string]any
-			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &resp2))
+			require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 			assert.NotEmpty(t, resp2["LastModifiedDate"], "LastModifiedDate should be present after update")
 		})
@@ -750,7 +752,7 @@ func TestListTemplates_SortedOutput(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			require.Len(t, items, len(tc.creates))
@@ -821,7 +823,7 @@ func TestTemplate_ARNPresent(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arn, _ := resp["Arn"].(string)
 			assert.NotEmpty(t, arn, "template ARN must be present in GET response")
@@ -888,7 +890,7 @@ func TestTemplate_TagsRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			tagsRaw, _ := resp["tags"].(map[string]any)
 
@@ -925,7 +927,7 @@ func TestListTemplates_FieldCompleteness(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, _ := resp["Item"].([]any)
 	require.Len(t, items, 3)
@@ -964,7 +966,7 @@ func TestVoiceTemplate_TagsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tmpl map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tmpl, jsonx.V1()))
 
 	assert.Equal(t, "Hello {{user.FirstName}}, your appointment is tomorrow.", tmpl["Body"])
 	assert.NotEmpty(t, tmpl["Arn"])
@@ -988,7 +990,7 @@ func TestVoiceTemplate_TagRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	templateARN, _ := createResp["Arn"].(string)
 	require.NotEmpty(t, templateARN)
 
@@ -1003,7 +1005,7 @@ func TestVoiceTemplate_TagRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 	tags, _ := tagsResp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])

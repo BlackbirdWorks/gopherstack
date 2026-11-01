@@ -2,7 +2,8 @@ package dashboard
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -57,12 +60,20 @@ func ociDispatch(c *echo.Context, inner *echo.Echo, apiPath string, body []byte)
 func ociDecodeBody(c *echo.Context, v any) bool {
 	r := c.Request()
 
-	return json.NewDecoder(http.MaxBytesReader(c.Response(), r.Body, ociInprocMaxBody)).Decode(v) == nil
+	return json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(c.Response(), r.Body, ociInprocMaxBody)),
+		v,
+		jsonx.V1(),
+	) == nil
 }
 
 // ociDecodeBodyN is ociDecodeBody with an explicit size cap.
 func ociDecodeBodyN(c *echo.Context, v any, limit int64) bool {
-	return json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, limit)).Decode(v) == nil
+	return json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, limit)),
+		v,
+		jsonx.V1(),
+	) == nil
 }
 
 // ociInvalid answers 400 for a request outside the proxy's allow-list.

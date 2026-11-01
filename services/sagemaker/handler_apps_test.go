@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_AppLifecycle(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_AppLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	recUser := doSageMakerRequest(t, h, "CreateUserProfile", map[string]any{
@@ -43,7 +45,7 @@ func TestHandler_AppLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["AppArn"])
 
 	// Describe app.
@@ -60,7 +62,7 @@ func TestHandler_AppLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["Apps"].([]any), 1)
 
 	// Delete app.
@@ -117,7 +119,7 @@ func TestHandler_CreateApp_SpaceOwned(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	doSageMakerRequest(t, h, "CreateSpace", map[string]any{"DomainId": domainID, "SpaceName": "app-space"})
@@ -142,7 +144,7 @@ func TestHandler_CreateApp_SpaceOwned(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "app-space", descOut["SpaceName"])
 	assert.Nil(t, descOut["UserProfileName"])
 
@@ -167,7 +169,7 @@ func TestHandler_ListApps_FiltersAndMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	doSageMakerRequest(t, h, "CreateUserProfile", map[string]any{"DomainId": domainID, "UserProfileName": "u1"})
@@ -198,7 +200,7 @@ func TestHandler_ListApps_FiltersAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out["Apps"].([]any), 2)
 	})
 
@@ -212,7 +214,7 @@ func TestHandler_ListApps_FiltersAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out["Apps"].([]any), 1, "MaxResults must cap the page, not just be parsed and ignored")
 		assert.NotEmpty(t, out["NextToken"])
 	})

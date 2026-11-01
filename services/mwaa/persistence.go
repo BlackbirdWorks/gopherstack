@@ -2,7 +2,7 @@ package mwaa
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -73,7 +73,7 @@ func regionalDTOKeyFn[V any](d *regionalDTO[V]) string { return regionKey(d.Regi
 // decoding a snapshot from an incompatible (older or newer) build of this
 // backend as though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage          `json:"tables"`
+	Tables    map[string]jsontext.Value           `json:"tables"`
 	Metrics   map[string]map[string][]MetricDatum `json:"metrics"`
 	AccountID string                              `json:"accountID"`
 	Region    string                              `json:"region"`
@@ -173,7 +173,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreResourceTables rebuilds the environments store.Table from snap's
 // per-table JSON, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreResourceTables(tables map[string]jsontext.Value) error {
 	dtoReg, envDTOs := buildPersistenceDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

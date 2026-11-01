@@ -2,7 +2,7 @@ package vpclattice
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -34,7 +34,7 @@ const vpclatticeSnapshotVersion = 1
 // incompatible (older or newer) build of this backend as though it were the
 // current shape; see Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage   `json:"tables"`
+	Tables           map[string]jsontext.Value    `json:"tables"`
 	Targets          map[string][]*storedTarget   `json:"targets"`
 	AuthPolicies     map[string]string            `json:"authPolicies"`
 	ResourcePolicies map[string]string            `json:"resourcePolicies"`

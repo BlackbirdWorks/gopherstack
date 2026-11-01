@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -27,7 +28,7 @@ func TestOfferings_ListDescribe(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				offerings := resp["offerings"].([]any)
 				assert.GreaterOrEqual(t, len(offerings), 3)
 			},
@@ -54,7 +55,7 @@ func TestOfferings_Describe(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/offerings/87654321", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "87654321", resp["offeringId"])
 	assert.NotEmpty(t, resp["region"])
 	_, hasName := resp["name"]
@@ -77,7 +78,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var purchaseResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &purchaseResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &purchaseResp, jsonx.V1()))
 	resv := purchaseResp["reservation"].(map[string]any)
 	reservationID := resv["reservationId"].(string)
 	assert.NotEmpty(t, reservationID)
@@ -92,7 +93,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/reservations", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["reservations"].([]any), 1)
 
 	// Update name
@@ -101,7 +102,7 @@ func TestReservations_PurchaseListDescribeDeleteUpdate(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updatedResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updatedResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updatedResp, jsonx.V1()))
 	updatedResv := updatedResp["reservation"].(map[string]any)
 	assert.Equal(t, "renamed-reservation", updatedResv["name"])
 

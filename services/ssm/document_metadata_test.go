@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -143,12 +144,12 @@ func Test_DescribeDocument_OmitsContentAndHonorsVersionSelector(t *testing.T) {
 	// "Content" field at all — assert this at the JSON level since a Go
 	// zero-value string would round-trip identically to "field absent" in a
 	// struct-based comparison.
-	createJSON, marshalErr := json.Marshal(createOut.DocumentDescription)
+	createJSON, marshalErr := json.Marshal(createOut.DocumentDescription, jsonx.V1())
 	require.NoError(t, marshalErr)
 	assert.NotContains(t, string(createJSON), "Content",
 		"CreateDocumentOutput.DocumentDescription must not serialize a Content field")
 
-	updateJSON, marshalErr := json.Marshal(updateOut.DocumentDescription)
+	updateJSON, marshalErr := json.Marshal(updateOut.DocumentDescription, jsonx.V1())
 	require.NoError(t, marshalErr)
 	assert.NotContains(t, string(updateJSON), "Content",
 		"UpdateDocumentOutput.DocumentDescription must not serialize a Content field")
@@ -172,7 +173,7 @@ func Test_DescribeDocument_OmitsContentAndHonorsVersionSelector(t *testing.T) {
 			require.NoError(t, describeErr)
 			assert.Equal(t, tc.wantVersion, describeOut.Document.DocumentVersion)
 
-			describeJSON, jsonErr := json.Marshal(describeOut.Document)
+			describeJSON, jsonErr := json.Marshal(describeOut.Document, jsonx.V1())
 			require.NoError(t, jsonErr)
 			assert.NotContains(t, string(describeJSON), "Content",
 				"DescribeDocumentOutput.Document must not serialize a Content field")
@@ -639,7 +640,7 @@ func TestDocumentVersions_IsDefaultVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	versions, ok := resp["DocumentVersions"].([]any)
 	require.True(t, ok, "DocumentVersions must be an array")
@@ -649,7 +650,7 @@ func TestDocumentVersions_IsDefaultVersion(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"Name":            "MyDoc",
 		"DocumentVersion": "2",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "UpdateDocumentDefaultVersion", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -657,7 +658,7 @@ func TestDocumentVersions_IsDefaultVersion(t *testing.T) {
 	rec = doRequest(t, h, "ListDocumentVersions", `{"Name":"MyDoc"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions = resp["DocumentVersions"].([]any)
 
 	var defaultFound bool
@@ -723,7 +724,7 @@ func TestDocumentVersions_TableDriven(t *testing.T) {
 				body, _ := json.Marshal(map[string]any{
 					"Name":            "td-doc-" + tt.name,
 					"DocumentVersion": tt.setDefault,
-				})
+				}, jsonx.V1())
 				rec := doRequest(t, h, "UpdateDocumentDefaultVersion", string(body))
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -733,7 +734,7 @@ func TestDocumentVersions_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			versions := resp["DocumentVersions"].([]any)
 			assert.GreaterOrEqual(t, len(versions), tt.wantVersions)

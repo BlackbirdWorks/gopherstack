@@ -1,7 +1,7 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -99,7 +100,7 @@ func TestStartJobNotificationChannel(t *testing.T) {
 			}
 
 			var start map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 			if !tt.wantNotify {
 				assert.Empty(t, n.messages)
@@ -111,7 +112,7 @@ func TestStartJobNotificationChannel(t *testing.T) {
 			assert.Equal(t, topic, n.topics[0])
 
 			var msg map[string]any
-			require.NoError(t, json.Unmarshal([]byte(n.messages[0]), &msg))
+			require.NoError(t, json.Unmarshal([]byte(n.messages[0]), &msg, jsonx.V1()))
 			assert.Equal(t, start["JobId"], msg["JobId"])
 			assert.Equal(t, "SUCCEEDED", msg["Status"])
 			assert.Equal(t, tt.wantAPI, msg["API"])
@@ -122,7 +123,7 @@ func TestStartJobNotificationChannel(t *testing.T) {
 			require.Equal(t, http.StatusOK, get.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(get.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(get.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, "SUCCEEDED", got["JobStatus"])
 		})
 	}

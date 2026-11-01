@@ -1,12 +1,14 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type permissionSetView struct {
@@ -27,7 +29,7 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 		RelayState      string    `json:"RelayState"`
 		Tags            []tagView `json:"Tags"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -85,7 +87,7 @@ func (h *Handler) handleDescribePermissionSet(c *echo.Context, body []byte) erro
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -112,7 +114,7 @@ func (h *Handler) handleListPermissionSets(c *echo.Context, body []byte) error {
 		NextToken   string `json:"NextToken"`
 		MaxResults  int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -139,7 +141,7 @@ func (h *Handler) handleDeletePermissionSet(c *echo.Context, body []byte) error 
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) handleUpdatePermissionSet(c *echo.Context, body []byte) error 
 		SessionDuration  string `json:"SessionDuration"`
 		RelayState       string `json:"RelayState"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -191,7 +193,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 		TargetType       string `json:"TargetType"`
 		TargetID         string `json:"TargetId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -248,7 +250,7 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(
 		InstanceArn                     string `json:"InstanceArn"`
 		ProvisionPermissionSetRequestID string `json:"ProvisionPermissionSetRequestId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -290,7 +292,7 @@ func (h *Handler) handleListPermissionSetsProvisionedToAccount(c *echo.Context, 
 		NextToken          string `json:"NextToken"`
 		MaxResults         int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -338,7 +340,7 @@ func (h *Handler) handleListAccountsForProvisionedPermissionSet(
 		NextToken          string `json:"NextToken"`
 		MaxResults         int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

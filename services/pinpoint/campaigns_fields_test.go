@@ -2,7 +2,7 @@ package pinpoint_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCampaign_AdditionalTreatments(t *testing.T) {
@@ -108,7 +110,7 @@ func TestCampaign_AdditionalTreatments(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tc.wantHasTreatment {
 				treatments, _ := resp["AdditionalTreatments"].([]any)
@@ -203,7 +205,7 @@ func TestCampaign_StateMachine(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			campaignID := createResp["Id"].(string)
 
 			if tc.updateBody == nil {
@@ -219,7 +221,7 @@ func TestCampaign_StateMachine(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, updateRec.Code)
 
 			var updateResp map[string]any
-			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+			require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 
 			state, _ := updateResp["State"].(map[string]any)
 			require.NotNil(t, state)
@@ -258,7 +260,7 @@ func TestCampaign_DateRangeKpi(t *testing.T) {
 				map[string]any{"Name": "kpi-camp", "SegmentId": "seg-1"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			campaignID := cr["Id"].(string)
 
 			kpiRec := doPinpointRequest(t, h, http.MethodGet,
@@ -266,7 +268,7 @@ func TestCampaign_DateRangeKpi(t *testing.T) {
 			require.Equal(t, http.StatusOK, kpiRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(kpiRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(kpiRec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, appID, resp["ApplicationId"])
 			assert.Equal(t, campaignID, resp["CampaignId"])
 			assert.Equal(t, tc.kpiName, resp["KpiName"])
@@ -314,7 +316,7 @@ func TestCampaign_GetActivities(t *testing.T) {
 				"/v1/apps/"+appID+"/campaigns", tc.campaignBody)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			campaignID := cr["Id"].(string)
 
 			actRec := doPinpointRequest(t, h, http.MethodGet,
@@ -322,7 +324,7 @@ func TestCampaign_GetActivities(t *testing.T) {
 			require.Equal(t, http.StatusOK, actRec.Code)
 
 			var actResp map[string]any
-			require.NoError(t, json.Unmarshal(actRec.Body.Bytes(), &actResp))
+			require.NoError(t, json.Unmarshal(actRec.Body.Bytes(), &actResp, jsonx.V1()))
 			assert.Contains(t, actResp, "Item")
 		})
 	}
@@ -380,7 +382,7 @@ func TestCampaign_SegmentVersion(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			if tc.wantSegVersion != 0 {
 				assert.InDelta(t, tc.wantSegVersion, resp["SegmentVersion"], 0.001)
 			} else {
@@ -457,14 +459,14 @@ func TestCampaign_TemplateConfiguration_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var cr map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 			campID := cr["Id"].(string)
 
 			getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campID, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var c map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c, jsonx.V1()))
 
 			tmplCfg, ok := c["TemplateConfiguration"].(map[string]any)
 			assert.True(t, ok, "TemplateConfiguration must be present")
@@ -502,14 +504,14 @@ func TestCampaign_Limits_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	campID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var c map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c, jsonx.V1()))
 
 	got := c["Limits"].(map[string]any)
 	assert.EqualValues(t, 200, got["Daily"])
@@ -540,14 +542,14 @@ func TestCampaign_Hook_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	campID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var c map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c, jsonx.V1()))
 
 	got := c["Hook"].(map[string]any)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:SegmentFilter", got["LambdaFunctionName"])
@@ -566,7 +568,7 @@ func TestCampaign_TemplateConfiguration_OnUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	campID := cr["Id"].(string)
 
 	// Update to set template configuration
@@ -584,7 +586,7 @@ func TestCampaign_TemplateConfiguration_OnUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var c map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c, jsonx.V1()))
 
 	tmpl := c["TemplateConfiguration"].(map[string]any)
 	email := tmpl["EmailTemplate"].(map[string]any)
@@ -617,14 +619,14 @@ func TestCampaign_CustomDeliveryConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	campID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/campaigns/"+campID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var c map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &c, jsonx.V1()))
 
 	got := c["CustomDeliveryConfiguration"].(map[string]any)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:CustomDelivery", got["DeliveryUri"])
@@ -655,7 +657,7 @@ func TestPagination_Campaigns_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, p1Rec.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1, jsonx.V1()))
 
 	items1, _ := p1["Item"].([]any)
 	assert.Len(t, items1, 2, "page 1 should contain 2 items")
@@ -669,7 +671,7 @@ func TestPagination_Campaigns_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, p2Rec.Code)
 
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2, jsonx.V1()))
 
 	items2, _ := p2["Item"].([]any)
 	assert.Len(t, items2, 2, "page 2 should contain 2 items")
@@ -682,7 +684,7 @@ func TestPagination_Campaigns_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, p3Rec.Code)
 
 	var p3 map[string]any
-	require.NoError(t, json.Unmarshal(p3Rec.Body.Bytes(), &p3))
+	require.NoError(t, json.Unmarshal(p3Rec.Body.Bytes(), &p3, jsonx.V1()))
 
 	items3, _ := p3["Item"].([]any)
 	assert.Len(t, items3, 1, "page 3 should contain the remaining 1 item")
@@ -707,7 +709,7 @@ func TestPagination_Campaigns_NoToken_ReturnsAll(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, _ := resp["Item"].([]any)
 	assert.Len(t, items, 3)
@@ -732,7 +734,7 @@ func TestPagination_TokenEncoding(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tok, _ := resp["NextToken"].(string)
 	require.NotEmpty(t, tok)
@@ -756,7 +758,7 @@ func TestPagination_EmptyList_NoToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, _ := resp["Item"].([]any)
 	assert.Empty(t, items)
@@ -778,7 +780,7 @@ func TestGetCampaignVersions_CrossAppIsolation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	campaignID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, campaignID)
 

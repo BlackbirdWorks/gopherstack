@@ -1,10 +1,13 @@
 package sesv2
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createCustomVerificationEmailTemplateInput struct {
@@ -19,7 +22,7 @@ type createCustomVerificationEmailTemplateInput struct {
 func (h *Handler) handleCreateCustomVerificationEmailTemplate(c *echo.Context) (any, error) {
 	var in createCustomVerificationEmailTemplateInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
@@ -72,7 +75,7 @@ func (h *Handler) handleUpdateCustomVerificationEmailTemplate(
 ) (any, error) {
 	var in updateCustomVerificationEmailTemplateInput
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&in); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 

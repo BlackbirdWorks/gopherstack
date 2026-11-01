@@ -2,13 +2,15 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"regexp"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -128,7 +130,7 @@ type InMemoryBackend struct {
 	managedRuleSetsByRegion     *store.Index[ManagedRuleSet]
 	apiKeys                     *store.Table[APIKey]
 	apiKeysByRegion             *store.Index[APIKey]
-	loggingConfigs              map[string]map[string]json.RawMessage
+	loggingConfigs              map[string]map[string]jsontext.Value
 	permissionPolicies          map[string]map[string]string
 	associations                map[string]map[string]string
 	mu                          *lockmetrics.RWMutex
@@ -161,7 +163,7 @@ func initRegion[V any](m map[string]map[string]V, region string) map[string]V {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		registry:           store.NewRegistry(),
-		loggingConfigs:     make(map[string]map[string]json.RawMessage),
+		loggingConfigs:     make(map[string]map[string]jsontext.Value),
 		permissionPolicies: make(map[string]map[string]string),
 		associations:       make(map[string]map[string]string),
 		accountID:          accountID,
@@ -173,7 +175,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 	return b
 }
-func (b *InMemoryBackend) loggingConfigsStore(region string) map[string]json.RawMessage {
+func (b *InMemoryBackend) loggingConfigsStore(region string) map[string]jsontext.Value {
 	return initRegion(b.loggingConfigs, region)
 }
 func (b *InMemoryBackend) permissionPoliciesStore(region string) map[string]string {
@@ -219,13 +221,13 @@ func nameScope(name, scope string) string {
 }
 
 // validateVisibilityConfig parses and validates a VisibilityConfig JSON blob.
-func validateVisibilityConfig(raw json.RawMessage) error {
+func validateVisibilityConfig(raw jsontext.Value) error {
 	if len(raw) == 0 {
 		return nil
 	}
 
 	var vc VisibilityConfig
-	if err := json.Unmarshal(raw, &vc); err != nil {
+	if err := json.Unmarshal(raw, &vc, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: invalid VisibilityConfig: %w", errInvalidRequest, err)
 	}
 
@@ -243,7 +245,7 @@ func toInt64(v any) (int64, bool) {
 		return int64(n), true
 	case float64:
 		return int64(n), true
-	case json.Number:
+	case jsonx.Number:
 		i, err := n.Int64()
 
 		return i, err == nil
@@ -275,7 +277,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.resetTablesLocked()
-	b.loggingConfigs = make(map[string]map[string]json.RawMessage)
+	b.loggingConfigs = make(map[string]map[string]jsontext.Value)
 	b.permissionPolicies = make(map[string]map[string]string)
 	b.associations = make(map[string]map[string]string)
 }

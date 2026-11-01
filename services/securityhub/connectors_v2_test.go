@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -148,7 +149,7 @@ func TestConnectorsV2(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})
@@ -217,7 +218,7 @@ func TestTicketV2(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var created map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 		connectorID, _ := created["ConnectorId"].(string)
 		require.NotEmpty(t, connectorID)
 
@@ -584,7 +585,7 @@ func TestConnectors(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})

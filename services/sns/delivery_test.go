@@ -3,7 +3,7 @@ package sns_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -259,7 +260,7 @@ func TestHTTPDeliveryFailureSendsToDLQ(t *testing.T) {
 
 			redrivePolicy, _ := json.Marshal(map[string]string{
 				"deadLetterTargetArn": dlqARN,
-			})
+			}, jsonx.V1())
 			err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "RedrivePolicy", string(redrivePolicy))
 			require.NoError(t, err)
 

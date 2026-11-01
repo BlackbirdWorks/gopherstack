@@ -2,8 +2,10 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonAddPermissionReq struct {
@@ -24,7 +26,7 @@ func (h *Handler) handleAddPermission(
 	body []byte,
 ) (any, error) {
 	var req jsonAddPermissionReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -47,7 +49,7 @@ func (h *Handler) handleRemovePermission(
 	body []byte,
 ) (any, error) {
 	var req jsonRemovePermissionReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

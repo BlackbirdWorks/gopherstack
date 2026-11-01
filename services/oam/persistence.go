@@ -2,7 +2,7 @@ package oam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -12,11 +12,11 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Seq       int64                      `json:"seq"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Seq       int64                     `json:"seq"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state.

@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -22,7 +23,7 @@ func wafCreateRegexMatchSet(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	setMap, ok := resp["RegexMatchSet"].(map[string]any)
 	require.True(t, ok)
 	id, ok := setMap["RegexMatchSetId"].(string)
@@ -57,7 +58,7 @@ func TestRegexMatchSetLifecycle(t *testing.T) {
 			rec := wafDo(t, h, "GetRegexMatchSet", map[string]any{"RegexMatchSetId": setID})
 			require.Equal(t, http.StatusOK, rec.Code)
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			setMap := getResp["RegexMatchSet"].(map[string]any)
 			assert.Equal(t, "SqlMatchSet", setMap["Name"])
 
@@ -80,7 +81,7 @@ func TestRegexMatchSetLifecycle(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			rec = wafDo(t, h, "GetRegexMatchSet", map[string]any{"RegexMatchSetId": setID})
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			setMap = getResp["RegexMatchSet"].(map[string]any)
 			tuples := setMap["RegexMatchTuples"].([]any)
 			assert.Len(t, tuples, 1)
@@ -107,7 +108,7 @@ func TestRegexMatchSetLifecycle(t *testing.T) {
 			rec = wafDo(t, h, "ListRegexMatchSets", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			sets := listResp["RegexMatchSets"].([]any)
 			assert.Len(t, sets, 1)
 

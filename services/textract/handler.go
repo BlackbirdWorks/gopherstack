@@ -2,7 +2,7 @@ package textract
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -203,7 +204,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req documentLocationInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	bucket := req.DocumentLocation.S3Object.Bucket
 	key := req.DocumentLocation.S3Object.Name
@@ -280,7 +281,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // Operation name constants for the ops referenced by
@@ -330,9 +331,6 @@ var opsWithoutValidationException = map[string]bool{ //nolint:gochecknoglobals /
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, action string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	var code string
 	var status int
 
@@ -345,7 +343,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 		code, status = "InvalidS3ObjectException", http.StatusBadRequest
 	case errors.Is(err, ErrValidation), errors.Is(err, errInvalidRequest),
 		errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		if opsWithoutValidationException[action] {
 			code, status = "InvalidParameterException", http.StatusBadRequest
 		} else {
@@ -355,7 +353,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, action string,
 		code, status = "InternalServerError", http.StatusInternalServerError
 	}
 
-	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: errMessage(err)})
+	payload, marshalErr := json.Marshal(service.JSONErrorResponse{Type: code, Message: errMessage(err)}, jsonx.V1())
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
