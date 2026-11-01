@@ -3,7 +3,6 @@ package iot_test
 import (
 	"context"
 	"fmt"
-	"net"
 	"testing"
 	"time"
 
@@ -135,66 +134,31 @@ func TestHandlerShutdownDrainsBrokerGoroutine(t *testing.T) {
 	}
 }
 
-// freeTCPPort asks the OS for a currently-unused TCP port by binding to
-// :0 and immediately releasing it, so a real *iot.Broker (which needs its
-// port at construction time, before Start) can be pointed at a real,
-// reachable address for this test's live paho client to dial.
-func freeTCPPort(t *testing.T) int {
+// startTestBroker starts a real *iot.Broker on an OS-assigned port (read it back via broker.Port()),
+// and registers cleanup that cancels it and waits for its goroutine to exit. It returns once the
+// broker is listening.
+func startTestBroker(t *testing.T, backend *iot.InMemoryBackend) *iot.Broker {
 	t.Helper()
 
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-
-	return port
-}
-
-// startTestBroker starts a real *iot.Broker listening on port, and registers
-// cleanup that cancels it and waits for its goroutine to actually exit
-// (mirrors TestHandlerShutdownDrainsBrokerGoroutine's drain pattern). It
-// blocks until the port is actually accepting connections.
-func startTestBroker(t *testing.T, backend *iot.InMemoryBackend, port int) *iot.Broker {
-	t.Helper()
-
-	broker := iot.NewBroker(backend, port)
+	broker := iot.NewBroker(backend, 0)
 
 	runCtx, cancelRun := context.WithCancel(t.Context())
-	done := make(chan struct{})
+	done := make(chan error, 1)
 
-	go func() {
-		_ = broker.Start(runCtx)
-		close(done)
-	}()
+	go func() { done <- broker.Start(runCtx) }()
 
 	t.Cleanup(func() {
 		cancelRun()
 		<-done
 	})
 
-	addr := fmt.Sprintf("tcp://127.0.0.1:%d", port)
-	opts := pahomqtt.NewClientOptions().
-		AddBroker(addr).
-		SetClientID("probe-client").
-		SetAutoReconnect(false).
-		SetConnectTimeout(100 * time.Millisecond)
-
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		client := pahomqtt.NewClient(opts)
-		if token := client.Connect(); token.WaitTimeout(100*time.Millisecond) && token.Error() == nil {
-			client.Disconnect(100)
-
-			return broker
-		}
-
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-broker.Ready():
+	case err := <-done:
+		require.FailNow(t, "broker exited before ready", "%v", err)
 	}
 
-	require.FailNow(t, "broker on "+addr+" did not become ready")
-
-	return nil
+	return broker
 }
 
 // TestBroker_ClientSubscriptionsAndSendToClient verifies that ClientSubscriptions
@@ -227,13 +191,12 @@ func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
 			t.Parallel()
 
 			backend := newRefBackend()
-			port := freeTCPPort(t)
 
 			var broker *iot.Broker
 			if tt.startBroker {
-				broker = startTestBroker(t, backend, port)
+				broker = startTestBroker(t, backend)
 			} else {
-				broker = iot.NewBroker(backend, port)
+				broker = iot.NewBroker(backend, 0)
 			}
 
 			if !tt.connectClient {
@@ -255,7 +218,7 @@ func TestBroker_ClientSubscriptionsAndSendToClient(t *testing.T) {
 
 			received := make(chan pahomqtt.Message, 1)
 			opts := pahomqtt.NewClientOptions().
-				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
+				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", broker.Port())).
 				SetClientID(tt.clientID).
 				SetAutoReconnect(false).
 				SetConnectTimeout(3 * time.Second).

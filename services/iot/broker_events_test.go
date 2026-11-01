@@ -28,8 +28,8 @@ func newEventEnv(t *testing.T) *eventEnv {
 	t.Helper()
 
 	backend := newRefBackend()
-	port := freeTCPPort(t)
-	broker := startTestBroker(t, backend, port)
+	broker := startTestBroker(t, backend)
+	port := broker.Port()
 	h := iot.NewHandler(backend, broker)
 
 	return &eventEnv{backend: backend, client: newTestIoTClient(t, h), port: port}

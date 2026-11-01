@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter/sgtest"
 )
@@ -161,7 +162,12 @@ func TestFrontLaunchSSHPortAndRelease(t *testing.T) {
 	assert.Zero(t, f.sshPort, "sshd is not published without a reserved host port")
 	d.closeFronts("ctr-2")
 
-	f, err = d.frontLaunch(t.Context(), "ctr-3", req, freeTCPPort(t), inspected{})
+	// frontLaunch takes the host SSH port as an argument, so it must be known before the call.
+	sshHostPort, err := portalloc.AcquireEphemeral()
+	require.NoError(t, err)
+	t.Cleanup(func() { portalloc.ReleaseEphemeral(sshHostPort) })
+
+	f, err = d.frontLaunch(t.Context(), "ctr-3", req, sshHostPort, inspected{})
 	require.NoError(t, err)
 	assert.NotZero(t, f.sshPort)
 	assert.True(t, roundTrip(t, net.JoinHostPort("127.0.0.1", strconv.Itoa(f.sshPort))))
@@ -172,17 +178,6 @@ func TestFrontLaunchSSHPortAndRelease(t *testing.T) {
 
 	_, ok = d.closeFronts("ctr-3")
 	assert.False(t, ok)
-}
-
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer func() { _ = ln.Close() }()
-
-	return ln.Addr().(*net.TCPAddr).Port
 }
 
 func TestBuildContainerConfigsFrontedBindsLoopback(t *testing.T) {

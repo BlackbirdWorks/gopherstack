@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -946,12 +946,12 @@ const (
 // (UseDevelopmentStorage=true-style config) would silently end up talking to
 // the wrong port. Failing fast surfaces the conflict instead.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("azureblob: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
