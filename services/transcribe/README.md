@@ -9,16 +9,25 @@
 | --- | --- |
 | PARITY entries audited | 44 (44 ok) |
 | Feature families | 8 (8 ok) |
-| Known gaps | none |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Emulator behaviour, not transcription: without --transcribe-engine=docker (TRANSCRIBE_ENGINE, or --engines=docker) jobs finish with a valid transcript document whose transcript is empty and whose items are [] -- no words are invented. The media object is still read from S3 and validated, and the document, subtitle files and redacted transcript are written to the output bucket or the managed fetch URL. The docker engine (pinned Vosk image, small per-language models cached locally) produces real text and word timings for 16-bit PCM WAV media in 18 language codes.
+- StartMedicalScribeJob still reports synthetic s3://synthetic-transcripts/ output locations and writes no objects (gopherstack-49qct.78 covered transcription, medical transcription and call analytics only).
+- Under the docker engine, ShowSpeakerLabels, ContentRedaction and MedicalContentIdentificationType jobs FAIL (Vosk cannot diarize or detect PII); only ChannelIdentification and single-stream transcription are real. Vocabularies, vocabulary filters and custom language models are not applied to recognition.
+- IdentifyLanguage/IdentifyMultipleLanguages still report the first LanguageOptions entry with a fixed IdentifiedLanguageScore; no language is detected from audio.
+- Docker engine decodes 16-bit PCM WAV only (no FLAC/MP3/MP4/OGG/AMR/WebM decoding); other formats pass sniffing but FAIL under the engine. Call Analytics sentiment, loudness, talk-time, categories and summaries are not produced.
+- Medical transcript and Call Analytics JSON follow the batch schema and the documented post-call field names respectively; PHI entity annotations and the Categories/IssuesDetected sections are not emitted (unverified against a live AWS document).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- CallAnalyticsJobDetails.Skipped: skipped features (insufficient conversation content, safety guidelines) come from analysing real audio; the synthetic transcript is never evaluated.
+- CallAnalyticsJobDetails.Skipped: skipped features (insufficient conversation content, safety guidelines) come from analysing real audio; the emulator evaluates none of the Call Analytics features.
 - OutputEncryptionKMSKeyId on StartCallAnalyticsJob, StartMedicalScribeJob and StartMedicalTranscriptionJob: no response type echoes the key and no S3/KMS output pipeline exists to encrypt with it.
 
 ## More
