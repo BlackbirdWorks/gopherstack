@@ -53,18 +53,18 @@ func TestParseErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		in  string
 		err error
+		in  string
 	}{
-		{"", dynamonum.ErrInvalid},
-		{"abc", dynamonum.ErrInvalid},
-		{"1e", dynamonum.ErrInvalid},
-		{"1.2.3", dynamonum.ErrInvalid},
-		{"NaN", dynamonum.ErrInvalid},
-		{"Inf", dynamonum.ErrInvalid},
-		{"123456789012345678901234567890123456789", dynamonum.ErrTooManyDigits},
-		{"1E+126", dynamonum.ErrOverflow},
-		{"1E-131", dynamonum.ErrUnderflow},
+		{dynamonum.ErrInvalid, ""},
+		{dynamonum.ErrInvalid, "abc"},
+		{dynamonum.ErrInvalid, "1e"},
+		{dynamonum.ErrInvalid, "1.2.3"},
+		{dynamonum.ErrInvalid, "NaN"},
+		{dynamonum.ErrInvalid, "Inf"},
+		{dynamonum.ErrTooManyDigits, "123456789012345678901234567890123456789"},
+		{dynamonum.ErrOverflow, "1E+126"},
+		{dynamonum.ErrUnderflow, "1E-131"},
 	}
 
 	for _, tt := range tests {
@@ -119,17 +119,22 @@ func TestCmp(t *testing.T) {
 func TestAddSub(t *testing.T) {
 	t.Parallel()
 
-	max := "99999999999999999999999999999999999999"
+	maxNum := "99999999999999999999999999999999999999"
 	tests := []struct {
-		a, b, add, sub string
 		err            error
+		a, b, add, sub string
 	}{
 		{a: "1", b: "2", add: "3", sub: "-1"},
 		{a: "0.1", b: "0.2", add: "0.3", sub: "-0.1"},
-		{a: "12345678901234567890123456789012345678", b: "1", add: "12345678901234567890123456789012345679", sub: "12345678901234567890123456789012345677"},
+		{
+			a:   "12345678901234567890123456789012345678",
+			b:   "1",
+			add: "12345678901234567890123456789012345679",
+			sub: "12345678901234567890123456789012345677",
+		},
 		{a: "1E+10", b: "1", add: "10000000001", sub: "9999999999"},
 		{a: "1.10", b: "0", add: "1.1", sub: "1.1"},
-		{a: max, b: "0.5", err: dynamonum.ErrTooManyDigits, sub: "99999999999999999999999999999999999998.5"},
+		{a: maxNum, b: "0.5", err: dynamonum.ErrTooManyDigits, sub: "99999999999999999999999999999999999998.5"},
 		{a: "5E+125", b: "5E+125", err: dynamonum.ErrOverflow, sub: "0"},
 		{a: "1E-130", b: "1E-130", add: "0." + zeros(129) + "2", sub: "0"},
 		{a: "1E-130", b: "-1E-130", add: "0", sub: "0." + zeros(129) + "2"},
@@ -162,7 +167,7 @@ func TestAddSub(t *testing.T) {
 				return
 			}
 
-			if tt.a == max {
+			if tt.a == maxNum {
 				require.ErrorIs(t, err, dynamonum.ErrTooManyDigits)
 
 				return
@@ -188,8 +193,12 @@ func TestEqualValuesAreComparable(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct{ a, b string }{
-		{"1", "1.0"}, {"1000", "1E+3"}, {"-5", "-5.00"}, {"0", "-0.0"},
-		{"1E+20", "100000000000000000000"}, {"0.25", "25E-2"},
+		{"1", "1.0"},
+		{"1000", "1E+3"},
+		{"-5", "-5.00"},
+		{"0", "-0.0"},
+		{"1E+20", "100000000000000000000"},
+		{"0.25", "25E-2"},
 	}
 
 	for _, tt := range tests {

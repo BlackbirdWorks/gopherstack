@@ -21,11 +21,14 @@ var (
 	// ErrInvalid is returned for text that is not a decimal number.
 	ErrInvalid = errors.New("not a valid number")
 	// ErrOverflow is returned when the magnitude exceeds the supported range.
-	ErrOverflow = errors.New("Number overflow. Attempting to store a number with magnitude larger than supported range")
+	ErrOverflow = errors.New( //nolint:staticcheck // verbatim AWS message
+		"Number overflow. Attempting to store a number with magnitude larger than supported range")
 	// ErrUnderflow is returned when a non-zero magnitude is below the supported range.
-	ErrUnderflow = errors.New("Number underflow. Attempting to store a number with magnitude smaller than supported range")
+	ErrUnderflow = errors.New( //nolint:staticcheck // verbatim AWS message
+		"Number underflow. Attempting to store a number with magnitude smaller than supported range")
 	// ErrTooManyDigits is returned when a value needs more than 38 significant digits.
-	ErrTooManyDigits = errors.New("Attempting to store more than 38 significant digits in a Number")
+	ErrTooManyDigits = errors.New( //nolint:staticcheck // verbatim AWS message
+		"Attempting to store more than 38 significant digits in a Number")
 )
 
 // Num is a normalised decimal: value = (+/-) d[:n] * 10^scale, with no leading or
@@ -77,6 +80,74 @@ func Parse(s string) (Num, error) {
 	return parseGeneral(s)
 }
 
+// mantissa accumulates significant digits; trailing zeros stay pending (zeros).
+type mantissa struct {
+	cnt     int
+	zeros   int
+	frac    int
+	buf     [MaxDigits]byte
+	leading bool
+	extra   bool
+}
+
+func (m *mantissa) add(c byte) {
+	if m.leading && c == '0' {
+		return
+	}
+
+	m.leading = false
+
+	if c == '0' {
+		m.zeros++
+
+		return
+	}
+
+	if m.cnt+m.zeros >= MaxDigits {
+		m.extra = true
+
+		return
+	}
+
+	for ; m.zeros > 0; m.zeros-- {
+		m.buf[m.cnt] = '0'
+		m.cnt++
+	}
+
+	m.buf[m.cnt] = c
+	m.cnt++
+}
+
+// scan consumes [digits][.digits] from s and returns the index where it stopped.
+func (m *mantissa) scan(s string, i int) (int, bool) {
+	pointSeen, anyDigit := false, false
+
+	for ; i < len(s); i++ {
+		c := s[i]
+
+		switch {
+		case c == '.':
+			if pointSeen {
+				return i, false
+			}
+
+			pointSeen = true
+		case c >= '0' && c <= '9':
+			anyDigit = true
+
+			if pointSeen {
+				m.frac++
+			}
+
+			m.add(c)
+		default:
+			return i, anyDigit
+		}
+	}
+
+	return i, anyDigit
+}
+
 func parseGeneral(s string) (Num, error) {
 	var x Num
 
@@ -86,65 +157,10 @@ func parseGeneral(s string) (Num, error) {
 		i++
 	}
 
-	var (
-		buf       [MaxDigits]byte
-		cnt       int
-		pointSeen bool
-		anyDigit  bool
-		frac      int
-		leading   = true
-		extra     bool
-		zeros     int // pending trailing zeros not yet stored
-	)
+	m := mantissa{leading: true}
 
-	for ; i < len(s); i++ {
-		c := s[i]
-		if c == '.' {
-			if pointSeen {
-				return Num{}, ErrInvalid
-			}
-
-			pointSeen = true
-
-			continue
-		}
-
-		if c < '0' || c > '9' {
-			break
-		}
-
-		anyDigit = true
-
-		if pointSeen {
-			frac++
-		}
-
-		if leading && c == '0' {
-			continue
-		}
-
-		leading = false
-
-		if c == '0' {
-			zeros++
-
-			continue
-		}
-
-		if cnt+zeros >= MaxDigits {
-			extra = true
-		} else {
-			for ; zeros > 0; zeros-- {
-				buf[cnt] = '0'
-				cnt++
-			}
-
-			buf[cnt] = c
-			cnt++
-		}
-	}
-
-	if !anyDigit {
+	i, ok := m.scan(s, i)
+	if !ok {
 		return Num{}, ErrInvalid
 	}
 
@@ -163,18 +179,17 @@ func parseGeneral(s string) (Num, error) {
 		exp = e
 	}
 
-	if extra {
+	if m.extra {
 		return Num{}, ErrTooManyDigits
 	}
 
-	if cnt == 0 {
+	if m.cnt == 0 {
 		return Num{}, nil
 	}
 
-	copy(x.d[:], buf[:cnt])
-	x.n = uint8(cnt)
-	// trailing zeros dropped (zeros pending) are folded into the scale.
-	x.scale = clampScale(exp - frac + zeros)
+	copy(x.d[:], m.buf[:m.cnt])
+	x.n = uint8(m.cnt) //nolint:gosec // cnt <= MaxDigits
+	x.scale = clampScale(exp - m.frac + m.zeros)
 
 	if err := x.check(); err != nil {
 		return Num{}, err
@@ -217,8 +232,8 @@ func parsePlainInt(s string) Num {
 	}
 
 	copy(x.d[:], s[:end])
-	x.n = uint8(end)
-	x.scale = int16(len(s) - end)
+	x.n = uint8(end)              //nolint:gosec // end <= MaxDigits
+	x.scale = int16(len(s) - end) //nolint:gosec // < MaxDigits
 
 	return x
 }
@@ -303,7 +318,7 @@ func fromInt64Wide(v int64) Num {
 		return x
 	}
 
-	u := uint64(v)
+	u := uint64(v) //nolint:gosec // sign handled below
 	if v < 0 {
 		x.neg = true
 		u = -u
@@ -325,7 +340,7 @@ func fromInt64Wide(v int64) Num {
 		scale++
 	}
 
-	x.n = uint8(n - scale)
+	x.n = uint8(n - scale) //nolint:gosec // n <= 19
 	for k := range int(x.n) {
 		x.d[k] = tmp[n-1-k]
 	}
@@ -616,7 +631,7 @@ func fromBig(z *big.Int, scale int) (Num, error) {
 	}
 
 	copy(x.d[:], str[:end])
-	x.n = uint8(end)
+	x.n = uint8(end) //nolint:gosec // end <= MaxDigits
 	x.scale = clampScale(scale)
 
 	if err := x.check(); err != nil {

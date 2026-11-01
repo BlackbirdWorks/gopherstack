@@ -68,6 +68,10 @@ func numVals(vals ...string) map[string]dynamodbtypes.AttributeValue {
 	return out
 }
 
+func nVals(v string) map[string]dynamodbtypes.AttributeValue {
+	return map[string]dynamodbtypes.AttributeValue{":a": &dynamodbtypes.AttributeValueMemberN{Value: v}}
+}
+
 func skList(items []map[string]dynamodbtypes.AttributeValue) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
@@ -101,7 +105,12 @@ func TestNumberPrecision_KeyConditionAndOrder(t *testing.T) {
 			name: "all desc", keyCond: "pk = :p", reverse: true,
 			want: []string{num38High, num38Mid, num38Low},
 		},
-		{name: "exponent form", keyCond: "pk = :p AND sk = :a", vals: []string{"1.2345678901234567890123456789012345678E+37"}, want: []string{num38Mid}},
+		{
+			name:    "exponent form",
+			keyCond: "pk = :p AND sk = :a",
+			vals:    []string{"1.2345678901234567890123456789012345678E+37"},
+			want:    []string{num38Mid},
+		},
 	}
 
 	for _, tt := range tests {
@@ -164,9 +173,19 @@ func TestNumberPrecision_FilterAndCondition(t *testing.T) {
 		{name: "ne", filter: "n <> :a", vals: []string{num38Mid}, want: []string{num38Low, num38High}},
 		{name: "gt", filter: "n > :a", vals: []string{num38Mid}, want: []string{num38High}},
 		{name: "lt", filter: "n < :a", vals: []string{num38Mid}, want: []string{num38Low}},
-		{name: "between", filter: "n BETWEEN :a AND :b", vals: []string{num38Mid, num38High}, want: []string{num38Mid, num38High}},
+		{
+			name:   "between",
+			filter: "n BETWEEN :a AND :b",
+			vals:   []string{num38Mid, num38High},
+			want:   []string{num38Mid, num38High},
+		},
 		{name: "in", filter: "n IN (:a, :b)", vals: []string{num38Low, num38High}, want: []string{num38Low, num38High}},
-		{name: "exponent eq", filter: "n = :a", vals: []string{"1.2345678901234567890123456789012345678E+37"}, want: []string{num38Mid}},
+		{
+			name:   "exponent eq",
+			filter: "n = :a",
+			vals:   []string{"1.2345678901234567890123456789012345678E+37"},
+			want:   []string{num38Mid},
+		},
 	}
 
 	for _, tt := range tests {
@@ -198,7 +217,7 @@ func TestNumberPrecision_FilterAndCondition(t *testing.T) {
 			TableName:                 aws.String("nums"),
 			Key:                       key,
 			ConditionExpression:       aws.String("n = :a"),
-			ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":a": &dynamodbtypes.AttributeValueMemberN{Value: num38High}},
+			ExpressionAttributeValues: nVals(num38High),
 		})
 		var ccf *dynamodbtypes.ConditionalCheckFailedException
 		require.ErrorAs(t, err, &ccf)
@@ -207,7 +226,7 @@ func TestNumberPrecision_FilterAndCondition(t *testing.T) {
 			TableName:                 aws.String("nums"),
 			Key:                       key,
 			ConditionExpression:       aws.String("n = :a"),
-			ExpressionAttributeValues: map[string]dynamodbtypes.AttributeValue{":a": &dynamodbtypes.AttributeValueMemberN{Value: num38Mid}},
+			ExpressionAttributeValues: nVals(num38Mid),
 		})
 		require.NoError(t, err)
 	})
