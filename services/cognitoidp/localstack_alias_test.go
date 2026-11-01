@@ -205,7 +205,10 @@ func TestPinnedClientID(t *testing.T) {
 		{name: "pinned", first: "_custom_id_:abc123", wantID: "abc123"},
 		{name: "pinned via opts", first: "_custom_id_:abc123", wantID: "abc123", useOpts: true},
 		{name: "duplicate", first: "_custom_id_:abc123", second: "_custom_id_:abc123", wantErr: true},
-		{name: "duplicate via opts", first: "_custom_id_:abc123", second: "_custom_id_:abc123", wantErr: true, useOpts: true},
+		{
+			name: "duplicate via opts", first: "_custom_id_:abc123", second: "_custom_id_:abc123",
+			wantErr: true, useOpts: true,
+		},
 		{name: "empty id", first: "_custom_id_:", wantErr: true},
 		{name: "bad chars", first: "_custom_id_:a b/c", wantErr: true},
 	}
