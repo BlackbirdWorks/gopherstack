@@ -30,7 +30,7 @@ const (
 	tokenMaxExpires  = 7 * 24 * 3600
 	tokenMaxSkew     = 15 * time.Minute
 	tokenDateLayout  = "20060102T150405Z"
-	tokenAlgorithm   = "AWS4-HMAC-SHA256"
+	sigV4Algorithm   = "AWS4-HMAC-SHA256"
 	tokenCredParts   = 5
 	tokenArnParts    = 6
 	adminRole        = "admin"
@@ -118,7 +118,7 @@ func parseAuthToken(raw string) (*authToken, error) {
 	q := u.Query()
 	action := q.Get("Action")
 
-	if (action != tokenActionUser && action != tokenActionAdmin) || q.Get("X-Amz-Algorithm") != tokenAlgorithm ||
+	if (action != tokenActionUser && action != tokenActionAdmin) || q.Get("X-Amz-Algorithm") != sigV4Algorithm ||
 		q.Get("X-Amz-SignedHeaders") != "host" || q.Get("X-Amz-Signature") == "" {
 		return nil, errTokenMalformed
 	}
