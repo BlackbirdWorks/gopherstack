@@ -674,10 +674,8 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 }
 
 // parseStackInstanceFilters parses Filters.member.N.{Name,Values} into a
-// ListStackInstancesFilter. DETAILED_STATUS entries are ignored (see
-// ListStackInstancesFilter's doc comment for why); unrecognized Name values
-// are ignored too rather than rejected, matching this handler's existing
-// leniency elsewhere.
+// ListStackInstancesFilter; unrecognized Name values are ignored rather than
+// rejected, matching this handler's existing leniency elsewhere.
 func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
 	filter := ListStackInstancesFilter{
 		StackInstanceAccount: form.Get("StackInstanceAccount"),
@@ -694,10 +692,21 @@ func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
 			filter.DriftStatus = value
 		case "LAST_OPERATION_ID":
 			filter.LastOperationID = value
+		case "DETAILED_STATUS":
+			filter.DetailedStatus = value
 		}
 	}
 
 	return filter
+}
+
+// instanceStatusXML is StackInstanceComprehensiveStatus on the wire.
+type instanceStatusXML struct {
+	DetailedStatus string `xml:"DetailedStatus"`
+}
+
+func stackInstanceStatusXML(inst *StackInstance) *instanceStatusXML {
+	return &instanceStatusXML{DetailedStatus: effectiveDetailedStatus(inst)}
 }
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
@@ -714,16 +723,17 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
-		StackSetID              string     `xml:"StackSetId,omitempty"`
-		StackID                 string     `xml:"StackId,omitempty"`
-		Account                 string     `xml:"Account,omitempty"`
-		Region                  string     `xml:"Region,omitempty"`
-		Status                  string     `xml:"Status,omitempty"`
-		StatusReason            string     `xml:"StatusReason,omitempty"`
-		DriftStatus             string     `xml:"DriftStatus,omitempty"`
-		LastOperationID         string     `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
+		StackInstanceStatus     *instanceStatusXML `xml:"StackInstanceStatus,omitempty"`
+		LastDriftCheckTimestamp *time.Time         `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string             `xml:"StackSetId,omitempty"`
+		StackID                 string             `xml:"StackId,omitempty"`
+		Account                 string             `xml:"Account,omitempty"`
+		Region                  string             `xml:"Region,omitempty"`
+		Status                  string             `xml:"Status,omitempty"`
+		StatusReason            string             `xml:"StatusReason,omitempty"`
+		DriftStatus             string             `xml:"DriftStatus,omitempty"`
+		LastOperationID         string             `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string             `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
 	for _, i := range p.Data {
@@ -739,6 +749,7 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 				DriftStatus:             i.DriftStatus,
 				LastOperationID:         i.LastOperationID,
 				OrganizationalUnitID:    i.OrganizationalUnitID,
+				StackInstanceStatus:     stackInstanceStatusXML(&i),
 				LastDriftCheckTimestamp: i.LastDriftCheckTimestamp,
 			},
 		)
@@ -782,16 +793,17 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
-		StackSetID              string     `xml:"StackSetId,omitempty"`
-		StackID                 string     `xml:"StackId,omitempty"`
-		Account                 string     `xml:"Account,omitempty"`
-		Region                  string     `xml:"Region,omitempty"`
-		Status                  string     `xml:"Status,omitempty"`
-		StatusReason            string     `xml:"StatusReason,omitempty"`
-		DriftStatus             string     `xml:"DriftStatus,omitempty"`
-		LastOperationID         string     `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
+		StackInstanceStatus     *instanceStatusXML `xml:"StackInstanceStatus,omitempty"`
+		LastDriftCheckTimestamp *time.Time         `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string             `xml:"StackSetId,omitempty"`
+		StackID                 string             `xml:"StackId,omitempty"`
+		Account                 string             `xml:"Account,omitempty"`
+		Region                  string             `xml:"Region,omitempty"`
+		Status                  string             `xml:"Status,omitempty"`
+		StatusReason            string             `xml:"StatusReason,omitempty"`
+		DriftStatus             string             `xml:"DriftStatus,omitempty"`
+		LastOperationID         string             `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string             `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
 		StackInstance instXML `xml:"StackInstance"`
@@ -816,6 +828,7 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 				DriftStatus:             inst.DriftStatus,
 				LastOperationID:         inst.LastOperationID,
 				OrganizationalUnitID:    inst.OrganizationalUnitID,
+				StackInstanceStatus:     stackInstanceStatusXML(inst),
 				LastDriftCheckTimestamp: inst.LastDriftCheckTimestamp,
 			},
 		},

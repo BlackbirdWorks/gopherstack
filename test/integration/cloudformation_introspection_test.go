@@ -159,6 +159,8 @@ func TestIntegration_CloudFormation_CrossStackExports(t *testing.T) {
 	_, err = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(importStackName)})
 	require.NoError(t, err)
 
+	waitStackDeleted(t, client, importStackName)
+
 	_, err = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(exportStackName)})
 	require.NoError(t, err)
 

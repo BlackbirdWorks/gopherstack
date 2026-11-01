@@ -25,7 +25,8 @@ type StorageBackend interface {
 		params []Parameter,
 		opts StackOptions,
 	) (*Stack, error)
-	DeleteStack(ctx context.Context, nameOrID string) error
+	DeleteStack(ctx context.Context, nameOrID string, opts ...DeleteStackOption) error
+	WaitForStack(ctx context.Context, nameOrID string) (*Stack, error)
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
 	DescribeStackEvents(nameOrID, nextToken string) (page.Page[StackEvent], error)
@@ -217,6 +218,8 @@ type InMemoryBackend struct {
 	resourceDriftDetail map[string]map[string]StackResourceDrift
 	driftByStackID      map[string][]string
 	pendingOps          map[string]*pendingStackOp
+	announced           map[string]struct{}
+	settled             chan struct{}
 	provisionSchedule   func(run func())
 	creator             *ResourceCreator
 	exports             *store.Table[Export]
@@ -229,6 +232,8 @@ type InMemoryBackend struct {
 	opWG                sync.WaitGroup
 	provisionWG         sync.WaitGroup
 	stackSetBatchDelay  time.Duration
+	provisionDelay      time.Duration
+	stepAsync           bool
 	orgAccessEnabled    bool
 	propertyChecksOff   atomic.Bool
 }
@@ -255,6 +260,11 @@ const (
 	statusRollbackInProgress       = "ROLLBACK_IN_PROGRESS"
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
 	statusRollbackFailed           = "ROLLBACK_FAILED"
+	statusUpdateRollbackCleanup    = "UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS"
+	statusDeleteSkipped            = "DELETE_SKIPPED"
+	executionStatusInProgress      = "EXECUTE_IN_PROGRESS"
+	executionStatusComplete        = "EXECUTE_COMPLETE"
+	executionStatusFailed          = "EXECUTE_FAILED"
 	reasonUserInitiated            = "User Initiated"
 	reasonRollbackDeleteFailed     = "rollback failed to delete one or more resources"
 	deletionPolicyRetain           = "Retain"
@@ -295,6 +305,7 @@ func NewInMemoryBackendWithConfig(
 		resourceDriftDetail: make(map[string]map[string]StackResourceDrift),
 		driftByStackID:      make(map[string][]string),
 		pendingOps:          make(map[string]*pendingStackOp),
+		settled:             make(chan struct{}),
 		creator:             creator,
 		resolver:            resolver,
 		accountID:           accountID,

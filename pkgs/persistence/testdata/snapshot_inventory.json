@@ -6684,6 +6684,7 @@
       "StackEvent.StackName string `xml:\"StackName\"                      json:\"stackName\"`",
       "StackEvent.Timestamp time.Time `xml:\"Timestamp\"                      json:\"timestamp\"`",
       "StackInstance.Account string `xml:\"Account,omitempty\"                 json:\"account,omitempty\"`",
+      "StackInstance.DetailedStatus string `xml:\"-\" json:\"detailedStatus,omitempty\"`",
       "StackInstance.DriftStatus string `xml:\"DriftStatus,omitempty\"             json:\"driftStatus,omitempty\"`",
       "StackInstance.LastDriftCheckTimestamp *time.Time `xml:\"LastDriftCheckTimestamp,omitempty\" json:\"lastDriftCheckTimestamp,omitempty\"`",
       "StackInstance.LastOperationID string `xml:\"LastOperationId,omitempty\"         json:\"lastOperationID,omitempty\"`",
@@ -6774,13 +6775,18 @@
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.TypeConfigs map[string]string `json:\"typeConfigs\"`",
       "backendSnapshot.TypeVersions map[string][]*RegisteredTypeVersion `json:\"typeVersions\"`",
+      "pendingStackOp.Announced []string `json:\"announced,omitempty\"`",
+      "pendingStackOp.Created []string `json:\"created,omitempty\"`",
       "pendingStackOp.DisableValidation bool `json:\"disableValidation,omitempty\"`",
+      "pendingStackOp.ForceDelete bool `json:\"forceDelete,omitempty\"`",
       "pendingStackOp.Kind string `json:\"kind\"`",
       "pendingStackOp.OldParams []Parameter `json:\"oldParams,omitempty\"`",
       "pendingStackOp.OldTemplateBody string `json:\"oldTemplateBody,omitempty\"`",
       "pendingStackOp.OnFailure string `json:\"onFailure,omitempty\"`",
+      "pendingStackOp.PrevResources map[string]*StackResource `json:\"prevResources,omitempty\"`",
       "pendingStackOp.ResourceTypes []string `json:\"resourceTypes,omitempty\"`",
-      "pendingStackOp.RetainExceptOnCreate bool `json:\"retainExceptOnCreate,omitempty\"`"
+      "pendingStackOp.RetainExceptOnCreate bool `json:\"retainExceptOnCreate,omitempty\"`",
+      "pendingStackOp.RetainResources []string `json:\"retainResources,omitempty\"`"
     ],
     "version": 1
   },
