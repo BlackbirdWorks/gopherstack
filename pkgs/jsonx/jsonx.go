@@ -131,6 +131,9 @@ func (n Number) Float64() (float64, error) { return strconv.ParseFloat(string(n)
 // Int64 returns the number as an int64.
 func (n Number) Int64() (int64, error) { return strconv.ParseInt(string(n), 10, 64) }
 
+// Int returns the number as an int, failing when it is out of int range.
+func (n Number) Int() (int, error) { return strconv.Atoi(string(n)) }
+
 // MarshalJSON emits the number literal; an empty Number is 0 like v1.
 func (n Number) MarshalJSON() ([]byte, error) {
 	if n == "" {

@@ -407,8 +407,8 @@ func moreCollection(name string, args []any) any {
 
 		return args[arityPair]
 	case biChoose:
-		i, ok := int64Arg(args[0])
-		if !ok || i < 1 || int(i) >= len(args) {
+		i, ok := intArg(args[0])
+		if !ok || i < 1 || i >= len(args) {
 			return undef{}
 		}
 
@@ -606,12 +606,12 @@ func (ec *evalCtx) regexOp(name string, args []any) any {
 	group := 0
 
 	if len(args) > regexGroupArg {
-		g, gok := int64Arg(args[regexGroupArg])
-		if !gok || g < 0 || int(g) > re.NumSubexp() {
+		g, gok := intArg(args[regexGroupArg])
+		if !gok || g < 0 || g > re.NumSubexp() {
 			return undef{}
 		}
 
-		group = int(g)
+		group = g
 	}
 
 	return extractRegex(re, subject, group, name == biRegexextractall)

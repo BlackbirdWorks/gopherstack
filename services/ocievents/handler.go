@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -126,9 +127,7 @@ func (q *req) json(status int, v any, etag string) error {
 		q.header("etag", etag)
 	}
 
-	q.header("Content-Type", "application/json")
-	q.w.WriteHeader(status)
-	_, _ = q.w.Write(out)
+	httputils.WriteJSONBytes(q.w, status, out)
 
 	return nil
 }

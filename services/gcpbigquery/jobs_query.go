@@ -40,9 +40,9 @@ type datasetRef struct {
 func intOf(v any) (int, bool) {
 	switch t := v.(type) {
 	case jsonx.Number:
-		n, err := t.Int64()
+		n, err := t.Int()
 
-		return int(n), err == nil
+		return n, err == nil
 	case float64:
 		return int(t), true
 	case string:

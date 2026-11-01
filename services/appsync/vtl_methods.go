@@ -263,8 +263,8 @@ func listIndexOf(l *vlist, v any) int {
 
 func listRemove(l *vlist, v any) any {
 	if f, isInt, ok := toNum(v); ok && isInt {
-		i := int(f)
-		if i < 0 || i >= len(l.items) {
+		i, small := smallInt(f)
+		if !small || i < 0 || i >= len(l.items) {
 			return unknownMethod()
 		}
 

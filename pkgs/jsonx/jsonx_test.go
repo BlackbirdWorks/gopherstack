@@ -157,3 +157,36 @@ func TestErrorClassifiers(t *testing.T) {
 	_, ok := jsonx.SyntaxError(json.Unmarshal([]byte(`{"a":1}x`), new(doc), jsonx.V1()))
 	assert.True(t, ok)
 }
+
+func TestNumberInt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		in      jsonx.Number
+		want    int
+		wantErr bool
+	}{
+		{name: "positive", in: "42", want: 42},
+		{name: "negative", in: "-7", want: -7},
+		{name: "fraction", in: "1.5", wantErr: true},
+		{name: "overflow", in: "99999999999999999999", wantErr: true},
+		{name: "empty", in: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.in.Int()
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

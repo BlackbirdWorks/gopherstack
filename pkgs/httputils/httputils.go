@@ -645,3 +645,11 @@ func ReadBodyLimit(r *http.Request, limit int64) ([]byte, error) {
 
 	return body, nil
 }
+
+// WriteJSONBytes writes an already-encoded JSON body with a JSON content type.
+func WriteJSONBytes(w http.ResponseWriter, code int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	_, _ = w.Write(body)
+}

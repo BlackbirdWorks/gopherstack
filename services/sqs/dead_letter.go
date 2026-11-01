@@ -37,7 +37,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
 
-	count, err := pol.MaxReceiveCount.Int64()
+	count, err := pol.MaxReceiveCount.Int()
 	if err != nil || count <= 0 {
 		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
@@ -183,7 +183,7 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 			continue
 		}
 
-		count, err := pol.MaxReceiveCount.Int64()
+		count, err := pol.MaxReceiveCount.Int()
 		if err != nil || count <= 0 {
 			continue
 		}

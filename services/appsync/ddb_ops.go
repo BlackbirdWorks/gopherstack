@@ -237,9 +237,9 @@ func intOf(v any) int {
 	case int:
 		return n
 	case jsonx.Number:
-		i, _ := n.Int64()
+		i, _ := n.Int()
 
-		return int(i)
+		return i
 	default:
 		return 0
 	}

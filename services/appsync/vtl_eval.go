@@ -790,6 +790,14 @@ func toInt(v any) (int, bool) {
 		return 0, false
 	}
 
+	return smallInt(f)
+}
+
+func smallInt(f float64) (int, bool) {
+	if f < math.MinInt32 || f > math.MaxInt32 {
+		return 0, false
+	}
+
 	return int(f), true
 }
 

@@ -458,3 +458,31 @@ func TestWriteS3ErrorResponse(t *testing.T) {
 	assert.Equal(t, "application/xml", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Body.String(), "NoSuchKey")
 }
+
+func TestWriteJSONBytes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     []byte
+		wantBody string
+		code     int
+	}{
+		{name: "with_body", body: []byte(`{"a":1}`), wantBody: `{"a":1}`, code: http.StatusCreated},
+		{name: "no_body", body: nil, wantBody: "", code: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			httputils.WriteJSONBytes(rec, tt.code, tt.body)
+
+			assert.Equal(t, tt.code, rec.Code)
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+			assert.Equal(t, tt.wantBody, rec.Body.String())
+		})
+	}
+}
