@@ -156,7 +156,8 @@ func buildImage(t *testing.T) string {
 	}
 
 	img := "gopherstack-helm-test:" + uuid.NewString()[:8]
-	out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-f", filepath.Join(root, "Dockerfile.test"), "-t", img, root).
+	dockerfile := filepath.Join(root, "Dockerfile.test")
+	out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-f", dockerfile, "-t", img, root).
 		CombinedOutput()
 	require.NoError(t, err, string(out))
 
@@ -248,7 +249,7 @@ func TestChart_InstallK3s(t *testing.T) {
 	require.NoError(
 		t,
 		os.WriteFile(kubeconfig, []byte(kubeconfigYAML(addr, servingCA, eng.Token())), 0o644),
-	) //nolint:gosec // read by the helm container
+	)
 
 	repo, tag := splitImage(img)
 	docker := []string{"--network", "host", "-v", kubeconfig + ":/kube/config:ro", "-e", "KUBECONFIG=/kube/config"}
