@@ -346,6 +346,15 @@ describe("new GCP console pages", () => {
     expect(azureServiceById("flexdb")?.portLabel).toBe("azurearm");
   });
 
+  it("registers Entra ID & access on the Graph backend", () => {
+    expect(availableAzureServices(["AzureGraph"]).map((s) => s.id)).toEqual(["entra"]);
+    expect(azureServiceById("entra")).toMatchObject({
+      portLabel: "azuregraph",
+      defaultPort: 10014,
+      healthName: "AzureGraph",
+    });
+  });
+
   it("registers API Gateway and API Management", () => {
     expect(gcpServiceById("apigateway")).toMatchObject({
       portLabel: "gcpapigateway",

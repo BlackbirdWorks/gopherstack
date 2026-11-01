@@ -49,6 +49,7 @@ import (
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
+	azuregraphbackend "github.com/blackbirdworks/gopherstack/services/azuregraph"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
 	azurefunctionsbackend "github.com/blackbirdworks/gopherstack/services/azurefunctions"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
@@ -554,6 +555,8 @@ type Config struct {
 	AppSyncOps *appsyncbackend.Handler
 	// AzureARMOps is dispatched in-process by the /dashboard/api/v1/azure/arm proxy.
 	AzureARMOps *azurearmbackend.Handler
+	// AzureGraphOps is dispatched in-process by the /dashboard/api/v1/azure/graph proxy.
+	AzureGraphOps *azuregraphbackend.Handler
 	// GCPStorageOps is dispatched in-process by the /dashboard/api/v1/gcp/storage proxy.
 	GCPStorageOps *gcpstoragebackend.Handler
 	// GCPBigQueryOps is dispatched in-process by the /dashboard/api/v1/gcp/bigquery proxy.

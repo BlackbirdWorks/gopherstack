@@ -5,6 +5,7 @@
 	import ApiManagementDashboard from '#lib/components/azure/ApiManagementDashboard.svelte';
 	import AppServiceDashboard from '#lib/components/azure/AppServiceDashboard.svelte';
 	import ArmDashboard from '#lib/components/azure/ArmDashboard.svelte';
+	import EntraDashboard from '#lib/components/azure/EntraDashboard.svelte';
 	import FlexibleServerDashboard from '#lib/components/azure/FlexibleServerDashboard.svelte';
 	import KubernetesServiceDashboard from '#lib/components/azure/KubernetesServiceDashboard.svelte';
 	import ContainerAppsDashboard from '#lib/components/azure/ContainerAppsDashboard.svelte';
@@ -74,6 +75,8 @@
 	<FlexibleServerDashboard />
 {:else if service?.id === 'apim'}
 	<ApiManagementDashboard />
+{:else if service?.id === 'entra'}
+	<EntraDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

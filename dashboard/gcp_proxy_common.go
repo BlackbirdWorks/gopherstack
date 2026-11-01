@@ -255,4 +255,6 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerGCPBatchRoutes()
 	h.registerGCPResourceManagerRoutes()
 	h.registerAzureAPIMRoutes()
+	h.registerAzureGraphRoutes()
+	h.registerAzureAuthzRoutes()
 }
