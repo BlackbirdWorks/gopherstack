@@ -1036,6 +1036,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 5 structural gaps; 1 deferred |
 | [Kafkaconnect](services/kafkaconnect/README.md) | A | 19 | 3 gaps; 3 structural gaps |
 | [Kinesisvideo](services/kinesisvideo/README.md) | A | 32 | 3 structural gaps |
+| [Lambdaweb](services/lambdaweb/README.md) | B | 20 | 11 gaps; 1 structural gap |
 | [Lightsail](services/lightsail/README.md) | A | — | 29 families; 1 gap; 6 structural gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 structural gaps |
 | [Marketplaceentitlementservice](services/marketplaceentitlementservice/README.md) | B | 1 | 3 gaps; 1 structural gap |

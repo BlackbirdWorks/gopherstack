@@ -57,6 +57,8 @@ func lambdaEndpointURL(dockerHost, port string) string {
 // wireLambdaRuntimeEnv gives function containers the emulator endpoint and
 // execution-role credentials.
 func wireLambdaRuntimeEnv(cli *CLI, byName map[string]service.Registerable) {
+	wireLambdaWeb(cli, byName)
+
 	lambdaH, ok := byName["Lambda"].(*lambdabackend.Handler)
 	if !ok {
 		return

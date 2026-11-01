@@ -222,6 +222,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
@@ -657,6 +658,7 @@ type CLI struct {
 	CodeBuild                     codebuildbackend.Settings           `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings                `embed:"" prefix:"glue-"`
 	DSQL                          dsqlbackend.Settings                `embed:"" prefix:"dsql-"`
+	LambdaWeb                     lambdawebbackend.Settings           `embed:"" prefix:"lambdaweb-"`
 	Transcribe                    transcribebackend.Settings          `embed:"" prefix:"transcribe-"`
 	GCPIdentityToolkit            gcpidtkbackend.Settings             `embed:"" prefix:"gcp-identitytoolkit-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings       `embed:"" prefix:"azure-keyvault-"`
@@ -1523,6 +1525,14 @@ func (c *CLI) GetGlueSettings() gluebackend.Settings {
 func (c *CLI) GetDSQLSettings() dsqlbackend.Settings {
 	st := c.DSQL
 	st.Engine = c.engineMode("dsql-engine", st.Engine)
+
+	return st
+}
+
+// GetLambdaWebSettings returns Lambda Web Functions settings (lambdaweb.ConfigProvider).
+func (c *CLI) GetLambdaWebSettings() lambdawebbackend.Settings {
+	st := c.LambdaWeb
+	st.Engine = c.engineMode("lambdaweb-engine", st.Engine)
 
 	return st
 }
@@ -5307,6 +5317,7 @@ func getLatestServiceProviders() []service.Provider {
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getNewestServiceProviders() []service.Provider {
 	return append([]service.Provider{
+		&lambdawebbackend.Provider{},
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
 		&signinbackend.Provider{},
