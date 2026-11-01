@@ -193,6 +193,10 @@ func (p *NetworkProvider) bindLBSubnet(
 		return refMissing(sid)
 	}
 
+	if users := p.subnetGatewayUsers(sid); len(users) > 0 {
+		return netBad("Subnet %s is reserved by %s and cannot contain load balancer frontends.", sid, users[0])
+	}
+
 	method, version, err := parseIPConfigMode(self, props)
 	if err != nil {
 		return err

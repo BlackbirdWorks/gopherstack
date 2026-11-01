@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -25,6 +26,20 @@ func (p *NetworkProvider) checkNewTopDelete(it *netParent) error {
 			return netErr(http.StatusBadRequest, "PublicIPPrefixInUse",
 				"Public IP prefix %s cannot be deleted because it is in use by %s.", it.armID(), user)
 		}
+	case netWAFs:
+		if gws, _, _ := p.wafUsers(it.armID()); len(gws) > 0 {
+			return netErr(http.StatusBadRequest, "ApplicationGatewayFirewallPolicyInUse",
+				"Web application firewall policy %s is associated with application gateway %s and cannot be deleted.",
+				it.armID(), gws[0])
+		}
+	case netFWPols:
+		return p.checkFWPolDelete(it)
+	case netIPGroups:
+		fws, pols := p.ipGroupUsers(it.armID())
+		if users := slices.Concat(fws, pols); len(users) > 0 {
+			return netErr(http.StatusBadRequest, "InUseIpGroupCannotBeDeleted",
+				"IP group %s is referenced by %s and cannot be deleted.", it.armID(), users[0])
+		}
 	case netASGs:
 		if users := p.asgUsers(it.armID()); len(users) > 0 {
 			return netErr(http.StatusBadRequest, "InUseApplicationSecurityGroupCannotBeDeleted",
@@ -42,8 +57,18 @@ func (p *NetworkProvider) checkNICRefs(nicID, loc string, cfgs []any) error {
 		cfgID := nicID + "/" + netIPConfigs + "/" + strOf(m, fieldName)
 		cp := propsOf(m)
 
+		if err := p.checkNICSubnetFree(cp); err != nil {
+			return err
+		}
+
 		for _, v := range anyList(cp[propNICPools]) {
 			if _, ok := p.lbKidByID(refIDOf(v), lbPools); !ok {
+				return refMissing(refIDOf(v))
+			}
+		}
+
+		for _, v := range anyList(cp[propNICAGWPools]) {
+			if !p.agwPoolExists(refIDOf(v)) {
 				return refMissing(refIDOf(v))
 			}
 		}
@@ -104,6 +129,7 @@ func (p *NetworkProvider) dropMissingListRefs(cp map[string]any) {
 
 		return ok
 	})
+	keep(propNICAGWPools, p.agwPoolExists)
 	keep(propNICNATs, func(id string) bool {
 		_, ok := p.lbKidByID(id, lbNATRules)
 
@@ -124,6 +150,8 @@ func (p *NetworkProvider) pruneNewTypesLocked() {
 			p.dropMissingRef(f.Props, propPrefixRef, netPrefixes)
 		}
 	}
+
+	p.pruneGatewayRefs()
 
 	for _, n := range p.ofType(netNATs) {
 		for _, key := range []string{natPropPIPs, natPropPIPsV6} {
@@ -182,4 +210,39 @@ func (p *NetworkProvider) listNICLBs(nic *netParent, id ResourceID) []map[string
 	}
 
 	return out
+}
+
+// pruneGatewayRefs drops application gateway and firewall references to resources that no longer exist.
+func (p *NetworkProvider) pruneGatewayRefs() {
+	for _, gw := range p.ofType(netAGWs) {
+		for _, f := range gw.Kids[agwFrontends] {
+			p.dropMissingRef(f.Props, "publicIPAddress", netPIPs)
+		}
+
+		p.dropMissingRef(gw.Obj.Props, agwPropPolicy, netWAFs)
+	}
+
+	for _, fw := range p.ofType(netFWs) {
+		for _, kt := range []string{fwIPConfigs, fwMgmtConfig} {
+			for _, k := range fw.Kids[kt] {
+				p.dropMissingRef(k.Props, "publicIPAddress", netPIPs)
+			}
+		}
+
+		p.dropMissingRef(fw.Obj.Props, fwPropPolicy, netFWPols)
+	}
+
+	for _, pol := range p.ofType(netFWPols) {
+		p.dropMissingRef(pol.Obj.Props, fpPropBase, netFWPols)
+	}
+}
+
+// checkNICSubnetFree refuses subnets reserved by an application gateway or firewall.
+func (p *NetworkProvider) checkNICSubnetFree(cp map[string]any) error {
+	sid := subID(cp, netFieldSubnet)
+	if users := p.subnetGatewayUsers(sid); sid != "" && len(users) > 0 {
+		return netBad("Subnet %s is reserved by %s and cannot contain network interfaces.", sid, users[0])
+	}
+
+	return nil
 }
