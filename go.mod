@@ -291,6 +291,7 @@ require (
 	github.com/distribution/distribution/v3 v3.1.2
 	github.com/dop251/goja v0.0.0-20261012212121-0c308c5ed11b
 	github.com/eclipse/paho.mqtt.golang v1.5.1
+	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-mysql-org/go-mysql v1.16.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-stomp/stomp/v3 v3.1.5
@@ -325,6 +326,8 @@ require (
 	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kmsg v1.15.0
 	github.com/vektah/gqlparser/v2 v2.5.62
+	github.com/willscott/go-nfs v0.0.4
+	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
 	go.mongodb.org/mongo-driver/v2 v2.9.2
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.58.0
@@ -385,6 +388,7 @@ require (
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
+	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.8.4 // indirect
@@ -461,6 +465,7 @@ require (
 	github.com/prometheus/common v0.72.1 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
+	github.com/rasky/go-xdr v0.0.0-20170124162913-1a41d1a06c93 // indirect
 	github.com/redis/go-redis/extra/rediscmd/v9 v9.23.0 // indirect
 	github.com/redis/go-redis/extra/redisotel/v9 v9.23.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

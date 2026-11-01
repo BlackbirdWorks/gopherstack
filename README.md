@@ -997,6 +997,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Core Services](services/ocicore/README.md) | B | 135 | 11 gaps |
 | [OCI DNS](services/ocidns/README.md) | B | 52 | 7 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 6 gaps |
+| [OCI File Storage](services/ocifilestorage/README.md) | B | 74 | 7 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 9 gaps |
 | [OCI Identity](services/ociidentity/README.md) | B | 70 | 9 gaps |
 | [OCI Load Balancer](services/ociloadbalancer/README.md) | B | 61 | 9 gaps |
