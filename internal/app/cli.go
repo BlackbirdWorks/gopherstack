@@ -451,6 +451,7 @@ type CLI struct {
 	cloudtrailHandler             service.Registerable
 	azureARMHandler               service.Registerable
 	azureBlobHandler              service.Registerable
+	azureGraphHandler             service.Registerable
 	gcpStorageHandler             service.Registerable
 	gcpPubSubHandler              service.Registerable
 	gcpFirestoreHandler           service.Registerable

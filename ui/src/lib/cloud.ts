@@ -188,6 +188,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azurearm",
     defaultPort: 10006,
   },
+  {
+    id: "entra",
+    label: "Entra ID & access",
+    description:
+      "Microsoft Entra applications, service principals, users and groups, plus Azure role assignments, locks and policy",
+    healthName: "AzureGraph",
+    portLabel: "azuregraph",
+    defaultPort: 10014,
+  },
 ];
 
 export type GcpService = {

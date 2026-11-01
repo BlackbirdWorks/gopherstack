@@ -23,6 +23,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	"github.com/blackbirdworks/gopherstack/services/azuregraph"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
@@ -162,6 +163,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if ap, hasARM := ctx.Config.(interface{ GetAzureARMHandler() service.Registerable }); hasARM {
 		conf.AzureARMOps, _ = getHandler[*azurearm.Handler](ap.GetAzureARMHandler())
+	}
+
+	if gp, hasGraph := ctx.Config.(interface{ GetAzureGraphHandler() service.Registerable }); hasGraph {
+		conf.AzureGraphOps, _ = getHandler[*azuregraph.Handler](gp.GetAzureGraphHandler())
 	}
 
 	if bp, hasBlob := ctx.Config.(interface{ GetAzureBlobHandler() service.Registerable }); hasBlob {

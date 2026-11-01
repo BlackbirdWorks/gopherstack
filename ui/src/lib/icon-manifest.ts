@@ -30,6 +30,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "azure-blob",
   "azure-containerapps",
   "azure-cosmosdb",
+  "azure-entra",
   "azure-eventgrid",
   "azure-eventhubs",
   "azure-file",
