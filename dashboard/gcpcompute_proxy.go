@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -13,6 +15,7 @@ const (
 	gcpComputeProxyPrefix  = "/dashboard/api/v1/gcp/compute"
 	gcpComputeAPIPrefix    = "/compute/v1"
 	gcpComputeMaxBodyBytes = 1 << 20
+	gcpComputeRevealParam  = "reveal"
 
 	computeMinSegs      = 3
 	computeScopeIdx     = 2
@@ -31,22 +34,42 @@ const (
 	computeDisks        = "disks"
 	computeAddresses    = "addresses"
 	computeRouters      = "routers"
+	computeSnapshots    = "snapshots"
+	computeSubnets      = "subnetworks"
+	computeBackendSvcs  = "backendServices"
+	computeURLMaps      = "urlMaps"
+	computeHTTPProxies  = "targetHttpProxies"
+	computeHTTPSProxies = "targetHttpsProxies"
+	computeFwdRules     = "forwardingRules"
 	computeStart        = "start"
 	computeStop         = "stop"
 	computeReset        = "reset"
+	computeSuspend      = "suspend"
+	computeResume       = "resume"
+	computeSnapshotVerb = "createSnapshot"
 )
 
 //nolint:gochecknoglobals // read-only lookup tables
 var (
-	computeAggregated = []string{
-		computeInstances, computeDisks, "subnetworks", computeAddresses, computeRouters, computeOperations,
+	computeLB = []string{
+		computeBackendSvcs,
+		computeURLMaps,
+		computeHTTPProxies,
+		computeHTTPSProxies,
+		computeFwdRules,
 	}
-	computeGlobal = []string{
-		"networks", "firewalls", "routes", "snapshots", computeOperations, computeAddresses,
-	}
-	computeZonal           = []string{computeInstances, computeDisks, computeOperations}
-	computeRegional        = []string{"subnetworks", computeAddresses, computeRouters, computeOperations}
-	computeInstanceActions = []string{computeStart, computeStop, computeReset}
+	computeAggregated = append([]string{
+		computeInstances, computeDisks, computeSubnets, computeAddresses, computeRouters, computeOperations,
+	}, computeLB...)
+	computeGlobal = append([]string{
+		"networks", "firewalls", "routes", computeSnapshots, computeOperations, computeAddresses, "images",
+		"securityPolicies",
+	}, computeLB...)
+	computeZonal    = []string{computeInstances, computeDisks, computeOperations, "machineTypes"}
+	computeRegional = append(
+		[]string{computeSubnets, computeAddresses, computeRouters, computeOperations},
+		computeLB...)
+	computeInstanceActions = []string{computeStart, computeStop, computeReset, computeSuspend, computeResume}
 	computeQueryKeys       = []string{
 		"filter",
 		"maxResults",
@@ -55,8 +78,8 @@ var (
 	}
 )
 
-// registerGCPComputeRoutes exposes Compute Engine browsing and instance, disk, snapshot and address
-// management to the SPA by dispatching in-process to the emulator's handler.
+// registerGCPComputeRoutes exposes Compute Engine browsing, instance and snapshot creation and resource management to
+// the SPA by dispatching in-process to the emulator's handler. Metadata values never leave it unredacted.
 func (h *DashboardHandler) registerGCPComputeRoutes() {
 	var inner *echo.Echo
 
@@ -72,7 +95,10 @@ func (h *DashboardHandler) registerGCPComputeRoutes() {
 
 		r := c.Request()
 
-		apiPath, ok := gcpComputeProxyPath(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), gcpComputeProxyPrefix))
+		apiPath, parts, ok := gcpComputeProxyPath(
+			r.Method,
+			strings.TrimPrefix(r.URL.EscapedPath(), gcpComputeProxyPrefix),
+		)
 		if !ok {
 			return cloudJSONFail(
 				c,
@@ -82,14 +108,30 @@ func (h *DashboardHandler) registerGCPComputeRoutes() {
 			)
 		}
 
+		body, err := gcpComputeBody(r.Method, parts, http.MaxBytesReader(c.Response(), r.Body, gcpComputeMaxBodyBytes))
+		if err != nil {
+			return cloudJSONFail(c, http.StatusBadRequest, cloudStatusBadArg, err.Error())
+		}
+
 		fwd := r.Clone(r.Context())
 		fwd.URL.Path, fwd.URL.RawPath = unescapedPath(apiPath), apiPath
 		fwd.URL.RawQuery = gcpComputeQuery(r.URL.Query())
 		fwd.RequestURI = ""
-		fwd.Body = http.MaxBytesReader(c.Response(), r.Body, gcpComputeMaxBodyBytes)
-		inner.ServeHTTP(c.Response(), fwd)
+		fwd.Body = io.NopCloser(bytes.NewReader(body))
+		fwd.ContentLength = int64(len(body))
 
-		return nil
+		if r.Method != http.MethodGet {
+			inner.ServeHTTP(c.Response(), fwd)
+
+			return nil
+		}
+
+		reveal := ""
+		if len(parts) == computeScopedItem && parts[computeScopedColl] == computeInstances {
+			reveal = r.URL.Query().Get(gcpComputeRevealParam)
+		}
+
+		return serveRedacted(c, inner, fwd, reveal)
 	}
 
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
@@ -110,18 +152,19 @@ func gcpComputeQuery(in url.Values) string {
 }
 
 // gcpComputeProxyPath maps /projects/<p>/... below the proxy prefix to the emulator's /compute/v1 path. Reads cover
-// instances, disks, snapshots, networks, subnetworks, firewalls, routes, routers, addresses and operations; writes are
-// limited to instance start/stop/reset and deleting instances, disks, snapshots and addresses.
-func gcpComputeProxyPath(method, raw string) (string, bool) {
+// the compute, network, load balancing, Cloud Armor and operation collections; writes are limited to instance
+// start/stop/reset/suspend/resume, creating an instance or a disk snapshot (bodies rebuilt from fixed fields), and
+// deleting instances, disks, snapshots and addresses.
+func gcpComputeProxyPath(method, raw string) (string, []string, bool) {
 	parts := strings.Split(strings.TrimPrefix(raw, "/"), "/")
 	if len(parts) < computeMinSegs || parts[0] != gcpRESTProjectsSeg {
-		return "", false
+		return "", nil, false
 	}
 
 	for _, p := range parts {
 		dec, err := url.PathUnescape(p)
 		if err != nil || dec == "" || dec == "." || dec == ".." || strings.ContainsAny(dec, "/:") {
-			return "", false
+			return "", nil, false
 		}
 	}
 
@@ -137,10 +180,10 @@ func gcpComputeProxyPath(method, raw string) (string, bool) {
 	}
 
 	if !allowed {
-		return "", false
+		return "", nil, false
 	}
 
-	return gcpComputeAPIPrefix + "/" + strings.Join(parts, "/"), true
+	return gcpComputeAPIPrefix + "/" + strings.Join(parts, "/"), parts, true
 }
 
 func computeReadable(parts []string) bool {
@@ -172,8 +215,21 @@ func computeScopedRead(parts, collections []string) bool {
 }
 
 func computeActionable(parts []string) bool {
-	return len(parts) == computeScopedVerb && parts[computeScopeIdx] == computeScopeZones &&
-		parts[computeScopedColl] == computeInstances && slices.Contains(computeInstanceActions, parts[computeScopedVerb-1])
+	if parts[computeScopeIdx] != computeScopeZones {
+		return false
+	}
+
+	switch len(parts) {
+	case computeScopedList:
+		return parts[computeScopedColl] == computeInstances
+	case computeScopedVerb:
+		verb := parts[computeScopedVerb-1]
+
+		return (parts[computeScopedColl] == computeInstances && slices.Contains(computeInstanceActions, verb)) ||
+			(parts[computeScopedColl] == computeDisks && verb == computeSnapshotVerb)
+	}
+
+	return false
 }
 
 func computeDeletable(parts []string) bool {

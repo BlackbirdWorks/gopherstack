@@ -23,7 +23,7 @@
 - Global INTERNAL addresses (VPC peering ranges), IPv6 addresses and prefix-length reservations are rejected.
 - Error message texts for state conflicts (resourceNotReady on setMachineType/reset/detach/suspend/resume/setScheduling), peering overlap and duplicate errors, subnet route delete, resourceInUseByAnotherResource wording, required-field and validation messages, and the firewall rule for ingress without sources were chosen without a production reference.
 - Only a fixed set of 15 regions, 46 zones, 9 image families, e2/n2/n1-standard machine types and 3 persistent disk types exist; image point releases are pinned, region quotas and Project usage quotas are not modelled, and the status/progress timing is a fixed model.
-- No dashboard page, and the emulator does not enforce IAM or return permission errors.
+- The emulator does not enforce IAM or return permission errors.
 
 ## More
 
