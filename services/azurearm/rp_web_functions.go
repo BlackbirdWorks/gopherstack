@@ -124,7 +124,7 @@ func (p *WebProvider) ListFunctions(ctx context.Context, id ResourceID) ([]map[s
 		return nil, err
 	}
 
-	fns, err := p.dataPlane.Functions(ctx, s.Name)
+	fns, err := p.dataPlane.Functions(ctx, s.dpName())
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -163,7 +163,7 @@ func (p *WebProvider) function(
 		return nil, info, FunctionAppFunction{}, err
 	}
 
-	fns, err := p.dataPlane.Functions(ctx, s.Name)
+	fns, err := p.dataPlane.Functions(ctx, s.dpName())
 	if err != nil {
 		return nil, info, FunctionAppFunction{}, badWebRequest(err)
 	}
