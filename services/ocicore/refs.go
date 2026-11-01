@@ -1,5 +1,11 @@
 package ocicore
 
+import (
+	"cmp"
+	"slices"
+	"time"
+)
+
 // SubnetRef is the read-only view of a subnet other emulators validate references against.
 type SubnetRef struct {
 	ID                 string
@@ -121,6 +127,36 @@ func CatalogImages() []ImageRef {
 	for _, m := range imgs {
 		out = append(out, imageRef(m))
 	}
+
+	return out
+}
+
+// VcnRef is the read-only view of a VCN other emulators attach to.
+type VcnRef struct {
+	TimeCreated   time.Time
+	ID            string
+	CompartmentID string
+	DisplayName   string
+}
+
+// ListVcns returns every live VCN, oldest first.
+func (b *InMemoryBackend) ListVcns() []VcnRef {
+	b.mu.RLock("ListVcns")
+	defer b.mu.RUnlock()
+
+	var out []VcnRef
+
+	for _, r := range b.res {
+		if v, ok := r.(*Vcn); ok && live(v) {
+			out = append(out, VcnRef{
+				ID: v.ID, CompartmentID: v.CompartmentID, DisplayName: v.DisplayName, TimeCreated: v.TimeCreated,
+			})
+		}
+	}
+
+	slices.SortFunc(out, func(a, c VcnRef) int {
+		return cmp.Or(a.TimeCreated.Compare(c.TimeCreated), cmp.Compare(a.ID, c.ID))
+	})
 
 	return out
 }

@@ -994,6 +994,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Container Engine for Kubernetes](services/ocicontainerengine/README.md) | B | 20 | 9 gaps |
 | [OCI Container Instances](services/ocicontainerinstances/README.md) | B | 18 | 7 gaps |
 | [OCI Core Services](services/ocicore/README.md) | B | 135 | 11 gaps |
+| [OCI DNS](services/ocidns/README.md) | B | 52 | 8 gaps |
 | [OCI Events](services/ocievents/README.md) | B | 6 | 6 gaps |
 | [OCI Functions](services/ocifunctions/README.md) | B | 16 | 9 gaps |
 | [OCI Identity](services/ociidentity/README.md) | B | 70 | 9 gaps |

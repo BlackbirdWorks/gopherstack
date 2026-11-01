@@ -247,6 +247,7 @@ import (
 	ocioke "github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	ocicontainerinstances "github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
+	ocidns "github.com/blackbirdworks/gopherstack/services/ocidns"
 	ocievents "github.com/blackbirdworks/gopherstack/services/ocievents"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -757,6 +758,7 @@ type CLI struct {
 	OCIEvents                     ocievents.Settings                  `embed:"" prefix:"oci-events-"`
 	OCILoadBalancer               ociloadbalancer.Settings            `embed:"" prefix:"oci-loadbalancer-"`
 	OCIArtifacts                  ociartifacts.Settings               `embed:"" prefix:"oci-artifacts-"`
+	OCIDNS                        ocidns.Settings                     `embed:"" prefix:"oci-dns-"`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -2812,6 +2814,8 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"OCILoadBalancer", "ociloadbalancer", cli.OCILoadBalancer.Port},
 		{"OCIArtifacts", "ociartifacts", cli.OCIArtifacts.Port},
 		{"OCIContainerInstances", "ocicontainerinstances", cli.OCIContainerInstances.Port},
+		{"OCIDNS", "ocidns", cli.OCIDNS.Port},
+		{"OCIDNSServer", "ocidns-server", cli.OCIDNS.DNSPort},
 	}
 }
 
@@ -3830,6 +3834,7 @@ func wireCrossServiceDependencies(
 	wireOCILoadBalancer(byName)
 	wireOCIArtifacts(byName)
 	wireOCIContainerInstances(byName)
+	wireOCIDNS(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
@@ -5334,6 +5339,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&ociloadbalancer.Provider{},
 		&ociartifacts.Provider{},
 		&ocicontainerinstances.Provider{},
+		&ocidns.Provider{},
 		&gcppubsubbackend.Provider{},
 		&gcpsecretmanagerbackend.Provider{},
 		&gcpkmsbackend.Provider{},
