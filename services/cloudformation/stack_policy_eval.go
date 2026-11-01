@@ -219,7 +219,7 @@ func stackPolicyActionForChange(rc ResourceChange) (string, bool) {
 	switch rc.Action {
 	case "Remove":
 		return updateActionDelete, true
-	case "Modify":
+	case changeActionModify:
 		if rc.Replacement == replacementTrue || rc.Replacement == replacementConditionally {
 			return updateActionReplace, true
 		}

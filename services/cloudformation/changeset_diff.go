@@ -98,7 +98,7 @@ func addChangesForTemplate(tmpl *Template) []Change {
 		changes = append(changes, Change{
 			Type: changeTypeResource,
 			ResourceChange: ResourceChange{
-				Action:       "Add",
+				Action:       changeActionAdd,
 				LogicalID:    logicalID,
 				ResourceType: res.Type,
 			},
@@ -157,7 +157,7 @@ func addChange(logicalID string, newR TemplateResource) Change {
 	return Change{
 		Type: changeTypeResource,
 		ResourceChange: ResourceChange{
-			Action:       "Add",
+			Action:       changeActionAdd,
 			LogicalID:    logicalID,
 			ResourceType: newR.Type,
 		},
@@ -212,7 +212,7 @@ func modifyChange(
 	return Change{
 		Type: changeTypeResource,
 		ResourceChange: ResourceChange{
-			Action:       "Modify",
+			Action:       changeActionModify,
 			LogicalID:    logicalID,
 			PhysicalID:   physID,
 			ResourceType: newR.Type,
@@ -454,3 +454,8 @@ func toJSONString(v any) string {
 
 	return string(b)
 }
+
+const (
+	changeActionAdd    = "Add"
+	changeActionModify = "Modify"
+)

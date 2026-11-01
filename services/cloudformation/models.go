@@ -317,6 +317,8 @@ type StackInstance struct {
 	StatusReason            string     `xml:"StatusReason,omitempty"            json:"statusReason,omitempty"`
 	DriftStatus             string     `xml:"DriftStatus,omitempty"             json:"driftStatus,omitempty"`
 	LastOperationID         string     `xml:"LastOperationId,omitempty"         json:"lastOperationID,omitempty"`
+	// DetailedStatus is StackInstanceStatus.DetailedStatus: where the last operation on the instance stands.
+	DetailedStatus string `xml:"-" json:"detailedStatus,omitempty"`
 	// OrganizationalUnitID is set only for SERVICE_MANAGED instances created
 	// via a DeploymentTargets OU expansion (types.go:1836+ OrganizationalUnitId).
 	OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty" json:"organizationalUnitID,omitempty"`
