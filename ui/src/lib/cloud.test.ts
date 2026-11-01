@@ -243,6 +243,7 @@ describe("new GCP console pages", () => {
       "aks",
       "flexdb",
       "apim",
+      "network",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -272,6 +273,7 @@ describe("new GCP console pages", () => {
     expect(ociServiceById("containerengine")?.portLabel).toBe("ocicontainerengine");
     expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
     expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("network")?.portLabel).toBe("azurearm");
     expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
     expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
     expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
