@@ -52,7 +52,7 @@ type cypherFront struct {
 	up             atomic.Bool
 }
 
-// startCypherFront listens on port (0 = ephemeral; read it back from f.port). An empty innerAddr serves Gremlin in-process over graph.
+// startCypherFront listens on port (0 = ephemeral; read f.port). An empty innerAddr serves Gremlin in-process.
 func startCypherFront(
 	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
 	auth func() clusterAuth,
