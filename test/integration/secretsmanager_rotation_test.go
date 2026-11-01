@@ -90,7 +90,7 @@ func putSecretValue(smEndpoint, secretID, token, value string) error {
 	req.Header.Set("X-Amz-Target", "secretsmanager.PutSecretValue")
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	if err != nil {
 		return err
 	}

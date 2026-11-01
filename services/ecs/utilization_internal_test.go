@@ -62,6 +62,7 @@ func TestEmitUtilizationMetrics(t *testing.T) {
 
 			s := newFargateServiceWithLB(t, b, "svc-usage")
 			require.NoError(t, b.StartTaskForService(s.cluster, s.service, s.tdArn))
+			b.awaitLaunches()
 
 			b.emitUtilizationMetrics(t.Context())
 
@@ -99,6 +100,7 @@ func TestDockerRunner_TaskUsage(t *testing.T) {
 
 	s := newFargateServiceWithLB(t, b, "svc-docker-usage")
 	require.NoError(t, b.StartTaskForService(s.cluster, s.service, s.tdArn))
+	b.awaitLaunches()
 
 	tasks, _, err := b.DescribeTasks(s.cluster, nil)
 	require.NoError(t, err)

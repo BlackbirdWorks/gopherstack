@@ -528,6 +528,7 @@ func buildLocalstackPluginsHandler(services []service.Registerable) echo.Handler
 func registerLocalstackInternalEndpoints(e *echo.Echo, cli *CLI, services []service.Registerable) {
 	e.GET("/_localstack/init", buildLocalstackInitHandler(cli.localstackInit, ""))
 	e.GET("/_localstack/init/:stage", buildLocalstackInitHandler(cli.localstackInit, ""))
+	e.POST("/_gopherstack/init/run", buildInitRunHandler(cli.localstackInit))
 	e.GET("/_localstack/config", buildLocalstackConfigGet(cli))
 	e.POST("/_localstack/config", buildLocalstackConfigPost())
 	e.GET("/_localstack/diagnose", buildLocalstackDiagnoseHandler(cli, services))

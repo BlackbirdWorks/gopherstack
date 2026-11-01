@@ -50,12 +50,33 @@ gaps: []
 items_still_open:
   - "DeletePolicyStoreAlias never returns InvalidStateException: the SDK lists it for the op but the only documented trigger (InvalidStateException type doc) is DeletePolicyStore's deletion protection."
   - "CreatePolicyStoreAlias never returns ServiceQuotaExceededException: AWS documents no numeric alias quota."
-structural_gaps:
-  - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken do not verify JWT signatures or expiry: that needs the issuer's real signing keys; aud/client_id matching is implemented."
+structural_gaps: []
 deferred: []              # the one item deferred last pass (CreatePolicyStore ClientToken) is now implemented; see ops notes
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
 
 ## Notes
+
+### 2026-10-31 JWT verification for IsAuthorizedWithToken / BatchIsAuthorizedWithToken (gopherstack-49qct.80)
+
+Tokens are now verified before a principal is derived (`token_verify.go`, `oidc_jwks.go`):
+RS256 signature via kid lookup, `exp` required, `nbf`, issuer, audience/`client_id`, and for Cognito
+`token_use` (`id` for identityToken, `access` for accessToken). Clock is injectable (`TokenVerifier.SetClock`).
+
+- Cognito: signing key resolved in-process from cognitoidp (`Handler.UserPoolSigningKey`, wired in
+  `internal/app/verifiedpermissions_wiring.go`); accepted issuers are the emulator's pool issuer and the
+  ARN-derived `https://cognito-idp.<region>.amazonaws.com/<poolId>`.
+- OIDC: `<issuer>/.well-known/openid-configuration` -> `jwks_uri` via `pkgs/httpclient`, cached 1h
+  (kid miss refetches at most every 30s). https only (http for loopback). Self-signed issuers:
+  `--verifiedpermissions-oidc-ca-file`. tokenSelection type must match the submitted token param.
+- Groups: Cognito `cognito:groups` / OIDC `groupClaim` become parents of the principal entity, typed by
+  `GroupEntityType`. Principal/group IDs are `<userPoolId>|<value>` (Cognito) and `<entityIdPrefix>|<value>`
+  (OIDC), per the SDK CreateIdentitySource and `EntityIdPrefix` docs.
+- `--verifiedpermissions-disable-jwt-verification` / `VERIFIEDPERMISSIONS_DISABLE_JWT_VERIFICATION=1`
+  skips signature/expiry/issuer/audience checks (claims still parsed).
+- Failure shape: `ValidationException` (HTTP 400). The SDK declares only AccessDenied/InternalServer/
+  ResourceNotFound/Throttling/Validation for this op; the exact code real AWS returns for a bad token is
+  not documented, ValidationException is the closest declared fit.
+- Without a verifier installed (bare `NewHandler`, unit tests) the legacy claims-only path is kept.
 
 ### 2026-09-19 (later same day): required-output-member re-verification, no new findings
 

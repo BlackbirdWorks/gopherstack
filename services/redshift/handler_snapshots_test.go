@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -818,28 +819,30 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 	t.Run("activation_delay_transitions_restoring_to_available", func(t *testing.T) {
 		t.Parallel()
 
-		b := newRedshiftBackend()
-		redshift.SetClusterActivationDelay(b, 20*time.Millisecond)
+		synctest.Test(t, func(t *testing.T) {
+			b := newRedshiftBackend()
+			redshift.SetClusterActivationDelay(b, 20*time.Millisecond)
 
-		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
-		require.NoError(t, err)
-		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
-		require.NoError(t, err)
+			_, err := b.CreateCluster("src-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
+			require.NoError(t, err)
+			_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
+			require.NoError(t, err)
 
-		restored, err := b.RestoreFromClusterSnapshot(
-			"restored-cluster",
-			"src-snap",
-			redshift.RestoreFromClusterSnapshotOptions{},
-		)
-		require.NoError(t, err)
-		assert.Equal(t, "restoring", restored.Status,
-			"restored cluster should start in restoring state when an activation delay is configured")
+			restored, err := b.RestoreFromClusterSnapshot(
+				"restored-cluster",
+				"src-snap",
+				redshift.RestoreFromClusterSnapshotOptions{},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, "restoring", restored.Status,
+				"restored cluster should start in restoring state when an activation delay is configured")
 
-		require.Eventually(t, func() bool {
-			clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0, nil, nil)
+			require.Eventually(t, func() bool {
+				clusters, _, descErr := b.DescribeClusters("restored-cluster", "", 0, nil, nil)
 
-			return descErr == nil && len(clusters) == 1 && clusters[0].Status == "available"
-		}, time.Second, 5*time.Millisecond,
-			"restored cluster must transition out of restoring, previously it never did")
+				return descErr == nil && len(clusters) == 1 && clusters[0].Status == "available"
+			}, time.Second, 5*time.Millisecond,
+				"restored cluster must transition out of restoring, previously it never did")
+		})
 	})
 }

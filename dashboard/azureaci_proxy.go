@@ -53,7 +53,7 @@ func (h *DashboardHandler) registerAzureACIRoutes() {
 		}
 
 		q := url.Values{}
-		for _, k := range []string{"api-version", "tail"} {
+		for _, k := range []string{armQueryVersion, "tail"} {
 			if v := r.URL.Query().Get(k); v != "" {
 				q.Set(k, v)
 			}

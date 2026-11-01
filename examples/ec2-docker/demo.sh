@@ -11,7 +11,7 @@ DNS_ADDR="${DNS_ADDR:-127.0.0.1}"
 DNS_PORT="${DNS_PORT:-10053}"
 KEY_NAME="${KEY_NAME:-ec2-docker-demo}"
 KEY_FILE="${KEY_FILE:-/tmp/${KEY_NAME}.pem}"
-AMI_ID="${AMI_ID:-ami-0abcdef1234567890}"
+AMI_ID="${AMI_ID:-ami-0c55b159cbfafe1f0}"
 
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"

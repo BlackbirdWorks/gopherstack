@@ -386,6 +386,7 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 		return nil, err
 	}
 
+	restoreOpts.CallerAccount = vals.Get(callerAccountParam)
 	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine, restoreOpts)
 	if err != nil {
 		return nil, err

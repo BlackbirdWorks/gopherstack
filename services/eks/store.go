@@ -50,6 +50,7 @@ type InMemoryBackend struct {
 	work                             *worker.Group
 	baseCtx                          context.Context
 	clusterEng                       *clusterEngine
+	external                         *externalCluster
 	credentials                      CredentialResolver
 	podIdentityAssumer               PodIdentityRoleAssumer
 	idcApps                          IdcApplicationManager

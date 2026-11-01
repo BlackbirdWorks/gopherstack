@@ -41,3 +41,9 @@ type SubnetPlacementResolver interface {
 	SubnetVPC(id string) string
 	SubnetAZ(id string) string
 }
+
+// CertificateKeyPairResolver is the optional CertificateResolver extension real listeners use to
+// terminate TLS: it returns the PEM certificate (with chain) and private key behind a certificate ARN.
+type CertificateKeyPairResolver interface {
+	CertificateKeyPair(certARN string) (certPEM, keyPEM []byte, ok bool)
+}

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -41,4 +42,24 @@ func newWiredSDKConfig(t *testing.T, cli CLI) aws.Config {
 	require.NoError(t, err)
 
 	return cfg
+}
+
+// initializeServicesT is initializeServices plus a cleanup that stops every
+// backend's background workers once the test ends.
+func initializeServicesT(tb testing.TB, appCtx *service.AppContext) ([]service.Registerable, error) {
+	tb.Helper()
+
+	services, err := initializeServices(appCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	tb.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+
+		shutdownServices(ctx, services)
+	})
+
+	return services, nil
 }

@@ -46,10 +46,15 @@ type Settings struct {
 	BurstCapacity bool `json:"burstCapacity" env:"COSMOSDB_BURST_CAPACITY" default:"false" name:"burst-capacity" help:"Let a partition spend up to 300 s of idle RU/s at up to 3000 RU/s before throttling (opt-in; needs --cosmosdb-enforce-throughput)."` //nolint:lll // config struct tags are intentionally verbose
 	// Serverless models a serverless account: throughput cannot be provisioned and containers burst to 5000 RU/s.
 	Serverless bool `json:"serverless" env:"COSMOSDB_SERVERLESS" default:"false" name:"serverless" help:"Model a serverless Cosmos DB account: reject throughput provisioning and cap containers at 5000 RU/s (needs --cosmosdb-enforce-throughput to throttle)."` //nolint:lll // config struct tags are intentionally verbose
+	// ResourceTokenMaxSeconds is the longest accepted resource-token lifetime (600..86400).
+	ResourceTokenMaxSeconds int `json:"resourceTokenMaxSeconds" env:"COSMOSDB_RESOURCE_TOKEN_MAX_SECONDS" default:"86400" name:"resource-token-max-seconds" help:"Maximum resource-token lifetime in seconds, 600..86400 (Service quotas: 86400; the 2020 Create Permission page says 18000)."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the default Settings. Used when no ConfigProvider
 // is available at init time (e.g. tests constructing a Provider directly).
 func DefaultSettings() Settings {
-	return Settings{Port: DefaultPort, MasterKey: DefaultMasterKey, ValidateAuth: false}
+	return Settings{
+		Port: DefaultPort, MasterKey: DefaultMasterKey, ValidateAuth: false,
+		ResourceTokenMaxSeconds: maxTokenExpirySeconds,
+	}
 }

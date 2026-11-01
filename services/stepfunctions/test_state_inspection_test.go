@@ -39,15 +39,7 @@ func TestTestState_InspectionLevel_RealClient(t *testing.T) {
 				"afterResultPath":     `{"data":{"n":7},"out":{"picked":1}}`,
 			},
 		},
-		{
-			name:  "trace_without_http_task",
-			level: sfntypes.InspectionLevelTrace,
-			wantFields: map[string]string{
-				"input":           `{"data":{"n":7}}`,
-				"afterInputPath":  `{"n":7}`,
-				"afterParameters": `{"v":7}`,
-			},
-		},
+		{name: "trace_without_http_task", level: sfntypes.InspectionLevelTrace, wantErr: true},
 		{name: "unknown_level", level: sfntypes.InspectionLevel("VERBOSE"), wantErr: true},
 	}
 

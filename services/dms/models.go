@@ -269,6 +269,32 @@ type ReplicationTask struct {
 	CdcStartPosition          string     `json:"cdcStartPosition,omitempty"`
 	CdcStopPosition           string     `json:"cdcStopPosition,omitempty"`
 	TaskData                  string     `json:"taskData,omitempty"`
+	StopReason                string     `json:"stopReason,omitempty"`
+	LastFailureMessage        string     `json:"lastFailureMessage,omitempty"`
+	RecoveryCheckpoint        string     `json:"recoveryCheckpoint,omitempty"`
+	// Run-state fields below are filled by the replication engine; ElapsedTimeMillis is derived on read.
+	StartDate          time.Time        `json:"startDate,omitzero"`
+	StopDate           time.Time        `json:"stopDate,omitzero"`
+	FullLoadStartDate  time.Time        `json:"fullLoadStartDate,omitzero"`
+	FullLoadFinishDate time.Time        `json:"fullLoadFinishDate,omitzero"`
+	TableStats         []TableStatistic `json:"tableStats,omitempty"`
+	ElapsedTimeMillis  int64            `json:"-"`
+}
+
+// TableStatistic is one DescribeTableStatistics row; names are the source table's.
+type TableStatistic struct {
+	FullLoadStartTime time.Time `json:"fullLoadStartTime,omitzero"`
+	FullLoadEndTime   time.Time `json:"fullLoadEndTime,omitzero"`
+	LastUpdateTime    time.Time `json:"lastUpdateTime,omitzero"`
+	SchemaName        string    `json:"schemaName"`
+	TableName         string    `json:"tableName"`
+	TableState        string    `json:"tableState"`
+	FullLoadRows      int64     `json:"fullLoadRows"`
+	FullLoadErrorRows int64     `json:"fullLoadErrorRows"`
+	Inserts           int64     `json:"inserts"`
+	Updates           int64     `json:"updates"`
+	Deletes           int64     `json:"deletes"`
+	FullLoadReloaded  bool      `json:"fullLoadReloaded,omitempty"`
 }
 
 // Certificate represents a DMS certificate.

@@ -226,6 +226,9 @@ type InMemoryDB struct {
 	keyInaccessibleSince map[string]time.Time
 	exports              *store.Table[storedExport]
 	throttler            *Throttler
+	txn                  *txnState
+	txnHook              func(txnHookEvent)
+	clock                func() time.Time
 	backups              *store.Table[Backup]
 	iteratorStore        *ShardIteratorStore
 	mu                   *lockmetrics.RWMutex
@@ -389,6 +392,7 @@ func NewInMemoryDB() *InMemoryDB {
 		accountID:            config.DefaultAccountID,
 		mu:                   lockmetrics.New("ddb"),
 		throttler:            NewThrottler(false),
+		txn:                  newTxnState(),
 	}
 	registerAllTables(db)
 
@@ -995,6 +999,7 @@ func (db *InMemoryDB) Reset() {
 	db.registry.ResetAll()
 	db.txnTokens = make(map[string]txnTokenRecord)
 	db.txnPending = make(map[string]time.Time)
+	db.txn.reset()
 	db.fisReplicationPaused = make(map[string]time.Time)
 	db.iteratorStore = NewShardIteratorStore()
 	if db.exprCache != nil {

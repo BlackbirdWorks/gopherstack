@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -161,7 +162,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpspanner", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(
+	srv := gcpenforce.NewServer(
+		ctx, "spanner.googleapis.com",
 		grpc.UnaryInterceptor(logInterceptor(log)),
 		grpc.MaxRecvMsgSize(serverMaxMessage),
 	)

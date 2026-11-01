@@ -71,21 +71,21 @@ func (b *InMemoryBackend) runCodeBuildAction(
 	ae.Status = statusInProgress
 }
 
-// pendingBuild identifies an InProgress Build action execution awaiting its build.
-type pendingBuild struct {
+// pendingAction identifies an InProgress backend-driven action execution awaiting its backend resource.
+type pendingAction struct {
+	action           *Action
 	ae               *ActionExecution
 	region, pipeline string
 }
 
-func (b *InMemoryBackend) pendingBuildsLocked() []pendingBuild {
-	var out []pendingBuild
+func (b *InMemoryBackend) pendingActionsLocked(includeBuilds bool) []pendingAction {
+	var out []pendingAction
 
 	for region, byPipeline := range b.actionExecutions {
 		for name, aes := range byPipeline {
 			for _, ae := range aes {
-				if ae.Status == statusInProgress && ae.Token == "" && ae.ExternalExecutionID != "" &&
-					b.isBuildAction(region, name, ae) {
-					out = append(out, pendingBuild{region: region, pipeline: name, ae: ae})
+				if action := b.pendingDeclaration(region, name, ae, includeBuilds); action != nil {
+					out = append(out, pendingAction{region: region, pipeline: name, ae: ae, action: action})
 				}
 			}
 		}
@@ -94,64 +94,104 @@ func (b *InMemoryBackend) pendingBuildsLocked() []pendingBuild {
 	return out
 }
 
-func (b *InMemoryBackend) isBuildAction(region, pipelineName string, ae *ActionExecution) bool {
+// pendingDeclaration returns the declaration of ae's action when ae is waiting on a backend resource.
+func (b *InMemoryBackend) pendingDeclaration(
+	region, pipelineName string, ae *ActionExecution, includeBuilds bool,
+) *Action {
+	if ae.Status != statusInProgress || ae.Token != "" {
+		return nil
+	}
+
+	action := b.declaredAction(region, pipelineName, ae)
+	if action == nil {
+		return nil
+	}
+
+	isBuild := includeBuilds && ae.ExternalExecutionID != "" && isBuiltinAction(*action, actionProviderCodeBuild)
+	if !isBuild && !isAsyncBuiltin(*action) {
+		return nil
+	}
+
+	return action
+}
+
+// declaredAction returns the pipeline's declaration of the action behind ae, or nil.
+func (b *InMemoryBackend) declaredAction(region, pipelineName string, ae *ActionExecution) *Action {
 	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
 	if !ok {
-		return false
+		return nil
 	}
 
 	stage := findStage(p, ae.StageName)
 	if stage == nil {
-		return false
+		return nil
 	}
 
-	action := findAction(stage, ae.ActionName)
-
-	return action != nil && isBuiltinAction(*action, actionProviderCodeBuild)
+	return findAction(stage, ae.ActionName)
 }
 
-// reconcileBuildActions polls the build behind every InProgress Build action and, once a
-// build is final, completes the action and resumes its pipeline execution.
+// reconcileBuildActions polls the backend resource behind every InProgress Build, CloudFormation and ECS action
+// and, once it settles, completes the action and resumes its pipeline execution.
 func (b *InMemoryBackend) reconcileBuildActions(_ context.Context) {
 	b.mu.RLock("reconcileBuildActionsScan")
 	_, isRunner := b.codeBuildBackend.(CodeBuildRunner)
-	pending := b.pendingBuildsLocked()
+	pending := b.pendingActionsLocked(isRunner)
 	b.mu.RUnlock()
 
-	if !isRunner || len(pending) == 0 {
+	if len(pending) == 0 {
 		return
 	}
 
 	b.mu.Lock("reconcileBuildActions")
 	defer b.mu.Unlock()
 
-	runner, ok := b.codeBuildBackend.(CodeBuildRunner)
-	if !ok {
-		return
-	}
+	runner, _ := b.codeBuildBackend.(CodeBuildRunner)
 
-	for _, pb := range b.pendingBuildsLocked() {
-		b.settleBuild(runner, pb)
+	for _, pa := range b.pendingActionsLocked(runner != nil) {
+		b.settleAction(runner, pa)
 	}
 }
 
-func (b *InMemoryBackend) settleBuild(runner CodeBuildRunner, pb pendingBuild) {
-	ctx := b.regionContext(pb.region)
-	ae := pb.ae
+func (b *InMemoryBackend) settleAction(runner CodeBuildRunner, pa pendingAction) {
+	ctx := b.regionContext(pa.region)
+	ae := pa.ae
 
-	status, err := runner.BuildStatus(ctx, ae.ExternalExecutionID)
-	if err == nil && status == buildStatusInProgress {
+	p, ok := b.pipelines.Get(regionKey(pa.region, pa.pipeline))
+	if !ok {
 		return
 	}
 
-	p, ok := b.pipelines.Get(regionKey(pb.region, pb.pipeline))
-	if !ok {
+	switch {
+	case isBuiltinAction((*pa.action), actionProviderCodeBuild):
+		b.settleBuild(ctx, runner, p, pa)
+	case isBuiltinAction((*pa.action), actionProviderCloudFormation):
+		b.advanceCloudFormation(ctx, p, ae.PipelineExecutionID, (*pa.action), ae)
+	case isBuiltinAction((*pa.action), actionProviderECS):
+		b.advanceECS(ctx, p, ae.PipelineExecutionID, (*pa.action), ae)
+	}
+
+	if ae.Status == statusInProgress {
 		return
 	}
 
 	ae.LastUpdateTime = time.Now().UTC()
 
+	exec := findExecution(b.executionsStore(pa.region)[pa.pipeline], ae.PipelineExecutionID)
+	if exec == nil || exec.Status != statusInProgress {
+		return
+	}
+
+	b.runPipelineActions(pa.region, p, exec)
+	exec.LastUpdateTime = ae.LastUpdateTime
+}
+
+func (b *InMemoryBackend) settleBuild(ctx context.Context, runner CodeBuildRunner, p *Pipeline, pa pendingAction) {
+	ae := pa.ae
+
+	status, err := runner.BuildStatus(ctx, ae.ExternalExecutionID)
+
 	switch {
+	case err == nil && status == buildStatusInProgress:
 	case err != nil:
 		failActionf(ae, failureJobFailed, "Unable to read build %s: %v", ae.ExternalExecutionID, err)
 	case status != buildStatusSucceeded:
@@ -159,19 +199,10 @@ func (b *InMemoryBackend) settleBuild(runner CodeBuildRunner, pb pendingBuild) {
 	default:
 		ae.Status = statusSucceeded
 
-		if perr := b.passThroughArtifacts(ctx, p, ae.PipelineExecutionID, *findAction(
-			findStage(p, ae.StageName), ae.ActionName)); perr != nil {
+		if perr := b.passThroughArtifacts(ctx, p, ae.PipelineExecutionID, (*pa.action)); perr != nil {
 			failActionf(ae, failureJobFailed, "%v", perr)
 		}
 	}
-
-	exec := findExecution(b.executionsStore(pb.region)[pb.pipeline], ae.PipelineExecutionID)
-	if exec == nil || exec.Status != statusInProgress {
-		return
-	}
-
-	b.runPipelineActions(pb.region, p, exec)
-	exec.LastUpdateTime = ae.LastUpdateTime
 }
 
 // StartWorker polls in-flight Build actions until ctx ends. It implements service.Registerable's worker hook.

@@ -127,7 +127,7 @@ func (b *InMemoryBackend) insertRoute(project string, in *computeapi.Route) (*co
 	}
 
 	r := &computeapi.Route{
-		Kind: "compute#route", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
+		Kind: kindRoute, Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name, Description: in.Description,
 		Network: n.SelfLink, DestRange: in.DestRange, Priority: in.Priority, Tags: in.Tags,
 		SelfLink: globalLink(project, "routes", in.Name), RouteType: "STATIC",
 	}
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) getRoute(project, name string) (*computeapi.Route, err
 		return nil, errNotFound(relPath(project, scopeGlobal, "", "routes", name))
 	}
 
-	return clone(r), nil
+	return viewRoute(r), nil
 }
 
 func (b *InMemoryBackend) listRoutes(project string) []entry {
@@ -165,7 +165,7 @@ func (b *InMemoryBackend) listRoutes(project string) []entry {
 
 	for k, r := range b.routes {
 		if strings.HasPrefix(k, project+"/") {
-			out = append(out, entry{scope: scopeGlobal, item: clone(r)})
+			out = append(out, entry{scope: scopeGlobal, item: viewRoute(r)})
 		}
 	}
 
@@ -179,6 +179,11 @@ func (b *InMemoryBackend) deleteRoute(project, name string) (*computeapi.Operati
 	r, ok := b.routes[key(project, name)]
 	if !ok {
 		return nil, errNotFound(relPath(project, scopeGlobal, "", "routes", name))
+	}
+
+	if isSubnetRoute(r) {
+		return nil, errField("route", name,
+			"System-generated subnet routes cannot be deleted; delete or change the subnetwork instead.")
 	}
 
 	delete(b.routes, key(project, name))

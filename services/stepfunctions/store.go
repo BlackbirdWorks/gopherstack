@@ -407,20 +407,21 @@ func (b *InMemoryBackend) SetS3ResultWriter(w asl.S3Writer) {
 // on the backend, copied out under lock so a goroutine building an
 // asl.Executor doesn't need to hold b.mu for the executor's lifetime.
 type integrationsSnapshot struct {
-	lambdaInvoker   asl.LambdaInvoker
-	sqsIntegration  asl.SQSIntegration
-	snsIntegration  asl.SNSIntegration
-	ddbIntegration  asl.DynamoDBIntegration
-	ecsIntegration  asl.ECSIntegration
-	ecsSyncWaiter   asl.ECSSyncWaiter
-	glueIntegration asl.GlueIntegration
-	glueSyncWaiter  asl.GlueSyncWaiter
-	ebIntegration   asl.EventBridgeIntegration
-	sdkIntegration  asl.SDKIntegration
-	roleAuth        roleauth.Authorizer
-	s3Reader        asl.S3Reader
-	s3ResultWriter  asl.S3Writer
-	mockRun         *asl.MockRun
+	lambdaInvoker     asl.LambdaInvoker
+	sqsIntegration    asl.SQSIntegration
+	snsIntegration    asl.SNSIntegration
+	ddbIntegration    asl.DynamoDBIntegration
+	ecsIntegration    asl.ECSIntegration
+	ecsSyncWaiter     asl.ECSSyncWaiter
+	glueIntegration   asl.GlueIntegration
+	glueSyncWaiter    asl.GlueSyncWaiter
+	ebIntegration     asl.EventBridgeIntegration
+	sdkIntegration    asl.SDKIntegration
+	roleAuth          roleauth.Authorizer
+	s3Reader          asl.S3Reader
+	s3ResultWriter    asl.S3Writer
+	mockRun           *asl.MockRun
+	rejectObjectItems bool
 }
 
 // snapshotIntegrationsLocked copies the configured integrations. Must be
@@ -440,6 +441,8 @@ func (b *InMemoryBackend) snapshotIntegrationsLocked() integrationsSnapshot {
 		roleAuth:        b.roleAuth,
 		s3Reader:        b.s3Reader,
 		s3ResultWriter:  b.s3ResultWriter,
+
+		rejectObjectItems: !b.settings.JSONataMapObjectItems,
 	}
 }
 
@@ -460,6 +463,7 @@ func applyIntegrations(executor *asl.Executor, s integrationsSnapshot) {
 	executor.SetS3Reader(s.s3Reader)
 	executor.SetS3ResultWriter(s.s3ResultWriter)
 	executor.SetMockRun(s.mockRun)
+	executor.SetRejectMapObjectItems(s.rejectObjectItems)
 }
 
 func (b *InMemoryBackend) smARN(region, name string) string {

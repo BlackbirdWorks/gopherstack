@@ -106,6 +106,7 @@ const (
 	sourceIdentity
 	sourceResource
 	sourceBoundary
+	sourceSCP
 )
 
 // boundaryTrace is how the permissions boundary evaluated a request.
@@ -137,7 +138,7 @@ func (d requestDecision) attribute(backend EnforcementBackend, in attribution) r
 		d.policy = &iampolicystream.PolicyRef{Type: iampolicystream.PolicyResource, Owner: in.resourceArn}
 	case sourceIdentity:
 		d.policy = identityPolicyRef(at, in, d.match.PolicyIndex)
-	case sourceNone:
+	case sourceSCP, sourceNone:
 	}
 
 	return d

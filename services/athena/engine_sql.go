@@ -71,7 +71,7 @@ func renamedAlias(lw string) string {
 		return "min"
 	case "ceiling":
 		return "ceil"
-	case "truncate":
+	case fnTruncate:
 		return "trunc"
 	default:
 		return ""
@@ -415,20 +415,20 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 		return out, j - 1
 	}
 
-	parts := []string{toks[j].ident()}
-	end := j
-
-	for end+2 < len(toks) && toks[end+1].isPunct(".") &&
-		(toks[end+2].kind == tkWord || toks[end+2].kind == tkQuoted) {
-		parts = append(parts, toks[end+2].ident())
-		end += 2
-	}
+	parts, end := qualifiedRef(toks, j)
 
 	if len(parts) == 1 && x.ctes[parts[0]] {
 		return append(out, toks[j:end+1]...), end
 	}
 
-	ref := x.resolve(parts)
+	resolveParts := parts
+
+	if tr, tend := x.travelClause(toks, end); tr != "" {
+		resolveParts = append(append([]string{}, parts...), travelSentinel+tr)
+		end = tend
+	}
+
+	ref := x.resolve(resolveParts)
 	if !ref.found {
 		x.unresolved = append(x.unresolved, orDefault(ref.display, strings.Join(parts, ".")))
 
@@ -442,6 +442,20 @@ func (x *translator) tableRef(toks []token, i int, out []token) ([]token, int) {
 		token{kind: tkPunct, text: "."},
 		token{kind: tkQuoted, text: quoteIdent(ref.name)},
 	), end
+}
+
+// qualifiedRef reads a dotted table reference starting at j and returns its parts and last token index.
+func qualifiedRef(toks []token, j int) ([]string, int) {
+	parts := []string{toks[j].ident()}
+	end := j
+
+	for end+2 < len(toks) && toks[end+1].isPunct(".") &&
+		(toks[end+2].kind == tkWord || toks[end+2].kind == tkQuoted) {
+		parts = append(parts, toks[end+2].ident())
+		end += 2
+	}
+
+	return parts, end
 }
 
 // noteTable records the qualifiers (table name and alias) and ROW columns of a resolved table.

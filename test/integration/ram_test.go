@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func ramRequest(t *testing.T, method, path string, body any) *http.Response {
@@ -29,7 +31,7 @@ func ramRequest(t *testing.T, method, path string, body any) *http.Response {
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/ram/aws4_request, "+
 		"SignedHeaders=host;x-amz-date, Signature=fakesignature")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	return resp

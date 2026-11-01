@@ -255,6 +255,12 @@ func (h *Handler) proxyTo(w http.ResponseWriter, req *dpRequest, tg *TargetGroup
 		scheme = "https"
 	}
 
+	if isUpgradeRequest(req.r) {
+		h.proxyUpgrade(w, req, ap, scheme, sticky, tg)
+
+		return
+	}
+
 	target := scheme + "://" + ap.String() + req.rawPath
 	if q := req.r.URL.RawQuery; q != "" {
 		target += "?" + q
@@ -330,12 +336,7 @@ func copyHeaders(dst, src http.Header) {
 }
 
 func setForwardHeaders(h http.Header, req *dpRequest) {
-	ip := req.client.String()
-	if prior := h.Get("X-Forwarded-For"); prior != "" {
-		ip = prior + ", " + ip
-	}
-
-	h.Set("X-Forwarded-For", ip)
+	applyXFF(h, req)
 	h.Set("X-Forwarded-Proto", listenerScheme(req.listener))
 	h.Set("X-Forwarded-Port", strconv.Itoa(int(req.listener.Port)))
 	h.Set(traceHeader, nextTraceID(h.Get(traceHeader)))

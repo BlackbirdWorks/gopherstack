@@ -2,6 +2,13 @@
 
 package app
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
+)
 
-func detachProcess(*exec.Cmd) {}
+const winCreateNewProcessGroup = 0x200
+
+func detachProcess(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: winCreateNewProcessGroup}
+}

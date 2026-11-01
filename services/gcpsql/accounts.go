@@ -115,6 +115,21 @@ func (b *InMemoryBackend) opRec(project, name string) (*instRec, error) {
 	return rec, nil
 }
 
+// writableRec is opRec for changes a read replica rejects.
+func (b *InMemoryBackend) writableRec(project, name string) (*instRec, error) {
+	rec, err := b.opRec(project, name)
+	if err != nil {
+		return nil, err
+	}
+
+	if rec.Inst.MasterInstanceName != "" {
+		return nil, errInvalid("The instance is a read replica and cannot be changed through its own databases " +
+			"and users; change the primary instead.")
+	}
+
+	return rec, nil
+}
+
 // InsertDatabase creates a database.
 func (b *InMemoryBackend) InsertDatabase(project, instance string, in DatabaseInput) (*Operation, error) {
 	if !validDatabaseName(in.Name) {
@@ -124,7 +139,7 @@ func (b *InMemoryBackend) InsertDatabase(project, instance string, in DatabaseIn
 	b.mu.Lock("InsertDatabase")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +219,7 @@ func (b *InMemoryBackend) UpdateDatabase(project, instance, name string, in Data
 	b.mu.Lock("UpdateDatabase")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +241,7 @@ func (b *InMemoryBackend) DeleteDatabase(project, instance, name string) (*Opera
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +325,7 @@ func (b *InMemoryBackend) InsertUser(project, instance string, in UserInput) (*O
 	b.mu.Lock("InsertUser")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -353,7 +368,7 @@ func (b *InMemoryBackend) UpdateUser(project, instance, name, host string, in Us
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +462,7 @@ func (b *InMemoryBackend) DeleteUser(project, instance, name, host string) (*Ope
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
-	rec, err := b.opRec(project, instance)
+	rec, err := b.writableRec(project, instance)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	"github.com/blackbirdworks/gopherstack/test/internal/buildcheck"
@@ -1963,7 +1964,7 @@ func resetGopherstackState(ep string) error {
 		return fmt.Errorf("build reset request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := noKeepAliveClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("call reset endpoint: %w", err)
 	}
@@ -2050,4 +2051,11 @@ func createFirehoseClient(t *testing.T) *firehosesdk.Client {
 	return firehosesdk.NewFromConfig(cfg, func(o *firehosesdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+func noKeepAliveClient() *http.Client {
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+
+	return &http.Client{Transport: tr}
 }

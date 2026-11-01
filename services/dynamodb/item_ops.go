@@ -291,6 +291,8 @@ func compareTypedField(typeKey string, leftVal, rightVal any) bool {
 		return compareStringSetField(leftVal, rightVal)
 	case "BS":
 		return compareByteSetField(leftVal, rightVal)
+	case "N":
+		return compareNumberField(leftVal, rightVal)
 	default:
 		return compareScalarField(leftVal, rightVal)
 	}
@@ -355,6 +357,17 @@ func compareStringSetField(leftVal, rightVal any) bool {
 	}
 
 	return true
+}
+
+func compareNumberField(leftVal, rightVal any) bool {
+	l, okL := dynamoattr.ParseNumeric(leftVal)
+	r, okR := dynamoattr.ParseNumeric(rightVal)
+
+	if okL && okR {
+		return l.Cmp(r) == 0
+	}
+
+	return compareScalarField(leftVal, rightVal)
 }
 
 func compareByteSetField(leftVal, rightVal any) bool {
@@ -487,14 +500,8 @@ func fallbackCompare(v1, v2 any) int {
 func compareNumbers(v1, v2 any) int {
 	f1, _ := dynamoattr.ParseNumeric(v1)
 	f2, _ := dynamoattr.ParseNumeric(v2)
-	if f1 < f2 {
-		return -1
-	}
-	if f1 > f2 {
-		return 1
-	}
 
-	return 0
+	return f1.Cmp(f2)
 }
 
 func compareStrings(v1, v2 any) int {
@@ -761,7 +768,7 @@ func compareSortKeyValues(a, b any, typ string) int {
 		an, _ := dynamoattr.ParseNumeric(a)
 		bn, _ := dynamoattr.ParseNumeric(b)
 
-		return cmp.Compare(an, bn)
+		return an.Cmp(bn)
 	}
 
 	return cmp.Compare(dynamoattr.ToString(a), dynamoattr.ToString(b))

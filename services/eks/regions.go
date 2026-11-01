@@ -20,6 +20,8 @@ func (h *Handler) EnableRegions() {
 		nb := NewInMemoryBackend(home.baseCtx, home.accountID, region)
 		nb.SetIdcApplicationManager(home.idcApplicationManager())
 
+		nb.external = home.externalProvider()
+
 		if cfg, on := home.engineConfig(); on {
 			cfg.Runtime = sharedRuntime{cfg.Runtime}
 			_ = nb.EnableClusters(cfg)

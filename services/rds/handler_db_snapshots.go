@@ -10,7 +10,7 @@ func (h *Handler) handleCreateDBSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	instanceID := vals.Get("DBInstanceIdentifier")
 
-	snap, err := h.Backend.CreateDBSnapshot(snapshotID, instanceID)
+	snap, err := h.Backend.CreateDBSnapshotAs(vals.Get(callerAccountParam), snapshotID, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	instanceID := vals.Get("DBInstanceIdentifier")
 
-	snaps, err := h.Backend.DescribeDBSnapshots(snapshotID, instanceID)
+	snaps, err := h.Backend.DescribeDBSnapshotsAs(parseSnapshotQuery(vals, snapshotID, instanceID))
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (h *Handler) handleDescribeDBSnapshots(vals url.Values) (any, error) {
 func (h *Handler) handleDeleteDBSnapshot(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 
-	snap, err := h.Backend.DeleteDBSnapshot(snapshotID)
+	snap, err := h.Backend.DeleteDBSnapshotAs(vals.Get(callerAccountParam), snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -157,6 +157,7 @@ func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, e
 	id := vals.Get("DBInstanceIdentifier")
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	opts := parseRestoreDBInstanceOptions(vals)
+	opts.CallerAccount = vals.Get(callerAccountParam)
 
 	inst, err := h.Backend.RestoreDBInstanceFromDBSnapshot(id, snapshotID, opts)
 	if err != nil {
@@ -176,9 +177,10 @@ func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
 	targetSnapshotID := vals.Get("TargetDBSnapshotIdentifier")
 
 	opts := CopyDBSnapshotOptions{
-		KmsKeyID:     vals.Get("KmsKeyId"),
-		SourceRegion: vals.Get("SourceRegion"),
-		CopyTags:     vals.Get("CopyTags") == formTrue,
+		KmsKeyID:      vals.Get("KmsKeyId"),
+		SourceRegion:  vals.Get("SourceRegion"),
+		CopyTags:      vals.Get("CopyTags") == formTrue,
+		CallerAccount: vals.Get(callerAccountParam),
 	}
 
 	snap, err := h.Backend.CopyDBSnapshot(sourceSnapshotID, targetSnapshotID, opts)
@@ -232,7 +234,7 @@ type modifyDBSnapshotAttributeResponse struct {
 
 func (h *Handler) handleDescribeDBSnapshotAttributes(vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBSnapshotIdentifier")
-	result, err := h.Backend.DescribeDBSnapshotAttributes(snapshotID)
+	result, err := h.Backend.DescribeDBSnapshotAttributesAs(vals.Get(callerAccountParam), snapshotID)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +268,9 @@ func (h *Handler) handleModifyDBSnapshotAttribute(vals url.Values) (any, error) 
 	// locationName is "AttributeValue", not the query-protocol default "member".
 	valuesToAdd := extractMemberList(vals, "ValuesToAdd.AttributeValue.")
 	valuesToRemove := extractMemberList(vals, "ValuesToRemove.AttributeValue.")
-	result, err := h.Backend.ModifyDBSnapshotAttribute(snapshotID, attributeName, valuesToAdd, valuesToRemove)
+	result, err := h.Backend.ModifyDBSnapshotAttributeAs(
+		vals.Get(callerAccountParam), snapshotID, attributeName, valuesToAdd, valuesToRemove,
+	)
 	if err != nil {
 		return nil, err
 	}

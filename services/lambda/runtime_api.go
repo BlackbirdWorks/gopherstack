@@ -51,13 +51,16 @@ type invocationResult struct {
 // runtimeServer is a per-function Lambda Runtime API server.
 // Containers call /next to receive invocations and /response or /error to return results.
 type runtimeServer struct {
-	srv     *http.Server
-	queue   chan *pendingInvocation
-	done    chan struct{}
-	pending sync.Map
-	// traceActive makes /next carry a Lambda-Runtime-Trace-Id (Active tracing).
-	traceActive atomic.Bool
-	port        int
+	srv            *http.Server
+	queue          chan *pendingInvocation
+	done           chan struct{}
+	exts           *extensionRegistry
+	shutdownReason atomic.Pointer[string]
+	closing        chan struct{}
+	pending        sync.Map
+	port           int
+	stopOnce       sync.Once
+	traceActive    atomic.Bool
 }
 
 // runtimeQueueSize is the buffered depth of the invocation queue per function.
@@ -84,19 +87,34 @@ func newRuntimeServer(port int) *runtimeServer {
 		port:  port,
 		queue: make(chan *pendingInvocation, runtimeQueueSize),
 		done:  make(chan struct{}),
+
+		exts:    newExtensionRegistry(),
+		closing: make(chan struct{}),
 	}
 }
 
-// start begins listening on the configured port and serves the Runtime API.
-func (s *runtimeServer) start(ctx context.Context) error {
+// setShutdownReason sets the reason carried by the SHUTDOWN event extensions receive.
+func (s *runtimeServer) setShutdownReason(reason string) { s.shutdownReason.Store(&reason) }
+
+// routes returns the Runtime API and Extensions API handler.
+func (s *runtimeServer) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/2018-06-01/runtime/invocation/next", s.handleNext)
 	mux.HandleFunc("/2018-06-01/runtime/invocation/", s.handleInvocationResult)
 	mux.HandleFunc("/2018-06-01/runtime/init/error", s.handleInitError)
+	mux.HandleFunc(extensionPathPrefix+"register", s.handleExtensionRegister)
+	mux.HandleFunc(extensionPathPrefix+"event/next", s.handleExtensionNext)
+	mux.HandleFunc(extensionPathPrefix+"init/error", s.handleExtensionError(true))
+	mux.HandleFunc(extensionPathPrefix+"exit/error", s.handleExtensionError(false))
 
+	return mux
+}
+
+// start begins listening on the configured port and serves the Runtime API.
+func (s *runtimeServer) start(ctx context.Context) error {
 	s.srv = &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
-		Handler:           mux,
+		Handler:           s.routes(),
 		ReadHeaderTimeout: runtimeReadHeaderTimeout,
 	}
 
@@ -120,6 +138,17 @@ func (s *runtimeServer) start(ctx context.Context) error {
 
 // stop shuts down the runtime server gracefully.
 func (s *runtimeServer) stop(ctx context.Context) {
+	reason := shutdownReasonSpindown
+	if r := s.shutdownReason.Load(); r != nil {
+		reason = *r
+	}
+
+	s.exts.shutdown(ctx, reason)
+	s.stopOnce.Do(func() {
+		close(s.closing)
+		s.exts.close()
+	})
+
 	if s.srv != nil {
 		_ = s.srv.Shutdown(ctx)
 
@@ -206,24 +235,32 @@ func (s *runtimeServer) handleNext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.exts.awaitInit(r.Context())
+	s.exts.awaitIdle(r.Context())
+
 	select {
 	case inv := <-s.queue:
 		s.pending.Store(inv.requestID, inv)
 		w.Header().Set("Lambda-Runtime-Aws-Request-Id", inv.requestID)
 		w.Header().Set("Lambda-Runtime-Deadline-Ms", strconv.FormatInt(inv.deadline.UnixMilli(), 10))
-		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn",
-			arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:unknown"))
+		fnARN := s.functionARN()
+		w.Header().Set("Lambda-Runtime-Invoked-Function-Arn", fnARN)
 		if inv.clientContext != "" {
 			w.Header().Set("Lambda-Runtime-Client-Context", inv.clientContext)
 		}
+		trace := ""
 		if s.traceActive.Load() {
-			w.Header().Set("Lambda-Runtime-Trace-Id", newTraceHeader(time.Now()))
+			trace = newTraceHeader(time.Now())
+			w.Header().Set("Lambda-Runtime-Trace-Id", trace)
 		}
+
+		s.exts.fanoutInvoke(inv.requestID, inv.deadline, fnARN, trace)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(inv.payload)
 	case <-r.Context().Done():
 		// Container disconnected or request cancelled — do nothing.
+	case <-s.closing:
 	}
 }
 
@@ -317,8 +354,27 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 
 	logger.Load(r.Context()).ErrorContext(r.Context(), "lambda runtime init error", "error", string(body))
 
-	// Deliver the init error to the first pending invocation so the caller gets an
-	// immediate error response instead of timing out.
+	s.setShutdownReason(shutdownReasonFailure)
+	s.failPending(body)
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// functionARN is the ARN reported to the runtime and extensions as the invoked function.
+func (s *runtimeServer) functionARN() string {
+	s.exts.mu.RLock("functionARN")
+	defer s.exts.mu.RUnlock()
+
+	if s.exts.meta.functionARN != "" {
+		return s.exts.meta.functionARN
+	}
+
+	return arn.Build("lambda", config.DefaultRegion, config.DefaultAccountID, "function:unknown")
+}
+
+// failPending delivers an init error to the first pending invocation so the caller
+// gets an immediate error response instead of timing out.
+func (s *runtimeServer) failPending(body []byte) {
 	s.pending.Range(func(key, value any) bool {
 		inv, ok := value.(*pendingInvocation)
 		if !ok {
@@ -334,6 +390,4 @@ func (s *runtimeServer) handleInitError(w http.ResponseWriter, r *http.Request) 
 
 		return false // stop after first
 	})
-
-	w.WriteHeader(http.StatusAccepted)
 }

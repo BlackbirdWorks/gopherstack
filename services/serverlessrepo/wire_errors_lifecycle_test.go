@@ -2,21 +2,35 @@ package serverlessrepo_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	sarsdk "github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository"
 	"github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
+
+func newInMemorySARClient(t *testing.T, h *serverlessrepo.Handler) *sarsdk.Client {
+	t.Helper()
+
+	return sarsdk.NewFromConfig(aws.Config{
+		Region:       "us-east-1",
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.ServeInMemory(t, h),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
+	})
+}
 
 func newSARFixture(t *testing.T, b *serverlessrepo.InMemoryBackend) *sarsdk.Client {
 	t.Helper()
 
-	client, _ := newTestSARSDKClient(t, serverlessrepo.NewHandler(b))
+	client := newInMemorySARClient(t, serverlessrepo.NewHandler(b))
 	_, err := client.CreateApplication(t.Context(), &sarsdk.CreateApplicationInput{
 		Name:            aws.String("app"),
 		Description:     aws.String("d"),
@@ -284,21 +298,23 @@ func TestSDK_TemplateStatusLifecycle(t *testing.T) {
 func TestSDK_TemplateStatusCompletes(t *testing.T) {
 	t.Parallel()
 
-	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetTemplatePrepareDelay(20 * time.Millisecond)
-	client := newSARFixture(t, b)
+	synctest.Test(t, func(t *testing.T) {
+		b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+		b.SetTemplatePrepareDelay(20 * time.Millisecond)
+		client := newSARFixture(t, b)
 
-	created, err := client.CreateCloudFormationTemplate(t.Context(), &sarsdk.CreateCloudFormationTemplateInput{
-		ApplicationId: aws.String("app"),
-	})
-	require.NoError(t, err)
-	require.Equal(t, types.StatusPreparing, created.Status)
-
-	require.Eventually(t, func() bool {
-		got, getErr := client.GetCloudFormationTemplate(t.Context(), &sarsdk.GetCloudFormationTemplateInput{
-			ApplicationId: aws.String("app"), TemplateId: created.TemplateId,
+		created, err := client.CreateCloudFormationTemplate(t.Context(), &sarsdk.CreateCloudFormationTemplateInput{
+			ApplicationId: aws.String("app"),
 		})
+		require.NoError(t, err)
+		require.Equal(t, types.StatusPreparing, created.Status)
 
-		return getErr == nil && got.Status == types.StatusActive
-	}, 5*time.Second, 10*time.Millisecond)
+		require.Eventually(t, func() bool {
+			got, getErr := client.GetCloudFormationTemplate(t.Context(), &sarsdk.GetCloudFormationTemplateInput{
+				ApplicationId: aws.String("app"), TemplateId: created.TemplateId,
+			})
+
+			return getErr == nil && got.Status == types.StatusActive
+		}, 5*time.Second, 10*time.Millisecond)
+	})
 }

@@ -192,3 +192,17 @@ func (a *azureKeyVaultsAdapter) SoftDeleteVault(name string) { a.backend.SoftDel
 func (a *azureKeyVaultsAdapter) RecoverVault(name string) { a.backend.RecoverVault(name) }
 
 func (a *azureKeyVaultsAdapter) PurgeVault(name string) { a.backend.PurgeVault(name) }
+
+// SecretValue reads a secret's value for container app keyVaultUrl references.
+func (a *azureKeyVaultsAdapter) SecretValue(vault, name, version string) (string, error) {
+	s, err := a.backend.GetSecret(vault, "", name, version)
+	if err != nil {
+		return "", err
+	}
+
+	if s.Value == nil {
+		return "", nil
+	}
+
+	return *s.Value, nil
+}

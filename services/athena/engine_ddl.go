@@ -63,12 +63,23 @@ func (b *InMemoryBackend) execGlueCreateTable(
 
 	catalog, db, table := refTarget(spec.parts, qctx)
 
+	if _, isS3T := s3TablesBucket(catalog); isS3T {
+		return nil, stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error()), true
+	}
+
 	cat, ok := b.glueCatalogFor(catalog)
 	if !ok {
 		return nil, stmtOK(), false
 	}
 
 	spec.def.Name = table
+
+	switch tableTypeOf(&spec.def) {
+	case tableTypeIceberg:
+		return b.createIcebergTable(spec, db, cat)
+	case tableTypeDelta:
+		return b.createDeltaTable(spec, db, cat)
+	}
 
 	switch err = cat.CreateTableDef(db, spec.def); {
 	case err == nil:
@@ -96,6 +107,10 @@ func (b *InMemoryBackend) execGlueDropTable(
 
 	parts := strings.Split(strings.ReplaceAll(name, `"`, ""), ".")
 	catalog, db, table := refTarget(parts, qctx)
+
+	if _, isS3T := s3TablesBucket(catalog); isS3T {
+		return nil, stmtFail(athenaErrTypeSyntax, "%s", errS3TablesDDL.Error()), true
+	}
 
 	cat, ok := b.glueCatalogFor(catalog)
 	if !ok {

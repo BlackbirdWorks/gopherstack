@@ -118,6 +118,8 @@ func launchFailingServiceTasks(t *testing.T, b *InMemoryBackend, tdArn string, c
 	}); err != nil {
 		t.Fatalf("RunTask: %v", err)
 	}
+
+	b.awaitLaunches()
 }
 
 func primaryDeployment(t *testing.T, b *InMemoryBackend) Deployment {

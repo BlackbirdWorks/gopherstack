@@ -22,13 +22,15 @@ func isUndef(v any) bool {
 
 // evalCtx carries per-query evaluation state. group is non-nil only while evaluating a GROUP BY output row.
 type evalCtx struct {
-	udf     *udfRuntime
-	coll    *queryColl
-	params  map[string]any
-	regex   map[string]*regexp.Regexp
-	now     time.Time
-	group   [][]any
-	grouped bool
+	now      time.Time
+	udf      *udfRuntime
+	coll     *queryColl
+	params   map[string]any
+	regex    map[string]*regexp.Regexp
+	stats    *retrievalStats
+	group    [][]any
+	geometry bool
+	grouped  bool
 }
 
 func newEvalCtx(params []QueryParameter) *evalCtx {
@@ -402,6 +404,8 @@ func (ec *evalCtx) evalCall(n *exprCall, env []any) any {
 	}
 
 	switch n.kind {
+	case fnDocumentID:
+		return documentIDOf(n, env)
 	case fnUDF:
 		return ec.udf.call(n.name, args)
 	case fnVector:

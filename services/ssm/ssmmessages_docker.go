@@ -39,5 +39,12 @@ func (d *dockerShellOpener) OpenShell(ctx context.Context, containerID string, c
 	)
 }
 
+// OpenCommand runs command through sh in the container with a TTY.
+func (d *dockerShellOpener) OpenCommand(
+	ctx context.Context, containerID string, cmd []string, cols, rows uint,
+) (Shell, error) {
+	return d.api.ContainerExecInteractive(context.WithoutCancel(ctx), containerID, cmd, cols, rows)
+}
+
 // Close releases the Docker client.
 func (d *dockerShellOpener) Close() error { return d.api.Close() }

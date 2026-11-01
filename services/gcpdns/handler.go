@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,8 +15,10 @@ import (
 	dnsapi "google.golang.org/api/dns/v1"
 
 	pkgdns "github.com/blackbirdworks/gopherstack/pkgs/dns"
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -41,6 +42,8 @@ type Handler struct {
 	addr    string
 	Port    int
 	DNSPort int
+	// DNSEphemeral binds the DNS server to an OS-assigned port (recorded in DNSPort) instead of DNSPort.
+	DNSEphemeral bool
 }
 
 var (
@@ -463,7 +466,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	var dnsSrv *pkgdns.Server
 
-	if h.DNSPort > 0 {
+	if h.DNSPort > 0 || h.DNSEphemeral {
 		var err error
 
 		if dnsSrv, err = h.startDNS(workerCtx); err != nil {
@@ -471,9 +474,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		}
 	}
 
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		if dnsSrv != nil {
 			_ = dnsSrv.Stop()
@@ -482,8 +483,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return fmt.Errorf("gcpdns: bind port %d: %w", h.Port, err)
 	}
 
+	h.Port = port
+
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(log))
+	e.Use(gcpenforce.EchoMiddleware(ctx, gcpenforce.Target{Host: "dns.googleapis.com"}))
 	e.Any("/*", telemetry.WrapEchoHandler("GCPDNS", h.Handler(), h))
 
 	srv := &http.Server{
@@ -506,7 +510,12 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 }
 
 func (h *Handler) startDNS(ctx context.Context) (*pkgdns.Server, error) {
-	srv, err := pkgdns.New(pkgdns.Config{ListenAddr: fmt.Sprintf(":%d", h.DNSPort), Logger: logger.Load(ctx)})
+	port := h.DNSPort
+	if h.DNSEphemeral {
+		port = 0
+	}
+
+	srv, err := pkgdns.New(pkgdns.Config{ListenAddr: fmt.Sprintf(":%d", port), Logger: logger.Load(ctx)})
 	if err != nil {
 		return nil, fmt.Errorf("gcpdns: dns server: %w", err)
 	}
@@ -515,6 +524,10 @@ func (h *Handler) startDNS(ctx context.Context) (*pkgdns.Server, error) {
 
 	if err = srv.Start(ctx); err != nil {
 		return nil, fmt.Errorf("gcpdns: bind dns port %d: %w", h.DNSPort, err)
+	}
+
+	if h.DNSEphemeral {
+		h.DNSPort = srv.Port()
 	}
 
 	return srv, nil

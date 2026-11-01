@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +34,7 @@ func (e *env) callHost(t *testing.T, host, method, path, ctype string, body []by
 	}
 
 	client := &http.Client{
-		Transport:     http.DefaultTransport.(*http.Transport).Clone(),
+		Transport:     httpclient.NewTransport(),
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 

@@ -3,8 +3,10 @@ package dns_test
 import (
 	"context"
 	"net"
+	"strconv"
 	"testing"
 
+	mdns "github.com/miekg/dns"
 	"github.com/stretchr/testify/require"
 
 	gopherDNS "github.com/blackbirdworks/gopherstack/pkgs/dns"
@@ -87,4 +89,24 @@ func TestServer_StartFailureStopsOtherServer(t *testing.T) {
 
 	require.Error(t, s.Start(t.Context()))
 	require.NoError(t, s.Stop())
+}
+
+func TestServer_EphemeralPort(t *testing.T) {
+	t.Parallel()
+
+	s, err := gopherDNS.New(gopherDNS.Config{ListenAddr: "127.0.0.1:0"})
+	require.NoError(t, err)
+	require.NoError(t, s.Start(t.Context()))
+	t.Cleanup(func() { _ = s.Stop() })
+	require.NotZero(t, s.Port())
+
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(s.Port()))
+
+	for _, network := range []string{"tcp", "udp"} {
+		m := new(mdns.Msg)
+		m.SetQuestion("example.test.", mdns.TypeA)
+
+		_, _, err = (&mdns.Client{Net: network}).ExchangeContext(t.Context(), m, addr)
+		require.NoError(t, err, network)
+	}
 }

@@ -26,6 +26,7 @@ var s3HostPattern = regexp.MustCompile(`^(.+?)\.s3[.-]`)
 
 type originResp struct {
 	header http.Header
+	xcache string
 	body   []byte
 	status int
 }

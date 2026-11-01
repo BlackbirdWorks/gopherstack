@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -546,7 +547,7 @@ func (db *InMemoryDB) filterCandidatesScan(
 type querySortEntry struct {
 	item  map[string]any
 	skStr string
-	skNum float64
+	skNum dynamonum.Num
 }
 
 func (db *InMemoryDB) sortCandidates(
@@ -584,7 +585,7 @@ func (db *InMemoryDB) sortCandidates(
 	slices.SortFunc(entries, func(a, b querySortEntry) int {
 		var res int
 		if skType == "N" {
-			res = cmp.Compare(a.skNum, b.skNum)
+			res = a.skNum.Cmp(b.skNum)
 		} else {
 			res = cmp.Compare(a.skStr, b.skStr)
 		}

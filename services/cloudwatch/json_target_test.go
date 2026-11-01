@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func doJSONTarget(t *testing.T, url, op, body string) (*http.Response, []byte) {
@@ -26,7 +28,7 @@ func doJSONTarget(t *testing.T, url, op, body string) (*http.Response, []byte) {
 	req.Header.Set("X-Amz-Target", "GraniteServiceVersion20100801."+op)
 	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

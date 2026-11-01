@@ -160,3 +160,23 @@ func (a *athenaGlueAdapter) CreatePartitionDefs(db, table string, parts []athena
 
 	return fmt.Errorf("%w: %s", errGluePartition, perrs[0].ErrorDetail.ErrorMessage)
 }
+
+var _ interface {
+	CommitTableMetadata(db, name, expected, next string) error
+} = (*athenaGlueAdapter)(nil)
+
+// CommitTableMetadata swaps an Iceberg table's metadata_location, failing when it moved from expected.
+func (a *athenaGlueAdapter) CommitTableMetadata(db, name, expected, next string) error {
+	t, err := a.glueTable(db, name)
+	if err != nil {
+		return err
+	}
+
+	err = a.backend.SwapTableParameters(t.DatabaseName, t.Name, "metadata_location", expected,
+		map[string]string{"metadata_location": next, "previous_metadata_location": expected})
+	if errors.Is(err, gluebackend.ErrTableParameterChanged) {
+		return athenabackend.ErrCatalogCommitConflict
+	}
+
+	return err
+}

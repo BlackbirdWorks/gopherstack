@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -229,6 +230,7 @@ type InMemoryBackend struct {
 	provisionWG         sync.WaitGroup
 	stackSetBatchDelay  time.Duration
 	orgAccessEnabled    bool
+	propertyChecksOff   atomic.Bool
 }
 
 const (

@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"net"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -71,20 +70,6 @@ type env struct {
 	base    string
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	defer l.Close()
-
-	tcp, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-
-	return tcp.Port
-}
-
 // newEnv starts an Identity listener; the client signs with a throwaway key as a made-up user.
 func newEnv(t *testing.T, enforce bool) *env {
 	t.Helper()
@@ -94,7 +79,7 @@ func newEnv(t *testing.T, enforce bool) *env {
 	be.SetClock(clock.Now)
 
 	h := oci.NewHandler(be)
-	h.Port = freePort(t)
+	h.Port = 0
 	h.EnforceAuth = enforce
 
 	require.NoError(t, h.StartWorker(t.Context()))

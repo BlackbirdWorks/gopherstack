@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // TaggedResource represents a resource with its ARN, type, and tag set.
@@ -125,11 +127,11 @@ func (b *InMemoryBackend) getResources(
 	tagFilters []TagFilter,
 	typeFilters []string,
 ) []TaggedResource {
-	region := getRegion(ctx, b.defaultRegion)
+	cacheKey := awsmeta.Account(ctx) + "/" + getRegion(ctx, b.defaultRegion)
 	useCache := len(tagFilters) == 0 && len(typeFilters) == 0
 
 	if useCache {
-		if c := b.caches[region]; c != nil && time.Now().Before(c.expiresAt) {
+		if c := b.caches[cacheKey]; c != nil && time.Now().Before(c.expiresAt) {
 			return c.resources
 		}
 	}
@@ -146,7 +148,7 @@ func (b *InMemoryBackend) getResources(
 	all := deduplicateResources(slices.Concat(perProvider...))
 
 	if useCache {
-		b.caches[region] = &resourceCache{
+		b.caches[cacheKey] = &resourceCache{
 			resources: all,
 			expiresAt: time.Now().Add(resourceCacheTTL),
 		}

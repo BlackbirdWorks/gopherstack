@@ -3,6 +3,7 @@ package codepipeline
 
 import (
 	"context"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -176,6 +177,11 @@ type InMemoryBackend struct {
 	lambdaBackend     LambdaInvoker
 	codeDeployBackend CodeDeployStarter
 	artifactS3        ArtifactS3
+	stackDeployer     StackDeployer
+	ecsDeployer       ECSDeployer
+	imageSource       ImageSource
+	repositoryReader  RepositoryReader
+	clock             func() time.Time
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string

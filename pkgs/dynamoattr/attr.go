@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 )
 
 // UnwrapAttributeValue converts a DynamoDB wire attribute map into a bare value when possible.
@@ -56,23 +58,23 @@ func unwrapAttributeValueRare(m map[string]any, v any) any {
 	return v
 }
 
-// ParseNumeric tries to read a value as a float64 number.
-func ParseNumeric(v any) (float64, bool) {
+// ParseNumeric tries to read a value as an exact DynamoDB number.
+func ParseNumeric(v any) (dynamonum.Num, bool) {
 	unwrapped := UnwrapAttributeValue(v)
 	switch val := unwrapped.(type) {
 	case float64:
-		return val, true
+		return dynamonum.FromFloat(val)
 	case int:
-		return float64(val), true
+		return dynamonum.FromInt64(int64(val)), true
 	case int64:
-		return float64(val), true
+		return dynamonum.FromInt64(val), true
 	case string:
-		if f, err := strconv.ParseFloat(val, 64); err == nil {
-			return f, true
+		if x, err := dynamonum.Parse(val); err == nil {
+			return x, true
 		}
 	}
 
-	return 0, false
+	return dynamonum.Num{}, false
 }
 
 // ResolveValue maps expression tokens to attribute values when prefixed with ':'.
@@ -87,64 +89,38 @@ func ResolveValue(token string, attrValues map[string]any) any {
 }
 
 // CompareValues compares DynamoDB attribute values against an operator.
+// Two numeric operands compare exactly; anything else compares as strings.
 func CompareValues(lhs any, op string, rhs any) bool {
 	lhs = UnwrapAttributeValue(lhs)
 	rhs = UnwrapAttributeValue(rhs)
 
-	lhsStr := ToString(lhs)
-	rhsStr := ToString(rhs)
-	lNum, lIsNum := ParseNumeric(lhs)
-	rNum, rIsNum := ParseNumeric(rhs)
+	var c int
 
+	if lNum, ok := ParseNumeric(lhs); ok {
+		if rNum, ok2 := ParseNumeric(rhs); ok2 {
+			c = lNum.Cmp(rNum)
+
+			return cmpResult(op, c)
+		}
+	}
+
+	return cmpResult(op, strings.Compare(ToString(lhs), ToString(rhs)))
+}
+
+func cmpResult(op string, c int) bool {
 	switch op {
 	case "=":
-		return lhsStr == rhsStr
+		return c == 0
 	case "<>":
-		return lhsStr != rhsStr
+		return c != 0
 	case "<":
-		return compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a < b },
-			func(a, b string) bool { return a < b },
-		)
+		return c < 0
 	case ">":
-		return compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a > b },
-			func(a, b string) bool { return a > b },
-		)
+		return c > 0
 	case "<=":
-		return compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a <= b },
-			func(a, b string) bool { return a <= b },
-		)
+		return c <= 0
 	case ">=":
-		return compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a >= b },
-			func(a, b string) bool { return a >= b },
-		)
+		return c >= 0
 	}
 
 	return false
@@ -194,18 +170,4 @@ func ToString(v any) string {
 
 		return string(b)
 	}
-}
-
-func compareOrdered(
-	lNum, rNum float64,
-	lIsNum, rIsNum bool,
-	lStr, rStr string,
-	numCmp func(float64, float64) bool,
-	strCmp func(string, string) bool,
-) bool {
-	if lIsNum && rIsNum {
-		return numCmp(lNum, rNum)
-	}
-
-	return strCmp(lStr, rStr)
 }

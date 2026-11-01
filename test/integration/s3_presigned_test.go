@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func TestIntegration_S3_PresignedURLs(t *testing.T) {
@@ -55,7 +57,7 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 				require.NotEmpty(t, presigned.URL)
 
 				// Fetch via the presigned URL.
-				resp, err := http.Get(presigned.URL)
+				resp, err := testclient.New(t).Get(presigned.URL)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -150,7 +152,7 @@ func TestIntegration_S3_PresignedURLs(t *testing.T) {
 				var resp *http.Response
 				require.Eventually(t, func() bool {
 					var getErr error
-					resp, getErr = http.Get(presigned.URL)
+					resp, getErr = testclient.New(t).Get(presigned.URL)
 
 					if getErr != nil {
 						return false

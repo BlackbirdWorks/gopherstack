@@ -305,8 +305,8 @@ func TestFaultRule_ShouldTrigger(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		rule        chaos.FaultRule
 		name        string
+		rule        chaos.FaultRule
 		wantTrigger bool
 	}{
 		{
@@ -345,9 +345,9 @@ func TestFaultRule_EffectiveError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		rule           chaos.FaultRule
 		name           string
 		wantCode       string
+		rule           chaos.FaultRule
 		wantStatusCode int
 	}{
 		{

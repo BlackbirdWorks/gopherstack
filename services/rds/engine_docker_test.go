@@ -103,6 +103,17 @@ func (r *recordingEngineRuntime) Exec(
 	return x.Exec(ctx, id, cmd)
 }
 
+func (r *recordingEngineRuntime) ExecEnv(
+	ctx context.Context, id string, cmd, env []string,
+) (container.ExecResult, error) {
+	x, ok := r.EngineRuntime.(rds.EngineExecRuntime)
+	if !ok {
+		return container.ExecResult{}, container.ErrExecUnsupported
+	}
+
+	return container.ExecWithEnv(ctx, x, id, cmd, env)
+}
+
 func (r *recordingEngineRuntime) Close() error {
 	if c, ok := r.EngineRuntime.(io.Closer); ok {
 		return c.Close()

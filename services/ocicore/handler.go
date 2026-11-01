@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -184,7 +184,12 @@ func (h *Handler) fail(q *req, err error) {
 }
 
 // Handler returns the Echo handler for all OCI Core Services requests.
-func (h *Handler) Handler() echo.HandlerFunc {
+func (h *Handler) Handler() echo.HandlerFunc { return h.handle(true) }
+
+// Trusted returns a handler that skips request-signature verification, for the in-process dashboard proxy.
+func (h *Handler) Trusted() echo.HandlerFunc { return h.handle(false) }
+
+func (h *Handler) handle(verify bool) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		q := &req{w: c.Response(), r: c.Request(), rt: parseRoute(c.Request())}
 		q.header("opc-request-id", strings.ToUpper(uuid.NewString()))
@@ -197,7 +202,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		h.Backend.Sweep()
 
-		if err := h.serve(q); err != nil {
+		if err := h.serve(q, verify); err != nil {
 			h.fail(q, err)
 		}
 
@@ -205,7 +210,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) serve(q *req) error {
+func (h *Handler) serve(q *req, verify bool) error {
 	fn, ok := h.ops[q.rt.op]
 	if !ok {
 		return errNoRoute()
@@ -218,10 +223,12 @@ func (h *Handler) serve(q *req) error {
 
 	q.body = body
 
-	if _, err = ociauth.Verify(q.r, q.body, ociauth.Options{
-		Registry: h.Backend.Auth, Now: h.Backend.nowUTC, Enforce: h.EnforceAuth,
-	}); err != nil {
-		return errAuth("The required information to complete authentication was not provided or was incorrect.")
+	if verify {
+		if _, err = ociauth.Verify(q.r, q.body, ociauth.Options{
+			Registry: h.Backend.Auth, Now: h.Backend.nowUTC, Enforce: h.EnforceAuth,
+		}); err != nil {
+			return errAuth("The required information to complete authentication was not provided or was incorrect.")
+		}
 	}
 
 	return fn(h, q)
@@ -274,12 +281,12 @@ func (h *Handler) adminKeys(q *req) {
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("ocicore: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))

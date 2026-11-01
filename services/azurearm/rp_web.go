@@ -58,14 +58,19 @@ func webAPIVersions() []string {
 
 type storedWebSite struct {
 	Created       time.Time                 `json:"created"`
-	Tags          map[string]string         `json:"tags,omitempty"`
-	Identity      map[string]any            `json:"identity,omitempty"`
+	Pending       *pendingSwap              `json:"pendingSwap,omitempty"`
 	Extra         map[string]any            `json:"extra,omitempty"`
 	Configs       map[string]map[string]any `json:"configs,omitempty"`
+	Slots         map[string]*storedWebSite `json:"slots,omitempty"`
+	Tags          map[string]string         `json:"tags,omitempty"`
+	LastSwap      *swapStatus               `json:"lastSwap,omitempty"`
 	Name          string                    `json:"name"`
+	Slot          string                    `json:"slot,omitempty"`
 	ResourceGroup string                    `json:"resourceGroup"`
 	Location      string                    `json:"location"`
 	Kind          string                    `json:"kind"`
+	Identity      map[string]any            `json:"identity,omitempty"`
+	Managed       resourceIdentity          `json:"managedIdentity"`
 }
 
 type storedWebPlan struct {
@@ -87,6 +92,7 @@ type WebProvider struct {
 	mu        *lockmetrics.RWMutex
 	sites     map[string]*storedWebSite
 	plans     map[string]*storedWebPlan
+	ids       *identityService
 }
 
 // NewWebProvider creates a WebProvider; dataPlane may be nil.
@@ -113,6 +119,7 @@ func (p *WebProvider) ResourceTypes() []ResourceTypeDef {
 	return []ResourceTypeDef{
 		{Type: webSitesType, APIVersions: v, HasChildren: true},
 		{Type: webPlansType, APIVersions: v, HasChildren: false},
+		{Type: webSitesType + "/slots", APIVersions: v, HasChildren: true},
 		{Type: webSitesType + "/config", APIVersions: v, HasChildren: false},
 		{Type: webSitesType + "/functions", APIVersions: v, HasChildren: false},
 		{Type: webSitesType + "/basicPublishingCredentialsPolicies", APIVersions: v, HasChildren: false},
@@ -128,6 +135,11 @@ func errUnsupportedWebType(id ResourceID) error {
 }
 
 func webKind(id ResourceID) string {
+	if len(id.Types) == 2 && strings.EqualFold(id.Types[0], webSitesType) &&
+		strings.EqualFold(id.Types[1], webSlotsType) {
+		return webSlotsType
+	}
+
 	if len(id.Types) != 1 {
 		return ""
 	}
@@ -146,7 +158,7 @@ func badWebRequest(err error) error {
 	if errors.Is(err, ErrWebFunctionsUnavailable) || errors.Is(err, ErrWebNameTaken) ||
 		errors.Is(err, ErrWebUnsupportedKind) || errors.Is(err, ErrWebPlanNotFound) ||
 		errors.Is(err, ErrWebPlanNotLinux) || errors.Is(err, ErrWebNotFunctionApp) ||
-		errors.Is(err, ErrWebInvalidSiteConfig) {
+		errors.Is(err, ErrWebInvalidSiteConfig) || errors.Is(err, ErrWebSlotName) {
 		return err
 	}
 
@@ -174,6 +186,8 @@ func (p *WebProvider) Put(ctx context.Context, id ResourceID, body map[string]an
 	switch webKind(id) {
 	case webSitesType:
 		return p.putSite(ctx, id, body)
+	case webSlotsType:
+		return p.putSlot(ctx, id, body)
 	case webPlansType:
 		return p.putPlan(id, body)
 	}
@@ -245,6 +259,34 @@ func (p *WebProvider) checkSitePlan(kind, farm string) error {
 	return nil
 }
 
+func (p *WebProvider) checkSiteWritable(id ResourceID, name string, existing *storedWebSite) error {
+	if other, taken := p.sites[webSiteKey(name)]; taken && !resourceGroupsEqual(other.ResourceGroup, id.ResourceGroup) {
+		return ErrWebNameTaken
+	}
+
+	if p.slotLabelTaken(name, "") {
+		return ErrWebNameTaken
+	}
+
+	if existing != nil && existing.Pending != nil {
+		return ErrWebSwapPending
+	}
+
+	return nil
+}
+
+// siteIdentity applies a request's identity block on top of the identity of the existing site (nil for a new one).
+func (p *WebProvider) siteIdentity(body map[string]any, existing *storedWebSite) (resourceIdentity, error) {
+	var prev resourceIdentity
+	if existing != nil {
+		prev = existing.Managed
+	}
+
+	_, present := body[fieldIdentity]
+
+	return p.ids.apply(body[fieldIdentity], present, prev)
+}
+
 func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
 	name := id.LeafName()
 	existing, exists := p.site(id.ResourceGroup, name)
@@ -262,8 +304,8 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, badWebRequest(errWebSiteName)
 	}
 
-	if other, taken := p.sites[webSiteKey(name)]; taken && !resourceGroupsEqual(other.ResourceGroup, id.ResourceGroup) {
-		return nil, ErrWebNameTaken
+	if err := p.checkSiteWritable(id, name, existing); err != nil {
+		return nil, err
 	}
 
 	props, _ := body[fieldProperties].(map[string]any)
@@ -277,14 +319,20 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
+	ident, err := p.siteIdentity(body, existing)
+	if err != nil {
+		return nil, err
+	}
+
 	rec := &storedWebSite{
 		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
-		Tags: stringTags(body[fieldTags]), Identity: mapOf(body["identity"]), Configs: map[string]map[string]any{},
+		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
 		Extra: webSiteExtra(props),
 	}
 
 	if exists {
 		rec.Created, rec.Location, rec.Configs = existing.Created, existing.Location, existing.Configs
+		rec.Slots, rec.LastSwap = existing.Slots, existing.LastSwap
 	}
 
 	if loc, _ := body[fieldLocation].(string); loc != "" {
@@ -345,7 +393,7 @@ func webSiteExtra(props map[string]any) map[string]any {
 	for _, k := range []string{
 		webFieldSiteConfig, fieldProvisioningState, sqlPropState, "hostNames", "defaultHostName", "enabledHostNames",
 		"hostNameSslStates", "repositorySiteName", "usageState", "availabilityState", fieldName, "lastModifiedTimeUtc",
-		"outboundIpAddresses", "possibleOutboundIpAddresses", webFieldRG,
+		"outboundIpAddresses", "possibleOutboundIpAddresses", webFieldRG, "cloningInfo", "slotSwapStatus",
 	} {
 		delete(out, k)
 	}
@@ -377,6 +425,11 @@ func (p *WebProvider) siteBody(
 	s *storedWebSite,
 	info FunctionAppInfo,
 ) map[string]any {
+	resName, resType := s.Name, namespaceMicrosoftWeb+"/"+webSitesType
+	if s.Slot != "" {
+		resName, resType = s.Name+"/"+s.Slot, resType+"/"+webSlotsType
+	}
+
 	state := webStateRunning
 	if info.Stopped {
 		state = webStateStopped
@@ -431,18 +484,29 @@ func (p *WebProvider) siteBody(
 		fieldProvisioningState: provisioningStateSucceeded,
 	}
 
+	if s.LastSwap != nil {
+		props["slotSwapStatus"] = map[string]any{
+			"timestampUtc": s.LastSwap.Time.UTC().Format(time.RFC3339), "sourceSlotName": s.LastSwap.Source,
+			"destinationSlotName": s.LastSwap.Destination,
+		}
+	}
+
+	if s.Pending != nil {
+		props["targetSwapSlot"] = s.Pending.Target
+	}
+
 	out := map[string]any{
 		"id":            id.ARMID(),
-		fieldName:       s.Name,
-		fieldType:       namespaceMicrosoftWeb + "/" + webSitesType,
+		fieldName:       resName,
+		fieldType:       resType,
 		webFieldKind:    s.Kind,
 		fieldLocation:   s.Location,
 		fieldTags:       tagsOrEmpty(s.Tags),
 		fieldProperties: ehMerge(props, s.Extra, nil),
 	}
 
-	if s.Identity != nil {
-		out["identity"] = s.Identity
+	if ident := p.ids.body(s.Managed); ident != nil {
+		out[fieldIdentity] = ident
 	}
 
 	return out
@@ -454,7 +518,7 @@ func (p *WebProvider) Get(ctx context.Context, id ResourceID) (map[string]any, e
 	defer p.mu.RUnlock()
 
 	switch webKind(id) {
-	case webSitesType:
+	case webSitesType, webSlotsType:
 		return p.getSite(ctx, id)
 	case webPlansType:
 		pl, ok := p.plans[planKey(id.ResourceGroup, id.LeafName())]
@@ -469,12 +533,12 @@ func (p *WebProvider) Get(ctx context.Context, id ResourceID) (map[string]any, e
 }
 
 func (p *WebProvider) getSite(ctx context.Context, id ResourceID) (map[string]any, error) {
-	s, ok := p.site(id.ResourceGroup, id.LeafName())
+	s, ok := p.record(id)
 	if !ok {
 		return nil, ErrWebSiteNotFound
 	}
 
-	info, found := p.dataPlane.AppInfo(s.Name)
+	info, found := p.dataPlane.AppInfo(s.dpName())
 	if !found {
 		return nil, ErrWebSiteNotFound
 	}
@@ -501,6 +565,8 @@ func (p *WebProvider) Delete(_ context.Context, id ResourceID) error {
 		delete(p.sites, webSiteKey(s.Name))
 
 		return nil
+	case webSlotsType:
+		return p.deleteSlot(id)
 	case webPlansType:
 		key := planKey(id.ResourceGroup, id.LeafName())
 		if _, ok := p.plans[key]; !ok {
@@ -527,6 +593,8 @@ func (p *WebProvider) List(ctx context.Context, id ResourceID) ([]map[string]any
 	var out []map[string]any
 
 	switch strings.ToLower(id.LeafType()) {
+	case webSlotsType:
+		return p.listSlots(ctx, id), nil
 	case webSitesType:
 		for _, s := range p.sites {
 			if id.ResourceGroup != "" && !resourceGroupsEqual(s.ResourceGroup, id.ResourceGroup) {
@@ -599,7 +667,7 @@ func webErrorDetails(err error) (errorEntry, bool) {
 		return errorEntry{webCodeBadRequest, err.Error(), http.StatusBadRequest}, true
 	}
 
-	table := []struct {
+	table := append(webSlotErrorDetails(), []struct {
 		err   error
 		entry errorEntry
 	}{
@@ -638,7 +706,7 @@ func webErrorDetails(err error) (errorEntry, bool) {
 		{ErrWebFunctionsUnavailable, errorEntry{
 			redisCodeUnavailable, "The Azure Functions data plane is not available.", http.StatusServiceUnavailable,
 		}},
-	}
+	}...)
 
 	for _, e := range table {
 		if errors.Is(err, e.err) {

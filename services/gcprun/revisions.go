@@ -155,7 +155,7 @@ func newRevisionLocked(
 
 	pb.Etag = etag(uid, 1, now)
 
-	return &revRec{pb: pb, seq: svc.revSeq, changed: make(chan struct{})}, nil
+	return &revRec{pb: pb, seq: svc.revSeq}, nil
 }
 
 func ingressContainer(cs []*runpb.Container) (*runpb.Container, int) {
@@ -186,11 +186,11 @@ func (b *InMemoryBackend) stopContainer(runner Runner, id string) {
 
 // teardown retires every instance of a revision that is no longer reachable through the backend maps.
 func (b *InMemoryBackend) teardown(r *revRec) {
-	b.mu.Lock("teardown")
-	insts := b.detachAllLocked(r)
-	b.mu.Unlock()
+	b.mu.RLock("teardown")
+	pool := r.pool
+	b.mu.RUnlock()
 
-	for _, in := range insts {
-		b.teardownInst(in)
+	if pool != nil {
+		pool.Close()
 	}
 }

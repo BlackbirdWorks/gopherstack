@@ -7,7 +7,14 @@ import (
 )
 
 const (
-	maxChangeLog = 10_000
+	// maxChangeLog is a memory guard, not a retention rule: the log keeps every version inside the continuous
+	// backup window unless a container writes more than this many.
+	maxChangeLog = 1_000_000
+
+	// defaultChangeRetention is the window when no account sets a backup policy (the 7-day continuous tier).
+	defaultChangeRetention = 7 * 24 * time.Hour
+	noChangeLog            = time.Duration(-1)
+	continuous30Retention  = 30 * 24 * time.Hour
 
 	opCreate  = "create"
 	opReplace = "replace"
@@ -29,12 +36,32 @@ type changeRecord struct {
 	TTLExpired       bool            `json:"TTLExpired,omitempty"`
 }
 
-// appendChange adds rec to the container's log, dropping the oldest records beyond the retention bound.
-func (c *storedContainer) appendChange(rec *changeRecord) {
+// appendChange adds rec to the container's log and drops what has fallen out of the continuous backup window
+// (keep: zero is the default seven days, negative keeps nothing, as on an account with periodic backup).
+func (c *storedContainer) appendChange(rec *changeRecord, now time.Time) {
+	if c.keep < 0 {
+		c.ChangeFloor = max(c.ChangeFloor, rec.Seq)
+
+		return
+	}
+
 	c.ChangeLog = append(c.ChangeLog, rec)
 
-	if len(c.ChangeLog) >= 2*maxChangeLog {
-		c.ChangeLog = append([]*changeRecord(nil), c.ChangeLog[len(c.ChangeLog)-maxChangeLog:]...)
+	keep := c.keep
+	if keep == 0 {
+		keep = defaultChangeRetention
+	}
+
+	cut := now.Add(-keep)
+	n := 0
+
+	for n < len(c.ChangeLog) && (c.ChangeLog[n].Time.Before(cut) || len(c.ChangeLog)-n > maxChangeLog) {
+		c.ChangeFloor = max(c.ChangeFloor, c.ChangeLog[n].Seq)
+		n++
+	}
+
+	if n > 0 {
+		c.ChangeLog = append([]*changeRecord(nil), c.ChangeLog[n:]...)
 	}
 }
 
@@ -49,14 +76,14 @@ func (c *storedContainer) truncateChangeLog(seq int64) {
 }
 
 // recordExpired logs the TTL expiry of d as a delete.
-func (c *storedContainer) recordExpired(d *storedDocument) {
+func (c *storedContainer) recordExpired(d *storedDocument, now time.Time) {
 	c.ChangeSeq++
 
 	at, _ := c.expiry(d)
 	c.appendChange(&changeRecord{
 		Time: at, Previous: d, Op: opDelete, ID: d.ID, PartitionKeyJSON: d.PartitionKeyJSON,
 		Seq: c.ChangeSeq, PrevSeq: d.Seq, TTLExpired: true,
-	})
+	}, now)
 }
 
 // ChangeVersion is one entry of the all-versions-and-deletes change feed.
@@ -123,7 +150,7 @@ func (c *storedContainer) changedVersions(req changeFeedRequest) []*changeRecord
 		case r.Seq <= req.AfterSeq:
 		case !req.Since.IsZero() && r.Time.Unix() < req.Since.Unix():
 		case req.PartitionKey != "" && !partitionKeyMatches(r.PartitionKeyJSON, req.PartitionKey):
-		case req.rangeCount > 0 && rangeIndex(r.PartitionKeyJSON, req.rangeCount) != req.rangeIdx:
+		case !req.hashes.contains(r.PartitionKeyJSON):
 		default:
 			out = append(out, r)
 		}

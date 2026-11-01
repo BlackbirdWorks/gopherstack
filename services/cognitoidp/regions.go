@@ -105,6 +105,25 @@ func (h *Handler) GetJWTPublicKey(issuerURL, kid string) (*rsa.PublicKey, error)
 	return nil, ErrJWTIssuerUnknown
 }
 
+// UserPoolSigningKey resolves a pool's signing key and token issuer across every region.
+func (h *Handler) UserPoolSigningKey(userPoolID, kid string) (*rsa.PublicKey, string, error) {
+	var lastErr error
+
+	for _, p := range h.handlers() {
+		key, iss, err := p.Backend.UserPoolSigningKey(userPoolID, kid)
+		if err == nil {
+			return key, iss, nil
+		}
+
+		lastErr = err
+		if !errors.Is(err, ErrUserPoolNotFound) {
+			return nil, "", err
+		}
+	}
+
+	return nil, "", lastErr
+}
+
 // ownerHints are the identifiers a request carries that name the region owning its resources.
 type ownerHints struct {
 	poolID, arn, clientID, token, domain, session string

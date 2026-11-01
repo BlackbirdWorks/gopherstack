@@ -8,19 +8,24 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 11 (11 ok) |
-| Known gaps | 1 |
-| Structural gaps (can't be emulated) | 10 |
+| Known gaps | 5 |
+| Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
+- Extensions API: the Telemetry/Logs API (/2022-07-01/telemetry, /2020-08-15/logs) is not served; extensions that subscribe get 404.
+- Extensions API: container-image functions do not start /opt/extensions executables (no image entrypoint inspection; only Zip functions with layers are wrapped by the extension launcher), and internal extensions registering for SHUTDOWN are not rejected (internal vs external is not distinguishable at register time).
+- Extensions API: the error-type strings in register 4xx bodies (Extension.InvalidExtensionName, Extension.TooManyExtensions, Extension.RegistrationClosed, Extension.AlreadyRegistered, Extension.InvalidEventType) are unverified recall; the AWS docs list only the status codes. SHUTDOWN waits until each extension took the event (up to 2s), not until the process exits.
+- GET /_aws/lambda/runtimes returns {"Runtimes": [...]}; LocalStack's docs name the endpoint and filter=deprecated|all but do not document the response shape, so the shape is unverified. LOCALSTACK_INIT_LOG_LEVEL and LOCALSTACK_USER are not applicable (no LocalStack init binary); pass them through LAMBDA_DOCKER_FLAGS -e if an image needs them.
 - --lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
+- Stream ESM ParallelizationFactor/TumblingWindowInSeconds: records are hashed by partition key (Kinesis) or item key (DynamoDB) onto N ordered lanes, drained concurrently; a retrying lane pauses reads for the whole shard, tumbling state is kept per lane, and windows close on the clock only once the shard is caught up (Kinesis's up-to-2-minute idle wait is not modeled).
 - ESM SchemaRegistryErrorCount and EventPollerUnit metrics: no Glue/Confluent schema-registry integration or poller-unit billing model exist to measure (ProvisionedPollers is emitted for SQS mappings with ProvisionedPollerConfig).
 - Kafka ESM LoggingConfig DEBUG offsets are logged on every commit, not once a minute, and omit endOffset; INFO/WARN omit securityProtocol, saslMechanism, networkConfig, assignedPartitions (no VPC/auth/rebalance model).
 - Invoke TenantId is validated (required for PER_TENANT, rejected otherwise) but does not route to a tenant-dedicated execution environment: one environment pool per function.

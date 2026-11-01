@@ -138,6 +138,7 @@ type liveDB struct {
 	dbPort      atomic.Int32
 	ready       bool
 	paused      bool
+	logical     bool
 }
 
 func (lb *liveDB) release() {
@@ -356,9 +357,10 @@ func engineEnv(lb *liveDB) []string {
 
 func (e *dbEngine) spec(lb *liveDB, plan replPlan) container.Spec {
 	s := container.Spec{
-		Name:  lb.ctrName,
-		Image: engineImage(lb.kind, lb.version),
-		Env:   engineEnv(lb),
+		Name:   lb.ctrName,
+		Labels: container.ServiceLabels("rds"),
+		Image:  engineImage(lb.kind, lb.version),
+		Env:    engineEnv(lb),
 		Ports: []string{container.PortSpec(
 			container.BindHostFor(e.cfg.Host), strconv.Itoa(lb.port), strconv.Itoa(engineContainerPort(lb.kind)))},
 		Network: plan.network,
@@ -532,7 +534,8 @@ func (b *InMemoryBackend) launchSeededUnitLocked(
 	}
 
 	lb := &liveDB{
-		gone: make(chan struct{}), capture: make(chan struct{}, 1), key: key, resourceID: resourceID,
+		logical: seed.logical,
+		gone:    make(chan struct{}), capture: make(chan struct{}, 1), key: key, resourceID: resourceID,
 		kind: e.kindOf(engine), engine: engine,
 		version: version, user: user, password: password, dbName: dbName, seed: seed,
 		ctrName: "gopherstack-rds-" + randomPassword(), serverID: randomServerID(),
@@ -575,6 +578,7 @@ func (b *InMemoryBackend) provisionSeededInstanceLocked(inst *DBInstance, passwo
 		return true
 	}
 
+	seed.logical = b.logicalReplicationLocked(inst.DBParameterGroupName, b.parameterGroups)
 	b.launchSeededUnitLocked(unitKeyForInstance(inst.DBInstanceIdentifier), inst.DBInstanceIdentifier,
 		inst.Engine, inst.EngineVersion, inst.MasterUsername, password, inst.DBName, seed)
 
@@ -593,6 +597,7 @@ func (b *InMemoryBackend) provisionSeededClusterLocked(c *DBCluster, password st
 	}
 
 	c.Status = instanceStatusCreating
+	seed.logical = b.logicalReplicationLocked(c.DBClusterParameterGroupName, b.clusterParameterGroups)
 	b.launchSeededUnitLocked(unitKeyForCluster(c.DBClusterIdentifier), c.DBClusterIdentifier,
 		c.Engine, c.EngineVersion, c.MasterUsername, password, c.DatabaseName, seed)
 

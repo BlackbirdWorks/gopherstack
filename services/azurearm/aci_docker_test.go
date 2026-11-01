@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const aciDockerOptIn = "GOPHERSTACK_ACI_DOCKER_TEST"
@@ -151,7 +152,7 @@ func TestACIDocker_PublishedPortServes(t *testing.T) {
 			return false
 		}
 
-		resp, doErr := http.DefaultClient.Do(req)
+		resp, doErr := testclient.New(t).Do(req)
 		if doErr != nil {
 			return false
 		}

@@ -30,7 +30,7 @@ func wiredServices(t *testing.T) map[string]service.Registerable {
 	cli.faultStore = chaos.NewFaultStore()
 	appCtx := &service.AppContext{Logger: slog.Default(), Config: cli, JanitorCtx: t.Context()}
 
-	services, err := initializeServices(appCtx)
+	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
 
 	return serviceByName(services)

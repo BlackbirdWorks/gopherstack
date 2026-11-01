@@ -41,6 +41,7 @@ func runPeerTask(t *testing.T, peer *InMemoryBackend, def ContainerDefinition) T
 	require.NoError(t, err)
 
 	tasks, _, err := peer.RunTask(RunTaskInput{Cluster: "c", TaskDefinition: "job"})
+	tasks = settleTasks(t, peer, tasks)
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 

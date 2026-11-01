@@ -81,6 +81,7 @@ func (b *InMemoryBackend) completeCreateLocked(status *CreateAccountStatus, p cr
 	})
 	b.accountParent[acctID] = b.root.ID
 	b.addAccountChild(b.root.ID, acctID)
+	b.attachDefaultSCPLocked(acctID)
 	b.setTagsLocked(acctID, p.tags)
 
 	if b.emailToAccountID == nil {

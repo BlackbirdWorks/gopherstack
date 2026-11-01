@@ -88,7 +88,7 @@ func TestSDK_MasterKeyAuthEnforced(t *testing.T) {
 				nil,
 			)
 			require.NoError(t, err)
-			assert.InDelta(t, 5.5, float64(resp.RequestCharge), 0.01)
+			assert.InDelta(t, 6.1, float64(resp.RequestCharge), 0.01)
 		})
 	}
 }

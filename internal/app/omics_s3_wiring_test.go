@@ -156,7 +156,7 @@ func TestInitializeServices_OmicsS3Wiring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			services, err := initializeServices(newTestAppContext(t, 19600, 19700))
+			services, err := initializeServicesT(t, newTestAppContext(t, 19600, 19700))
 			require.NoError(t, err)
 
 			byName := serviceByName(services)

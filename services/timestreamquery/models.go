@@ -19,6 +19,9 @@ type ScheduledQuery struct {
 	Name                    string                      `json:"name"`
 	Arn                     string                      `json:"arn"`
 	KmsKeyID                string                      `json:"kms_key_id,omitempty"`
+	LastRunStats            *ExecutionStats             `json:"last_run_stats,omitempty"`
+	LastRunStatus           string                      `json:"last_run_status,omitempty"`
+	LastRunFailure          string                      `json:"last_run_failure,omitempty"`
 	// ErrorReportEncryptionOption/ErrorReportObjectKeyPrefix mirror
 	// types.S3Configuration.EncryptionOption/ObjectKeyPrefix (both optional,
 	// api_op_CreateScheduledQuery.go) -- accepted and echoed back, but this

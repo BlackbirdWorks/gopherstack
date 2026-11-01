@@ -3,20 +3,23 @@ package dms
 import (
 	"context"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
 )
 
-// TestConnection tests a DMS connection and records the result.
+// TestConnection tests a DMS connection and records the result. With the engine enabled the endpoint is really
+// contacted and a failure carries the driver's own message; engines the emulator cannot reach report success.
 func (b *InMemoryBackend) TestConnection(
 	ctx context.Context,
 	replicationInstanceArn, endpointArn string,
 ) (*Connection, error) {
 	b.mu.Lock("TestConnection")
-	defer b.mu.Unlock()
-
 	region := getRegion(ctx, b.region)
 
 	ri, ok := lookupUnique(b.replicationInstancesByARN, regionKey(region, replicationInstanceArn))
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf(
 			"%w: replication instance %s not found",
 			ErrNotFound,
@@ -26,6 +29,8 @@ func (b *InMemoryBackend) TestConnection(
 
 	ep, ok := lookupUnique(b.endpointsByARN, regionKey(region, endpointArn))
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, endpointArn)
 	}
 
@@ -37,6 +42,31 @@ func (b *InMemoryBackend) TestConnection(
 		Status:                        statusSuccessful,
 		Region:                        region,
 	}
+
+	var (
+		probe  dmsengine.EndpointConfig
+		opener dmsengine.Opener
+		source bool
+	)
+
+	if b.eng != nil && b.eng.opener != nil && dmsengine.SupportedTarget(ep.EngineName) &&
+		(ep.EndpointType != endpointTypeSource || dmsengine.SupportedSource(ep.EngineName)) {
+		probe, opener, source = b.endpointConfigLocked(region, ep), b.eng.opener, ep.EndpointType == endpointTypeSource
+	}
+	b.mu.Unlock()
+
+	if opener != nil {
+		tctx, cancel := context.WithTimeout(ctx, connectionTestLimit)
+		defer cancel()
+
+		if err := dmsengine.TestEndpoint(tctx, opener, probe, source); err != nil {
+			conn.Status, conn.LastFailureMessage = statusFailed, "Failed to connect to database. "+err.Error()
+		}
+	}
+
+	b.mu.Lock("TestConnectionStore")
+	defer b.mu.Unlock()
+
 	b.connections.Put(conn)
 	cp := *conn
 

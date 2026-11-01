@@ -189,9 +189,7 @@ func wireCloudControlHandlers(e http.Handler, services []service.Registerable) {
 	bk.RegisterTypeHandler("AWS::DynamoDB::Table", &ccTable{client: dynamodb.NewFromConfig(cfg)})
 	bk.RegisterTypeHandler("AWS::Logs::LogGroup", &ccLogGroup{client: cloudwatchlogs.NewFromConfig(cfg)})
 	wireCloudControlMoreHandlers(bk, cfg)
-	if ec2c, err := newCCEC2Client(e, cfg); err == nil {
-		wireCloudControlInfraHandlers(bk, e, cfg, ec2c)
-	}
+	wireCloudControlInfraHandlers(bk, e, cfg, newCCEC2Client(e, cfg))
 	wireCloudControlProvisionedTypes(bk, services)
 }
 

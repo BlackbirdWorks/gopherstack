@@ -95,8 +95,8 @@ func BuildMetadataEndpoints(baseURL string, settings Settings) EnvironmentDescri
 			IdentityProvider: "AAD",
 			Tenant:           "common",
 		},
-		Graph:                   baseURL + "/graph",
-		GraphAudience:           baseURL + "/graph",
+		Graph:                   graphEndpoint(baseURL, settings),
+		GraphAudience:           graphEndpoint(baseURL, settings),
 		Gallery:                 baseURL + "/gallery",
 		ResourceManager:         baseURL + "/",
 		ResourceManagerEndpoint: baseURL + "/",
@@ -106,8 +106,23 @@ func BuildMetadataEndpoints(baseURL string, settings Settings) EnvironmentDescri
 			SQLServerHostname: ".database." + hostnameOnly(baseURL),
 			ACRLoginServer:    ".azurecr." + hostnameOnly(baseURL),
 		},
-		MicrosoftGraphResourceID: baseURL + "/graph",
+		MicrosoftGraphResourceID: graphEndpoint(baseURL, settings),
 	}
+}
+
+// graphEndpoint is the Microsoft Graph listener's base URL. go-azure-sdk uses microsoftGraphResourceId as both the
+// token audience and the API endpoint, so it must be the Graph listener itself, not a path on ARM.
+func graphEndpoint(baseURL string, settings Settings) string {
+	if settings.AdvertiseGraph != "" {
+		return "https://" + settings.AdvertiseGraph
+	}
+
+	port := settings.GraphPort
+	if port == 0 {
+		port = DefaultGraphPort
+	}
+
+	return "https://" + net.JoinHostPort(hostnameOnly(baseURL), strconv.Itoa(port))
 }
 
 // storageVHostHostAndPort returns the "host:port" the shared

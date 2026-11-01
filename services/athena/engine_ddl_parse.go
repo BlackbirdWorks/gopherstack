@@ -26,7 +26,9 @@ const (
 type createTableSpec struct {
 	def         GlueTableDef
 	parts       []string
+	partTokens  []token
 	ifNotExists bool
+	external    bool
 }
 
 // sigCursor walks the significant tokens of a statement.
@@ -216,6 +218,7 @@ func (s *createTableSpec) clause(c *sigCursor) bool {
 	switch {
 	case c.acceptWords("partitioned", "by"):
 		if inner, ok := c.group(); ok {
+			s.partTokens = inner
 			s.def.PartitionKeys = parseColumnTokens(inner)
 		}
 	case c.acceptWords("row", "format", "delimited"):
@@ -280,7 +283,7 @@ func (s *createTableSpec) finish(external bool) {
 	}
 
 	if external {
-		s.def.Parameters["EXTERNAL"] = "TRUE"
+		s.def.Parameters["EXTERNAL"] = externalTrue
 	}
 
 	s.def.TableType = tableTypeExternal
@@ -321,7 +324,14 @@ func parseGlueCreateTable(sql string) (*createTableSpec, error) {
 
 	spec.parseClauses(c)
 
-	if spec.def.Location == "" || len(spec.def.Columns) == 0 {
+	spec.external = external
+	tt := strings.ToUpper(lowerParam(spec.def.Parameters, paramTableType))
+
+	if tt == tableTypeIceberg {
+		spec.def.PartitionKeys = nil
+	}
+
+	if spec.def.Location == "" || (len(spec.def.Columns) == 0 && tt != tableTypeDelta) {
 		return nil, errNotGlueDDL
 	}
 

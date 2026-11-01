@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"maps"
 	"os"
@@ -142,8 +143,16 @@ func (m *Manager) setScript(stage Stage, idx int, st State, errMsg string) {
 	})
 }
 
-// listScripts returns the sorted .sh/.py script paths directly inside dir.
-func listScripts(dir string) []string {
+// listScripts returns the sorted .sh/.py script paths directly inside root/sub.
+func listScripts(root, sub string) []string {
+	base := filepath.Clean(root)
+	dir := filepath.Join(base, sub)
+	prefix := strings.TrimSuffix(base, string(filepath.Separator)) + string(filepath.Separator)
+
+	if dir != base && !strings.HasPrefix(dir, prefix) {
+		return nil
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -173,7 +182,7 @@ func (m *Manager) discover(stage Stage) []string {
 	var out []string
 
 	for _, root := range m.roots {
-		out = append(out, listScripts(filepath.Join(root, strings.ToLower(string(stage))+".d"))...)
+		out = append(out, listScripts(root, strings.ToLower(string(stage))+".d")...)
 	}
 
 	if stage != StageReady {
@@ -181,7 +190,7 @@ func (m *Manager) discover(stage Stage) []string {
 	}
 
 	for _, dir := range m.legacy {
-		if legacy := listScripts(dir); len(legacy) > 0 {
+		if legacy := listScripts(dir, ""); len(legacy) > 0 {
 			m.log.Warn("init hook: legacy directory is deprecated; move scripts to <root>/ready.d", "dir", dir)
 
 			out = append(out, legacy...)
@@ -205,7 +214,7 @@ func (m *Manager) Run(ctx context.Context, stage Stage) {
 	for i, p := range paths {
 		m.setScript(stage, i, StateRunning, "")
 
-		if err := m.runScript(ctx, stage, p); err != nil {
+		if err := m.runScript(ctx, stage, p, nil); err != nil {
 			m.log.ErrorContext(ctx, "init hook: script failed", "stage", stage, "script", p, "error", err)
 			m.setScript(stage, i, StateError, err.Error())
 
@@ -234,7 +243,7 @@ func interpreter(path string) (string, error) {
 	return "", errNoPython
 }
 
-func (m *Manager) runScript(ctx context.Context, stage Stage, path string) error {
+func (m *Manager) runScript(ctx context.Context, stage Stage, path string, capture io.Writer) error {
 	interp, err := interpreter(path)
 	if err != nil {
 		return err
@@ -250,6 +259,10 @@ func (m *Manager) runScript(ctx context.Context, stage Stage, path string) error
 	stdout := &lineLogger{ctx: ctx, log: m.log, stage: stage, script: path, stream: "stdout"}
 	stderr := &lineLogger{ctx: ctx, log: m.log, stage: stage, script: path, stream: "stderr"}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+
+	if capture != nil {
+		cmd.Stdout, cmd.Stderr = io.MultiWriter(stdout, capture), io.MultiWriter(stderr, capture)
+	}
 
 	m.log.InfoContext(ctx, "init hook: running", "stage", stage, "script", path)
 

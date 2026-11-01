@@ -87,6 +87,10 @@ func (h *apiHandler) postFaults(c *echo.Context) error {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
 	}
 
+	if err := validateRules(rules); err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+
 	h.store.SetRules(rules)
 
 	return c.JSON(http.StatusOK, rules)
@@ -97,6 +101,10 @@ func (h *apiHandler) patchFaults(c *echo.Context) error {
 	var rules []FaultRule
 	if err := json.NewDecoder(c.Request().Body).Decode(&rules); err != nil {
 		return c.String(http.StatusBadRequest, "invalid JSON: "+err.Error())
+	}
+
+	if err := validateRules(rules); err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
 	}
 
 	h.store.AppendRules(rules)

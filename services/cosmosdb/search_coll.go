@@ -8,18 +8,25 @@ import (
 // queryColl is the container context a query's search functions need: the vector and full-text policies, the
 // indexed paths, and the corpus statistics BM25 scoring uses.
 type queryColl struct {
-	rows      queryRows
-	vectors   map[string]vectorEmbedding
-	vectorIdx map[string]string
-	ftPaths   map[string]struct{}
-	ftIdx     map[string]struct{}
-	ftStats   map[string]*bm25Stats
+	rows          queryRows
+	vectors       map[string]vectorEmbedding
+	vectorIdx     map[string]string
+	ftPaths       map[string]struct{}
+	ftLang        map[string]string
+	ftIdx         map[string]struct{}
+	ftStats       map[string]*bm25Stats
+	ftDefaultLang string
+	geometry      bool
 }
 
 func (b *InMemoryBackend) newQueryColl(c *storedContainer) *queryColl {
 	q := &queryColl{
-		vectors: map[string]vectorEmbedding{}, vectorIdx: map[string]string{},
-		ftPaths: map[string]struct{}{}, ftIdx: map[string]struct{}{}, ftStats: map[string]*bm25Stats{},
+		vectors:   map[string]vectorEmbedding{},
+		vectorIdx: map[string]string{},
+		ftPaths:   map[string]struct{}{},
+		ftLang:    map[string]string{},
+		ftIdx:     map[string]struct{}{},
+		ftStats:   map[string]*bm25Stats{},
 	}
 
 	if vp, err := parseVectorPolicy(c.VectorEmbeddingPolicy); err == nil {
@@ -29,10 +36,15 @@ func (b *InMemoryBackend) newQueryColl(c *storedContainer) *queryColl {
 	}
 
 	if fp, err := parseFullTextPolicy(c.FullTextPolicy); err == nil {
+		q.ftDefaultLang = fp.DefaultLanguage
+
 		for _, p := range fp.FullTextPaths {
 			q.ftPaths[p.Path] = struct{}{}
+			q.ftLang[p.Path] = p.Language
 		}
 	}
+
+	q.geometry = geospatialType(c.GeospatialConfig) == geoTypeGeometry
 
 	pol := parseIndexingPolicy(c.IndexingPolicy)
 

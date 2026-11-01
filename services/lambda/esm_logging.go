@@ -84,7 +84,7 @@ func (l esmLogger) emit(ctx context.Context, at, eventType string, extra map[str
 	}
 
 	rec := map[string]any{
-		"eventType":        eventType,
+		jsonKeyEventType:   eventType,
 		logKeyTimestamp:    time.Now().UnixMilli(),
 		"resourceArn":      l.resourceARN,
 		"eventProcessorId": l.uuid + "/0",

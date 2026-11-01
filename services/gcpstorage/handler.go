@@ -13,6 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -253,6 +254,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	e := echo.New()
 	e.Use(logger.EchoMiddleware(logger.Load(ctx)))
+	e.Use(gcpenforce.EchoMiddleware(ctx, gcpenforce.Target{Host: "storage.googleapis.com", QueryOnly: true}))
 	e.Any("/*", telemetry.WrapEchoHandler("GCPStorage", h.Handler(), h))
 
 	srv := &http.Server{

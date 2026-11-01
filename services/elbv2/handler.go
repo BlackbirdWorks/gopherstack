@@ -46,6 +46,10 @@ func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{Backend: backend, dp: newDataPlane()}
 	h.dispatchTable = h.buildDispatchTable()
 
+	if b, ok := backend.(*InMemoryBackend); ok {
+		b.attachHandler(h)
+	}
+
 	return h
 }
 

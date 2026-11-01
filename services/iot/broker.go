@@ -362,6 +362,12 @@ func (b *Broker) DisconnectClient(clientID string, cleanSession, preventWill boo
 		atomic.StoreUint32(&cl.Properties.Will.Flag, 0)
 	}
 
+	will := cl.Properties.Will
+	if !preventWill && will.WillDelayInterval == 0 && atomic.CompareAndSwapUint32(&cl.Properties.Will.Flag, 1, 0) {
+		// mochi drops the will when its read loop sees Closed() before a read error; publish it here.
+		_ = s.Publish(will.TopicName, will.Payload, will.Retain, will.Qos)
+	}
+
 	if cleanSession {
 		cl.Properties.Clean = true
 		cl.Properties.Props.SessionExpiryInterval = 0

@@ -1,13 +1,14 @@
 package dynamodb
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -611,7 +612,7 @@ func validateSetItem(k, t string, item any) error {
 				),
 			)
 		}
-		if _, err := strconv.ParseFloat(s, 64); err != nil {
+		if err := validateNumberText(s); err != nil {
 			return NewValidationException(
 				fmt.Sprintf("Attribute %s element %s must be a valid number", k, s),
 			)
@@ -628,6 +629,20 @@ func validateSetItem(k, t string, item any) error {
 	return nil
 }
 
+func validateNumberText(s string) error {
+	_, err := dynamonum.Parse(s)
+
+	return err
+}
+
+func numberValidationError(k string, err error) error {
+	if errors.Is(err, dynamonum.ErrInvalid) {
+		return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a valid number", k))
+	}
+
+	return NewValidationException(err.Error())
+}
+
 func validateScalarValue(k, t string, val any) error {
 	switch t {
 	case "S":
@@ -639,10 +654,8 @@ func validateScalarValue(k, t string, val any) error {
 		if !ok {
 			return NewValidationException(fmt.Sprintf("Attribute %s of type N must be a string", k))
 		}
-		if _, err := strconv.ParseFloat(valStr, 64); err != nil {
-			return NewValidationException(
-				fmt.Sprintf("Attribute %s of type N must be a valid number", k),
-			)
+		if err := validateNumberText(valStr); err != nil {
+			return numberValidationError(k, err)
 		}
 		if err := validateNumberNoLeadingZeros(k, valStr); err != nil {
 			return err
@@ -906,7 +919,7 @@ func validateSetNoDuplicates(k string, items []any) error {
 
 		switch v := item.(type) {
 		case string:
-			key = v
+			key = dynamonum.Canonical(v)
 		default:
 			continue
 		}

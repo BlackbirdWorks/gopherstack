@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
@@ -165,7 +166,7 @@ func TestIAMEnforcement(t *testing.T) {
 					"/20260826/us-east-1/es/aws4_request, SignedHeaders=host, Signature=mock",
 			)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

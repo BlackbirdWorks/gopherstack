@@ -2,6 +2,7 @@ package gcprest
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -24,11 +25,17 @@ type splitter struct {
 	grpcConns chan net.Conn
 	restConns chan net.Conn
 	done      chan struct{}
+	ctx       context.Context
+	cancel    context.CancelFunc
 	once      sync.Once
 }
 
 func newSplitter(l net.Listener, rest *http.Server) *splitter {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &splitter{
+		ctx:       ctx,
+		cancel:    cancel,
 		Listener:  l,
 		rest:      rest,
 		grpcConns: make(chan net.Conn),
@@ -56,15 +63,21 @@ func (sp *splitter) fail(err error) {
 	sp.once.Do(func() {
 		sp.err = err
 		close(sp.done)
+		sp.cancel()
 	})
 }
 
 func (sp *splitter) route(c net.Conn) {
 	br := bufio.NewReader(c)
 
+	// Close must not strand conns still waiting for their first bytes.
+	stop := context.AfterFunc(sp.ctx, func() { _ = c.Close() })
+
 	_ = c.SetReadDeadline(time.Now().Add(sniffWindow))
 	head, err := br.Peek(prefaceLen)
 	_ = c.SetReadDeadline(time.Time{})
+
+	stop()
 
 	if err != nil {
 		_ = c.Close()

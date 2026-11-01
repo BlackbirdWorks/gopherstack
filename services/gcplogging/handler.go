@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -134,7 +135,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcplogging", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.UnaryInterceptor(logInterceptor(log)))
+	srv := gcpenforce.NewServer(ctx, "logging.googleapis.com", grpc.UnaryInterceptor(logInterceptor(log)))
 	registerServers(srv, h.Backend)
 
 	h.srvMu.Lock("StartWorker")

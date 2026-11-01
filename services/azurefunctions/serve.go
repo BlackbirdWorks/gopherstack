@@ -49,9 +49,15 @@ func (b *InMemoryBackend) resolve(host string) (target, bool) {
 		return target{}, false
 	}
 
-	name, scm := strings.CutSuffix(rest, "."+scmLabel)
-	if a, found := b.apps[strs.Fold(name)]; found {
-		return target{name: a.Name, scm: scm}, true
+	label, scm := strings.CutSuffix(rest, "."+scmLabel)
+	if a, found := b.apps[strs.Fold(label)]; found && a.Slot == "" {
+		return target{name: a.key(), scm: scm}, true
+	}
+
+	for _, a := range b.apps {
+		if a.Slot != "" && strs.Equal(a.label(), label) {
+			return target{name: a.key(), scm: scm}, true
+		}
 	}
 
 	return target{}, false

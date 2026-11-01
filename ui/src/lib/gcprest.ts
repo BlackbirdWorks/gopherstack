@@ -19,9 +19,13 @@ async function failure(res: Response): Promise<GcpRestError> {
   let code = "";
   let message = res.statusText || `HTTP ${res.status}`;
   try {
-    const body = (await res.json()) as { error?: { message?: string; status?: string } };
-    message = body.error?.message ?? message;
-    code = body.error?.status ?? "";
+    const body = (await res.json()) as {
+      error?: { message?: string; status?: string };
+      code?: string;
+      message?: string;
+    };
+    message = body.error?.message ?? body.message ?? message;
+    code = body.error?.status ?? body.code ?? "";
   } catch {
     // non-JSON error body: keep the status text
   }

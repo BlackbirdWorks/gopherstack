@@ -82,7 +82,7 @@ func (a *ociIdentityAPI) compartments(c *echo.Context) error {
 		return ociFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"compartments": items})
+	return c.JSON(http.StatusOK, map[string]any{ociCompartmentsKey: items})
 }
 
 func (a *ociIdentityAPI) users(c *echo.Context) error {

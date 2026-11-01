@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
 	mobyclient "github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -355,9 +356,18 @@ func (c *Client) ContainerExec(
 	containerID string,
 	cmd []string,
 ) ([]byte, []byte, int, error) {
+	return c.ContainerExecEnv(ctx, containerID, cmd, nil)
+}
+
+// ContainerExecEnv is ContainerExec with extra environment entries (KEY=VALUE) set on the exec process.
+func (c *Client) ContainerExecEnv(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+) ([]byte, []byte, int, error) {
 	var stdout, stderr bytes.Buffer
 
-	code, err := c.ContainerExecStream(ctx, containerID, cmd, &stdout, &stderr)
+	code, err := c.execStream(ctx, containerID, cmd, env, &stdout, &stderr)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -372,10 +382,20 @@ func (c *Client) ContainerExecStream(
 	cmd []string,
 	stdout, stderr io.Writer,
 ) (int, error) {
+	return c.execStream(ctx, containerID, cmd, nil, stdout, stderr)
+}
+
+func (c *Client) execStream(
+	ctx context.Context,
+	containerID string,
+	cmd, env []string,
+	stdout, stderr io.Writer,
+) (int, error) {
 	created, err := c.inner.ExecCreate(ctx, containerID, mobyclient.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmd,
+		Env:          env,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("exec create: %w", err)
@@ -517,4 +537,69 @@ func (e *InteractiveExec) Resize(ctx context.Context, cols, rows uint) error {
 	_, err := e.cli.inner.ExecResize(ctx, e.ID, mobyclient.ExecResizeOptions{Height: rows, Width: cols})
 
 	return err
+}
+
+// ContainerInspect returns a container's full inspect response.
+func (c *Client) ContainerInspect(
+	ctx context.Context,
+	containerID string,
+) (compatcontainer.InspectResponse, error) {
+	res, err := c.inner.ContainerInspect(ctx, containerID, mobyclient.ContainerInspectOptions{})
+	if err != nil {
+		return compatcontainer.InspectResponse{}, err
+	}
+
+	return res.Container, nil
+}
+
+// VolumeCreate creates a named Docker volume with labels; an existing volume of that name is reused.
+func (c *Client) VolumeCreate(ctx context.Context, name string, labels map[string]string) error {
+	if _, err := c.inner.VolumeCreate(ctx, mobyclient.VolumeCreateOptions{Name: name, Labels: labels}); err != nil {
+		return fmt.Errorf("volume create: %w", err)
+	}
+
+	return nil
+}
+
+// VolumeListUnused maps the names of volumes carrying label that no container references to their creation time.
+func (c *Client) VolumeListUnused(ctx context.Context, label string) (map[string]time.Time, error) {
+	res, err := c.inner.VolumeList(ctx, mobyclient.VolumeListOptions{
+		Filters: make(mobyclient.Filters).Add("label", label).Add("dangling", "true"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("volume list: %w", err)
+	}
+
+	out := make(map[string]time.Time, len(res.Items))
+
+	for _, v := range res.Items {
+		created, _ := time.Parse(time.RFC3339Nano, v.CreatedAt)
+		out[v.Name] = created
+	}
+
+	return out, nil
+}
+
+// VolumeExists reports whether a Docker volume named name exists.
+func (c *Client) VolumeExists(ctx context.Context, name string) (bool, error) {
+	_, err := c.inner.VolumeInspect(ctx, name, mobyclient.VolumeInspectOptions{})
+	if err == nil {
+		return true, nil
+	}
+
+	if cerrdefs.IsNotFound(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+// VolumeRemove force-removes a Docker volume; a missing volume is not an error.
+func (c *Client) VolumeRemove(ctx context.Context, name string) error {
+	_, err := c.inner.VolumeRemove(ctx, name, mobyclient.VolumeRemoveOptions{Force: true})
+	if err != nil && !cerrdefs.IsNotFound(err) {
+		return err
+	}
+
+	return nil
 }

@@ -84,11 +84,16 @@ func (f *fakeDocker) ContainerLogs(
 	return io.NopCloser(bytes.NewReader(f.logs)), nil
 }
 
-func (f *fakeDocker) ContainerWait(_ context.Context, _ string, _ dockertypes.WaitOptions) dockertypes.WaitResult {
+func (f *fakeDocker) ContainerWait(ctx context.Context, _ string, _ dockertypes.WaitOptions) dockertypes.WaitResult {
 	res := make(chan dockertypes.WaitResponse, 1)
 	errc := make(chan error, 1)
 
-	if !f.blockWait {
+	if f.blockWait {
+		go func() {
+			<-ctx.Done()
+			errc <- ctx.Err()
+		}()
+	} else {
 		res <- dockertypes.WaitResponse{StatusCode: f.exit}
 	}
 

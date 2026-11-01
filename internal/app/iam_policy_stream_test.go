@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func streamFixture() (*echo.Echo, *iampolicystream.Recorder) {
@@ -127,7 +128,7 @@ func TestIAMPolicyStreamFollow(t *testing.T) {
 				req.Header.Set("Accept", tt.accept)
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := testclient.New(t).Do(req)
 			require.NoError(t, err)
 
 			defer resp.Body.Close()

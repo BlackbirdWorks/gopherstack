@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 const injectedCode = "ChaosInjectedError"
@@ -212,7 +213,7 @@ func TestMiddleware_ProbabilitySemantics(t *testing.T) {
 				req.Header.Set("Authorization", buildSigV4Auth("dynamodb", "us-east-1"))
 				req.Header.Set("X-Amz-Target", "DynamoDB_20120810.ListTables")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err)
 				require.NoError(t, resp.Body.Close())
 			}

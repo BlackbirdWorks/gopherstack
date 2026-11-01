@@ -64,7 +64,7 @@ func TestInitializeServices_LambdaS3CodeWiring(t *testing.T) {
 	}
 	cli.faultStore = chaos.NewFaultStore()
 
-	services, err := initializeServices(appCtx)
+	services, err := initializeServicesT(t, appCtx)
 	require.NoError(t, err)
 
 	byName := serviceByName(services)

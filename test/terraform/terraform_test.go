@@ -150,6 +150,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 // fixtureFS holds the embedded fixtures directory tree.
@@ -675,7 +678,7 @@ func downloadTofuBinary(logger *slog.Logger) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("creating OpenTofu version request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(versionReq)
+	resp, err := noKeepAliveClient().Do(versionReq)
 	if err != nil {
 		return "", fmt.Errorf("fetching OpenTofu version list: %w", err)
 	}
@@ -708,7 +711,7 @@ func downloadTofuBinary(logger *slog.Logger) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("creating OpenTofu download request: %w", err)
 	}
-	zipResp, err := http.DefaultClient.Do(zipReq)
+	zipResp, err := noKeepAliveClient().Do(zipReq)
 	if err != nil {
 		return "", fmt.Errorf("downloading OpenTofu zip: %w", err)
 	}
@@ -1981,8 +1984,7 @@ func TestTerraform_EventBridge(t *testing.T) {
 
 				// Verify rule.
 				out, err := client.DescribeRule(ctx, &ebsvc.DescribeRuleInput{
-					Name:         aws.String(vars["RuleName"].(string)),
-					EventBusName: aws.String(vars["BusName"].(string)),
+					Name: aws.String(vars["RuleName"].(string)),
 				})
 				require.NoError(t, err, "DescribeRule should succeed after terraform apply")
 				assert.Equal(t, vars["RuleName"].(string), aws.ToString(out.Name))
@@ -3061,7 +3063,7 @@ func TestTerraform_APIGateway_DataPlane(t *testing.T) {
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 				require.NoError(t, err)
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err)
 
 				defer resp.Body.Close()
@@ -3122,7 +3124,7 @@ func TestTerraform_APIGateway_RequestValidation(t *testing.T) {
 				// Missing required query parameter → 400.
 				missReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base, nil)
 				require.NoError(t, err)
-				missResp, err := http.DefaultClient.Do(missReq)
+				missResp, err := testclient.New(t).Do(missReq)
 				require.NoError(t, err)
 				defer missResp.Body.Close()
 				assert.Equal(t, http.StatusBadRequest, missResp.StatusCode,
@@ -3131,7 +3133,7 @@ func TestTerraform_APIGateway_RequestValidation(t *testing.T) {
 				// Required query parameter present → 200.
 				okReq, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"?q=hello", nil)
 				require.NoError(t, err)
-				okResp, err := http.DefaultClient.Do(okReq)
+				okResp, err := testclient.New(t).Do(okReq)
 				require.NoError(t, err)
 				defer okResp.Body.Close()
 				assert.Equal(t, http.StatusOK, okResp.StatusCode,
@@ -3548,7 +3550,7 @@ func TestTerraform_SESv2(t *testing.T) {
 					endpoint+"/v2/email/identities/"+email, nil)
 				require.NoError(t, err)
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -3564,7 +3566,7 @@ func TestTerraform_SESv2(t *testing.T) {
 					endpoint+"/v2/email/configuration-sets/"+cfgName, nil)
 				require.NoError(t, err)
 
-				resp2, err := http.DefaultClient.Do(req2)
+				resp2, err := testclient.New(t).Do(req2)
 				require.NoError(t, err)
 				defer resp2.Body.Close()
 
@@ -3708,7 +3710,7 @@ func TestTerraform_IoTDataPlane(t *testing.T) {
 				require.NoError(t, err, "creating publish request should succeed")
 				req.Header.Set("Content-Type", "application/json")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "publish request should succeed")
 				defer resp.Body.Close()
 
@@ -3914,7 +3916,7 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				require.NoError(t, err, "creating get request should succeed")
 				getReq.Header.Set("Authorization", "Bearer test")
 
-				getResp, err := http.DefaultClient.Do(getReq)
+				getResp, err := testclient.New(t).Do(getReq)
 				require.NoError(t, err, "GetConnection should succeed")
 				defer getResp.Body.Close()
 				assert.Equal(t, http.StatusOK, getResp.StatusCode, "GetConnection should return 200")
@@ -3931,7 +3933,7 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				postReq.Header.Set("Content-Type", "application/json")
 				postReq.Header.Set("Authorization", "Bearer test")
 
-				postResp, err := http.DefaultClient.Do(postReq)
+				postResp, err := testclient.New(t).Do(postReq)
 				require.NoError(t, err, "PostToConnection should succeed")
 				defer postResp.Body.Close()
 				assert.Equal(t, http.StatusOK, postResp.StatusCode, "PostToConnection should return 200")
@@ -3942,7 +3944,7 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				require.NoError(t, err, "creating delete request should succeed")
 				delReq.Header.Set("Authorization", "Bearer test")
 
-				delResp, err := http.DefaultClient.Do(delReq)
+				delResp, err := testclient.New(t).Do(delReq)
 				require.NoError(t, err, "DeleteConnection should succeed")
 				defer delResp.Body.Close()
 				assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "DeleteConnection should return 204")
@@ -3951,7 +3953,7 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				getReq2, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
 				require.NoError(t, err, "creating second get request should succeed")
 				getReq2.Header.Set("Authorization", "Bearer test")
-				getResp2, err := http.DefaultClient.Do(getReq2)
+				getResp2, err := testclient.New(t).Do(getReq2)
 				require.NoError(t, err, "GetConnection after delete should not error")
 				defer getResp2.Body.Close()
 				assert.Equal(t, http.StatusGone, getResp2.StatusCode, "GetConnection after delete should return 410")
@@ -6600,7 +6602,7 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 					"serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake"
 				req.Header.Set("Authorization", fakeAuth)
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "GetApplication should succeed after terraform apply")
 				defer resp.Body.Close()
 
@@ -6656,7 +6658,7 @@ func TestTerraform_Shield(t *testing.T) {
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 				req.Header.Set("X-Amz-Target", "AWSShield_20160616.GetSubscriptionState")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "GetSubscriptionState should succeed after terraform apply")
 				defer resp.Body.Close()
 
@@ -6774,7 +6776,7 @@ func TestTerraform_Textract(t *testing.T) {
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 				req.Header.Set("X-Amz-Target", "Textract.DetectDocumentText")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "DetectDocumentText should succeed")
 				defer resp.Body.Close()
 
@@ -6836,7 +6838,7 @@ func TestTerraform_TimestreamWrite(t *testing.T) {
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 				req.Header.Set("X-Amz-Target", "Timestream_20181101.DescribeDatabase")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "DescribeDatabase should succeed")
 				defer resp.Body.Close()
 
@@ -7093,7 +7095,7 @@ func TestTerraform_Wafv2(t *testing.T) {
 				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 				req.Header.Set("X-Amz-Target", "AWSWAF_20190729.ListWebACLs")
 
-				resp, err := http.DefaultClient.Do(req)
+				resp, err := testclient.New(t).Do(req)
 				require.NoError(t, err, "ListWebACLs should succeed after terraform apply")
 				defer resp.Body.Close()
 
@@ -7521,4 +7523,11 @@ func TestTerraform_BedrockAgentAndKnowledgeBase(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+func noKeepAliveClient() *http.Client {
+	tr := httpclient.NewTransport()
+	tr.DisableKeepAlives = true
+
+	return &http.Client{Transport: tr}
 }

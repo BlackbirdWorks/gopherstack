@@ -1,17 +1,16 @@
 package resourcegroups_test
 
 import (
-	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	resourcegroupssdk "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/sdktest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
@@ -19,7 +18,7 @@ import (
 const tagsRTRegion = "us-east-1"
 
 // newTestResourceGroupsClient stands up the real aws-sdk-go-v2
-// resourcegroups client against an httptest server running this package's
+// resourcegroups client over an in-process transport (synctest-safe) running this package's
 // Handler, wired through the same pkgs/service registry/router used in
 // production.
 func newTestResourceGroupsClient(t *testing.T, h *resourcegroups.Handler) *resourcegroupssdk.Client {
@@ -30,20 +29,11 @@ func newTestResourceGroupsClient(t *testing.T, h *resourcegroups.Handler) *resou
 	require.NoError(t, registry.Register(h))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	cfg, err := awscfg.LoadDefaultConfig(
-		t.Context(),
-		awscfg.WithRegion(tagsRTRegion),
-		awscfg.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err)
-
-	return resourcegroupssdk.NewFromConfig(cfg, func(o *resourcegroupssdk.Options) {
-		o.BaseEndpoint = aws.String(srv.URL)
+	return resourcegroupssdk.NewFromConfig(aws.Config{
+		Region:       tagsRTRegion,
+		BaseEndpoint: aws.String(sdktest.InMemoryEndpoint),
+		HTTPClient:   sdktest.HandlerClient(e),
+		Credentials:  credentials.NewStaticCredentialsProvider("test", "test", ""),
 	})
 }
 

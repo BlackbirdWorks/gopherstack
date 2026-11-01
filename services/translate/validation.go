@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sync"
 )
 
 const (
@@ -14,7 +15,9 @@ const (
 var (
 	resourceNameRe = regexp.MustCompile(`^([A-Za-z0-9-]_?){1,256}$`)
 	// Brackets are admitted so the "[fail]" job-name failure marker stays usable.
-	jobNameRe    = regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-%@\[\]]{1,256}$`)
+	jobNameRe = sync.OnceValue(func() *regexp.Regexp { //nolint:gochecknoglobals // lazy: eager compile costs MBs
+		return regexp.MustCompile(`^[\p{L}\p{Z}\p{N}_.:/=+\-%@\[\]]{1,256}$`)
+	})
 	s3URIRe      = regexp.MustCompile(`^s3://[a-z0-9][.\-a-z0-9]{1,61}[a-z0-9](/.*)?$`)
 	codePrefixRe = regexp.MustCompile(`^[A-Za-z]+Exception: `)
 )
@@ -43,7 +46,7 @@ func validateResourceName(sentinel error, field, name string) error {
 }
 
 func validateJobName(name string) error {
-	if name != "" && !jobNameRe.MatchString(name) {
+	if name != "" && !jobNameRe().MatchString(name) {
 		return fmt.Errorf("%w: JobName contains invalid characters or exceeds 256 characters", ErrValidation)
 	}
 

@@ -27,6 +27,7 @@ const crawlRole = "arn:aws:iam::000000000000:role/glue"
 
 type crawlEnv struct {
 	client *gluesdk.Client
+	glue   *glue.InMemoryBackend
 	s3     *s3backend.InMemoryBackend
 	ddb    *ddbbackend.InMemoryDB
 	t      *testing.T
@@ -41,7 +42,7 @@ func newCrawlEnv(t *testing.T) *crawlEnv {
 	b.SetS3Backend(s3b)
 	b.SetDynamoDBBackend(ddb)
 
-	env := &crawlEnv{client: newTestGlueClient(t, glue.NewHandler(b)), s3: s3b, ddb: ddb, t: t}
+	env := &crawlEnv{client: newTestGlueClient(t, glue.NewHandler(b)), glue: b, s3: s3b, ddb: ddb, t: t}
 
 	_, err := s3b.CreateBucket(t.Context(), &awss3.CreateBucketInput{Bucket: aws.String("lake")})
 	require.NoError(t, err)

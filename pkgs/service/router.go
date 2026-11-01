@@ -25,6 +25,7 @@ type Router struct {
 	targetGates [][]string
 	pathGates   [][]string
 	cborGates   []string
+	altGates    []*AltGate
 }
 
 // Interceptor sees every request after the built-in lookup (entry is nil when no service
@@ -47,6 +48,7 @@ func NewServiceRouter(registry *Registry) *Router {
 		targetGates: make([][]string, len(services)),
 		pathGates:   make([][]string, len(services)),
 		cborGates:   make([]string, len(services)),
+		altGates:    make([]*AltGate, len(services)),
 	}
 	r.idx = buildRouteIndex(r.targetGates, r.pathGates, r.cborGates)
 
@@ -90,6 +92,21 @@ func (r *Router) WithPathGates(gates map[string][]string) *Router {
 	return r
 }
 
+// WithAltGates declares, by service name, OR-alternative gates (see AltGate). Alt-gated
+// services stay in the always-visited list and are skipped cheaply before their matcher.
+// Call before serving.
+func (r *Router) WithAltGates(gates map[string]AltGate) *Router {
+	for i, entry := range r.services {
+		r.altGates[i] = nil
+
+		if g, ok := gates[entry.Registerable.Name()]; ok && g.valid() {
+			r.altGates[i] = &g
+		}
+	}
+
+	return r
+}
+
 // WithInterceptor installs i (nil clears it). Call before serving: the router is immutable afterwards.
 func (r *Router) WithInterceptor(i Interceptor) *Router {
 	r.intercept = i
@@ -124,38 +141,42 @@ func (r *Router) RouteHandler() echo.MiddlewareFunc {
 // Lookup returns the service entry the router selects for c, or nil if none matches.
 // Only services whose gate keys fit the request are tried, in priority order.
 func (r *Router) Lookup(c *echo.Context) *Entry {
-	target := extractTargetHeader(c)
-	path := extractPath(c)
+	q := lookupCtx{req: c.Request(), target: extractTargetHeader(c), rawPath: extractPath(c)}
+	q.path = gatePath(q.rawPath)
 
 	var pathBucket, targetBucket []int
 
-	if len(path) > 1 && path[0] == '/' {
-		pathBucket = r.idx.byPath[path[1]]
+	var pathPrefixes [][]string
+
+	if len(q.path) > 1 && q.path[0] == '/' {
+		pathBucket = r.idx.byPath[q.path[1]]
+		pathPrefixes = r.idx.byPathPf[q.path[1]]
 	}
 
-	if target != "" {
-		targetBucket = r.idx.byTarget[target[0]]
+	if q.target != "" {
+		targetBucket = r.idx.byTarget[q.target[0]]
 	}
 
-	cborName := rpcv2CBORServiceName(path)
-	if cb := r.idx.byCBOR[cborName]; cborName != "" && len(cb) > 0 {
+	q.cborName = rpcv2CBORServiceName(q.rawPath)
+	if cb := r.idx.byCBOR[q.cborName]; q.cborName != "" && len(cb) > 0 {
 		targetBucket = mergeAscending(targetBucket, cb)
 	}
 
 	var ia, ip, it int
 
 	for {
-		i := nextCandidate(r.idx.always, pathBucket, targetBucket, &ia, &ip, &it)
+		i, src := nextCandidate(r.idx.always, pathBucket, targetBucket, &ia, &ip, &it)
 		if i < 0 {
 			return nil
 		}
 
-		if g := r.targetGates[i]; g != nil && !hasAnyPrefix(target, g) &&
-			(cborName == "" || r.cborGates[i] != cborName) {
-			continue
+		var pfx []string
+
+		if src == fromPath {
+			pfx = pathPrefixes[ip-1]
 		}
 
-		if g := r.pathGates[i]; g != nil && !hasAnyPrefix(path, g) {
+		if !r.gatesPass(i, pfx, &q) {
 			continue
 		}
 
@@ -163,6 +184,29 @@ func (r *Router) Lookup(c *echo.Context) *Entry {
 			return entry
 		}
 	}
+}
+
+// gatesPass applies every gate of service i; pathPfx, when non-nil, is the part of its path
+// gate that can match q.path (see addKeyedPrefixes).
+func (r *Router) gatesPass(i int, pathPfx []string, q *lookupCtx) bool {
+	if g := r.targetGates[i]; g != nil && !hasAnyPrefix(q.target, g) &&
+		(q.cborName == "" || r.cborGates[i] != q.cborName) {
+		return false
+	}
+
+	if g := r.pathGates[i]; g != nil {
+		if pathPfx == nil {
+			pathPfx = g
+		}
+
+		if !hasAnyPrefix(q.path, pathPfx) {
+			return false
+		}
+	}
+
+	g := r.altGates[i]
+
+	return g == nil || g.admits(q)
 }
 
 // lookupLinear is the reference ungated first-match scan the index must agree with.
@@ -174,6 +218,21 @@ func (r *Router) lookupLinear(c *echo.Context) *Entry {
 	}
 
 	return nil
+}
+
+// gatePath collapses leading slashes to one: some matchers trim them before matching,
+// and a gate only has to admit what its matcher can claim.
+func gatePath(p string) string {
+	if len(p) < 2 || p[0] != '/' || p[1] != '/' {
+		return p
+	}
+
+	k := 2
+	for k < len(p) && p[k] == '/' {
+		k++
+	}
+
+	return p[k-1:]
 }
 
 func hasAnyPrefix(s string, prefixes []string) bool {

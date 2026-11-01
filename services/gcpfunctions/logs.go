@@ -36,7 +36,7 @@ func (b *InMemoryBackend) captureOutput(r Runner, id string, fn *functionspb.Fun
 	}
 }
 
-func (b *InMemoryBackend) invokeTarget(name string) gcpserve.LogTarget {
+func (b *InMemoryBackend) invokeTarget(name, instance string) gcpserve.LogTarget {
 	b.mu.RLock("invokeTarget")
 	defer b.mu.RUnlock()
 
@@ -45,7 +45,7 @@ func (b *InMemoryBackend) invokeTarget(name string) gcpserve.LogTarget {
 		return gcpserve.LogTarget{}
 	}
 
-	return functionLogTarget(rec.pb, rec.containerID)
+	return functionLogTarget(rec.pb, instance)
 }
 
 // serveLogged proxies the invocation to port and writes its request log entry.

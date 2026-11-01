@@ -26,6 +26,7 @@ type fakeEngineRuntime struct {
 	loaded    map[string]string
 	specs     []container.Spec
 	execs     [][]string
+	envs      [][]string
 	mu        sync.Mutex
 	stops     int
 	starts    int

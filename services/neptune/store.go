@@ -172,6 +172,7 @@ type InMemoryBackend struct {
 	pendingMaintenanceActions      map[string]map[string]PendingMaintenanceAction
 	registry                       *store.Registry
 	engine                         *dbEngine
+	iamAuth                        IAMAuthResolver
 	graphs                         map[string]*opencypher.Graph
 	mu                             *lockmetrics.RWMutex
 	accountID                      string

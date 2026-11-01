@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -195,7 +196,7 @@ func ssmCall(t *testing.T, srv *httptest.Server, op string, in any) map[string]a
 	req.Header.Set("X-Amz-Target", "AmazonSSM."+op)
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()

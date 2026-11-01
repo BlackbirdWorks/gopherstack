@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
@@ -61,7 +62,7 @@ func (a *azureFunctionAppsAdapter) PutApp(
 		Kind: cfg.Kind, LinuxFx: cfg.LinuxFx, AppCommandLine: cfg.AppCommandLine, HealthCheckPath: cfg.HealthCheckPath,
 	}
 
-	if err := azurefunctions.ValidateConfig(appCfg); err != nil {
+	if err := azurefunctions.ValidateConfig(appCfg); err != nil && (!isSlotName(name) || cfg.LinuxFx != "") {
 		return azurearm.FunctionAppInfo{}, fmt.Errorf("%w: %w", azurearm.ErrWebInvalidSiteConfig, err)
 	}
 
@@ -159,4 +160,14 @@ func (a *azureFunctionAppsAdapter) PublishingCredentials(name string) (string, s
 	user, password, scmURI, err := a.backend.PublishingCredentials(name)
 
 	return user, password, scmURI, mapFunctionsError(err)
+}
+
+func isSlotName(name string) bool { return strings.Contains(name, azurefunctions.SlotSep) }
+
+func (a *azureFunctionAppsAdapter) SwapContent(first, second string) error {
+	return mapFunctionsError(a.backend.SwapContent(first, second))
+}
+
+func (a *azureFunctionAppsAdapter) WarmUp(ctx context.Context, name string) error {
+	return mapFunctionsError(a.backend.WarmUp(ctx, name))
 }

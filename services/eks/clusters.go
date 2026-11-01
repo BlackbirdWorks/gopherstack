@@ -197,6 +197,37 @@ func (b *InMemoryBackend) scheduleClusterActivation(name string) {
 	})
 }
 
+func (b *InMemoryBackend) checkEngineOptionsLocked(version string, kv map[string]string) error {
+	if b.clusterEng == nil {
+		return nil
+	}
+
+	_, _, err := b.clusterEng.resolveLaunch(version, kv)
+
+	return err
+}
+
+// startClusterLocked launches the cluster container, or schedules the stub activation; a launch failure undoes
+// the registration.
+func (b *InMemoryBackend) startClusterLocked(c *Cluster, kv map[string]string) error {
+	if b.clusterEng == nil {
+		b.scheduleClusterActivation(c.Name)
+
+		return nil
+	}
+
+	if err := b.launchClusterLocked(c.Name, c.Version, kv); err != nil {
+		b.clusters.Delete(c.Name)
+		delete(b.accessPolicies, c.Name)
+		delete(b.encryptionConfigs, c.Name)
+		c.Tags.Close()
+
+		return err
+	}
+
+	return nil
+}
+
 // CreateCluster creates a new EKS cluster.
 func (b *InMemoryBackend) CreateCluster(
 	name, version, roleARN string,
@@ -250,15 +281,17 @@ func (b *InMemoryBackend) CreateCluster(
 		version = defaultK8sVersion
 	}
 
+	if err := b.checkEngineOptionsLocked(version, kv); err != nil {
+		return nil, err
+	}
+
 	c := b.newClusterLocked(name, version, roleARN, vpcConfig, networkConfig, kv, opts...)
 	b.clusters.Put(c)
 	b.accessPolicies[name] = make(map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs[name] = c.EncryptionConfig
 
-	if b.clusterEng != nil {
-		b.launchClusterLocked(name, version)
-	} else {
-		b.scheduleClusterActivation(name)
+	if err := b.startClusterLocked(c, kv); err != nil {
+		return nil, err
 	}
 
 	return c.clone(), nil

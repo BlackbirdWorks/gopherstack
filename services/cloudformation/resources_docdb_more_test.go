@@ -74,7 +74,8 @@ func testDocDBDBClusterParameterGroup(t *testing.T) {
     "Properties": {
       "Name": "my-docdb-cluster-pg",
       "Family": "docdb5.0",
-      "Description": "test cluster parameter group"
+      "Description": "test cluster parameter group",
+      "Parameters": {"audit_logs": "disabled"}
     }
   }
 },

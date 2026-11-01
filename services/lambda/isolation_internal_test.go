@@ -122,7 +122,7 @@ func TestStartContainer_PassesOCIRuntime(t *testing.T) {
 			b.ociRuntime = tt.oci
 
 			fn := &FunctionConfiguration{FunctionName: "f", PackageType: PackageTypeImage, ImageURI: "img:latest"}
-			_, _, id, err := b.startContainer(t.Context(), fn, nil)
+			_, _, id, err := b.startContainer(t.Context(), fn, nil, nil)
 			require.NoError(t, err)
 			require.NotEmpty(t, id)
 
