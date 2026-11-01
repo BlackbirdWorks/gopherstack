@@ -1,6 +1,8 @@
 package helm_test
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -358,7 +360,7 @@ func assertHealthy(ctx context.Context, t *testing.T, base string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/_gopherstack/health", nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
