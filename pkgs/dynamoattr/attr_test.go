@@ -60,15 +60,15 @@ func TestParseNumeric(t *testing.T) {
 	cases := []struct {
 		in     any
 		name   string
-		want   float64
+		want   string
 		okWant bool
 	}{
-		{in: float64(1.5), name: "float64", want: 1.5, okWant: true},
-		{in: int(2), name: "int", want: 2, okWant: true},
-		{in: int64(3), name: "int64", want: 3, okWant: true},
-		{in: "4.5", name: "string", want: 4.5, okWant: true},
-		{in: map[string]any{"N": "6"}, name: "wrapped", want: 6, okWant: true},
-		{in: "nope", name: "bad", want: 0, okWant: false},
+		{in: float64(1.5), name: "float64", want: "1.5", okWant: true},
+		{in: int(2), name: "int", want: "2", okWant: true},
+		{in: int64(3), name: "int64", want: "3", okWant: true},
+		{in: "4.5", name: "string", want: "4.5", okWant: true},
+		{in: map[string]any{"N": "6"}, name: "wrapped", want: "6", okWant: true},
+		{in: "nope", name: "bad", want: "", okWant: false},
 	}
 
 	for _, tc := range cases {
@@ -77,7 +77,7 @@ func TestParseNumeric(t *testing.T) {
 			got, ok := dynamoattr.ParseNumeric(tc.in)
 			assert.Equal(t, tc.okWant, ok)
 			if ok {
-				assert.InDelta(t, tc.want, got, 1e-9)
+				assert.Equal(t, tc.want, got.String())
 			}
 		})
 	}

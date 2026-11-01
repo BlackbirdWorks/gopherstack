@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 )
 
 // Sentinel errors for evaluator.
@@ -111,7 +113,7 @@ type Evaluator struct {
 // operand is an unwrapped value with its numeric parse.
 type operand struct {
 	unwrapped any
-	num       float64
+	num       dynamonum.Num
 	isNum     bool
 }
 
@@ -229,18 +231,25 @@ func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
 		return nil, ErrOperandIncorrectType
 	}
 
-	var result float64
+	var (
+		result dynamonum.Num
+		opErr  error
+	)
+
 	switch n.Operator {
 	case TokenPlus:
-		result = leftNum + rightNum
+		result, opErr = dynamonum.Add(leftNum, rightNum)
 	case TokenMinus:
-		result = leftNum - rightNum
+		result, opErr = dynamonum.Sub(leftNum, rightNum)
 	default:
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedArithmeticOp, n.Operator)
 	}
 
-	// Return in DynamoDB attribute value format
-	return map[string]any{"N": formatDynamoNumber(result)}, nil
+	if opErr != nil {
+		return nil, opErr
+	}
+
+	return map[string]any{"N": result.String()}, nil
 }
 
 func (e *Evaluator) evaluateBetween(n *BetweenExpr) (bool, error) {
@@ -415,7 +424,7 @@ func (e *Evaluator) evalContainsSetOrList(m map[string]any, targetVal any) (bool
 		return containsStringSlice(ss, e.toString(targetVal)), true
 	}
 	if ns, hasNS := m["NS"]; hasNS {
-		return containsStringSlice(ns, e.toString(targetVal)), true
+		return containsStringSlice(ns, dynamonum.Canonical(e.toString(targetVal))), true
 	}
 	if bs, hasBS := m["BS"]; hasBS {
 		return e.containsBinarySlice(bs, targetVal), true
@@ -689,68 +698,21 @@ func (e *Evaluator) compareResolved(l operand, op TokenType, r operand) bool {
 }
 
 // parseUnwrappedNumeric is parseNumeric for a value unwrapAttributeValue already processed.
-func (e *Evaluator) parseUnwrappedNumeric(v any) (float64, bool) {
+func (e *Evaluator) parseUnwrappedNumeric(v any) (dynamonum.Num, bool) {
 	switch val := v.(type) {
-	case float64:
-		return val, true
 	case string:
 		if !couldBeNumeric(val) {
-			return 0, false
+			return dynamonum.Num{}, false
 		}
 
-		if f, ok := parseSmallInt(val); ok {
-			return f, true
-		}
+		x, err := dynamonum.Parse(val)
 
-		f, err := strconv.ParseFloat(val, 64)
-
-		return f, err == nil
+		return x, err == nil
 	case nil:
-		return 0, false
+		return dynamonum.Num{}, false
 	default:
 		return e.parseNumeric(v)
 	}
-}
-
-// maxExactDigits keeps parseSmallInt within float64's exact integer range.
-const (
-	maxExactDigits = 15
-	decimalBase    = 10
-)
-
-// parseSmallInt parses an optionally negative run of at most maxExactDigits digits without ParseFloat.
-func parseSmallInt(s string) (float64, bool) {
-	digits := s
-	neg := false
-
-	if digits != "" && digits[0] == '-' {
-		neg, digits = true, digits[1:]
-	}
-
-	if digits == "" || len(digits) > maxExactDigits {
-		return 0, false
-	}
-
-	var n int64
-
-	for i := range len(digits) {
-		c := digits[i]
-		if c < '0' || c > '9' {
-			return 0, false
-		}
-
-		n = n*decimalBase + int64(c-'0')
-	}
-
-	if neg {
-		if n == 0 {
-			return math.Copysign(0, -1), true
-		}
-
-		n = -n
-	}
-
-	return float64(n), true
 }
 
 // sameType reports whether a and b have the same dynamic type, using a type
@@ -786,21 +748,23 @@ func sameType(a, b any) bool {
 	}
 }
 
-// compareNumbers compares two float64 values with the given operator.
-func compareNumbers(lNum, rNum float64, op TokenType) bool {
+// compareNumbers compares two exact numbers with the given operator.
+func compareNumbers(l, r dynamonum.Num, op TokenType) bool {
+	c := l.Cmp(r)
+
 	switch op {
 	case TokenEqual:
-		return lNum == rNum
+		return c == 0
 	case TokenNotEqual:
-		return lNum != rNum
+		return c != 0
 	case TokenLess:
-		return lNum < rNum
+		return c < 0
 	case TokenLessEqual:
-		return lNum <= rNum
+		return c <= 0
 	case TokenGreater:
-		return lNum > rNum
+		return c > 0
 	case TokenGreaterEqual:
-		return lNum >= rNum
+		return c >= 0
 	default:
 		return false
 	}
@@ -863,26 +827,25 @@ func compareStrings(s1, s2 string, op TokenType) bool {
 	}
 }
 
-func (e *Evaluator) parseNumeric(v any) (float64, bool) {
-	unwrapped := e.unwrapAttributeValue(v)
-	switch val := unwrapped.(type) {
+func (e *Evaluator) parseNumeric(v any) (dynamonum.Num, bool) {
+	switch val := e.unwrapAttributeValue(v).(type) {
 	case float64:
-		return val, true
+		return dynamonum.FromFloat(val)
 	case int:
-		return float64(val), true
+		return dynamonum.FromInt64(int64(val)), true
 	case int64:
-		return float64(val), true
+		return dynamonum.FromInt64(val), true
 	case string:
-		// Skip ParseFloat (allocates on failure) for plainly non-numeric strings.
 		if !couldBeNumeric(val) {
-			return 0, false
+			return dynamonum.Num{}, false
 		}
-		if f, parseErr := strconv.ParseFloat(val, 64); parseErr == nil {
-			return f, true
-		}
+
+		x, err := dynamonum.Parse(val)
+
+		return x, err == nil
 	}
 
-	return 0, false
+	return dynamonum.Num{}, false
 }
 
 // couldBeNumeric reports whether s has only decimal-float characters.
@@ -901,16 +864,6 @@ func couldBeNumeric(s string) bool {
 	}
 
 	return true
-}
-
-// formatDynamoNumber formats a float64 as a plain decimal string without
-// scientific notation, matching DynamoDB's number representation.
-func formatDynamoNumber(f float64) string {
-	if f == float64(int64(f)) {
-		return strconv.FormatInt(int64(f), 10)
-	}
-
-	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 func (e *Evaluator) getValueAtPath(item map[string]any, path []PathElement) (any, bool) {
@@ -1360,8 +1313,13 @@ func (e *Evaluator) applyAddNumber(path []PathElement, cur, val any) error {
 		return ErrOperandIncorrectType
 	}
 	valNum, _ := e.parseNumeric(val)
-	sum := curNum + valNum
-	updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": formatDynamoNumber(sum)})
+
+	sum, err := dynamonum.Add(curNum, valNum)
+	if err != nil {
+		return err
+	}
+
+	updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": sum.String()})
 	if err != nil {
 		return err
 	}
@@ -1406,6 +1364,10 @@ func (e *Evaluator) addToStringSet(
 	seen := make(map[string]bool, len(merged))
 	unique := merged[:0]
 	for _, s := range merged {
+		if setKey == "NS" {
+			s = dynamonum.Canonical(s)
+		}
+
 		if !seen[s] {
 			seen[s] = true
 			unique = append(unique, s)
@@ -1531,9 +1493,14 @@ func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error 
 			return ErrCurrentNSValueMustBeSlice
 		}
 
+		removeKeys := make([]string, len(toRemove))
+		for i, r := range toRemove {
+			removeKeys[i] = dynamonum.Canonical(r)
+		}
+
 		newSet := make([]string, 0, len(currentSet))
 		for _, item := range currentSet {
-			if !slices.Contains(toRemove, item) {
+			if !slices.Contains(removeKeys, dynamonum.Canonical(item)) {
 				newSet = append(newSet, item)
 			}
 		}

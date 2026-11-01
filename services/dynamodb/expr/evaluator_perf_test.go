@@ -67,7 +67,7 @@ func TestEvaluator_NumericStringComparison(t *testing.T) {
 		{name: "exponent", left: "1e3", right: "1000", want: true},
 		{name: "plus sign", left: "+5", right: "5", want: true},
 		{name: "fifteen digits", left: "999999999999999", right: "999999999999999", want: true},
-		{name: "sixteen digits differ", left: "9007199254740993", right: "9007199254740992", want: true},
+		{name: "sixteen digits differ", left: "9007199254740993", right: "9007199254740992", want: false},
 		{name: "different", left: "41", right: "42", want: false},
 	}
 

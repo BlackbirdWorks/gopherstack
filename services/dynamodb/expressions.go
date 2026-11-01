@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/expr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -146,6 +147,9 @@ func updateExpressionErrorMessage(err error) string {
 		return "The document path provided in the update expression is invalid for update"
 	case errors.Is(err, expr.ErrOperandIncorrectType):
 		return "An operand in the update expression has an incorrect data type"
+	case errors.Is(err, dynamonum.ErrOverflow), errors.Is(err, dynamonum.ErrUnderflow),
+		errors.Is(err, dynamonum.ErrTooManyDigits):
+		return err.Error()
 	case errors.Is(err, expr.ErrOverlappingDocumentPaths):
 		return "Two document paths overlap with each other; must remove or rewrite one of these paths"
 	default:

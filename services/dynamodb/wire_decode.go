@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/dynamonum"
+
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
@@ -449,7 +451,7 @@ func (r *wireReader) typedValue(typeKey string, depth int) (types.AttributeValue
 	case "N":
 		s, ok := r.str()
 
-		return &types.AttributeValueMemberN{Value: s}, ok
+		return &types.AttributeValueMemberN{Value: dynamonum.Canonical(s)}, ok
 	case typeBOOL:
 		b, ok := r.boolean()
 
@@ -506,6 +508,10 @@ func (r *wireReader) setValue(typeKey string) (types.AttributeValue, bool) {
 
 	ok := r.elements(func() bool {
 		s, good := r.str()
+		if typeKey == "NS" {
+			s = dynamonum.Canonical(s)
+		}
+
 		out = append(out, s)
 
 		return good
