@@ -200,8 +200,8 @@ func hmacMetadata(base string, k *HMACKey) map[string]any {
 		keyKind: "storage#hmacKeyMetadata", "id": k.Project + "/" + k.AccessID, "accessId": k.AccessID,
 		"projectId": k.Project, "serviceAccountEmail": k.ServiceAccountEmail, "state": k.State,
 		"timeCreated": fmtTime(k.Created), "updated": fmtTime(k.Updated),
-		"etag":     base64.StdEncoding.EncodeToString([]byte(itoa64(k.Updated.UnixMicro()))),
-		"selfLink": base + "/storage/v1/projects/" + k.Project + "/hmacKeys/" + k.AccessID,
+		keyEtag:     base64.StdEncoding.EncodeToString([]byte(itoa64(k.Updated.UnixMicro()))),
+		keySelfLink: base + "/storage/v1/projects/" + k.Project + "/hmacKeys/" + k.AccessID,
 	}
 }
 
@@ -229,7 +229,7 @@ func (h *Handler) listHMACKeys(c *echo.Context, rt route) error {
 	q := c.QueryParams()
 	limit, _ := strconv.Atoi(q.Get("maxResults"))
 	pg := h.Backend.ListHMACKeys(rt.project, q.Get("serviceAccountEmail"), q.Get("pageToken"), limit,
-		q.Get("showDeletedKeys") == "true")
+		q.Get("showDeletedKeys") == valTrue)
 	base := baseURL(c.Request())
 	items := make([]map[string]any, 0, len(pg.Data))
 
@@ -238,7 +238,7 @@ func (h *Handler) listHMACKeys(c *echo.Context, rt route) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyKind: "storage#hmacKeysMetadata", "items": items, "nextPageToken": pg.Next,
+		keyKind: "storage#hmacKeysMetadata", keyItems: items, "nextPageToken": pg.Next,
 	})
 }
 

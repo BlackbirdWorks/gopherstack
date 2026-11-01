@@ -82,7 +82,10 @@ func (c lifecycleCondition) matches(o *Object, newer int, now time.Time) bool {
 		{c.NumNewerVersions != nil, c.NumNewerVersions != nil && int64(newer) >= *c.NumNewerVersions},
 		{c.CreatedBefore != "", beforeDate(o.Created, c.CreatedBefore)},
 		{c.CustomTimeBefore != "", beforeDate(o.CustomTime, c.CustomTimeBefore)},
-		{c.DaysSinceCustomTime != nil, c.DaysSinceCustomTime != nil && daysSince(o.CustomTime, now, *c.DaysSinceCustomTime)},
+		{
+			c.DaysSinceCustomTime != nil,
+			c.DaysSinceCustomTime != nil && daysSince(o.CustomTime, now, *c.DaysSinceCustomTime),
+		},
 		{
 			c.DaysSinceNoncurrentTime != nil,
 			!live && c.DaysSinceNoncurrentTime != nil && daysSince(o.Deleted, now, *c.DaysSinceNoncurrentTime),
@@ -102,16 +105,33 @@ func (c lifecycleCondition) matches(o *Object, newer int, now time.Time) bool {
 	return true
 }
 
-var classRank = map[string]int{ //nolint:gochecknoglobals // immutable lookup
-	"STANDARD": 0, "MULTI_REGIONAL": 0, "REGIONAL": 0, "DURABLE_REDUCED_AVAILABILITY": 0,
-	"NEARLINE": 1, "COLDLINE": 2, "ARCHIVE": 3,
+const (
+	rankStandard = iota
+	rankNearline
+	rankColdline
+	rankArchive
+)
+
+func classRank(class string) (int, bool) {
+	switch class {
+	case "STANDARD", "MULTI_REGIONAL", "REGIONAL", "DURABLE_REDUCED_AVAILABILITY":
+		return rankStandard, true
+	case "NEARLINE":
+		return rankNearline, true
+	case "COLDLINE":
+		return rankColdline, true
+	case "ARCHIVE":
+		return rankArchive, true
+	default:
+		return 0, false
+	}
 }
 
 func classTransitionAllowed(from, to string) bool {
-	rf, okF := classRank[from]
-	rt, okT := classRank[to]
+	rf, okF := classRank(from)
+	rt, okT := classRank(to)
 
-	return okF && okT && rt > rf && rt >= 1
+	return okF && okT && rt > rf
 }
 
 // lifecycleAction picks the single action to run on o: Delete beats SetStorageClass, deepest class wins.
@@ -128,7 +148,7 @@ func lifecycleAction(rules []lifecycleRule, o *Object, newer int, now time.Time)
 			return actionDelete, ""
 		case actionSetClass:
 			if classTransitionAllowed(o.StorageClass, r.Action.StorageClass) &&
-				classRank[r.Action.StorageClass] > classRank[target] {
+				rankOf(r.Action.StorageClass) > rankOf(target) {
 				target = r.Action.StorageClass
 			}
 		}
@@ -152,7 +172,10 @@ func (b *InMemoryBackend) RunLifecycle() {
 
 	for _, bk := range b.buckets {
 		b.sweepBucketLocked(bk, now)
-		bk.SoftDeleted = slices.DeleteFunc(bk.SoftDeleted, func(o *Object) bool { return !now.Before(o.HardDeleteTime) })
+		bk.SoftDeleted = slices.DeleteFunc(
+			bk.SoftDeleted,
+			func(o *Object) bool { return !now.Before(o.HardDeleteTime) },
+		)
 	}
 }
 
@@ -204,4 +227,10 @@ func (b *InMemoryBackend) RunJanitor(ctx context.Context, interval time.Duration
 			b.RunLifecycle()
 		}
 	}
+}
+
+func rankOf(class string) int {
+	r, _ := classRank(class)
+
+	return r
 }

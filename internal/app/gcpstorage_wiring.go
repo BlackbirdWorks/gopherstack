@@ -9,7 +9,9 @@ import (
 	gcpstoragebackend "github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
 
-type gcsPubSubNotifier struct{ ps *gcppubsubbackend.InMemoryBackend }
+type gcsPubSubNotifier struct {
+	ps *gcppubsubbackend.InMemoryBackend
+}
 
 func (n gcsPubSubNotifier) TopicExists(topic string) bool {
 	_, err := n.ps.GetTopic(topic)

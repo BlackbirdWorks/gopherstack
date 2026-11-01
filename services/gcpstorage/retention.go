@@ -204,14 +204,14 @@ func (b *InMemoryBackend) guardMutation(bk *Bucket, o *Object) *APIError {
 
 	if o.TemporaryHold || o.EventBasedHold {
 		return &APIError{
-			Status: http.StatusForbidden, Reason: reasonUnderActiveHold, XMLCode: "AccessDenied",
+			Status: http.StatusForbidden, Reason: reasonUnderActiveHold, XMLCode: codeAccessDenied,
 			Message: "Object replacement or deletion is not allowed due to an active hold on the object.",
 		}
 	}
 
 	if exp := bk.retentionExpiry(o); b.now().Before(exp) {
 		return &APIError{
-			Status: http.StatusForbidden, Reason: reasonRetentionNotMet, XMLCode: "AccessDenied",
+			Status: http.StatusForbidden, Reason: reasonRetentionNotMet, XMLCode: codeAccessDenied,
 			Message: "The object is under retention and cannot be replaced or deleted until " + fmtTime(exp) + ".",
 		}
 	}
@@ -296,8 +296,8 @@ func (b *InMemoryBackend) removeVersionLocked(bk *Bucket, cur *Object) {
 	b.softDeleteLocked(bk, cur)
 }
 
-func (bk *Bucket) softDeletedVersion(name string, gen int64) (int, *Object) {
-	for i, o := range bk.SoftDeleted {
+func (b *Bucket) softDeletedVersion(name string, gen int64) (int, *Object) {
+	for i, o := range b.SoftDeleted {
 		if o.Name == name && o.Generation == gen {
 			return i, o
 		}
@@ -389,7 +389,7 @@ func (h *Handler) restoreObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	o, err := h.Backend.RestoreObject(rt.bucket, rt.object, gen, pre, q.Get("copySourceAcl") == "true")
+	o, err := h.Backend.RestoreObject(rt.bucket, rt.object, gen, pre, q.Get("copySourceAcl") == valTrue)
 	if err != nil {
 		return err
 	}

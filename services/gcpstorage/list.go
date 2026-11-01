@@ -207,10 +207,10 @@ func objectEntries(bk *Bucket, name string, versions bool) []listEntry {
 	return out
 }
 
-func (bk *Bucket) softDeletedView() *Bucket {
-	view := &Bucket{Name: bk.Name, Config: bk.Config, Objects: map[string][]*Object{}}
+func (b *Bucket) softDeletedView() *Bucket {
+	view := &Bucket{Name: b.Name, Config: b.Config, Objects: map[string][]*Object{}}
 
-	for _, o := range bk.SoftDeleted {
+	for _, o := range b.SoftDeleted {
 		view.Objects[o.Name] = append(view.Objects[o.Name], o)
 	}
 

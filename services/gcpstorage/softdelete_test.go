@@ -22,6 +22,8 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "new buckets carry the default seven day policy",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				attrs, err := b.Attrs(t.Context())
 				require.NoError(t, err)
 				require.NotNil(t, attrs.SoftDeletePolicy)
@@ -31,7 +33,15 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "delete soft-deletes then restore creates a new live generation",
 			run: func(t *testing.T, _ *sdkEnv, clk *fakeClock, b *storage.BucketHandle) {
-				first := write(t, b.Object("a"), []byte("data"), 0, func(w *storage.Writer) { w.StorageClass = "NEARLINE" })
+				t.Helper()
+
+				first := write(
+					t,
+					b.Object("a"),
+					[]byte("data"),
+					0,
+					func(w *storage.Writer) { w.StorageClass = "NEARLINE" },
+				)
 				require.NoError(t, b.Object("a").Delete(t.Context()))
 
 				assert.Empty(t, objectNames(t, b, nil))
@@ -49,7 +59,9 @@ func TestSoftDelete(t *testing.T) {
 
 				clk.advance(time.Hour)
 
-				restored, err := b.Object("a").Generation(first.Generation).Restore(t.Context(), &storage.RestoreOptions{})
+				restored, err := b.Object("a").
+					Generation(first.Generation).
+					Restore(t.Context(), &storage.RestoreOptions{})
 				require.NoError(t, err)
 				assert.Greater(t, restored.Generation, first.Generation)
 				assert.Equal(t, "STANDARD", restored.StorageClass)
@@ -63,6 +75,8 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "overwrite soft-deletes the replaced generation and restore overwrites the live one",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				first := write(t, b.Object("a"), []byte("one"), 0, nil)
 				write(t, b.Object("a"), []byte("two"), 0, nil)
 
@@ -71,12 +85,19 @@ func TestSoftDelete(t *testing.T) {
 				_, err := b.Object("a").Generation(first.Generation).Restore(t.Context(), &storage.RestoreOptions{})
 				require.NoError(t, err)
 				assert.Equal(t, []byte("one"), readAll(t, b.Object("a")))
-				assert.Equal(t, []string{"a"}, objectNames(t, b, &storage.Query{SoftDeleted: true}), "the displaced live object is soft-deleted")
+				assert.Equal(
+					t,
+					[]string{"a"},
+					objectNames(t, b, &storage.Query{SoftDeleted: true}),
+					"the displaced live object is soft-deleted",
+				)
 			},
 		},
 		{
 			name: "restore of an unknown generation is not found",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				write(t, b.Object("a"), []byte("x"), 0, nil)
 				_, err := b.Object("a").Generation(12345).Restore(t.Context(), &storage.RestoreOptions{})
 				assert.Equal(t, "notFound", apiReason(t, err, http.StatusNotFound))
@@ -85,7 +106,12 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "a zero retention duration disables soft delete",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
-				_, err := b.Update(t.Context(), storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{}})
+				t.Helper()
+
+				_, err := b.Update(
+					t.Context(),
+					storage.BucketAttrsToUpdate{SoftDeletePolicy: &storage.SoftDeletePolicy{}},
+				)
 				require.NoError(t, err)
 
 				write(t, b.Object("a"), []byte("x"), 0, nil)
@@ -96,6 +122,8 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "objects past the hard delete time are purged",
 			run: func(t *testing.T, e *sdkEnv, clk *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				first := write(t, b.Object("a"), []byte("x"), 0, nil)
 				require.NoError(t, b.Object("a").Delete(t.Context()))
 
@@ -114,6 +142,8 @@ func TestSoftDelete(t *testing.T) {
 		{
 			name: "invalid durations are rejected",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				_, err := b.Update(t.Context(), storage.BucketAttrsToUpdate{
 					SoftDeletePolicy: &storage.SoftDeletePolicy{RetentionDuration: 24 * time.Hour},
 				})

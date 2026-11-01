@@ -28,15 +28,15 @@ const (
 // InMemoryBackend holds all buckets, objects and resumable upload sessions
 // under one lock.
 type InMemoryBackend struct {
+	notifier  Notifier
 	mu        *lockmetrics.RWMutex
 	buckets   map[string]*Bucket
 	uploads   map[string]*uploadSession
-	observers []ObjectObserver
-	pending   []ObjectEvent
 	hmac      map[string]*HMACKey
 	clock     atomic.Pointer[clockFn]
-	notifier  Notifier
 	keys      KeyResolver
+	observers []ObjectObserver
+	pending   []ObjectEvent
 	lastGen   int64
 	iamSeq    uint64
 }

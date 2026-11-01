@@ -1,6 +1,7 @@
 package gcpstorage_test
 
 import (
+	"errors"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -59,6 +60,8 @@ func TestRetentionAndHolds(t *testing.T) {
 			name: "retention blocks delete and overwrite until expiry",
 			bkt:  storage.BucketAttrs{RetentionPolicy: &storage.RetentionPolicy{RetentionPeriod: time.Hour}},
 			run: func(t *testing.T, _ *sdkEnv, clk *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				o := b.Object("a")
 				attrs := write(t, o, []byte("1"), 0, nil)
 				assert.Equal(t, clk.now().Add(time.Hour), attrs.RetentionExpirationTime)
@@ -77,6 +80,8 @@ func TestRetentionAndHolds(t *testing.T) {
 		{
 			name: "temporary hold blocks delete and overwrite until released",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				o := b.Object("a")
 				write(t, o, []byte("1"), 0, nil)
 
@@ -98,6 +103,8 @@ func TestRetentionAndHolds(t *testing.T) {
 			name: "event based hold restarts the retention clock on release",
 			bkt:  storage.BucketAttrs{RetentionPolicy: &storage.RetentionPolicy{RetentionPeriod: time.Hour}},
 			run: func(t *testing.T, _ *sdkEnv, clk *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				o := b.Object("a")
 				write(t, o, []byte("1"), 0, nil)
 
@@ -119,6 +126,8 @@ func TestRetentionAndHolds(t *testing.T) {
 		{
 			name: "default event based hold applies to new objects",
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				_, err := b.Update(t.Context(), storage.BucketAttrsToUpdate{DefaultEventBasedHold: true})
 				require.NoError(t, err)
 
@@ -134,6 +143,8 @@ func TestRetentionAndHolds(t *testing.T) {
 				VersioningEnabled: true, RetentionPolicy: &storage.RetentionPolicy{RetentionPeriod: time.Hour},
 			},
 			run: func(t *testing.T, _ *sdkEnv, _ *fakeClock, b *storage.BucketHandle) {
+				t.Helper()
+
 				attrs := write(t, b.Object("a"), []byte("1"), 0, nil)
 				err := b.Object("a").Generation(attrs.Generation).Delete(t.Context())
 				assert.Equal(t, "retentionPolicyNotMet", apiReason(t, err, http.StatusForbidden))
@@ -165,7 +176,10 @@ func TestLockedRetentionPolicy(t *testing.T) {
 	assert.False(t, attrs.RetentionPolicy.IsLocked)
 	assert.Equal(t, clk.now(), attrs.RetentionPolicy.EffectiveTime)
 
-	require.NoError(t, b.If(storage.BucketConditions{MetagenerationMatch: attrs.MetaGeneration}).LockRetentionPolicy(t.Context()))
+	require.NoError(
+		t,
+		b.If(storage.BucketConditions{MetagenerationMatch: attrs.MetaGeneration}).LockRetentionPolicy(t.Context()),
+	)
 
 	attrs, err = b.Attrs(t.Context())
 	require.NoError(t, err)
@@ -200,7 +214,7 @@ func objectNames(t *testing.T, b *storage.BucketHandle, q *storage.Query) []stri
 
 	for {
 		a, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 
@@ -230,12 +244,16 @@ func TestLifecycleRules(t *testing.T) {
 			name: "age deletes only objects old enough",
 			lc:   rule(del, storage.LifecycleCondition{AgeInDays: 1}),
 			setup: func(t *testing.T, b *storage.BucketHandle, clk *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("old"), []byte("1"), 0, nil)
 				clk.advance(20 * time.Hour)
 				write(t, b.Object("young"), []byte("1"), 0, nil)
 			},
 			advance: 6 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Equal(t, []string{"young"}, objectNames(t, b, nil))
 				assert.Equal(t, []string{"old"}, objectNames(t, b, &storage.Query{SoftDeleted: true}))
 			},
@@ -247,12 +265,16 @@ func TestLifecycleRules(t *testing.T) {
 				MatchesStorageClasses: []string{"STANDARD"},
 			}),
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				for _, n := range []string{"tmp/a.log", "tmp/a.txt", "keep/a.log"} {
 					write(t, b.Object(n), []byte("1"), 0, nil)
 				}
 			},
 			advance: 25 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Equal(t, []string{"keep/a.log", "tmp/a.txt"}, objectNames(t, b, nil))
 			},
 		},
@@ -260,11 +282,15 @@ func TestLifecycleRules(t *testing.T) {
 			name: "created before a date",
 			lc:   rule(del, storage.LifecycleCondition{CreatedBefore: time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC)}),
 			setup: func(t *testing.T, b *storage.BucketHandle, clk *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("early"), []byte("1"), 0, nil)
 				clk.advance(48 * time.Hour)
 				write(t, b.Object("late"), []byte("1"), 0, nil)
 			},
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Equal(t, []string{"late"}, objectNames(t, b, nil))
 			},
 		},
@@ -273,11 +299,15 @@ func TestLifecycleRules(t *testing.T) {
 			lc: rule(storage.LifecycleAction{Type: storage.SetStorageClassAction, StorageClass: "NEARLINE"},
 				storage.LifecycleCondition{AgeInDays: 1}),
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("std"), []byte("1"), 0, nil)
 				write(t, b.Object("arch"), []byte("1"), 0, func(w *storage.Writer) { w.StorageClass = "ARCHIVE" })
 			},
 			advance: 25 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				std, err := b.Object("std").Attrs(t.Context())
 				require.NoError(t, err)
 				assert.Equal(t, "NEARLINE", std.StorageClass)
@@ -293,11 +323,15 @@ func TestLifecycleRules(t *testing.T) {
 			lc:       rule(del, storage.LifecycleCondition{NumNewerVersions: 1}),
 			versions: true,
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				for range 3 {
 					write(t, b.Object("v"), []byte("x"), 0, nil)
 				}
 			},
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Len(t, objectNames(t, b, &storage.Query{Versions: true}), 1)
 			},
 		},
@@ -306,10 +340,14 @@ func TestLifecycleRules(t *testing.T) {
 			lc:       rule(del, storage.LifecycleCondition{AgeInDays: 1, Liveness: storage.Live}),
 			versions: true,
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("v"), []byte("x"), 0, nil)
 			},
 			advance: 25 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Empty(t, objectNames(t, b, nil))
 				assert.Len(t, objectNames(t, b, &storage.Query{Versions: true}), 1)
 			},
@@ -319,11 +357,15 @@ func TestLifecycleRules(t *testing.T) {
 			lc:       rule(del, storage.LifecycleCondition{DaysSinceNoncurrentTime: 2, Liveness: storage.Archived}),
 			versions: true,
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("v"), []byte("1"), 0, nil)
 				write(t, b.Object("v"), []byte("2"), 0, nil)
 			},
 			advance: 49 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Len(t, objectNames(t, b, &storage.Query{Versions: true}), 1)
 			},
 		},
@@ -331,6 +373,8 @@ func TestLifecycleRules(t *testing.T) {
 			name: "held objects survive a delete rule",
 			lc:   rule(del, storage.LifecycleCondition{AgeInDays: 1}),
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("held"), []byte("1"), 0, nil)
 				write(t, b.Object("free"), []byte("1"), 0, nil)
 				_, err := b.Object("held").Update(t.Context(), storage.ObjectAttrsToUpdate{TemporaryHold: true})
@@ -338,20 +382,29 @@ func TestLifecycleRules(t *testing.T) {
 			},
 			advance: 25 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Equal(t, []string{"held"}, objectNames(t, b, nil))
 			},
 		},
 		{
 			name: "delete beats set storage class",
 			lc: storage.Lifecycle{Rules: []storage.LifecycleRule{
-				{Action: storage.LifecycleAction{Type: storage.SetStorageClassAction, StorageClass: "COLDLINE"}, Condition: storage.LifecycleCondition{AgeInDays: 1}},
+				{
+					Action:    storage.LifecycleAction{Type: storage.SetStorageClassAction, StorageClass: "COLDLINE"},
+					Condition: storage.LifecycleCondition{AgeInDays: 1},
+				},
 				{Action: del, Condition: storage.LifecycleCondition{AgeInDays: 1}},
 			}},
 			setup: func(t *testing.T, b *storage.BucketHandle, _ *fakeClock) {
+				t.Helper()
+
 				write(t, b.Object("a"), []byte("1"), 0, nil)
 			},
 			advance: 25 * time.Hour,
 			verify: func(t *testing.T, b *storage.BucketHandle) {
+				t.Helper()
+
 				assert.Empty(t, objectNames(t, b, nil))
 			},
 		},

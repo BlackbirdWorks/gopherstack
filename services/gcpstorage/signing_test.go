@@ -4,7 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec // V2 HMAC signing is defined with HMAC-SHA1
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -75,7 +76,7 @@ func newSignEnv(t *testing.T) *signEnv {
 	return &signEnv{backend: backend, handler: h, srv: srv, host: strings.TrimPrefix(srv.URL, "http://")}
 }
 
-func (s *signEnv) do(t *testing.T, method, rawURL string, hdr map[string]string) (int, string, http.Header) {
+func (s *signEnv) do(t *testing.T, method, rawURL string, hdr map[string]string) (int, string) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), method, rawURL, strings.NewReader(""))
@@ -93,15 +94,15 @@ func (s *signEnv) do(t *testing.T, method, rawURL string, hdr map[string]string)
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
-	return resp.StatusCode, string(body), resp.Header
+	return resp.StatusCode, string(body)
 }
 
-func (s *signEnv) rsaURL(t *testing.T, scheme storage.SigningScheme, method string, exp time.Duration) string {
+func (s *signEnv) rsaURL(t *testing.T, scheme storage.SigningScheme) string {
 	t.Helper()
 
 	pemKey := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(signerKey())})
 	u, err := storage.SignedURL("bkt", "dir/a b.txt", &storage.SignedURLOptions{
-		GoogleAccessID: signerEmail, PrivateKey: pemKey, Method: method, Expires: time.Now().Add(exp),
+		GoogleAccessID: signerEmail, PrivateKey: pemKey, Method: http.MethodGet, Expires: time.Now().Add(time.Hour),
 		Scheme: scheme, Hostname: s.host, Insecure: true,
 	})
 	require.NoError(t, err)
@@ -137,7 +138,7 @@ func (s *signEnv) signV4HMAC(method, accessID, secret string, at time.Time, expi
 	scope := date + "/auto/storage/goog4_request"
 	q := url.Values{
 		"X-Goog-Algorithm": {"GOOG4-HMAC-SHA256"}, "X-Goog-Credential": {accessID + "/" + scope},
-		"X-Goog-Date": {ts}, "X-Goog-Expires": {fmt.Sprint(expires)}, "X-Goog-SignedHeaders": {"host"},
+		"X-Goog-Date": {ts}, "X-Goog-Expires": {strconv.Itoa(expires)}, "X-Goog-SignedHeaders": {"host"},
 	}
 	canon := strings.Join([]string{
 		method, path, strings.ReplaceAll(q.Encode(), "+", "%20"), "host:" + s.host + "\n", "host", "UNSIGNED-PAYLOAD",
@@ -159,38 +160,46 @@ func TestSignedURLVerification(t *testing.T) {
 
 	tests := []struct {
 		build    func(t *testing.T, s *signEnv) (method, u string)
-		clock    time.Duration
 		name     string
 		wantCode string
 		wantBody string
+		clock    time.Duration
 		want     int
 	}{
 		{
 			name: "v4 rsa valid",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV4)
 			},
 			want: http.StatusOK, wantBody: "secret",
 		},
 		{
 			name: "v4 rsa expired",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV4)
 			},
 			clock: 2 * time.Hour, want: http.StatusBadRequest, wantCode: "ExpiredToken",
 		},
 		{
 			name: "v4 rsa tampered path",
 			build: func(t *testing.T, s *signEnv) (string, string) {
+				t.Helper()
+
 				return http.MethodGet, strings.Replace(
-					s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour), "a%20b.txt", "other.txt", 1)
+					s.rsaURL(t, storage.SigningSchemeV4), "a%20b.txt", "other.txt", 1)
 			},
 			want: http.StatusForbidden, wantCode: "SignatureDoesNotMatch",
 		},
 		{
 			name: "v4 rsa tampered expiry",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				u := s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				u := s.rsaURL(t, storage.SigningSchemeV4)
 
 				return http.MethodGet, withQuery(t, u, "X-Goog-Expires", "604800")
 			},
@@ -199,14 +208,18 @@ func TestSignedURLVerification(t *testing.T) {
 		{
 			name: "v4 rsa wrong method",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				return http.MethodDelete, s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				return http.MethodDelete, s.rsaURL(t, storage.SigningSchemeV4)
 			},
 			want: http.StatusForbidden, wantCode: "SignatureDoesNotMatch",
 		},
 		{
 			name: "v4 rsa unknown account",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				u := s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				u := s.rsaURL(t, storage.SigningSchemeV4)
 
 				return http.MethodGet, strings.Replace(u, "signer%40", "ghost%40", 1)
 			},
@@ -215,7 +228,9 @@ func TestSignedURLVerification(t *testing.T) {
 		{
 			name: "v4 expires over a week",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				u := s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				t.Helper()
+
+				u := s.rsaURL(t, storage.SigningSchemeV4)
 
 				return http.MethodGet, withQuery(t, u, "X-Goog-Expires", "999999")
 			},
@@ -224,22 +239,28 @@ func TestSignedURLVerification(t *testing.T) {
 		{
 			name: "v2 rsa valid",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV2, http.MethodGet, time.Hour)
+				t.Helper()
+
+				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV2)
 			},
 			want: http.StatusOK, wantBody: "secret",
 		},
 		{
 			name: "v2 rsa expired",
 			build: func(t *testing.T, s *signEnv) (string, string) {
-				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV2, http.MethodGet, time.Hour)
+				t.Helper()
+
+				return http.MethodGet, s.rsaURL(t, storage.SigningSchemeV2)
 			},
 			clock: 2 * time.Hour, want: http.StatusBadRequest, wantCode: "ExpiredToken",
 		},
 		{
 			name: "v2 rsa tampered",
 			build: func(t *testing.T, s *signEnv) (string, string) {
+				t.Helper()
+
 				return http.MethodGet, strings.Replace(
-					s.rsaURL(t, storage.SigningSchemeV2, http.MethodGet, time.Hour), "a%20b.txt", "other.txt", 1)
+					s.rsaURL(t, storage.SigningSchemeV2), "a%20b.txt", "other.txt", 1)
 			},
 			want: http.StatusForbidden, wantCode: "SignatureDoesNotMatch",
 		},
@@ -256,7 +277,7 @@ func TestSignedURLVerification(t *testing.T) {
 				s.backend.SetClock(func() time.Time { return time.Now().Add(tt.clock) })
 			}
 
-			code, body, _ := s.do(t, method, u, nil)
+			code, body := s.do(t, method, u, nil)
 			assert.Equal(t, tt.want, code, body)
 
 			if tt.wantCode != "" {
@@ -336,7 +357,7 @@ func TestSignedURLHMAC(t *testing.T) {
 				s.backend.SetClock(func() time.Time { return time.Now().Add(tt.age) })
 			}
 
-			code, body, _ := s.do(t, http.MethodGet, u, nil)
+			code, body := s.do(t, http.MethodGet, u, nil)
 			assert.Equal(t, tt.want, code, body)
 
 			if tt.wantCode != "" {
@@ -355,19 +376,19 @@ func TestSignedURLV2HMAC(t *testing.T) {
 
 	exp := time.Now().Add(time.Hour).Unix()
 	path := "/bkt/dir/a%20b.txt"
-	m := hmac.New(sha1.New, []byte(key.Secret)) //nolint:gosec // V2 HMAC signing is defined with HMAC-SHA1
-	m.Write([]byte(fmt.Sprintf("GET\n\n\n%d\n%s", exp, path)))
+	m := hmac.New(sha1.New, []byte(key.Secret))
+	fmt.Fprintf(m, "GET\n\n\n%d\n%s", exp, path)
 
 	q := url.Values{
-		"GoogleAccessId": {key.AccessID}, "Expires": {fmt.Sprint(exp)},
+		"GoogleAccessId": {key.AccessID}, "Expires": {strconv.FormatInt(exp, 10)},
 		"Signature": {base64.StdEncoding.EncodeToString(m.Sum(nil))},
 	}
 
-	code, body, _ := s.do(t, http.MethodGet, "http://"+s.host+path+"?"+q.Encode(), nil)
+	code, body := s.do(t, http.MethodGet, "http://"+s.host+path+"?"+q.Encode(), nil)
 	assert.Equal(t, http.StatusOK, code, body)
 
 	q.Set("Signature", base64.StdEncoding.EncodeToString([]byte("nope")))
-	code, body, _ = s.do(t, http.MethodGet, "http://"+s.host+path+"?"+q.Encode(), nil)
+	code, body = s.do(t, http.MethodGet, "http://"+s.host+path+"?"+q.Encode(), nil)
 	assert.Equal(t, http.StatusForbidden, code, body)
 }
 
@@ -383,7 +404,12 @@ func TestRequireAuth(t *testing.T) {
 	}{
 		{name: "anonymous allowed by default", want: http.StatusOK},
 		{name: "anonymous rejected when required", require: true, want: http.StatusForbidden},
-		{name: "authorization header accepted", require: true, hdr: map[string]string{"Authorization": "Bearer x"}, want: http.StatusOK},
+		{
+			name:    "authorization header accepted",
+			require: true,
+			hdr:     map[string]string{"Authorization": "Bearer x"},
+			want:    http.StatusOK,
+		},
 		{name: "signed url accepted", require: true, signed: true, want: http.StatusOK},
 	}
 
@@ -396,10 +422,10 @@ func TestRequireAuth(t *testing.T) {
 
 			u := "http://" + s.host + "/bkt/dir/a%20b.txt"
 			if tt.signed {
-				u = s.rsaURL(t, storage.SigningSchemeV4, http.MethodGet, time.Hour)
+				u = s.rsaURL(t, storage.SigningSchemeV4)
 			}
 
-			code, body, _ := s.do(t, http.MethodGet, u, tt.hdr)
+			code, body := s.do(t, http.MethodGet, u, tt.hdr)
 			assert.Equal(t, tt.want, code, body)
 
 			if tt.want == http.StatusForbidden {

@@ -84,7 +84,7 @@ func (h *Handler) authenticate(r *http.Request) *APIError {
 		return h.Backend.verifyV2(r, q)
 	case h.RequireAuth && r.Header.Get("Authorization") == "":
 		return &APIError{
-			Status: http.StatusForbidden, Reason: "required", XMLCode: "AccessDenied",
+			Status: http.StatusForbidden, Reason: "required", XMLCode: codeAccessDenied,
 			Message: "Anonymous caller does not have access; sign the request or send credentials.",
 		}
 	default:
@@ -160,11 +160,14 @@ func hmacSHA256(key []byte, msg string) []byte {
 }
 
 type v4Params struct {
-	alg, id, date, loc string
-	signed             []string
-	sig                []byte
-	when               time.Time
-	expires            time.Duration
+	when    time.Time
+	alg     string
+	id      string
+	date    string
+	loc     string
+	signed  []string
+	sig     []byte
+	expires time.Duration
 }
 
 func parseV4(q url.Values) (v4Params, *APIError) {
@@ -241,7 +244,7 @@ func (b *InMemoryBackend) verifyV4(r *http.Request, q url.Values) *APIError {
 	return errSignature()
 }
 
-func (b *InMemoryBackend) checkV4Signature(p v4Params, toSign string) (valid, known bool) {
+func (b *InMemoryBackend) checkV4Signature(p v4Params, toSign string) (bool, bool) {
 	if p.alg == algHMAC {
 		secret, ok := b.activeHMACSecret(p.id)
 		if !ok {

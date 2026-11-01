@@ -78,7 +78,9 @@ func TestNewStateSurvivesSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	n, err := src.AddNotification("bkt", gcpstorage.Notification{
-		Topic: "//pubsub.googleapis.com/projects/p/topics/t", PayloadFormat: "NONE", EventTypes: []string{"OBJECT_DELETE"},
+		Topic:         "//pubsub.googleapis.com/projects/p/topics/t",
+		PayloadFormat: "NONE",
+		EventTypes:    []string{"OBJECT_DELETE"},
 	})
 	require.NoError(t, err)
 
@@ -138,7 +140,12 @@ func TestHMACSecretSurvivesRestoreAndStillVerifies(t *testing.T) {
 
 	require.NoError(t, s.backend.Restore(t.Context(), snap))
 
-	code, body, _ := s.do(t, http.MethodGet, s.signV4HMAC(http.MethodGet, key.AccessID, key.Secret, time.Now().UTC(), 600), nil)
+	code, body := s.do(
+		t,
+		http.MethodGet,
+		s.signV4HMAC(http.MethodGet, key.AccessID, key.Secret, time.Now().UTC(), 600),
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, code, body)
 }
 

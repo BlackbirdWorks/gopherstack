@@ -65,7 +65,9 @@ func (n *notifEnv) drain(t *testing.T) []*pubsubpb.PubsubMessage {
 	t.Helper()
 
 	res, err := n.ps.SubscriberAPI().Pull(context.Background(), &pubsubpb.PullRequest{
-		Subscription: notifSub, MaxMessages: 100, ReturnImmediately: true, //nolint:staticcheck // immediate poll in tests
+		Subscription:      notifSub,
+		MaxMessages:       100,
+		ReturnImmediately: true, //nolint:staticcheck // immediate poll in tests
 	})
 	require.NoError(t, err)
 
@@ -94,12 +96,16 @@ func TestBucketNotifications(t *testing.T) {
 		{
 			name: "finalize carries documented attributes and the object resource",
 			cfg:  storage.Notification{PayloadFormat: storage.JSONPayload},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				a := write(t, b.Object("a.txt"), []byte("hi"), 0, nil)
 
 				return map[string]int64{"a": a.Generation}
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, gens map[string]int64) {
+				t.Helper()
+
 				require.Len(t, msgs, 1)
 
 				at := msgs[0].GetAttributes()
@@ -124,7 +130,9 @@ func TestBucketNotifications(t *testing.T) {
 		{
 			name: "overwrite in an unversioned bucket finalizes and deletes",
 			cfg:  storage.Notification{PayloadFormat: storage.JSONPayload},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				first := write(t, b.Object("a"), []byte("1"), 0, nil)
 				_ = readAll(t, b.Object("a"))
 				second := write(t, b.Object("a"), []byte("2"), 0, nil)
@@ -132,9 +140,14 @@ func TestBucketNotifications(t *testing.T) {
 				return map[string]int64{"first": first.Generation, "second": second.Generation}
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, gens map[string]int64) {
+				t.Helper()
+
 				byType := map[string][]map[string]string{}
 				for _, m := range msgs {
-					byType[m.GetAttributes()["eventType"]] = append(byType[m.GetAttributes()["eventType"]], m.GetAttributes())
+					byType[m.GetAttributes()["eventType"]] = append(
+						byType[m.GetAttributes()["eventType"]],
+						m.GetAttributes(),
+					)
 				}
 
 				require.Len(t, byType["OBJECT_FINALIZE"], 2)
@@ -159,14 +172,18 @@ func TestBucketNotifications(t *testing.T) {
 			name:      "overwrite in a versioned bucket archives",
 			cfg:       storage.Notification{PayloadFormat: storage.JSONPayload},
 			versioned: true,
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				first := write(t, b.Object("a"), []byte("1"), 0, nil)
 				second := write(t, b.Object("a"), []byte("2"), 0, nil)
 
 				return map[string]int64{"first": first.Generation, "second": second.Generation}
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, gens map[string]int64) {
-				var types []string
+				t.Helper()
+
+				types := make([]string, 0, len(msgs))
 
 				for _, m := range msgs {
 					types = append(types, m.GetAttributes()["eventType"])
@@ -183,7 +200,9 @@ func TestBucketNotifications(t *testing.T) {
 		{
 			name: "metadata update and delete",
 			cfg:  storage.Notification{PayloadFormat: storage.JSONPayload},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				write(t, b.Object("a"), []byte("1"), 0, nil)
 				_, err := b.Object("a").Update(t.Context(), storage.ObjectAttrsToUpdate{ContentType: "text/plain"})
 				require.NoError(t, err)
@@ -192,7 +211,9 @@ func TestBucketNotifications(t *testing.T) {
 				return nil
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, _ map[string]int64) {
-				var types []string
+				t.Helper()
+
+				types := make([]string, 0, len(msgs))
 				for _, m := range msgs {
 					types = append(types, m.GetAttributes()["eventType"])
 
@@ -211,13 +232,17 @@ func TestBucketNotifications(t *testing.T) {
 			cfg: storage.Notification{
 				PayloadFormat: storage.JSONPayload, EventTypes: []string{storage.ObjectDeleteEvent},
 			},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				write(t, b.Object("a"), []byte("1"), 0, nil)
 				require.NoError(t, b.Object("a").Delete(t.Context()))
 
 				return nil
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, _ map[string]int64) {
+				t.Helper()
+
 				require.Len(t, msgs, 1)
 				assert.Equal(t, "OBJECT_DELETE", msgs[0].GetAttributes()["eventType"])
 			},
@@ -225,13 +250,17 @@ func TestBucketNotifications(t *testing.T) {
 		{
 			name: "object name prefix filter",
 			cfg:  storage.Notification{PayloadFormat: storage.JSONPayload, ObjectNamePrefix: "logs/"},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				write(t, b.Object("data/x"), []byte("1"), 0, nil)
 				write(t, b.Object("logs/y"), []byte("1"), 0, nil)
 
 				return nil
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, _ map[string]int64) {
+				t.Helper()
+
 				require.Len(t, msgs, 1)
 				assert.Equal(t, "logs/y", msgs[0].GetAttributes()["objectId"])
 			},
@@ -241,12 +270,16 @@ func TestBucketNotifications(t *testing.T) {
 			cfg: storage.Notification{
 				PayloadFormat: storage.NoPayload, CustomAttributes: map[string]string{"env": "dev"},
 			},
-			act: func(t *testing.T, e *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+			act: func(t *testing.T, _ *sdkEnv, b *storage.BucketHandle) map[string]int64 {
+				t.Helper()
+
 				write(t, b.Object("a"), []byte("1"), 0, nil)
 
 				return nil
 			},
 			check: func(t *testing.T, msgs []*pubsubpb.PubsubMessage, _ map[string]int64) {
+				t.Helper()
+
 				require.Len(t, msgs, 1)
 				assert.Equal(t, "dev", msgs[0].GetAttributes()["env"])
 				assert.Equal(t, "NONE", msgs[0].GetAttributes()["payloadFormat"])

@@ -1,6 +1,7 @@
 package gcpstorage_test
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -25,7 +26,7 @@ func listHMAC(t *testing.T, e *sdkEnv, opts ...storage.HMACKeyOption) []*storage
 
 	for {
 		k, err := it.Next()
-		if err == iterator.Done {
+		if errors.Is(err, iterator.Done) {
 			return out
 		}
 

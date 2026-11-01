@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+const (
+	keyItems         = "items"
+	keyEtag          = "etag"
+	keySelfLink      = "selfLink"
+	valTrue          = "true"
+	codeAccessDenied = "AccessDenied"
+)
+
 func itoa(n int) string { return strconv.Itoa(n) }
 
 func marshalRaw(v any) json.RawMessage {

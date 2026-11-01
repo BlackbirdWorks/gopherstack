@@ -112,7 +112,7 @@ func bucketResource(base string, b *Bucket) map[string]any {
 	res := map[string]any{
 		keyKind:          "storage#bucket",
 		"id":             b.Name,
-		"selfLink":       base + "/storage/v1/b/" + b.Name,
+		keySelfLink:      base + "/storage/v1/b/" + b.Name,
 		"name":           b.Name,
 		"timeCreated":    fmtTime(b.Created),
 		"updated":        fmtTime(b.Updated),
@@ -120,7 +120,7 @@ func bucketResource(base string, b *Bucket) map[string]any {
 		"location":       b.Location,
 		"locationType":   LocationType(b.Location),
 		keyStorageClass:  b.StorageClass,
-		"etag":           base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
+		keyEtag:          base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
 		"iamConfiguration": map[string]any{
 			"bucketPolicyOnly":         map[string]bool{keyEnabled: false},
 			"uniformBucketLevelAccess": map[string]bool{keyEnabled: false},

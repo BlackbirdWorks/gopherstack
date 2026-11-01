@@ -80,8 +80,13 @@ func TestDecompressiveTranscoding(t *testing.T) {
 			transcoded: true, wantBody: transcodePlain, wantStored: "gzip", wantChunked: true,
 		},
 		{
-			name: "accept-encoding gzip returns stored bytes", object: "z.txt", contentEnc: "gzip", method: http.MethodGet,
-			hdr: map[string]string{"Accept-Encoding": "gzip"}, wantEnc: "gzip", wantStored: "gzip",
+			name:       "accept-encoding gzip returns stored bytes",
+			object:     "z.txt",
+			contentEnc: "gzip",
+			method:     http.MethodGet,
+			hdr:        map[string]string{"Accept-Encoding": "gzip"},
+			wantEnc:    "gzip",
+			wantStored: "gzip",
 		},
 		{
 			name: "gzip with q=0 is decompressed", object: "z.txt", contentEnc: "gzip", method: http.MethodGet,
@@ -98,8 +103,13 @@ func TestDecompressiveTranscoding(t *testing.T) {
 			wantStored: "gzip", wantChunked: true,
 		},
 		{
-			xmlOnly: true, name: "head is transcoded without a body", object: "z.txt", contentEnc: "gzip", method: http.MethodHead,
-			transcoded: true, wantStored: "gzip",
+			xmlOnly:    true,
+			name:       "head is transcoded without a body",
+			object:     "z.txt",
+			contentEnc: "gzip",
+			method:     http.MethodHead,
+			transcoded: true,
+			wantStored: "gzip",
 		},
 		{
 			name: "identity objects are untouched", object: "p.txt", method: http.MethodGet,
@@ -156,8 +166,8 @@ func TestTranscodingThroughClient(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		compressed bool
 		want       []byte
+		compressed bool
 	}{
 		{name: "default reader gets decompressed bytes", want: []byte(transcodePlain)},
 		{name: "read compressed gets stored bytes", compressed: true},

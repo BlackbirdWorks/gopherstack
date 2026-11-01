@@ -3,6 +3,7 @@ package gcpstorage
 import (
 	"context"
 	"encoding/base64"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -160,10 +161,10 @@ func (b *InMemoryBackend) AddNotification(bucket string, n Notification) (Notifi
 	return n, nil
 }
 
-func (bk *Bucket) countNotifications(ev string) int {
+func (b *Bucket) countNotifications(ev string) int {
 	n := 0
 
-	for _, c := range bk.Notifications {
+	for _, c := range b.Notifications {
 		if len(c.EventTypes) == 0 || slices.Contains(c.EventTypes, ev) {
 			n++
 		}
@@ -245,9 +246,7 @@ func (b *InMemoryBackend) notificationTargets(ev ObjectEvent) (Notifier, []Notif
 
 func notificationAttrs(n Notification, bucket string, ev ObjectEvent) map[string]string {
 	attrs := map[string]string{}
-	for k, v := range n.CustomAttributes {
-		attrs[k] = v
-	}
+	maps.Copy(attrs, n.CustomAttributes)
 
 	attrs["notificationConfig"] = "projects/_/buckets/" + bucket + "/notificationConfigs/" + n.ID
 	attrs["eventType"] = eventTypeName(ev.Type)
@@ -286,7 +285,8 @@ func (b *InMemoryBackend) dispatchNotifications(ev ObjectEvent) {
 
 		path, _ := topicPath(n.Topic)
 		if err := notifier.Publish(path, data, notificationAttrs(n, ev.Object.Bucket, ev)); err != nil {
-			logger.Load(context.Background()).Warn("gcpstorage: notification publish failed", "topic", path, "error", err)
+			logger.Load(context.Background()).
+				Warn("gcpstorage: notification publish failed", "topic", path, "error", err)
 		}
 	}
 }
@@ -294,8 +294,8 @@ func (b *InMemoryBackend) dispatchNotifications(ev ObjectEvent) {
 func notificationResource(base, bucket string, n Notification) map[string]any {
 	res := map[string]any{
 		keyKind: "storage#notification", "id": n.ID, "topic": n.Topic, "payload_format": n.PayloadFormat,
-		"selfLink": base + "/storage/v1/b/" + bucket + "/notificationConfigs/" + n.ID,
-		"etag":     base64.StdEncoding.EncodeToString([]byte(n.ID)),
+		keySelfLink: base + "/storage/v1/b/" + bucket + "/notificationConfigs/" + n.ID,
+		keyEtag:     base64.StdEncoding.EncodeToString([]byte(n.ID)),
 	}
 
 	if len(n.EventTypes) > 0 {
@@ -365,7 +365,7 @@ func (h *Handler) listNotifications(c *echo.Context, rt route) error {
 		items = append(items, notificationResource(base, rt.bucket, n))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyKind: "storage#notifications", "items": items})
+	return c.JSON(http.StatusOK, map[string]any{keyKind: "storage#notifications", keyItems: items})
 }
 
 func (h *Handler) deleteNotification(c *echo.Context, rt route) error {
