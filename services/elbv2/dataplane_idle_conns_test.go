@@ -18,8 +18,8 @@ func TestDataPlane_CloseDropsPooledTargetConnections(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		close func(b *elbv2.InMemoryBackend, h *elbv2.Handler)
+		name  string
 	}{
 		{name: "backend_close", close: func(b *elbv2.InMemoryBackend, _ *elbv2.Handler) { b.Close() }},
 		{name: "handler_shutdown", close: func(_ *elbv2.InMemoryBackend, h *elbv2.Handler) { h.Shutdown(t.Context()) }},

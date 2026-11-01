@@ -381,8 +381,9 @@ func (b *InMemoryBackend) collectTicksLocked(now time.Time) []tickJob {
 	return jobs
 }
 
-// runDeploymentTicks shares now with the reconcile pass so a deployment is never advanced before its tick; it invokes AT_DEPLOYMENT_TICK actions synchronously and rolls a deployment back when an
-// action errors or answers Directive ROLL_BACK.
+// runDeploymentTicks invokes AT_DEPLOYMENT_TICK actions synchronously and rolls a deployment back when an
+// action errors or answers Directive ROLL_BACK. now is shared with the reconcile pass so no deployment
+// advances before its tick.
 func (b *InMemoryBackend) runDeploymentTicks(now time.Time) {
 	b.mu.RLock("collectTicks")
 	jobs := b.collectTicksLocked(now)
