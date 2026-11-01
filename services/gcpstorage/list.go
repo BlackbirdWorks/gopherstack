@@ -113,6 +113,11 @@ func (b *InMemoryBackend) ListObjects(bucket string, opts ListOptions) (ListResu
 		return ListResult{}, err
 	}
 
+	if opts.SoftDeleted {
+		bk = bk.softDeletedView()
+		opts.Versions = true
+	}
+
 	entries := listEntries(bk, opts, match, after)
 
 	limit := opts.MaxResults
@@ -200,4 +205,18 @@ func objectEntries(bk *Bucket, name string, versions bool) []listEntry {
 	}
 
 	return out
+}
+
+func (bk *Bucket) softDeletedView() *Bucket {
+	view := &Bucket{Name: bk.Name, Config: bk.Config, Objects: map[string][]*Object{}}
+
+	for _, o := range bk.SoftDeleted {
+		view.Objects[o.Name] = append(view.Objects[o.Name], o)
+	}
+
+	for _, versions := range view.Objects {
+		slices.SortFunc(versions, func(a, c *Object) int { return int(a.Generation - c.Generation) })
+	}
+
+	return view
 }

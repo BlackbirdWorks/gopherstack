@@ -27,6 +27,7 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 		Versions:                 q.Get("versions") == "true",
 		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == "true",
 		MatchGlob:                q.Get("matchGlob"),
+		SoftDeleted:              q.Get("softDeleted") == "true",
 	})
 	if err != nil {
 		return err
@@ -67,7 +68,13 @@ func (h *Handler) getObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	var o *Object
+	if q.Get("softDeleted") == "true" {
+		o, err = h.Backend.GetSoftDeletedObject(rt.bucket, rt.object, gen)
+	} else {
+		o, err = h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	}
+
 	if err != nil {
 		return err
 	}

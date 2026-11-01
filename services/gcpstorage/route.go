@@ -33,6 +33,17 @@ const (
 	opXMLHeadObject       = "XMLHeadObject"
 	opXMLPutObject        = "XMLPutObject"
 	opXMLDeleteObject     = "XMLDeleteObject"
+	opInsertNotification  = "InsertNotification"
+	opGetNotification     = "GetNotification"
+	opListNotifications   = "ListNotifications"
+	opDeleteNotification  = "DeleteNotification"
+	opLockRetention       = "LockBucketRetentionPolicy"
+	opRestoreObject       = "RestoreObject"
+	opCreateHMACKey       = "CreateHmacKey"
+	opGetHMACKey          = "GetHmacKey"
+	opListHMACKeys        = "ListHmacKeys"
+	opUpdateHMACKey       = "UpdateHmacKey"
+	opDeleteHMACKey       = "DeleteHmacKey"
 	unknownOperation      = "Unknown"
 	segB                  = "b"
 	segO                  = "o"
@@ -50,6 +61,7 @@ type route struct {
 	dstBucket string
 	dstObject string
 	entity    string
+	project   string
 	acl       aclKind
 }
 
@@ -153,7 +165,52 @@ func methodOp(method string, ops map[string]string) string {
 	return unknownOperation
 }
 
+func projectRoute(method string, s []string) route {
+	const hmacSegments = 3
+
+	if len(s) < hmacSegments || s[2] != "hmacKeys" || len(s) > hmacSegments+1 {
+		return route{op: unknownOperation}
+	}
+
+	rt := route{project: s[1], op: unknownOperation}
+
+	if len(s) == hmacSegments {
+		rt.op = methodOp(method, map[string]string{http.MethodPost: opCreateHMACKey, http.MethodGet: opListHMACKeys})
+
+		return rt
+	}
+
+	rt.entity = s[3]
+	rt.op = methodOp(method, map[string]string{
+		http.MethodGet: opGetHMACKey, http.MethodPut: opUpdateHMACKey, http.MethodDelete: opDeleteHMACKey,
+	})
+
+	return rt
+}
+
+func notificationRoute(method string, s []string) route {
+	rt := route{bucket: s[1], op: unknownOperation}
+
+	switch len(s) {
+	case bucketSubRouteSegment:
+		rt.op = methodOp(method, map[string]string{
+			http.MethodPost: opInsertNotification, http.MethodGet: opListNotifications,
+		})
+	case objectRouteSegments:
+		rt.entity = s[3]
+		rt.op = methodOp(method, map[string]string{
+			http.MethodGet: opGetNotification, http.MethodDelete: opDeleteNotification,
+		})
+	}
+
+	return rt
+}
+
 func jsonRoute(method string, s []string) route {
+	if len(s) > 0 && s[0] == "projects" {
+		return projectRoute(method, s)
+	}
+
 	if len(s) == 0 || s[0] != segB {
 		return route{op: unknownOperation}
 	}
@@ -174,6 +231,10 @@ func jsonRoute(method string, s []string) route {
 		})
 	case len(s) == bucketSubRouteSegment && s[2] == segO:
 		rt.op = methodOp(method, map[string]string{http.MethodGet: opListObjects})
+	case s[2] == "notificationConfigs":
+		rt = notificationRoute(method, s)
+	case len(s) == bucketSubRouteSegment && s[2] == "lockRetentionPolicy" && method == http.MethodPost:
+		rt.op = opLockRetention
 	case s[2] == "acl" || s[2] == "defaultObjectAcl":
 		rt = aclRoute(method, s)
 	case len(s) == bucketSubRouteSegment && s[2] == segIam:
@@ -233,6 +294,8 @@ func objectRoute(method string, s []string) route {
 		})
 	case len(s) == composeRouteSegments && s[4] == "compose" && method == http.MethodPost:
 		rt.op = opComposeObject
+	case len(s) == composeRouteSegments && s[4] == "restore" && method == http.MethodPost:
+		rt.op = opRestoreObject
 	case len(s) == copyRouteSegments && s[5] == segB && s[7] == segO && method == http.MethodPost:
 		rt = copyRoute(rt, s)
 	}

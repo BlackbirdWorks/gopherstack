@@ -13,8 +13,9 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Buckets map[string]*Bucket `json:"buckets"`
-	Version int                `json:"version"`
+	Buckets  map[string]*Bucket  `json:"buckets"`
+	HMACKeys map[string]*HMACKey `json:"hmacKeys,omitempty"`
+	Version  int                 `json:"version"`
 }
 
 // Snapshot serialises the backend state. In-flight resumable sessions are not persisted.
@@ -23,7 +24,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "gcpstorage",
-		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets})
+		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets, HMACKeys: b.hmac})
 }
 
 // Restore loads backend state from a snapshot.
@@ -44,6 +45,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.buckets = make(map[string]*Bucket)
+		b.hmac = make(map[string]*HMACKey)
 
 		return nil
 	}
@@ -57,6 +59,14 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		if bk.Objects == nil {
 			bk.Objects = make(map[string][]*Object)
+		}
+
+		for _, o := range bk.SoftDeleted {
+			if o == nil {
+				return fmt.Errorf("%w: soft-deleted object in bucket %q", ErrSnapshotBucketNull, name)
+			}
+
+			maxGen = max(maxGen, o.Generation)
 		}
 
 		for _, versions := range bk.Objects {
@@ -74,7 +84,19 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Buckets = make(map[string]*Bucket)
 	}
 
+	for id, k := range snap.HMACKeys {
+		if k == nil {
+			return fmt.Errorf("%w: hmac key %q", ErrSnapshotBucketNull, id)
+		}
+	}
+
 	b.buckets = snap.Buckets
+	b.hmac = snap.HMACKeys
+
+	if b.hmac == nil {
+		b.hmac = make(map[string]*HMACKey)
+	}
+
 	b.lastGen = max(b.lastGen, maxGen)
 
 	return nil

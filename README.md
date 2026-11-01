@@ -978,7 +978,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Google Cloud KMS](services/gcpkms/README.md) | B | 35 | 4 gaps |
 | [Google Cloud Pub/Sub](services/gcppubsub/README.md) | B | 38 | 6 gaps |
 | [Google Cloud Resource Manager and Service Usage](services/gcpresourcemanager/README.md) | B | 39 | 9 gaps |
-| [Google Cloud Storage](services/gcpstorage/README.md) | B | 28 | 8 gaps |
+| [Google Cloud Storage](services/gcpstorage/README.md) | B | 37 | 9 gaps |
 | [Google Secret Manager](services/gcpsecretmanager/README.md) | B | 18 | 5 gaps |
 | [Identity Platform](services/gcpidentitytoolkit/README.md) | B | 1 | 6 gaps |
 | [Kubernetes Engine](services/gcpcontainer/README.md) | B | — | 5 families; 5 gaps |
