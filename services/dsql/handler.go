@@ -260,3 +260,10 @@ func (h *Handler) writeNotFound(c *echo.Context, err error) error {
 
 	return c.JSON(http.StatusNotFound, resp)
 }
+
+// Shutdown stops every cluster data plane; a no-op without a docker engine.
+func (h *Handler) Shutdown(_ context.Context) {
+	if c, ok := h.Backend.(interface{ Close() }); ok {
+		c.Close()
+	}
+}

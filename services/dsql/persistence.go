@@ -75,6 +75,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("dsql: restore snapshot tables: %w", err)
 	}
 
+	b.reapAllUnitsLocked()
+	b.relaunchUnitsLocked()
+
 	return nil
 }
 

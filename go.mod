@@ -77,10 +77,11 @@ require (
 	github.com/apache/tinkerpop/gremlin-go/v3 v3.8.2
 	github.com/aws/aws-dax-go v1.2.15
 	github.com/aws/aws-sdk-go v1.55.8
-	github.com/aws/aws-sdk-go-v2 v1.47.3
+	github.com/aws/aws-sdk-go-v2 v1.47.5
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
+	github.com/aws/aws-sdk-go-v2/feature/dsql/auth v1.2.8
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.57.3
 	github.com/aws/aws-sdk-go-v2/service/account v1.42.2
@@ -282,7 +283,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workmail v1.45.3
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.81.4
 	github.com/aws/aws-sdk-go-v2/service/xray v1.45.3
-	github.com/aws/smithy-go v1.28.5
+	github.com/aws/smithy-go v1.28.7
 	github.com/blevesearch/snowballstem v0.9.0
 	github.com/cedar-policy/cedar-go v1.8.0
 	github.com/containerd/errdefs v1.0.0

@@ -9,16 +9,26 @@
 | --- | --- |
 | PARITY entries audited | 16 (16 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | none |
-| Structural gaps (can't be emulated) | 3 |
+| Known gaps | 8 |
+| Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Data plane opt-in (DSQL_ENGINE=docker, or --engines=auto/docker with a reachable runtime; default stub keeps the control plane only). The cluster endpoint <id>.dsql.<region>.on.aws is not resolvable and clients cannot assume port 5432: connect to host/port from GET /_gopherstack/dsql/clusters/{id}; tokens are generated for the control-plane endpoint (also accepted: endpoint:port, loopback:port). The CA is served at /_gopherstack/dsql/ca.pem.
+- Cluster data is ephemeral: each data plane is a fresh postgres container with no volume, so a restart or snapshot restore re-creates clusters (CREATING until up) with an empty database.
+- UNVERIFIED (recalled, not in the User Guide pages read): the 7-day maximum token lifetime (SigV4 limit used), the text of the login failure (28P01 'password authentication failed for user') and of unsupported-feature rejections (SQLSTATE 0A000 '<feature> is not supported in Aurora DSQL'); DSQL publishes neither.
+- Unsupported-feature rejection covers CREATE TRIGGER, temporary tables, TRUNCATE, VACUUM, CREATE TABLESPACE, CREATE DATABASE and LANGUAGE plpgsql functions at the statement start only (not inside multi-statement strings or DO blocks). Foreign keys and sequences are accepted: the current User Guide documents both as supported (the bd issue text predates that). Plain CREATE INDEX is passed through, not rejected.
+- CREATE INDEX ASYNC runs a plain (blocking) CREATE INDEX in a background job: CONCURRENTLY deadlocks with a session in sys.wait_for_job, so a failed unique build leaves no INVALID index (DSQL leaves one). Old completed/failed rows are pruned on the next submit as documented; job_id is 26 base32 characters as in the docs, object_id is the index oid once built.
+- DSQL session rules are not enforced: Repeatable Read is not forced (container default Read Committed, so sys.wait_for_job inside a Repeatable Read transaction never sees the job finish), one DDL per transaction, the 3,000-row transaction limit, one-hour connection timeout, C collation.
+- The cluster resource policy (PutClusterPolicy) is not evaluated at connect time; only the caller's identity policies are, and only when IAM enforcement is on. AWS IAM GRANT/REVOKE and sys.iam_pg_role_mappings are modelled (roles are logged in with an engine-private password), other sys.* views are absent.
+- The postgres TLS front proxy duplicates the framing and startup code in services/rds/engine_proxy.go; a shared pkgs/ package is a follow-up.
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- No PostgreSQL data plane: a cluster's <id>.dsql.<region>.on.aws endpoint is wire-shaped but nothing listens, so SQL cannot be run. Authentication tokens (the SDK's feature/dsql/auth GenerateDbConnectAuthToken) are client-side SigV4 presigns, not an API operation, and need no server support.
 - bypassPolicyLockoutSafetyCheck (CreateCluster, PutClusterPolicy) is accepted but not evaluated: the lockout check asks whether the calling principal keeps access, and the emulator has no authenticated caller identity or IAM policy evaluation (same stance as services/kms).
 - GetVpcEndpointServiceName returns wire-shaped names only: there is no PrivateLink / VPC endpoint plane to back them.
 

@@ -42,6 +42,10 @@ type InMemoryBackend struct {
 	registry *store.Registry
 	mu       *lockmetrics.RWMutex
 
+	clock          func() time.Time
+	engine         *engineState
+	iamAuth        IAMAuthResolver
+	caPEM          []byte
 	lifecycleDelay time.Duration
 }
 
@@ -61,6 +65,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	b.reapAllUnitsLocked()
 
 	b.registry.ResetAll()
 }
@@ -155,7 +161,7 @@ func (b *InMemoryBackend) resolveClusterLocked(identifier string) (*Cluster, err
 
 	b.advanceClusterLocked(c)
 
-	if c.Status == statusDeleting && time.Now().After(c.PendingUntil) {
+	if c.Status == statusDeleting && b.now().After(c.PendingUntil) {
 		b.removeClusterLocked(identifier)
 
 		return nil, ErrClusterNotFound
@@ -167,12 +173,22 @@ func (b *InMemoryBackend) resolveClusterLocked(identifier string) (*Cluster, err
 // advanceClusterLocked flips a CREATING/UPDATING cluster to ACTIVE once its
 // PendingUntil deadline has passed. Callers must hold b.mu for writing.
 func (b *InMemoryBackend) advanceClusterLocked(c *Cluster) {
-	if c.PendingUntil.IsZero() || time.Now().Before(c.PendingUntil) {
+	if c.PendingUntil.IsZero() || b.now().Before(c.PendingUntil) {
 		return
 	}
 
 	switch c.Status {
 	case statusCreating, statusUpdating:
+		switch b.unitStateLocked(c.Identifier) {
+		case unitLaunching:
+			return
+		case unitFailed:
+			c.Status, c.PendingUntil = statusFailed, time.Time{}
+
+			return
+		case unitReady:
+		}
+
 		c.Status = statusActive
 		c.PendingUntil = time.Time{}
 
@@ -192,7 +208,7 @@ func (b *InMemoryBackend) resolveStreamLocked(clusterIdentifier, streamIdentifie
 
 	b.advanceStreamLocked(s)
 
-	if s.deletionDue(time.Now()) {
+	if s.deletionDue(b.now()) {
 		b.streams.Delete(streamKey(clusterIdentifier, streamIdentifier))
 
 		return nil, ErrStreamNotFound
@@ -203,6 +219,7 @@ func (b *InMemoryBackend) resolveStreamLocked(clusterIdentifier, streamIdentifie
 
 // removeClusterLocked deletes a cluster and every stream it owns.
 func (b *InMemoryBackend) removeClusterLocked(identifier string) {
+	b.reapUnitLocked(identifier)
 	b.clusters.Delete(identifier)
 
 	for _, s := range b.streams.All() {
@@ -217,7 +234,7 @@ func (s *Stream) deletionDue(now time.Time) bool {
 }
 
 func (b *InMemoryBackend) advanceStreamLocked(s *Stream) {
-	if s.PendingUntil.IsZero() || time.Now().Before(s.PendingUntil) {
+	if s.PendingUntil.IsZero() || b.now().Before(s.PendingUntil) {
 		return
 	}
 

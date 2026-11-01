@@ -651,6 +651,7 @@ type CLI struct {
 	AzureGraph                    azuregraphbackend.Settings          `embed:"" prefix:"azure-graph-"`
 	CodeBuild                     codebuildbackend.Settings           `embed:"" prefix:"codebuild-"`
 	Glue                          gluebackend.Settings                `embed:"" prefix:"glue-"`
+	DSQL                          dsqlbackend.Settings                `embed:"" prefix:"dsql-"`
 	GCPIdentityToolkit            gcpidtkbackend.Settings             `embed:"" prefix:"gcp-identitytoolkit-"`
 	AzureKeyVault                 azurekeyvaultbackend.Settings       `embed:"" prefix:"azure-keyvault-"`
 	S3                            s3backend.Settings                  `embed:"" prefix:"s3-"`
@@ -1501,6 +1502,14 @@ func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
 func (c *CLI) GetGlueSettings() gluebackend.Settings {
 	st := c.Glue
 	st.Engine = c.engineMode("glue-engine", st.Engine)
+
+	return st
+}
+
+// GetDSQLSettings returns DSQL settings (dsql.ConfigProvider).
+func (c *CLI) GetDSQLSettings() dsqlbackend.Settings {
+	st := c.DSQL
+	st.Engine = c.engineMode("dsql-engine", st.Engine)
 
 	return st
 }
@@ -13193,6 +13202,7 @@ func setupChaosAndRegistry(
 	wireCloudControlHandlers(e, services)
 	wireServiceRoleAuthorizer(services, cli.EnforceIAM)
 	wireRDSIAMAuth(e, services, cli.EnforceIAM)
+	wireDSQLAuth(e, services, cli.EnforceIAM)
 	wireNeptuneIAMAuth(services, cli.EnforceIAM)
 	wireDocDBCA(e, services)
 	wireKafkaAuth(e, services, cli.EnforceIAM)
