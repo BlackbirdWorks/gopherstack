@@ -288,6 +288,9 @@ func (e *VoskEngine) download(ctx context.Context, root string, model VoskModel)
 		return "", fmt.Errorf("model request: %w", err)
 	}
 
+	// One-shot download: drop the keep-alive connection so it doesn't outlive the engine.
+	defer e.cfg.HTTP.CloseIdleConnections()
+
 	resp, err := e.cfg.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", model.Name, err)
