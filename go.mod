@@ -298,6 +298,7 @@ require (
 	github.com/go-stomp/stomp/v3 v3.1.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
+	github.com/google/rpmpack v0.7.1
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/gorilla/websocket v1.5.3
@@ -326,6 +327,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kmsg v1.15.0
+	github.com/ulikunitz/xz v0.5.17
 	github.com/vektah/gqlparser/v2 v2.5.62
 	github.com/willscott/go-nfs v0.0.4
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
@@ -426,7 +428,6 @@ require (
 	github.com/google/flatbuffers v25.12.19+incompatible // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20261012231050-2af12c3f4d87 // indirect
-	github.com/google/rpmpack v0.7.1 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
@@ -488,7 +489,6 @@ require (
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/twpayne/go-geom v1.7.0 // indirect
-	github.com/ulikunitz/xz v0.5.17 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
