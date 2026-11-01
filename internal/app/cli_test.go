@@ -119,15 +119,25 @@ const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
 func waitForServerReady(t *testing.T, port int) {
 	t.Helper()
 
-	url := fmt.Sprintf("http://localhost:%d/_gopherstack/health", port)
+	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_gopherstack/health", port), func(resp *http.Response) bool {
+		return resp.StatusCode == http.StatusOK
+	})
+}
+
+// waitForEndpoint polls url until ready accepts the response, bounded by the test context.
+func waitForEndpoint(t *testing.T, url string, ready func(*http.Response) bool) {
+	t.Helper()
+
 	client := testclient.New(t)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
 
 	for {
 		if resp, err := client.Get(url); err == nil {
+			ok := ready(resp)
 			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+
+			if ok {
 				return
 			}
 		}
@@ -3195,20 +3205,11 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	}
 
 	// READY runs after the listener accepts, so wait for it before asserting stage state.
-	require.Eventually(t, func() bool {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port))
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-
+	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port), func(resp *http.Response) bool {
 		var body map[string]any
-		if json.NewDecoder(resp.Body).Decode(&body) != nil {
-			return false
-		}
 
-		return body["completed"] == true
-	}, 10*time.Second, 20*time.Millisecond)
+		return json.NewDecoder(resp.Body).Decode(&body) == nil && body["completed"] == true
+	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
