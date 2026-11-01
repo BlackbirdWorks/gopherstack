@@ -105,5 +105,5 @@ func (b *Backup) expiresAt() time.Time {
 		return time.Time{}
 	}
 
-	return b.Created.AddDate(0, 0, b.RetentionDays)
+	return b.Created.UTC().AddDate(0, 0, b.RetentionDays)
 }
