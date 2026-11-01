@@ -24,9 +24,10 @@ func (h *Handler) listObjects(c *echo.Context, rt route) error {
 		Prefix: q.Get("prefix"), Delimiter: q.Get("delimiter"),
 		StartOffset: q.Get("startOffset"), EndOffset: q.Get("endOffset"),
 		PageToken: q.Get("pageToken"), MaxResults: limit,
-		Versions:                 q.Get("versions") == "true",
-		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == "true",
+		Versions:                 q.Get("versions") == valTrue,
+		IncludeTrailingDelimiter: q.Get("includeTrailingDelimiter") == valTrue,
 		MatchGlob:                q.Get("matchGlob"),
+		SoftDeleted:              q.Get("softDeleted") == valTrue,
 	})
 	if err != nil {
 		return err
@@ -67,7 +68,13 @@ func (h *Handler) getObject(c *echo.Context, rt route) error {
 		return err
 	}
 
-	o, err := h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	var o *Object
+	if q.Get("softDeleted") == valTrue {
+		o, err = h.Backend.GetSoftDeletedObject(rt.bucket, rt.object, gen)
+	} else {
+		o, err = h.Backend.GetObject(rt.bucket, rt.object, gen, pre)
+	}
+
 	if err != nil {
 		return err
 	}

@@ -106,6 +106,7 @@ func wireGCPStorageConsumers(byName map[string]service.Registerable) {
 	wireGCPContainer(byName)
 	wireGCPIdentityToolkit(byName)
 	wireGCPBatch(byName)
+	wireGCPStorageSecurity(byName)
 }
 
 // wireGCPCloudBuild connects Cloud Build to Cloud Storage, Pub/Sub, Cloud Logging, Secret Manager and the

@@ -72,7 +72,11 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		}
 	}
 
-	o, apiErr := newObject(dstBk, req.DstName, src.Data, meta, b.nextGen())
+	if apiErr := b.guardMutation(dstBk, dstBk.live(req.DstName)); apiErr != nil {
+		return nil, apiErr
+	}
+
+	o, apiErr := b.newObject(dstBk, req.DstName, src.Data, meta, b.nextGen())
 	if apiErr != nil {
 		return nil, apiErr
 	}
@@ -81,9 +85,7 @@ func (b *InMemoryBackend) CopyObject(req CopyRequest) (*Object, error) {
 		o.ComponentCount, o.MD5 = src.ComponentCount, ""
 	}
 
-	b.replacedLocked(dstBk, dstBk.live(req.DstName))
-	dstBk.store(o)
-	b.queueLocked(ObjectFinalized, o)
+	b.storeLocked(dstBk, o)
 
 	return dstBk.out(o), nil
 }
@@ -162,15 +164,17 @@ func (b *InMemoryBackend) ComposeObject(
 		return nil, apiErr
 	}
 
-	o, apiErr := newObject(bk, dst, data, meta, b.nextGen())
+	if apiErr := b.guardMutation(bk, bk.live(dst)); apiErr != nil {
+		return nil, apiErr
+	}
+
+	o, apiErr := b.newObject(bk, dst, data, meta, b.nextGen())
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
 	o.ComponentCount, o.MD5 = count, ""
-	b.replacedLocked(bk, bk.live(dst))
-	bk.store(o)
-	b.queueLocked(ObjectFinalized, o)
+	b.storeLocked(bk, o)
 
 	return bk.out(o), nil
 }
@@ -197,7 +201,7 @@ func (b *InMemoryBackend) StartUpload(bucket, name string, meta Patch, pre Preco
 		return "", errInvalid("Invalid object name: '" + name + "'")
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	for id, s := range b.uploads {
 		if now.Sub(s.Created) > uploadSessionTTL {
 			delete(b.uploads, id)

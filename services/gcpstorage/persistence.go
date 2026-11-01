@@ -3,6 +3,7 @@ package gcpstorage
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -13,8 +14,9 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Buckets map[string]*Bucket `json:"buckets"`
-	Version int                `json:"version"`
+	Buckets  map[string]*Bucket  `json:"buckets"`
+	HMACKeys map[string]*HMACKey `json:"hmacKeys,omitempty"`
+	Version  int                 `json:"version"`
 }
 
 // Snapshot serialises the backend state. In-flight resumable sessions are not persisted.
@@ -23,7 +25,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "gcpstorage",
-		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets})
+		backendSnapshot{Version: snapshotVersion, Buckets: b.buckets, HMACKeys: b.hmac})
 }
 
 // Restore loads backend state from a snapshot.
@@ -44,29 +46,57 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", snapshotVersion)
 
 		b.buckets = make(map[string]*Bucket)
+		b.hmac = make(map[string]*HMACKey)
 
 		return nil
 	}
 
+	maxGen, err := validateSnapshot(&snap)
+	if err != nil {
+		return err
+	}
+
+	b.buckets = snap.Buckets
+	b.hmac = snap.HMACKeys
+
+	if b.hmac == nil {
+		b.hmac = make(map[string]*HMACKey)
+	}
+
+	b.lastGen = max(b.lastGen, maxGen)
+
+	return nil
+}
+
+func validateSnapshot(snap *backendSnapshot) (int64, error) {
 	var maxGen int64
 
 	for name, bk := range snap.Buckets {
 		if bk == nil {
-			return fmt.Errorf("%w: %q", ErrSnapshotBucketNull, name)
+			return 0, fmt.Errorf("%w: %q", ErrSnapshotBucketNull, name)
 		}
 
 		if bk.Objects == nil {
 			bk.Objects = make(map[string][]*Object)
 		}
 
+		all := slices.Clone(bk.SoftDeleted)
 		for _, versions := range bk.Objects {
-			for _, o := range versions {
-				if o == nil {
-					return fmt.Errorf("%w: object in bucket %q", ErrSnapshotBucketNull, name)
-				}
+			all = append(all, versions...)
+		}
 
-				maxGen = max(maxGen, o.Generation)
+		for _, o := range all {
+			if o == nil {
+				return 0, fmt.Errorf("%w: object in bucket %q", ErrSnapshotBucketNull, name)
 			}
+
+			maxGen = max(maxGen, o.Generation)
+		}
+	}
+
+	for id, k := range snap.HMACKeys {
+		if k == nil {
+			return 0, fmt.Errorf("%w: hmac key %q", ErrSnapshotBucketNull, id)
 		}
 	}
 
@@ -74,10 +104,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.Buckets = make(map[string]*Bucket)
 	}
 
-	b.buckets = snap.Buckets
-	b.lastGen = max(b.lastGen, maxGen)
-
-	return nil
+	return maxGen, nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

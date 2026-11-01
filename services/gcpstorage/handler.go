@@ -31,11 +31,15 @@ type opFunc func(c *echo.Context, rt route) error
 
 // Handler serves the Cloud Storage JSON and XML APIs.
 type Handler struct {
-	Backend *InMemoryBackend
-	srvMu   *lockmetrics.RWMutex
-	srv     *http.Server
-	ops     map[string]opFunc
-	Port    int
+	Backend     *InMemoryBackend
+	srvMu       *lockmetrics.RWMutex
+	srv         *http.Server
+	stopJanitor context.CancelFunc
+	janitorDone chan struct{}
+	ops         map[string]opFunc
+	Port        int
+	// RequireAuth rejects requests that are neither signed nor carry an Authorization header.
+	RequireAuth bool
 }
 
 var (
@@ -61,7 +65,12 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		opRewriteObject: h.copyObject, opComposeObject: h.composeObject, opInsertObject: h.insertObject,
 		opResumableUpload: h.resumableUpload, opCancelUpload: h.cancelUpload, opDownloadObject: h.downloadObject,
 		opXMLGetObject: h.xmlGetObject, opXMLHeadObject: h.xmlGetObject, opXMLPutObject: h.xmlPutObject,
-		opXMLDeleteObject: h.xmlDeleteObject,
+		opXMLDeleteObject:    h.xmlDeleteObject,
+		opInsertNotification: h.insertNotification, opGetNotification: h.getNotification,
+		opListNotifications: h.listNotifications, opDeleteNotification: h.deleteNotification,
+		opLockRetention: h.lockRetentionPolicy, opRestoreObject: h.restoreObject,
+		opCreateHMACKey: h.createHMACKey, opGetHMACKey: h.getHMACKey, opListHMACKeys: h.listHMACKeys,
+		opUpdateHMACKey: h.updateHMACKey, opDeleteHMACKey: h.deleteHMACKey,
 	}
 
 	h.registerACL()
@@ -79,7 +88,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetIamPolicy, opSetIamPolicy, opTestIamPermissions, opListObjects, opGetObject, opPatchObject,
 		opUpdateObject, opDeleteObject, opCopyObject, opRewriteObject, opComposeObject, opInsertObject,
 		opResumableUpload, opCancelUpload, opDownloadObject, opXMLGetObject, opXMLHeadObject,
-		opXMLPutObject, opXMLDeleteObject,
+		opXMLPutObject, opXMLDeleteObject, opInsertNotification, opGetNotification, opListNotifications,
+		opDeleteNotification, opLockRetention, opRestoreObject, opCreateHMACKey, opGetHMACKey, opListHMACKeys,
+		opUpdateHMACKey, opDeleteHMACKey,
 	}...)
 }
 
@@ -111,6 +122,10 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		rt := parseRoute(c.Request())
+
+		if apiErr := h.authenticate(c.Request()); apiErr != nil {
+			return h.fail(c, apiErr, strings.HasPrefix(rt.op, "XML") || rt.op == opDownloadObject)
+		}
 
 		op, ok := h.ops[rt.op]
 		if !ok {
@@ -145,6 +160,8 @@ type xmlError struct {
 
 func xmlErrorCode(ae *APIError) string {
 	switch {
+	case ae.XMLCode != "":
+		return ae.XMLCode
 	case ae.Status == http.StatusNotFound && strings.HasPrefix(ae.Message, "No such object"):
 		return "NoSuchKey"
 	case ae.Status == http.StatusNotFound:
@@ -264,8 +281,17 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		IdleTimeout:       idleTimeout,
 	}
 
+	janitorCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		h.Backend.RunJanitor(janitorCtx, janitorInterval)
+	}()
+
 	h.srvMu.Lock("StartWorker")
-	h.srv = srv
+	h.srv, h.stopJanitor, h.janitorDone = srv, stop, done
 	h.srvMu.Unlock()
 
 	workerCtx := logger.WithWorker(ctx, "gcpstorage", "listener")
@@ -285,9 +311,14 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 // Shutdown stops the dedicated listener, forcing a close if graceful shutdown fails.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv := h.srv
-	h.srv = nil
+	srv, stop, done := h.srv, h.stopJanitor, h.janitorDone
+	h.srv, h.stopJanitor, h.janitorDone = nil, nil, nil
 	h.srvMu.Unlock()
+
+	if stop != nil {
+		stop()
+		<-done
+	}
 
 	if srv == nil {
 		return
