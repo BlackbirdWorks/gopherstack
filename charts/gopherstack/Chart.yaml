@@ -1,0 +1,15 @@
+apiVersion: v2
+name: gopherstack
+description: Gopherstack, a local multi-cloud (AWS, Azure, GCP, OCI) service emulator
+type: application
+version: 0.1.0
+appVersion: "1.9.1"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/blackbirdworks/gopherstack
+sources:
+  - https://github.com/blackbirdworks/gopherstack
+keywords:
+  - aws
+  - emulator
+  - localstack
+  - testing
