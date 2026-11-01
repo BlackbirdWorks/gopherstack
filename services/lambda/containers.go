@@ -660,6 +660,12 @@ func (b *InMemoryBackend) startContainer(
 	env []string,
 	srv *runtimeServer,
 ) (string, []string, string, error) {
+	if b.deliversArchives() {
+		containerID, err := b.startArchiveContainer(ctx, fn, env)
+
+		return "", nil, containerID, err
+	}
+
 	// Extract layer zips and prepare the /opt mount for both Zip and Image functions.
 	layerMount, layerDirs, layerErr := b.prepareLayerMount(fn)
 	if layerErr != nil {
@@ -730,34 +736,9 @@ func (b *InMemoryBackend) startZipContainer(
 		return b.startHotReloadContainer(ctx, fn, baseImage, env, layerMount)
 	}
 
-	// Resolve zip bytes from inline data or S3.
-	zipData := fn.ZipData
-	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
-		if b.s3Fetcher == nil {
-			return "", "", fmt.Errorf(
-				"%w: S3 code delivery requires S3 integration",
-				ErrLambdaUnavailable,
-			)
-		}
-
-		var fetchErr error
-
-		zipData, fetchErr = b.fetchS3Code(ctx, fn)
-		if fetchErr != nil {
-			return "", "", fmt.Errorf(
-				"%w: failed to fetch zip from S3: %w",
-				ErrLambdaUnavailable,
-				fetchErr,
-			)
-		}
-	}
-
-	if len(zipData) == 0 {
-		return "", "", fmt.Errorf(
-			"%w: no zip data available for function %q",
-			ErrLambdaUnavailable,
-			fn.FunctionName,
-		)
+	zipData, err := b.resolveZipData(ctx, fn)
+	if err != nil {
+		return "", "", err
 	}
 
 	zipDir, extractErr := extractZip(zipData)
@@ -773,6 +754,29 @@ func (b *InMemoryBackend) startZipContainer(
 	}
 
 	return zipDir, containerID, nil
+}
+
+// resolveZipData returns the function's deployment package from inline data or S3.
+func (b *InMemoryBackend) resolveZipData(ctx context.Context, fn *FunctionConfiguration) ([]byte, error) {
+	zipData := fn.ZipData
+	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
+		if b.s3Fetcher == nil {
+			return nil, fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
+		}
+
+		var fetchErr error
+
+		zipData, fetchErr = b.fetchS3Code(ctx, fn)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
+		}
+	}
+
+	if len(zipData) == 0 {
+		return nil, fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
+	}
+
+	return zipData, nil
 }
 
 // startHotReloadContainer bind-mounts the function's live local directory read-only.
