@@ -175,7 +175,7 @@ func ParseJSON(raw []byte) (any, error) {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	if dec.PeekKind() != 0 {
+	if rest := bytes.TrimLeft(raw[dec.InputOffset():], " \t\r\n"); len(rest) > 0 && rest[0] != ']' && rest[0] != '}' {
 		return nil, fmt.Errorf("invalid JSON: %w", errTrailingJSON)
 	}
 
