@@ -21,6 +21,7 @@ const (
 	netPxAGWs          = "applicationgateways"
 	netPxPolicies      = "firewallpolicies"
 	netPxRCGs          = "rulecollectiongroups"
+	netPxLocations     = "locations"
 	netPxRGList        = 7
 	netPxRGTypeIdx     = 6
 	netPxOpSegs        = 8
@@ -37,7 +38,7 @@ var (
 		"applicationsecuritygroups",
 	}
 	netPxAGWActions = []string{aciPxStart, aciPxStop, "backendhealth"} //nolint:gochecknoglobals // lookup
-	netPxOpKinds    = []string{"operations", "operationresults"}                   //nolint:gochecknoglobals // lookup
+	netPxOpKinds    = []string{"operations", "operationresults"}       //nolint:gochecknoglobals // lookup
 )
 
 // registerAzureNetworkRoutes exposes Microsoft.Network resources by dispatching in-process to the ARM handler.
@@ -55,13 +56,11 @@ func (h *DashboardHandler) registerAzureNetworkRoutes() {
 }
 
 func netProxyAllowed(method string, p []string) bool {
-	if len(p) == netPxOpSegs && p[0] == armPxSubsSeg && p[2] == armPxProvSeg && p[3] == netPxNamespace {
-		return method == http.MethodGet && p[netPxOpLocIdx] == "locations" && slices.Contains(netPxOpKinds, p[netPxOpKindIdx])
-	}
-
-	if len(p) == netPxRGList {
-		return method == http.MethodGet && p[0] == armPxSubsSeg && p[2] == armPxRGsSeg && p[4] == armPxProvSeg &&
-			p[5] == netPxNamespace && slices.Contains(netPxReadTypes, p[netPxRGTypeIdx])
+	switch {
+	case len(p) == netPxOpSegs && p[2] == armPxProvSeg:
+		return netProxyOperation(method, p)
+	case len(p) == netPxRGList:
+		return netProxyRGList(method, p)
 	}
 
 	typ, name, rest, ok := armScope(p, netPxNamespace)
@@ -75,14 +74,35 @@ func netProxyAllowed(method string, p []string) bool {
 
 	switch len(rest) {
 	case 0:
-		return method == http.MethodGet ||
-			(method == http.MethodPut && typ == netPxVNets) ||
-			(method == http.MethodDelete && (typ == netPxVNets || typ == netPxLBs))
+		return netProxyItemOp(method, typ)
 	case netPxActionOnly:
 		return (method == http.MethodGet && typ == netPxPolicies && rest[0] == netPxRCGs) ||
 			(method == http.MethodPost && typ == netPxAGWs && slices.Contains(netPxAGWActions, rest[0]))
 	case netPxChildItem:
 		return netProxyChildOp(method, typ, rest[0])
+	}
+
+	return false
+}
+
+func netProxyOperation(method string, p []string) bool {
+	return method == http.MethodGet && p[0] == armPxSubsSeg && p[2] == armPxProvSeg && p[3] == netPxNamespace &&
+		p[netPxOpLocIdx] == netPxLocations && slices.Contains(netPxOpKinds, p[netPxOpKindIdx])
+}
+
+func netProxyRGList(method string, p []string) bool {
+	return method == http.MethodGet && p[0] == armPxSubsSeg && p[2] == armPxRGsSeg && p[4] == armPxProvSeg &&
+		p[5] == netPxNamespace && slices.Contains(netPxReadTypes, p[netPxRGTypeIdx])
+}
+
+func netProxyItemOp(method, typ string) bool {
+	switch method {
+	case http.MethodGet:
+		return true
+	case http.MethodPut:
+		return typ == netPxVNets
+	case http.MethodDelete:
+		return typ == netPxVNets || typ == netPxLBs
 	}
 
 	return false

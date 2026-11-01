@@ -16,6 +16,9 @@ const (
 	netPxMaxDesc     = 140
 	netPxMaxList     = 50
 	netPxVNetPutIdx  = 8
+	netPxProps       = "properties"
+	netPxNameKey     = "name"
+	netPxProtocolKey = "protocol"
 )
 
 var (
@@ -28,9 +31,9 @@ var (
 	netPxAssocRE    = regexp.MustCompile(
 		`(?i)^/subscriptions/[0-9a-f-]{1,40}/resourceGroups/[A-Za-z0-9._()-]{1,90}/providers/Microsoft\.Network/` +
 			`(networkSecurityGroups|natGateways)/[A-Za-z0-9._-]{1,80}$`)
-	netPxDirections = []string{"Inbound", "Outbound"} //nolint:gochecknoglobals // lookup
-	netPxAccesses   = []string{"Allow", "Deny"}       //nolint:gochecknoglobals // lookup
-	netPxProtocols  = []string{"Tcp", "Udp", "Icmp", "Esp", "Ah", "*"}
+	netPxDirections = []string{"Inbound", "Outbound"}                  //nolint:gochecknoglobals // lookup
+	netPxAccesses   = []string{"Allow", "Deny"}                        //nolint:gochecknoglobals // lookup
+	netPxProtocols  = []string{"Tcp", "Udp", "Icmp", "Esp", "Ah", "*"} //nolint:gochecknoglobals // lookup
 )
 
 type netPxObj = map[string]any
@@ -50,7 +53,7 @@ func netProxyBody(method string, p []string, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	props, _ := req["properties"].(netPxObj)
+	props, _ := req[netPxProps].(netPxObj)
 
 	var out netPxObj
 
@@ -89,24 +92,24 @@ func netVNetBody(req, props netPxObj) netPxObj {
 
 		for _, e := range list {
 			m, _ := e.(netPxObj)
-			name, _ := m["name"].(string)
+			name, _ := m[netPxNameKey].(string)
 			prefix, _ := propsOfAny(m)["addressPrefix"].(string)
 
 			if !netPxNameRE.MatchString(name) || !netValidCIDR(prefix) {
 				return nil
 			}
 
-			subnets = append(subnets, netPxObj{"name": name, "properties": netPxObj{"addressPrefix": prefix}})
+			subnets = append(subnets, netPxObj{netPxNameKey: name, netPxProps: netPxObj{"addressPrefix": prefix}})
 		}
 
 		out["subnets"] = subnets
 	}
 
-	return netPxObj{"location": loc, "properties": out}
+	return netPxObj{"location": loc, netPxProps: out}
 }
 
 func propsOfAny(m netPxObj) netPxObj {
-	p, _ := m["properties"].(netPxObj)
+	p, _ := m[netPxProps].(netPxObj)
 
 	return p
 }
@@ -139,20 +142,20 @@ func netSubnetBody(props netPxObj) netPxObj {
 
 		for _, e := range list {
 			m, _ := e.(netPxObj)
-			name, _ := m["name"].(string)
+			name, _ := m[netPxNameKey].(string)
 			svc, _ := propsOfAny(m)["serviceName"].(string)
 
 			if !netPxNameRE.MatchString(name) || !netPxServiceRE.MatchString(svc) {
 				return nil
 			}
 
-			dels = append(dels, netPxObj{"name": name, "properties": netPxObj{"serviceName": svc}})
+			dels = append(dels, netPxObj{netPxNameKey: name, netPxProps: netPxObj{"serviceName": svc}})
 		}
 
 		out["delegations"] = dels
 	}
 
-	return netPxObj{"properties": out}
+	return netPxObj{netPxProps: out}
 }
 
 func netRuleBody(props netPxObj) netPxObj {
@@ -164,7 +167,7 @@ func netRuleBody(props netPxObj) netPxObj {
 	out := netPxObj{"priority": int(prio)}
 
 	for k, allowed := range map[string][]string{
-		"direction": netPxDirections, "access": netPxAccesses, "protocol": netPxProtocols,
+		"direction": netPxDirections, "access": netPxAccesses, netPxProtocolKey: netPxProtocols,
 	} {
 		v, _ := props[k].(string)
 		if !slices.Contains(allowed, v) {
@@ -183,20 +186,20 @@ func netRuleBody(props netPxObj) netPxObj {
 	}
 
 	for _, f := range []struct {
-		one, many string
 		valid     func(string) bool
+		one, many string
 	}{
-		{"sourcePortRange", "sourcePortRanges", netPxPortRE.MatchString},
-		{"destinationPortRange", "destinationPortRanges", netPxPortRE.MatchString},
-		{"sourceAddressPrefix", "sourceAddressPrefixes", netValidPrefix},
-		{"destinationAddressPrefix", "destinationAddressPrefixes", netValidPrefix},
+		{netPxPortRE.MatchString, "sourcePortRange", "sourcePortRanges"},
+		{netPxPortRE.MatchString, "destinationPortRange", "destinationPortRanges"},
+		{netValidPrefix, "sourceAddressPrefix", "sourceAddressPrefixes"},
+		{netValidPrefix, "destinationAddressPrefix", "destinationAddressPrefixes"},
 	} {
 		if !netCopyValues(out, props, f.one, f.many, f.valid) {
 			return nil
 		}
 	}
 
-	return netPxObj{"properties": out}
+	return netPxObj{netPxProps: out}
 }
 
 // netCopyValues copies exactly one of the singular or plural fields once every value validates.

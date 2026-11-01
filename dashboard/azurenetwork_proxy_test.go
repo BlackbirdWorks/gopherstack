@@ -21,6 +21,14 @@ const (
 	netNSGID  = netNS + "/networkSecurityGroups/web"
 	netPolID  = netNS + "/firewallPolicies/pol"
 	netRGList = "/subscriptions/" + armSub + "/resourceGroups/demo/providers/Microsoft.Network/"
+	netOps    = netRoot + "/subscriptions/" + armSub + "/providers/Microsoft.Network/locations/eastus/"
+	netAGWs   = netRoot + netNS + "/applicationGateways/g"
+
+	netBadVNetPrefix = `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["nope"]}}}`
+	netBadVNetRegion = `{"location":"East US","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/8"]}}}`
+	netBadNAT        = `{"properties":{"addressPrefix":"10.0.5.0/24","natGateway":{"id":"/subscriptions/x/evil"}}}`
+	netBadDelegation = `{"properties":{"addressPrefix":"10.0.5.0/24",` +
+		`"delegations":[{"name":"d","properties":{"serviceName":"nope"}}]}}`
 )
 
 func newNetworkDashboard(t *testing.T) *dashboard.DashboardHandler {
@@ -30,7 +38,8 @@ func newNetworkDashboard(t *testing.T) *dashboard.DashboardHandler {
 		`"sourcePortRange":"*","destinationPortRange":"22","sourceAddressPrefix":"*","destinationAddressPrefix":"*"}}`
 	rcg := `{"properties":{"priority":200,"ruleCollections":[{"ruleCollectionType":"FirewallPolicyFilterRuleCollection",` +
 		`"name":"allow","priority":100,"action":{"type":"Allow"},"rules":[{"ruleType":"NetworkRule","name":"r1",` +
-		`"ipProtocols":["TCP"],"sourceAddresses":["10.0.0.0/24"],"destinationAddresses":["*"],"destinationPorts":["443"]}]}]}}`
+		`"ipProtocols":["TCP"],"sourceAddresses":["10.0.0.0/24"],"destinationAddresses":["*"],` +
+		`"destinationPorts":["443"]}]}]}}`
 
 	return newARMDashboard(t, []struct{ path, body string }{
 		{"/subscriptions/" + armSub + "/resourceGroups/demo?api-version=2021-04-01", `{"location":"eastus"}`},
@@ -92,7 +101,13 @@ func TestAzureNetworkProxy(t *testing.T) {
 					`"delegations":[{"name":"d","properties":{"serviceName":"Microsoft.Web/serverFarms"}}]}}`,
 				`Microsoft.Web/serverFarms`, 201,
 			},
-			{http.MethodDelete, netRoot + netNS + "/virtualNetworks/spoke/subnets/db" + netAPI, "", "", http.StatusAccepted},
+			{
+				http.MethodDelete,
+				netRoot + netNS + "/virtualNetworks/spoke/subnets/db" + netAPI,
+				"",
+				"",
+				http.StatusAccepted,
+			},
 			{http.MethodPut, rules + "https" + netAPI, rule(`,"description":"dns"`), `"priority":300`, 201},
 			{http.MethodGet, nsg + netAPI, "", `"https"`, 200},
 			{http.MethodDelete, rules + "https" + netAPI, "", "", http.StatusAccepted},
@@ -110,29 +125,35 @@ func TestAzureNetworkProxy(t *testing.T) {
 			{http.MethodPut, rules + "r" + netAPI, badRule(`"Internet"`, `"bad prefix"`), "invalid", 400},
 			{http.MethodPut, rules + "r" + netAPI, `{"properties":{"priority":300}}`, "invalid", 400},
 			{http.MethodPut, rules + "r" + netAPI, `[]`, "invalid", 400},
-			{http.MethodPut, px + netAPI, `{"location":"eastus","properties":{"addressSpace":{"addressPrefixes":["nope"]}}}`, "invalid", 400},
-			{http.MethodPut, px + netAPI, `{"location":"East US","properties":{"addressSpace":{"addressPrefixes":["10.0.0.0/8"]}}}`, "invalid", 400},
-			{http.MethodPut, px + "/subnets/x" + netAPI, `{"properties":{"addressPrefix":"10.0.5.0/24","natGateway":{"id":"/subscriptions/x/evil"}}}`, "invalid", 400},
-			{http.MethodPut, px + "/subnets/x" + netAPI, `{"properties":{"addressPrefix":"10.0.5.0/24","delegations":[{"name":"d","properties":{"serviceName":"nope"}}]}}`, "invalid", 400},
+			{http.MethodPut, px + netAPI, netBadVNetPrefix, "invalid", 400},
+			{http.MethodPut, px + netAPI, netBadVNetRegion, "invalid", 400},
+			{http.MethodPut, px + "/subnets/x" + netAPI, netBadNAT, "invalid", 400},
+			{http.MethodPut, px + "/subnets/x" + netAPI, netBadDelegation, "invalid", 400},
 		}},
 		{"rejects", []gcpStep{
 			{http.MethodDelete, nsg + netAPI, "", "unsupported", 400},
 			{http.MethodPut, nsg + netAPI, `{}`, "unsupported", 400},
 			{http.MethodPost, px + netAPI, `{}`, "unsupported", 400},
 			{http.MethodPut, netRoot + netNS + "/publicIPAddresses/p" + netAPI, `{}`, "unsupported", 400},
-			{http.MethodDelete, netRoot + netNS + "/applicationGateways/g" + netAPI, "", "unsupported", 400},
-			{http.MethodPost, netRoot + netNS + "/applicationGateways/g/restart" + netAPI, "", "unsupported", 400},
+			{http.MethodDelete, netAGWs + netAPI, "", "unsupported", 400},
+			{http.MethodPost, netAGWs + "/restart" + netAPI, "", "unsupported", 400},
 			{http.MethodPut, netRoot + netPolID + "/ruleCollectionGroups/grp" + netAPI, `{}`, "unsupported", 400},
 			{http.MethodDelete, netRoot + netPolID + netAPI, "", "unsupported", 400},
-			{http.MethodGet, netRoot + armBase + "Microsoft.Compute/virtualMachines/x" + netAPI, "", "unsupported", 400},
+			{
+				http.MethodGet,
+				netRoot + armBase + "Microsoft.Compute/virtualMachines/x" + netAPI,
+				"",
+				"unsupported",
+				400,
+			},
 			{http.MethodGet, netRoot + netNS + "/routeTables" + netAPI, "", "unsupported", 400},
 			{http.MethodGet, px + "/../x" + netAPI, "", "unsupported", 400},
-			{http.MethodGet, netRoot + "/subscriptions/" + armSub + "/providers/Microsoft.Network/locations/eastus/foo/1", "", "unsupported", 400},
-			{http.MethodPost, netRoot + "/subscriptions/" + armSub + "/providers/Microsoft.Network/locations/eastus/operations/1", "", "unsupported", 400},
+			{http.MethodGet, netOps + "foo/1", "", "unsupported", 400},
+			{http.MethodPost, netOps + "operations/1", "", "unsupported", 400},
 		}},
 		{"appgw actions reach the RP", []gcpStep{
-			{http.MethodPost, netRoot + netNS + "/applicationGateways/g/stop" + netAPI, "", "NotFound", http.StatusNotFound},
-			{http.MethodPost, netRoot + netNS + "/applicationGateways/g/backendHealth" + netAPI, "", "NotFound", http.StatusNotFound},
+			{http.MethodPost, netAGWs + "/stop" + netAPI, "", "NotFound", http.StatusNotFound},
+			{http.MethodPost, netAGWs + "/backendHealth" + netAPI, "", "NotFound", http.StatusNotFound},
 		}},
 	}
 
@@ -159,7 +180,11 @@ func TestAzureNetworkProxy(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, del.Code)
 
 		op := del.Header().Get("Azure-Asyncoperation")
-		require.True(t, strings.HasPrefix(op, netRoot+"/subscriptions/"+armSub+"/providers/Microsoft.Network/locations/"), op)
+		require.True(
+			t,
+			strings.HasPrefix(op, netRoot+"/subscriptions/"+armSub+"/providers/Microsoft.Network/locations/"),
+			op,
+		)
 		assert.NotContains(t, op, "https://")
 
 		status := do(http.MethodGet, op, "")
@@ -185,8 +210,12 @@ func TestAzureNetworkProxy(t *testing.T) {
 		}
 
 		vnet := netRoot + netNS + "/virtualNetworks/spoke" + netAPI
-		do(http.MethodPut, vnet, `{"location":"westus","tags":{"marker":"y"},"properties":{"dhcpOptions":{"dnsServers":["8.8.8.8"]},`+
-			`"addressSpace":{"addressPrefixes":["10.1.0.0/16"]}}}`)
+		do(
+			http.MethodPut,
+			vnet,
+			`{"location":"westus","tags":{"marker":"y"},"properties":{"dhcpOptions":{"dnsServers":["8.8.8.8"]},`+
+				`"addressSpace":{"addressPrefixes":["10.1.0.0/16"]}}}`,
+		)
 
 		got := do(http.MethodGet, vnet, "")
 		assert.NotContains(t, got, "marker")
