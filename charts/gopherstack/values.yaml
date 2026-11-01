@@ -1,0 +1,114 @@
+image:
+  repository: ghcr.io/blackbirdworks/gopherstack
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Gopherstack keeps state in one process; the Deployment always runs one replica.
+config:
+  region: us-east-1
+  accountId: "000000000000"
+  logLevel: info
+  # Engine default for container-backed services: stub | auto | docker.
+  engines: stub
+  enforceIam: false
+  localstackCompat: false
+  # Only enable / disable these services (empty services = all).
+  services: []
+  disableServices: []
+  # Any other environment variable, as KEY: value.
+  extra: {}
+
+env: []
+envFrom: []
+
+service:
+  type: ClusterIP
+  port: 8000
+  nodePort: null
+  annotations: {}
+  # Dedicated per-cloud listeners, e.g. Azure Blob 10000, Service Bus 10003, Cosmos 8081,
+  # GCP Pub/Sub 8085, Storage 4443. Each entry needs the matching *_PORT env var if it is not the default.
+  extraPorts: []
+  # - name: azure-blob
+  #   port: 10000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: gopherstack.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  existingClaim: ""
+  mountPath: /data
+  annotations: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Docker-in-Docker sidecar so docker-backed engines work in a cluster. Runs privileged.
+dind:
+  enabled: false
+  image:
+    repository: docker
+    tag: 27-dind
+    pullPolicy: IfNotPresent
+  resources: {}
+
+probes:
+  path: /_gopherstack/health
+  liveness:
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    periodSeconds: 2
+    timeoutSeconds: 3
+    failureThreshold: 60
+
+podAnnotations: {}
+podLabels: {}
+
+# The release image is FROM scratch and containerd unpacks its root directory as 0700 root, so a non-root
+# UID cannot even exec the binary. Run as UID 0 with every capability dropped; set runAsNonRoot: true and
+# runAsUser to a numeric UID only with an image whose root directory is world-searchable.
+podSecurityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
