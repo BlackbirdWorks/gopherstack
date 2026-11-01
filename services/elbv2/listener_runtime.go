@@ -129,6 +129,16 @@ func (b *InMemoryBackend) attachHandler(h *Handler) {
 	b.rl.handler = h
 }
 
+func (b *InMemoryBackend) closeIdleConns() {
+	b.mu.RLock("closeIdleConns")
+	h := b.rl.handler
+	b.mu.RUnlock()
+
+	if h != nil {
+		h.closeIdleConns()
+	}
+}
+
 func isRealProtocol(proto string) bool {
 	switch proto {
 	case protoHTTP, protoHTTPS, protoTCP, protoTLS, protoUDP, protoTCPUDP:
