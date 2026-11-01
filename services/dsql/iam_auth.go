@@ -31,7 +31,6 @@ const (
 	tokenMaxSkew     = 15 * time.Minute
 	tokenDateLayout  = "20060102T150405Z"
 	tokenAlgorithm   = "AWS4-HMAC-SHA256"
-	unsignedPayload  = "UNSIGNED-PAYLOAD"
 	tokenCredParts   = 5
 	tokenArnParts    = 6
 	adminRole        = "admin"
@@ -185,7 +184,7 @@ func (t *authToken) verifySignature(secret string) error {
 
 	empty := sha256.Sum256(nil)
 
-	for _, payloadHash := range []string{hex.EncodeToString(empty[:]), unsignedPayload} {
+	for _, payloadHash := range []string{hex.EncodeToString(empty[:]), "UNSIGNED-PAYLOAD"} {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 			"https://"+t.host+"/?"+q.Encode(), nil)
 		if err != nil {

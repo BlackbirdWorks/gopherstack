@@ -2,8 +2,10 @@ package dsql
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"net"
 	"net/http"
 	"net/url"
@@ -185,8 +187,9 @@ func (dp *dataPlane) expiredToken(t *testing.T) string {
 	creds, err := dp.creds.Retrieve(t.Context())
 	require.NoError(t, err)
 
+	empty := sha256.Sum256(nil)
 	signed, _, err := v4.NewSigner().
-		PresignHTTP(t.Context(), creds, req, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", tokenSigningName,
+		PresignHTTP(t.Context(), creds, req, hex.EncodeToString(empty[:]), tokenSigningName,
 			testRegion, time.Now().Add(-time.Hour).UTC())
 	require.NoError(t, err)
 
