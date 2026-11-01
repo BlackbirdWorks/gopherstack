@@ -164,8 +164,8 @@ func TestHandler_MultiRegionRulesFireOnSharedBroker(t *testing.T) {
 			disp := &recordingDispatcher{queues: make(chan string, 4)}
 			home.SetRuleDispatcher(disp)
 
-			port := freeTCPPort(t)
-			h := iot.NewHandler(home, iot.NewBroker(home, port))
+			broker := iot.NewBroker(home, 0)
+			h := iot.NewHandler(home, broker)
 			h.EnableRegions()
 
 			regionCall(t, h, tc.ruleRegion, http.MethodPost, "/rules/r1",
@@ -174,8 +174,14 @@ func TestHandler_MultiRegionRulesFireOnSharedBroker(t *testing.T) {
 			require.NoError(t, h.StartWorker(t.Context()))
 			t.Cleanup(func() { h.Shutdown(context.Background()) })
 
+			select {
+			case <-broker.Ready():
+			case <-t.Context().Done():
+				require.FailNow(t, "broker never became ready")
+			}
+
 			opts := pahomqtt.NewClientOptions().
-				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", port)).
+				AddBroker(fmt.Sprintf("tcp://127.0.0.1:%d", broker.Port())).
 				SetClientID("mr-pub").
 				SetAutoReconnect(false).
 				SetConnectTimeout(200 * time.Millisecond)

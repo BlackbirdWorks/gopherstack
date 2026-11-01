@@ -15,22 +15,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
-// freeEphemeralPort returns a port that was free at the moment of the call
-// (bound briefly via net.Listen("tcp", ":0") then released immediately).
-// Mirrors services/azurequeue's identical helper.
-func freeEphemeralPort(t *testing.T) int {
-	t.Helper()
-
-	l, err := net.Listen("tcp", ":0")
-	require.NoError(t, err)
-
-	addr, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	require.NoError(t, l.Close())
-
-	return addr.Port
-}
-
 // reserveEphemeralPort binds and holds a real TCP port until the test ends,
 // for tests that need a guaranteed-busy port to exercise a bind-failure path.
 func reserveEphemeralPort(t *testing.T) int {
@@ -53,14 +37,14 @@ func reserveEphemeralPort(t *testing.T) int {
 func TestStartWorker_BindsAndServes(t *testing.T) {
 	t.Parallel()
 
-	port := freeEphemeralPort(t)
-
 	backend := azuretable.NewInMemoryBackend()
 	h := azuretable.NewHandler(backend)
-	h.Port = port
+	h.Port = 0
 
 	ctx := t.Context()
 	require.NoError(t, h.StartWorker(ctx))
+
+	port := h.Port
 
 	t.Cleanup(func() {
 		// t.Context() is already canceled by the time a Cleanup-registered

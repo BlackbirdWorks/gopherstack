@@ -89,8 +89,8 @@ func TestBroker_ReportsLifecycleToDataPlane(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := freeTCPPort(t)
-			broker := startTestBroker(t, newRefBackend(), port)
+			broker := startTestBroker(t, newRefBackend())
+			port := broker.Port()
 			dp := iotdataplane.NewInMemoryBackend()
 			dp.SetBroker(broker)
 
@@ -139,8 +139,8 @@ func TestBroker_SendDirectMessageAwaitAck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := freeTCPPort(t)
-			broker := startTestBroker(t, newRefBackend(), port)
+			broker := startTestBroker(t, newRefBackend())
+			port := broker.Port()
 			dp := iotdataplane.NewInMemoryBackend()
 			dp.SetBroker(broker)
 

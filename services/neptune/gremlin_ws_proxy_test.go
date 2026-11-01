@@ -121,18 +121,6 @@ func (fg *fakeGremlin) frames() int {
 	return len(fg.got)
 }
 
-func wsFreePort(t *testing.T) int {
-	t.Helper()
-
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-
-	port := ln.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert // tcp listener
-	require.NoError(t, ln.Close())
-
-	return port
-}
-
 func wsEval(script string) []byte {
 	b, _ := json.Marshal(map[string]any{
 		"requestId": wsTestReqID, "op": "eval", "processor": "", "args": map[string]any{"gremlin": script},
@@ -234,7 +222,6 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 			t.Parallel()
 
 			fg := newFakeGremlin(t)
-			port := wsFreePort(t)
 			auth := func() clusterAuth {
 				return clusterAuth{
 					enabled: true, region: wsTestRegion,
@@ -243,12 +230,12 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 				}
 			}
 
-			f, err := startCypherFront("127.0.0.1", port, strings.TrimPrefix(fg.srv.URL, "http://"), nil, nil, auth)
+			f, err := startCypherFront("127.0.0.1", 0, strings.TrimPrefix(fg.srv.URL, "http://"), nil, nil, auth)
 			require.NoError(t, err)
 			t.Cleanup(f.Close)
 			f.up.Store(true)
 
-			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(f.port))
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/gremlin", nil)
 			require.NoError(t, err)
 

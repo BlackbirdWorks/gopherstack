@@ -48,10 +48,11 @@ type cypherFront struct {
 	auth           func() clusterAuth
 	cancel         context.CancelFunc
 	upstream       string
+	port           int
 	up             atomic.Bool
 }
 
-// startCypherFront listens on port. An empty innerAddr serves Gremlin in-process over graph.
+// startCypherFront listens on port (0 = ephemeral; read f.port). An empty innerAddr serves Gremlin in-process.
 func startCypherFront(
 	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
 	auth func() clusterAuth,
@@ -66,7 +67,11 @@ func startCypherFront(
 		graph = opencypher.NewGraph()
 	}
 
-	f := &cypherFront{auth: auth, graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
+		port = addr.Port
+	}
+
+	f := &cypherFront{port: port, auth: auth, graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 
 	if innerAddr == "" {

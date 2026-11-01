@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/worker"
@@ -634,17 +635,12 @@ func isQueryRequest(r *http.Request) bool {
 // StartWorker binds the dedicated Cosmos DB listener (optionally TLS) and starts the TTL janitor. The bind is
 // synchronous so a port conflict is returned to the caller.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("cosmosdb: bind port %d: %w", h.Port, err)
 	}
 
-	// Port 0 binds an ephemeral port; reflect it so tests can read it without a release-and-rebind race.
-	if addr, ok := listener.Addr().(*net.TCPAddr); ok {
-		h.Port = addr.Port
-	}
+	h.Port = port
 
 	if h.TLS {
 		tlsListener, tlsErr := h.wrapTLS(listener)
