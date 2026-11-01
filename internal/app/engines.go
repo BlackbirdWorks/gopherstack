@@ -67,6 +67,10 @@ func engineEntries() []engineEntry {
 			"oci-oke-engine", "OKE_ENGINE", enginesStub,
 		},
 		{func(c *CLI) *string { return &c.OCIMySQL.Engine }, "oci-mysql-engine", "OCI_MYSQL_ENGINE", enginesStub},
+		{
+			func(c *CLI) *string { return &c.OCIDatabase.Engine },
+			"oci-database-engine", "OCI_DATABASE_ENGINE", enginesStub,
+		},
 		{func(c *CLI) *string { return &c.RDSEngine }, "rds-engine", "RDS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DMSEngine }, "dms-engine", "DMS_ENGINE", enginesStub},
 		{func(c *CLI) *string { return &c.DocDBEngine }, "docdb-engine", "DOCDB_ENGINE", enginesStub},

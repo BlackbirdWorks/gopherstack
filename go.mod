@@ -318,6 +318,7 @@ require (
 	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/recolabs/gnata v0.6.1
 	github.com/redis/go-redis/v9 v9.23.0
+	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/twmb/franz-go v1.22.1
