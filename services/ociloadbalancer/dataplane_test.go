@@ -529,10 +529,14 @@ func TestBackendTLSVerification(t *testing.T) {
 	tests := []struct {
 		name   string
 		ca     string
+		verify bool
 		status int
+		health loadbalancer.BackendHealthStatusEnum
 	}{
-		{"trusted bundle", string(good), http.StatusOK},
-		{"wrong bundle", string(wrong), http.StatusServiceUnavailable},
+		{"trusted bundle", string(good), true, http.StatusOK, loadbalancer.BackendHealthStatusOk},
+		{"wrong bundle", string(wrong), true, http.StatusServiceUnavailable, loadbalancer.BackendHealthStatusCritical},
+		{"no verify wrong bundle", string(wrong), false, http.StatusOK, loadbalancer.BackendHealthStatusOk},
+		{"no verify no bundle", "", false, http.StatusOK, loadbalancer.BackendHealthStatusOk},
 	}
 
 	for _, tt := range tests {
@@ -542,20 +546,31 @@ func TestBackendTLSVerification(t *testing.T) {
 			e := newEnv(t, envOpts{})
 			be := startTLSBackend(t, "secure", pair)
 			set := backendSet("ROUND_ROBIN", be)
-			set.SslConfiguration = &loadbalancer.SslConfigurationDetails{
-				CertificateName: new("ca"), VerifyPeerCertificate: new(true),
-			}
+			set.SslConfiguration = &loadbalancer.SslConfigurationDetails{VerifyPeerCertificate: new(tt.verify)}
 
 			d := baseDetails("backend-tls")
-			d.Certificates = map[string]loadbalancer.CertificateDetails{
-				"ca": {CertificateName: new("ca"), CaCertificate: new(tt.ca)},
+			if tt.ca != "" {
+				set.SslConfiguration.CertificateName = new("ca")
+				d.Certificates = map[string]loadbalancer.CertificateDetails{
+					"ca": {CertificateName: new("ca"), CaCertificate: new(tt.ca)},
+				}
 			}
+
 			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
 			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 			id := e.mkLB(t, d)
 
 			r := e.call(t, id, httpPort, "", "/tls", nil)
 			assert.Equal(t, tt.status, r.status)
+
+			e.clock.Advance(2 * time.Second)
+
+			name := be.ip() + ":" + itoa(be.port())
+			bh, err := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
+				LoadBalancerId: &id, BackendSetName: new("bs"), BackendName: &name,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.health, bh.Status)
 		})
 	}
 }

@@ -403,7 +403,12 @@ func (d *dataPlane) transportFor(lb *LoadBalancer, bs *BackendSet) *http.Transpo
 
 	tr := httpclient.NewTransport()
 	tr.Proxy, tr.DialContext, tr.ForceAttemptHTTP2 = nil, d.dialer.DialContext, false
-	tr.TLSClientConfig = d.b.backendTLS(lb, bs.SSL)
+	if bs.SSL != nil {
+		base, ssl := d.b.backendTLS(lb, bs.SSL), *bs.SSL
+		tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return d.dialTLS(ctx, network, addr, base, &ssl)
+		}
+	}
 
 	d.mu.Lock("transportFor")
 	old := d.transports[key]
@@ -437,9 +442,9 @@ func transportFingerprint(lb *LoadBalancer, bs *BackendSet) string {
 
 var errBackendTLS = errors.New("backend TLS configuration")
 
-// backendTLS builds the TLS client configuration for connections to a backend set. The peer chain and its IP
-// address are always verified (never InsecureSkipVerify): against the bundle named by certificateName when one
-// is given, otherwise against the system roots.
+// backendTLS builds the verifying TLS client configuration for a backend set: the peer chain is checked against
+// the bundle named by certificateName when one is given, otherwise the system roots. Use backendTLSFor to
+// resolve verifyPeerCertificate=false for a concrete backend host.
 func (b *InMemoryBackend) backendTLS(lb *LoadBalancer, s *SSLConfig) *tls.Config {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	if s == nil {
@@ -464,6 +469,42 @@ func (b *InMemoryBackend) backendTLS(lb *LoadBalancer, s *SSLConfig) *tls.Config
 	}
 
 	return cfg
+}
+
+// backendTLSFor returns a per-connection copy of base for host. Verification is skipped only when the backend
+// set has verifyPeerCertificate=false and host is a loopback IP (emulator-run target; policy 2026-10-31).
+func backendTLSFor(base *tls.Config, s *SSLConfig, host string) *tls.Config {
+	cfg := base.Clone()
+	cfg.ServerName = host
+
+	if !boolOr(s.VerifyPeerCertificate) && httpclient.IsLoopbackHost(host) {
+		cfg.InsecureSkipVerify = true
+	}
+
+	return cfg
+}
+
+func (d *dataPlane) dialTLS(
+	ctx context.Context, network, addr string, base *tls.Config, s *SSLConfig,
+) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("backend address: %w", err)
+	}
+
+	conn, err := d.dialer.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, fmt.Errorf("dial backend: %w", err)
+	}
+
+	tc := tls.Client(conn, backendTLSFor(base, s, host))
+	if err = tc.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+
+		return nil, fmt.Errorf("backend handshake: %w", err)
+	}
+
+	return tc, nil
 }
 
 func applyProtocols(cfg *tls.Config, protocols []string) {
