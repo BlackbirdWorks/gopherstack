@@ -57,6 +57,14 @@ func isNamespaceOperation(segs []string, ns string) bool {
 var networkRoutes = []armRoute{
 	{
 		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPost && isNamespaceScope(segs, namespaceMicrosoftNetwork) &&
+				len(segs) == agwActionSegs && segAt(segs, agwTypeIdx, netAGWs) &&
+				containsFold([]string{"start", "stop", "backendhealth"}, segs[len(segs)-1])
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleAGWAction(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
 			return r.Method == http.MethodGet && isNamespaceOperation(segs, namespaceMicrosoftNetwork)
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleNSOperation(c, segs) },
@@ -81,8 +89,69 @@ var managedIdentityRoutes = []armRoute{
 	},
 }
 
+const (
+	agwActionSegs = 9
+	agwTypeIdx    = 6
+)
+
+func (h *Handler) handleAGWAction(c *echo.Context, segs []string) error {
+	if !h.checkNSAPIVersion(c, namespaceMicrosoftNetwork, networkAPIVersions(), "Microsoft.Network/"+netAGWs) {
+		return nil
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	np, ok := h.networkProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	opID := uuid.NewString()
+	action := strings.ToLower(segs[len(segs)-1])
+
+	if action == "backendhealth" {
+		out, herr := np.BackendHealth(c.Request().Context(), id)
+		if herr != nil {
+			return h.writeAPIError(c, herr)
+		}
+
+		np.storeOpResult(opID, out)
+	} else if aerr := np.AGWAction(id, action); aerr != nil {
+		return h.writeAPIError(c, aerr)
+	}
+
+	h.setNSOperationID(c, id, true, opID)
+
+	return c.NoContent(http.StatusAccepted)
+}
+
+func (p *NetworkProvider) storeOpResult(opID string, body map[string]any) {
+	p.mu.Lock("storeOpResult")
+	defer p.mu.Unlock()
+
+	p.ops[opID] = body
+}
+
+func (p *NetworkProvider) opResult(opID string) (map[string]any, bool) {
+	p.mu.RLock("opResult")
+	defer p.mu.RUnlock()
+
+	out, ok := p.ops[opID]
+
+	return out, ok
+}
+
 func (h *Handler) handleNSOperation(c *echo.Context, segs []string) error {
 	if segAt(segs, nsOpKindIdx, nsOperationRes) {
+		if np, ok := h.networkProvider(); ok && strings.EqualFold(segs[nsOpSegs-5], namespaceMicrosoftNetwork) {
+			if body, found := np.opResult(segs[nsOpSegs-1]); found {
+				return h.writeJSON(c, http.StatusOK, body)
+			}
+		}
+
 		return c.NoContent(http.StatusNoContent)
 	}
 
@@ -329,7 +398,10 @@ func isSyncType(id ResourceID) bool {
 }
 
 func (h *Handler) setNSOperation(c *echo.Context, id ResourceID, withLocation bool) {
-	opID := uuid.NewString()
+	h.setNSOperationID(c, id, withLocation, uuid.NewString())
+}
+
+func (h *Handler) setNSOperationID(c *echo.Context, id ResourceID, withLocation bool, opID string) {
 	base := h.baseURLFor(c.Request()) + "/subscriptions/" + id.SubscriptionID + "/providers/" + id.Namespace +
 		"/locations/" + DefaultLocation + "/"
 	query := "?api-version=" + url.QueryEscape(c.QueryParam(nsAPIVersionKey))

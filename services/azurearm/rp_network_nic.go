@@ -276,6 +276,14 @@ func (p *NetworkProvider) pipUser(pipID string) string {
 		return f[0]
 	}
 
+	if f := p.agwFrontendUsers("publicIPAddress", pipID); len(f) > 0 {
+		return f[0]
+	}
+
+	if f := p.fwConfigUsers("publicIPAddress", pipID); len(f) > 0 {
+		return f[0]
+	}
+
 	return ""
 }
 
@@ -326,6 +334,8 @@ func (p *NetworkProvider) usedAddrsSkip(skipNIC, skipLB string) map[string]map[s
 		}
 	}
 
+	p.gatewayAddrs(used, skipLB)
+
 	for _, n := range p.ofType(netNICs) {
 		if strings.EqualFold(n.armID(), skipNIC) {
 			continue
@@ -348,6 +358,23 @@ func (p *NetworkProvider) usedAddrsSkip(skipNIC, skipLB string) map[string]map[s
 }
 
 func (p *NetworkProvider) subnetUsers(subnetID string) []string {
+	out := p.subnetResourceUsers(subnetID)
+	out = append(out, p.agwSubnetUsers(subnetID)...)
+
+	return append(out, p.fwSubnetUsers(subnetID)...)
+}
+
+// subnetForeignUsers lists NIC, load balancer and private endpoint users, which gateway and firewall subnets forbid.
+func (p *NetworkProvider) subnetForeignUsers(subnetID string) []string {
+	return append(p.subnetResourceUsers(subnetID), p.peOnSubnet(subnetID)...)
+}
+
+// subnetGatewayUsers lists the application gateways and firewalls that reserve the subnet for themselves.
+func (p *NetworkProvider) subnetGatewayUsers(subnetID string) []string {
+	return append(p.agwSubnetUsers(subnetID), p.fwSubnetUsers(subnetID)...)
+}
+
+func (p *NetworkProvider) subnetResourceUsers(subnetID string) []string {
 	var out []string
 
 	for _, n := range p.ofType(netNICs) {
@@ -633,7 +660,11 @@ func (p *NetworkProvider) normalizeIPConfig(
 		return nil, err
 	}
 
-	for _, key := range []string{propNICPools, propNICNATs, propNICASGs} {
+	if users := p.subnetGatewayUsers(sid); len(users) > 0 {
+		return nil, netBad("Subnet %s is reserved by %s and cannot contain network interfaces.", sid, users[0])
+	}
+
+	for _, key := range []string{propNICPools, propNICAGWPools, propNICNATs, propNICASGs} {
 		if list := anyList(cp[key]); len(list) > 0 {
 			ids := make([]string, 0, len(list))
 			for _, e := range list {
@@ -952,4 +983,42 @@ func sameNIC(a, b string) bool {
 	}
 
 	return cut(a) == cut(b)
+}
+
+// gatewayAddrs records the private addresses of application gateway frontends and firewall IP configurations.
+func (p *NetworkProvider) gatewayAddrs(used map[string]map[string]string, skipID string) {
+	put := func(sid, addr, owner string) {
+		key := strings.ToLower(sid)
+		if key == "" || addr == "" {
+			return
+		}
+
+		if used[key] == nil {
+			used[key] = map[string]string{}
+		}
+
+		used[key][addr] = owner
+	}
+
+	for _, gw := range p.ofType(netAGWs) {
+		if strings.EqualFold(gw.armID(), skipID) {
+			continue
+		}
+
+		for _, f := range gw.Kids[agwFrontends] {
+			put(subID(f.Props, netFieldSubnet), strOf(f.Props, propPrivateIP), gw.armID()+"/"+agwFrontends+"/"+f.Name)
+		}
+	}
+
+	for _, fw := range p.ofType(netFWs) {
+		if strings.EqualFold(fw.armID(), skipID) {
+			continue
+		}
+
+		for _, kt := range []string{fwIPConfigs, fwMgmtConfig} {
+			for _, k := range fw.Kids[kt] {
+				put(subID(k.Props, netFieldSubnet), strOf(k.Props, propPrivateIP), fw.armID()+"/"+fwSegment(kt)+"/"+k.Name)
+			}
+		}
+	}
 }
