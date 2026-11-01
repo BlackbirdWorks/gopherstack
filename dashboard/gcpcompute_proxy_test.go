@@ -246,24 +246,40 @@ func TestGCPComputeProxyCreate(t *testing.T) {
 			{http.MethodGet, zone + "/instances/web", "", "zones/us-central1-a/machineTypes/e2-small", 200},
 			{http.MethodGet, zone + "/instances/web", "", `"env":"dev"`, 200},
 		}},
-		{"snapshot", []gcpStep{
-			{http.MethodPost, zone + "/disks/vm1/createSnapshot", `{"name":"snap1","labels":{"a":"b"},"storageLocations":["x"]}`,
-				`"operationType":"createSnapshot"`, 200},
-			{http.MethodGet, root + "/global/snapshots/snap1", "", `"sourceDisk"`, 200},
-			{http.MethodPost, zone + "/disks/vm1/createSnapshot", `{"name":"Bad_Name"}`, "snapshot name", 400},
-			{http.MethodPost, zone + "/disks/vm1/createSnapshot", `{"name":"snap1"}`, "already exists", 409},
-			{http.MethodDelete, root + "/global/snapshots/snap1", "", `"operationType":"delete"`, 200},
-		}},
-		{"rejects bad fields", []gcpStep{
-			{http.MethodPost, zone + "/instances", `{"name":"Web","machineType":"e2-small"}`, "required", 400},
-			{http.MethodPost, zone + "/instances", `{"name":"web","machineType":"e2-small","disks":[],"networkInterfaces":[]}`,
-				"exactly one", 400},
-			{http.MethodPost, zone + "/instances", `{"name":"web","machineType":"e2-small",` +
-				`"disks":[{"initializeParams":{"sourceImage":"https://evil/x"}}],"networkInterfaces":[{}]}`, "boot image", 400},
-			{http.MethodPost, zone + "/instances", `{"name":"web","machineType":"e2-small",` +
-				`"disks":[{"initializeParams":{"sourceImage":"` + img + `","diskSizeGb":"0"}}],"networkInterfaces":[{}]}`,
-				"disk size", 400},
-		}},
+		{
+			"snapshot",
+			[]gcpStep{
+				{
+					http.MethodPost,
+					zone + "/disks/vm1/createSnapshot",
+					`{"name":"snap1","labels":{"a":"b"},"storageLocations":["x"]}`,
+					`"operationType":"createSnapshot"`,
+					200,
+				},
+				{http.MethodGet, root + "/global/snapshots/snap1", "", `"sourceDisk"`, 200},
+				{http.MethodPost, zone + "/disks/vm1/createSnapshot", `{"name":"Bad_Name"}`, "snapshot name", 400},
+				{http.MethodPost, zone + "/disks/vm1/createSnapshot", `{"name":"snap1"}`, "already exists", 409},
+				{http.MethodDelete, root + "/global/snapshots/snap1", "", `"operationType":"delete"`, 200},
+			},
+		},
+		{
+			"rejects bad fields",
+			[]gcpStep{
+				{http.MethodPost, zone + "/instances", `{"name":"Web","machineType":"e2-small"}`, "required", 400},
+				{
+					http.MethodPost,
+					zone + "/instances",
+					`{"name":"web","machineType":"e2-small","disks":[],"networkInterfaces":[]}`,
+					"exactly one",
+					400,
+				},
+				{http.MethodPost, zone + "/instances", `{"name":"web","machineType":"e2-small",` +
+					`"disks":[{"initializeParams":{"sourceImage":"https://evil/x"}}],"networkInterfaces":[{}]}`, "boot image", 400},
+				{http.MethodPost, zone + "/instances", `{"name":"web","machineType":"e2-small",` +
+					`"disks":[{"initializeParams":{"sourceImage":"` + img + `","diskSizeGb":"0"}}],"networkInterfaces":[{}]}`,
+					"disk size", 400},
+			},
+		},
 	}
 
 	for _, tt := range tests {

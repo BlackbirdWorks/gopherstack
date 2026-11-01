@@ -51,7 +51,13 @@ const (
 
 //nolint:gochecknoglobals // read-only lookup tables
 var (
-	computeLB         = []string{computeBackendSvcs, computeURLMaps, computeHTTPProxies, computeHTTPSProxies, computeFwdRules}
+	computeLB = []string{
+		computeBackendSvcs,
+		computeURLMaps,
+		computeHTTPProxies,
+		computeHTTPSProxies,
+		computeFwdRules,
+	}
 	computeAggregated = append([]string{
 		computeInstances, computeDisks, computeSubnets, computeAddresses, computeRouters, computeOperations,
 	}, computeLB...)
@@ -59,8 +65,10 @@ var (
 		"networks", "firewalls", "routes", computeSnapshots, computeOperations, computeAddresses, "images",
 		"securityPolicies",
 	}, computeLB...)
-	computeZonal           = []string{computeInstances, computeDisks, computeOperations, "machineTypes"}
-	computeRegional        = append([]string{computeSubnets, computeAddresses, computeRouters, computeOperations}, computeLB...)
+	computeZonal    = []string{computeInstances, computeDisks, computeOperations, "machineTypes"}
+	computeRegional = append(
+		[]string{computeSubnets, computeAddresses, computeRouters, computeOperations},
+		computeLB...)
 	computeInstanceActions = []string{computeStart, computeStop, computeReset, computeSuspend, computeResume}
 	computeQueryKeys       = []string{
 		"filter",
@@ -87,7 +95,10 @@ func (h *DashboardHandler) registerGCPComputeRoutes() {
 
 		r := c.Request()
 
-		apiPath, parts, ok := gcpComputeProxyPath(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), gcpComputeProxyPrefix))
+		apiPath, parts, ok := gcpComputeProxyPath(
+			r.Method,
+			strings.TrimPrefix(r.URL.EscapedPath(), gcpComputeProxyPrefix),
+		)
 		if !ok {
 			return cloudJSONFail(
 				c,

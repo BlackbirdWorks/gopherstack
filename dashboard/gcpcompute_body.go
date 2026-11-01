@@ -15,14 +15,26 @@ const (
 	computeMaxDiskGB     = 65536
 	computeNICAccessName = "External NAT"
 	computeNICAccessType = "ONE_TO_ONE_NAT"
+	computeKeyName       = "name"
 )
 
 var (
-	errComputeBody = errors.New("invalid request body")
+	errComputeBody       = errors.New("invalid request body")
+	errComputeSnapName   = errors.New("snapshot name must be 1-63 lowercase letters, digits or dashes")
+	errComputeInstFields = errors.New("a valid instance name and machine type are required")
+	errComputeOneEach    = errors.New("exactly one boot disk and one network interface are required")
+	errComputeImage      = errors.New("a boot image (projects/<project>/global/images/[family/]<name>) is required")
+	errComputeDiskSize   = errors.New("disk size is out of range")
+	errComputeNetwork    = errors.New("invalid network")
+	errComputeSubnet     = errors.New("invalid subnetwork")
+	errComputeLabels     = errors.New("too many labels")
+	errComputeLabel      = errors.New("invalid label")
 
 	computeNameRE    = regexp.MustCompile(`^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	computeMachineRE = regexp.MustCompile(`^(?:zones/[a-z0-9-]+/machineTypes/)?[a-z0-9][-a-z0-9]{0,62}$`)
-	computeImageRE   = regexp.MustCompile(`^projects/[a-z][-a-z0-9]{0,61}[a-z0-9]/global/images/(?:family/)?[a-z0-9][-a-z0-9]{0,62}$`)
+	computeImageRE   = regexp.MustCompile(
+		`^projects/[a-z][-a-z0-9]{0,61}[a-z0-9]/global/images/(?:family/)?[a-z0-9][-a-z0-9]{0,62}$`,
+	)
 	computeNetworkRE = regexp.MustCompile(`^(?:global/networks/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	computeSubnetRE  = regexp.MustCompile(`^(?:regions/[a-z0-9-]+/subnetworks/)?[a-z]([-a-z0-9]{0,61}[a-z0-9])?$`)
 	computeLabelRE   = regexp.MustCompile(`^[a-z0-9_-]{0,63}$`)
@@ -86,10 +98,10 @@ func rebuildComputeSnapshot(in io.Reader) ([]byte, error) {
 	}
 
 	if !computeNameRE.MatchString(req.Name) {
-		return nil, errors.New("snapshot name must be 1-63 lowercase letters, digits or dashes")
+		return nil, errComputeSnapName
 	}
 
-	return json.Marshal(map[string]string{"name": req.Name})
+	return json.Marshal(map[string]string{computeKeyName: req.Name})
 }
 
 func rebuildComputeInstance(in io.Reader, zone string) ([]byte, error) {
@@ -100,11 +112,11 @@ func rebuildComputeInstance(in io.Reader, zone string) ([]byte, error) {
 	}
 
 	if !computeNameRE.MatchString(req.Name) || !computeMachineRE.MatchString(req.MachineType) {
-		return nil, errors.New("a valid instance name and machine type are required")
+		return nil, errComputeInstFields
 	}
 
 	if len(req.Disks) != 1 || len(req.NetworkInterfaces) != 1 {
-		return nil, errors.New("exactly one boot disk and one network interface are required")
+		return nil, errComputeOneEach
 	}
 
 	disk, err := rebuildComputeDisk(req.Disks[0])
@@ -128,7 +140,7 @@ func rebuildComputeInstance(in io.Reader, zone string) ([]byte, error) {
 	}
 
 	out := map[string]any{
-		"name": req.Name, "machineType": machine,
+		computeKeyName: req.Name, "machineType": machine,
 		"disks": []any{disk}, "networkInterfaces": []any{nic},
 	}
 	if len(labels) > 0 {
@@ -151,7 +163,7 @@ func shortComputeName(s string) string {
 func rebuildComputeDisk(d computeDiskIn) (map[string]any, error) {
 	p := d.InitializeParams
 	if !computeImageRE.MatchString(p.SourceImage) {
-		return nil, errors.New("a boot image (projects/<project>/global/images/[family/]<name>) is required")
+		return nil, errComputeImage
 	}
 
 	init := map[string]any{"sourceImage": p.SourceImage}
@@ -159,7 +171,7 @@ func rebuildComputeDisk(d computeDiskIn) (map[string]any, error) {
 	if p.DiskSizeGb != "" {
 		n, err := strconv.Atoi(p.DiskSizeGb)
 		if err != nil || n < 1 || n > computeMaxDiskGB {
-			return nil, errors.New("disk size is out of range")
+			return nil, errComputeDiskSize
 		}
 
 		init["diskSizeGb"] = strconv.Itoa(n)
@@ -173,7 +185,7 @@ func rebuildComputeNIC(n computeNICIn) (map[string]any, error) {
 
 	if n.Network != "" {
 		if !computeNetworkRE.MatchString(n.Network) {
-			return nil, errors.New("invalid network")
+			return nil, errComputeNetwork
 		}
 
 		out["network"] = n.Network
@@ -181,14 +193,16 @@ func rebuildComputeNIC(n computeNICIn) (map[string]any, error) {
 
 	if n.Subnetwork != "" {
 		if !computeSubnetRE.MatchString(n.Subnetwork) {
-			return nil, errors.New("invalid subnetwork")
+			return nil, errComputeSubnet
 		}
 
 		out["subnetwork"] = n.Subnetwork
 	}
 
 	if len(n.AccessConfigs) > 0 {
-		out["accessConfigs"] = []any{map[string]string{"name": computeNICAccessName, "type": computeNICAccessType}}
+		out["accessConfigs"] = []any{
+			map[string]string{computeKeyName: computeNICAccessName, "type": computeNICAccessType},
+		}
 	}
 
 	return out, nil
@@ -196,12 +210,12 @@ func rebuildComputeNIC(n computeNICIn) (map[string]any, error) {
 
 func rebuildComputeLabels(in map[string]string) (map[string]string, error) {
 	if len(in) > computeMaxLabels {
-		return nil, errors.New("too many labels")
+		return nil, errComputeLabels
 	}
 
 	for k, v := range in {
 		if !computeNameRE.MatchString(k) || !computeLabelRE.MatchString(v) {
-			return nil, errors.New("invalid label")
+			return nil, errComputeLabel
 		}
 	}
 
