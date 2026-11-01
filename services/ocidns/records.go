@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -155,10 +156,11 @@ func soaRdata(z *Zone, ns []string) string {
 // managed lists the protected apex records the service owns: SOA and, for GLOBAL zones, the NS set.
 func (b *InMemoryBackend) managed(z *Zone) []recordWire {
 	ns := b.nameservers(z)
-	out := []recordWire{{
+	out := make([]recordWire, 0, 1+len(ns))
+	out = append(out, recordWire{
 		Domain: z.Name, Rtype: rtypeSOA, TTL: soaTTL, Rdata: soaRdata(z, ns), IsProtected: true,
 		RrsetVersion: strconv.FormatInt(z.Version, 10),
-	}}
+	})
 
 	for _, n := range ns {
 		out = append(out, recordWire{
@@ -246,7 +248,12 @@ var recordSorters = sorter[recordWire]{ //nolint:gochecknoglobals // immutable c
 // RecordList is a page of records with the matching total.
 type RecordList = listResult[recordWire]
 
-func (b *InMemoryBackend) listRecordsLocked(z *Zone, f RecordFilter, o ListOpts, mustExist bool) (RecordList, *APIError) {
+func (b *InMemoryBackend) listRecordsLocked(
+	z *Zone,
+	f RecordFilter,
+	o ListOpts,
+	mustExist bool,
+) (RecordList, *APIError) {
 	recs, err := b.filterRecords(z, f)
 	if err != nil {
 		return RecordList{}, err
@@ -314,33 +321,17 @@ type recSpec struct {
 
 // spec validates the identifying fields of a record against the zone; scope fills empty domain and rtype.
 func (z *Zone) spec(in RecordIn, scopeDomain, scopeRtype string, needData bool) (recSpec, *APIError) {
-	var s recSpec
+	var (
+		s   recSpec
+		err *APIError
+	)
 
-	rawDomain := cmp.Or(str(in.Domain), scopeDomain)
-	if rawDomain != "" {
-		d, ok := normName(rawDomain, true)
-		if !ok {
-			return s, errParam("domain " + rawDomain + " is not a valid domain name")
-		}
-
-		if !inZone(z.Name, d) {
-			return s, errParam("domain " + d + " is not within zone " + z.Name)
-		}
-
-		s.domain = d
+	if s.domain, err = z.specDomain(str(in.Domain), scopeDomain); err != nil {
+		return s, err
 	}
 
-	if scopeDomain != "" && s.domain != "" && s.domain != mustNorm(scopeDomain) {
-		return s, errParam("record domain does not match the domain in the request path")
-	}
-
-	s.rtype = strings.ToUpper(cmp.Or(str(in.Rtype), scopeRtype))
-	if scopeRtype != "" && s.rtype != strings.ToUpper(scopeRtype) {
-		return s, errParam("record rtype does not match the rtype in the request path")
-	}
-
-	if s.rtype != "" && s.rtype != rtypeSOA && !supportedRtypes[s.rtype] {
-		return s, errParam("record type " + s.rtype + " is not supported")
+	if s.rtype, err = specRtype(str(in.Rtype), scopeRtype); err != nil {
+		return s, err
 	}
 
 	if in.TTL != nil {
@@ -356,15 +347,50 @@ func (z *Zone) spec(in RecordIn, scopeDomain, scopeRtype string, needData bool) 
 	}
 
 	if in.Rdata != nil && s.domain != "" && s.rtype != "" && s.rtype != rtypeSOA {
-		rd, err := normRdata(s.domain, s.rtype, *in.Rdata, cmp.Or(s.ttl, soaTTL))
-		if err != nil {
-			return s, err
+		rd, rerr := normRdata(s.domain, s.rtype, *in.Rdata, cmp.Or(s.ttl, soaTTL))
+		if rerr != nil {
+			return s, rerr
 		}
 
 		s.rdata = rd
 	}
 
 	return s, nil
+}
+
+func (z *Zone) specDomain(own, scope string) (string, *APIError) {
+	raw := cmp.Or(own, scope)
+	if raw == "" {
+		return "", nil
+	}
+
+	d, ok := normName(raw, true)
+	if !ok {
+		return "", errParam("domain " + raw + " is not a valid domain name")
+	}
+
+	if !inZone(z.Name, d) {
+		return "", errParam("domain " + d + " is not within zone " + z.Name)
+	}
+
+	if scope != "" && d != mustNorm(scope) {
+		return "", errParam("record domain does not match the domain in the request path")
+	}
+
+	return d, nil
+}
+
+func specRtype(own, scope string) (string, *APIError) {
+	rtype := strings.ToUpper(cmp.Or(own, scope))
+	if scope != "" && rtype != strings.ToUpper(scope) {
+		return "", errParam("record rtype does not match the rtype in the request path")
+	}
+
+	if rtype != "" && rtype != rtypeSOA && !supportedRtypes[rtype] {
+		return "", errParam("record type " + rtype + " is not supported")
+	}
+
+	return rtype, nil
 }
 
 func mustNorm(s string) string {
@@ -442,7 +468,8 @@ func removeRecord(m map[string]*RRSet, s recSpec, hash string) {
 		}
 
 		rs.Rdata = slices.DeleteFunc(rs.Rdata, func(rd string) bool {
-			return (s.rdata == "" || rd == s.rdata) && (hash == "" || recordHash(rs.Domain, rs.Rtype, rs.TTL, rd) == hash)
+			return (s.rdata == "" || rd == s.rdata) &&
+				(hash == "" || recordHash(rs.Domain, rs.Rtype, rs.TTL, rd) == hash)
 		})
 
 		if len(rs.Rdata) == 0 {
@@ -495,22 +522,10 @@ func signature(m map[string]*RRSet) map[string]string {
 }
 
 // commit installs next as the zone's records when it differs, bumping the version of the changed sets.
-func (b *InMemoryBackend) commit(z *Zone, next map[string]*RRSet) bool {
+func (b *InMemoryBackend) commit(z *Zone, next map[string]*RRSet) {
 	before, after := signature(z.Records), signature(next)
-	if len(before) == len(after) {
-		same := true
-
-		for k, v := range before {
-			if after[k] != v {
-				same = false
-
-				break
-			}
-		}
-
-		if same {
-			return false
-		}
+	if maps.Equal(before, after) {
+		return
 	}
 
 	z.Version++
@@ -523,8 +538,6 @@ func (b *InMemoryBackend) commit(z *Zone, next map[string]*RRSet) bool {
 
 	z.Records = next
 	z.touch(b.nowUTC())
-
-	return true
 }
 
 func (z *Zone) matchesOp(rec recordWire, in RecordIn, s recSpec) bool {
@@ -558,14 +571,13 @@ func (b *InMemoryBackend) preconditionHolds(z *Zone, in RecordIn, s recSpec) boo
 	return false
 }
 
-// patchRecords applies PATCH operations; domain and rtype restrict the scope of the request.
-func (b *InMemoryBackend) patchRecords(z *Zone, items []RecordIn, domain, rtype string) *APIError {
-	type step struct {
-		in RecordIn
-		s  recSpec
-	}
+type patchStep struct {
+	in RecordIn
+	s  recSpec
+}
 
-	steps := make([]step, 0, len(items))
+func (z *Zone) parseSteps(items []RecordIn, domain, rtype string) ([]patchStep, *APIError) {
+	steps := make([]patchStep, 0, len(items))
 
 	for _, in := range items {
 		op := strings.ToUpper(in.Operation)
@@ -573,47 +585,66 @@ func (b *InMemoryBackend) patchRecords(z *Zone, items []RecordIn, domain, rtype 
 		switch op {
 		case opRequire, opProhibit, opAdd, opRemove:
 		case "":
-			return errMissing("operation is required for each item")
+			return nil, errMissing("operation is required for each item")
 		default:
-			return errParam("operation must be REQUIRE, PROHIBIT, ADD or REMOVE")
+			return nil, errParam("operation must be REQUIRE, PROHIBIT, ADD or REMOVE")
 		}
 
 		in.Operation = op
 
 		s, err := z.spec(in, domain, rtype, op == opAdd)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if op == opRemove && s.domain == "" && in.RecordHash == nil {
-			return errMissing("domain or recordHash is required")
+			return nil, errMissing("domain or recordHash is required")
 		}
 
-		steps = append(steps, step{in: in, s: s})
+		steps = append(steps, patchStep{in: in, s: s})
 	}
 
+	return steps, nil
+}
+
+func (b *InMemoryBackend) checkPreconditions(z *Zone, steps []patchStep) *APIError {
 	for _, st := range steps {
-		switch st.in.Operation {
-		case opRequire:
-			if !b.preconditionHolds(z, st.in, st.s) {
-				return errPrecondition("A REQUIRE precondition on " + cmp.Or(st.s.domain, "the zone") + " was not met")
-			}
-		case opProhibit:
-			if b.preconditionHolds(z, st.in, st.s) {
-				return errPrecondition("A PROHIBIT precondition on " + cmp.Or(st.s.domain, "the zone") + " was not met")
-			}
+		want := map[string]bool{opRequire: true, opProhibit: false}
+
+		holds, isPrecondition := want[st.in.Operation]
+		if !isPrecondition {
+			continue
 		}
+
+		if b.preconditionHolds(z, st.in, st.s) != holds {
+			return errPrecondition("A " + st.in.Operation + " precondition on " + cmp.Or(st.s.domain, "the zone") +
+				" was not met")
+		}
+	}
+
+	return nil
+}
+
+// patchRecords applies PATCH operations; domain and rtype restrict the scope of the request.
+func (b *InMemoryBackend) patchRecords(z *Zone, items []RecordIn, domain, rtype string) *APIError {
+	steps, err := z.parseSteps(items, domain, rtype)
+	if err != nil {
+		return err
+	}
+
+	if err = b.checkPreconditions(z, steps); err != nil {
+		return err
 	}
 
 	next := cloneRecords(z.Records)
 
 	for _, st := range steps {
-		if err := b.applyStep(z, next, st.in.Operation, st.in, st.s); err != nil {
+		if err = b.applyStep(z, next, st.in.Operation, st.in, st.s); err != nil {
 			return err
 		}
 	}
 
-	if err := z.checkExclusive(next); err != nil {
+	if err = z.checkExclusive(next); err != nil {
 		return err
 	}
 

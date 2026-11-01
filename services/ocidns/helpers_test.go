@@ -70,8 +70,8 @@ func (c *fakeClock) Now() time.Time          { return time.Unix(0, c.ns.Load()).
 func (c *fakeClock) Advance(d time.Duration) { c.ns.Add(int64(d)) }
 
 type vcnList struct {
-	mu   sync.Mutex
 	list []ocidns.VcnInfo
+	mu   sync.Mutex
 }
 
 func (v *vcnList) set(list ...ocidns.VcnInfo) {
@@ -160,13 +160,11 @@ func svcErr(t *testing.T, err error) common.ServiceError {
 	return se
 }
 
-func rawDo(t *testing.T, method, url, body string, headers map[string]string) (int, string, http.Header) {
+func rawGet(t *testing.T, url string, headers map[string]string) (int, string, http.Header) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), method, url, strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	require.NoError(t, err)
-
-	req.Header.Set("Content-Type", "application/json")
 
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -186,7 +184,7 @@ func rawDo(t *testing.T, method, url, body string, headers map[string]string) (i
 func (e *env) createZone(t *testing.T, name string, mutate func(*ocidnssdk.CreateZoneDetails)) ocidnssdk.Zone {
 	t.Helper()
 
-	d := ocidnssdk.CreateZoneDetails{Name: common.String(name), CompartmentId: common.String(testCompartment)}
+	d := ocidnssdk.CreateZoneDetails{Name: new(name), CompartmentId: new(testCompartment)}
 	if mutate != nil {
 		mutate(&d)
 	}
@@ -200,7 +198,7 @@ func (e *env) createZone(t *testing.T, name string, mutate func(*ocidnssdk.Creat
 func (e *env) getZone(t *testing.T, ref string) ocidnssdk.GetZoneResponse {
 	t.Helper()
 
-	resp, err := e.client.GetZone(t.Context(), ocidnssdk.GetZoneRequest{ZoneNameOrId: common.String(ref)})
+	resp, err := e.client.GetZone(t.Context(), ocidnssdk.GetZoneRequest{ZoneNameOrId: new(ref)})
 	require.NoError(t, err)
 
 	return resp
@@ -209,19 +207,19 @@ func (e *env) getZone(t *testing.T, ref string) ocidnssdk.GetZoneResponse {
 func op(kind ocidnssdk.RecordOperationOperationEnum, domain, rtype, rdata string, ttl int) ocidnssdk.RecordOperation {
 	o := ocidnssdk.RecordOperation{Operation: kind}
 	if domain != "" {
-		o.Domain = common.String(domain)
+		o.Domain = new(domain)
 	}
 
 	if rtype != "" {
-		o.Rtype = common.String(rtype)
+		o.Rtype = new(rtype)
 	}
 
 	if rdata != "" {
-		o.Rdata = common.String(rdata)
+		o.Rdata = new(rdata)
 	}
 
 	if ttl != 0 {
-		o.Ttl = common.Int(ttl)
+		o.Ttl = new(ttl)
 	}
 
 	return o
@@ -235,12 +233,16 @@ func remove(domain, rtype, rdata string) ocidnssdk.RecordOperation {
 	return op(ocidnssdk.RecordOperationOperationRemove, domain, rtype, rdata, 0)
 }
 
-func (e *env) patch(t *testing.T, zone string, ops ...ocidnssdk.RecordOperation) (ocidnssdk.PatchZoneRecordsResponse, error) {
+func (e *env) patch(
+	t *testing.T,
+	zone string,
+	ops ...ocidnssdk.RecordOperation,
+) (ocidnssdk.PatchZoneRecordsResponse, error) {
 	t.Helper()
 
 	return e.client.PatchZoneRecords(t.Context(), ocidnssdk.PatchZoneRecordsRequest{
-		ZoneNameOrId:            common.String(zone),
-		PatchZoneRecordsDetails: ocidnssdk.PatchZoneRecordsDetails{Items: ops},
+		ZoneNameOrId: new(zone),
+		Items:        ops,
 	})
 }
 
@@ -269,7 +271,7 @@ func userRecords(items []ocidnssdk.Record) []string {
 func (e *env) records(t *testing.T, zone string) []ocidnssdk.Record {
 	t.Helper()
 
-	resp, err := e.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: common.String(zone)})
+	resp, err := e.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: new(zone)})
 	require.NoError(t, err)
 
 	return resp.Items

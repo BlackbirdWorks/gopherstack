@@ -35,7 +35,7 @@ func (m *meta) touch(now time.Time) {
 	m.Modified = now
 }
 
-func (m meta) etag(id string) string {
+func (m *meta) etag(id string) string {
 	sum := sha256.Sum256([]byte(id + "/" + strconv.FormatInt(m.ETagSeq, 10)))
 
 	return hex.EncodeToString(sum[:16])

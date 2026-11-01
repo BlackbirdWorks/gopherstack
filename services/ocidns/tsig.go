@@ -150,8 +150,8 @@ type TsigFilter struct {
 }
 
 var tsigSorters = sorter[*TsigKey]{ //nolint:gochecknoglobals // immutable comparator table
-	"name":        byString(func(k *TsigKey) string { return k.Name }, func(k *TsigKey) int64 { return k.Seq }),
-	"timeCreated": byCreated(func(k *TsigKey) time.Time { return k.Created }, func(k *TsigKey) int64 { return k.Seq }),
+	keyName:        byString(func(k *TsigKey) string { return k.Name }, func(k *TsigKey) int64 { return k.Seq }),
+	keyTimeCreated: byCreated(func(k *TsigKey) time.Time { return k.Created }, func(k *TsigKey) int64 { return k.Seq }),
 }
 
 // ListTsigKeys lists the TSIG keys of a compartment; secrets are never included.
@@ -166,13 +166,14 @@ func (b *InMemoryBackend) ListTsigKeys(f TsigFilter, o ListOpts) (listResult[Tsi
 	var all []*TsigKey
 
 	for _, k := range b.tsigs {
-		if k.CompartmentID == f.Compart && (f.ID == "" || k.ID == f.ID) && (f.Name == "" || strs.Equal(k.Name, f.Name)) &&
+		if k.CompartmentID == f.Compart && (f.ID == "" || k.ID == f.ID) &&
+			(f.Name == "" || strs.Equal(k.Name, f.Name)) &&
 			(f.State == "" || strings.EqualFold(f.State, stateActive)) {
 			all = append(all, k)
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, tsigSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, tsigSorters)
 	if err != nil {
 		return listResult[TsigKeySummaryWire]{}, err
 	}

@@ -63,14 +63,24 @@ func (b *InMemoryBackend) mutateRecords(
 }
 
 // PatchRecords applies PATCH operations within the scope.
-func (b *InMemoryBackend) PatchRecords(r ZoneRef, c cond, s RecordScope, in ItemsIn) (RecordCollectionWire, tag, error) {
+func (b *InMemoryBackend) PatchRecords(
+	r ZoneRef,
+	c cond,
+	s RecordScope,
+	in ItemsIn,
+) (RecordCollectionWire, tag, error) {
 	return b.mutateRecords(r, c, s, "PatchRecords", func(z *Zone) *APIError {
 		return b.patchRecords(z, in.Items, s.Domain, s.Rtype)
 	})
 }
 
 // UpdateRecords replaces the records within the scope.
-func (b *InMemoryBackend) UpdateRecords(r ZoneRef, c cond, s RecordScope, in ItemsIn) (RecordCollectionWire, tag, error) {
+func (b *InMemoryBackend) UpdateRecords(
+	r ZoneRef,
+	c cond,
+	s RecordScope,
+	in ItemsIn,
+) (RecordCollectionWire, tag, error) {
 	return b.mutateRecords(r, c, s, "UpdateRecords", func(z *Zone) *APIError {
 		return b.replaceRecords(z, in.Items, s.Domain, s.Rtype)
 	})

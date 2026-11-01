@@ -1,6 +1,7 @@
 package ocidns
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -99,8 +100,8 @@ type ViewFilter struct {
 }
 
 var viewSorters = sorter[*View]{ //nolint:gochecknoglobals // immutable comparator table
-	"displayName": byString(func(v *View) string { return v.DisplayName }, func(v *View) int64 { return v.Seq }),
-	"timeCreated": byCreated(func(v *View) time.Time { return v.Created }, func(v *View) int64 { return v.Seq }),
+	keyDisplayName: byString(func(v *View) string { return v.DisplayName }, func(v *View) int64 { return v.Seq }),
+	keyTimeCreated: byCreated(func(v *View) time.Time { return v.Created }, func(v *View) int64 { return v.Seq }),
 }
 
 // ListViews lists the views of a compartment.
@@ -125,7 +126,7 @@ func (b *InMemoryBackend) ListViews(f ViewFilter, o ListOpts) (listResult[ViewWi
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, viewSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, viewSorters)
 	if err != nil {
 		return listResult[ViewWire]{}, err
 	}
@@ -233,11 +234,5 @@ func (b *InMemoryBackend) ChangeViewCompartment(id string, c cond, in ChangeComp
 }
 
 func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(list, s)
 }

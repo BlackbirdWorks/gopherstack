@@ -26,17 +26,14 @@ func newZoneEnv(t *testing.T) *env {
 func TestPatchZoneRecords(t *testing.T) {
 	t.Parallel()
 
-	req := func(k ocidnssdk.RecordOperationOperationEnum, d, ty, rd string, ttl int) ocidnssdk.RecordOperation {
-		return op(k, d, ty, rd, ttl)
-	}
-	require_, prohibit := ocidnssdk.RecordOperationOperationRequire, ocidnssdk.RecordOperationOperationProhibit
+	req, prohibit := ocidnssdk.RecordOperationOperationRequire, ocidnssdk.RecordOperationOperationProhibit
 
 	tests := []struct {
 		name       string
+		wantCode   string
 		setup      []ocidnssdk.RecordOperation
 		ops        []ocidnssdk.RecordOperation
 		want       []string
-		wantCode   string
 		wantStatus int
 		wantSerial int64
 	}{
@@ -56,14 +53,18 @@ func TestPatchZoneRecords(t *testing.T) {
 			want: []string{`rec.example TXT 120 "one"`, `rec.example TXT 120 "two"`}, wantSerial: 2,
 		},
 		{
-			name: "add existing is a no-op", setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
-			ops:  []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
-			want: []string{"a.rec.example A 300 192.0.2.1"}, wantSerial: 2,
+			name:       "add existing is a no-op",
+			setup:      []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
+			ops:        []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
+			want:       []string{"a.rec.example A 300 192.0.2.1"},
+			wantSerial: 2,
 		},
 		{
-			name: "add with new ttl retimes the set", setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
-			ops:  []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.2", 30)},
-			want: []string{"a.rec.example A 30 192.0.2.1", "a.rec.example A 30 192.0.2.2"}, wantSerial: 3,
+			name:       "add with new ttl retimes the set",
+			setup:      []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
+			ops:        []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.2", 30)},
+			want:       []string{"a.rec.example A 30 192.0.2.1", "a.rec.example A 30 192.0.2.2"},
+			wantSerial: 3,
 		},
 		{
 			name: "remove one of two", setup: []ocidnssdk.RecordOperation{
@@ -85,33 +86,34 @@ func TestPatchZoneRecords(t *testing.T) {
 			ops: []ocidnssdk.RecordOperation{remove("a.rec.example", "", "")}, wantSerial: 3,
 		},
 		{
-			name: "remove absent is a no-op", ops: []ocidnssdk.RecordOperation{remove("a.rec.example", "A", "192.0.2.9")},
+			name:       "remove absent is a no-op",
+			ops:        []ocidnssdk.RecordOperation{remove("a.rec.example", "A", "192.0.2.9")},
 			wantSerial: 1,
 		},
 		{
 			name:  "require holds",
 			setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
 			ops: []ocidnssdk.RecordOperation{
-				req(require_, "a.rec.example", "A", "192.0.2.1", 0), add("b.rec.example", "A", "192.0.2.5", 300),
+				op(req, "a.rec.example", "A", "192.0.2.1", 0), add("b.rec.example", "A", "192.0.2.5", 300),
 			},
 			want: []string{"a.rec.example A 300 192.0.2.1", "b.rec.example A 300 192.0.2.5"}, wantSerial: 3,
 		},
 		{
 			name: "require fails", ops: []ocidnssdk.RecordOperation{
-				req(require_, "a.rec.example", "A", "192.0.2.1", 0), add("b.rec.example", "A", "192.0.2.5", 300),
+				op(req, "a.rec.example", "A", "192.0.2.1", 0), add("b.rec.example", "A", "192.0.2.5", 300),
 			},
 			wantStatus: http.StatusPreconditionFailed, wantCode: "PreconditionFailed", wantSerial: 1,
 		},
 		{
 			name:  "prohibit fails",
 			setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
-			ops:   []ocidnssdk.RecordOperation{req(prohibit, "a.rec.example", "A", "", 0)},
+			ops:   []ocidnssdk.RecordOperation{op(prohibit, "a.rec.example", "A", "", 0)},
 			want:  []string{"a.rec.example A 300 192.0.2.1"}, wantStatus: http.StatusPreconditionFailed,
 			wantCode: "PreconditionFailed", wantSerial: 2,
 		},
 		{
 			name: "prohibit holds", ops: []ocidnssdk.RecordOperation{
-				req(prohibit, "a.rec.example", "A", "", 0), add("a.rec.example", "A", "192.0.2.1", 300),
+				op(prohibit, "a.rec.example", "A", "", 0), add("a.rec.example", "A", "192.0.2.1", 300),
 			},
 			want: []string{"a.rec.example A 300 192.0.2.1"}, wantSerial: 2,
 		},
@@ -126,8 +128,11 @@ func TestPatchZoneRecords(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "suffix lookalike is out of zone", ops: []ocidnssdk.RecordOperation{add("xrec.example", "A", "192.0.2.1", 300)},
-			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
+			name:       "suffix lookalike is out of zone",
+			ops:        []ocidnssdk.RecordOperation{add("xrec.example", "A", "192.0.2.1", 300)},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+			wantSerial: 1,
 		},
 		{
 			name: "bad ipv4", ops: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "999.0.0.1", 300)},
@@ -138,24 +143,36 @@ func TestPatchZoneRecords(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "mx without preference", ops: []ocidnssdk.RecordOperation{add("rec.example", "MX", "mail.rec.example.", 300)},
-			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
+			name:       "mx without preference",
+			ops:        []ocidnssdk.RecordOperation{add("rec.example", "MX", "mail.rec.example.", 300)},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+			wantSerial: 1,
 		},
 		{
-			name: "srv ok", ops: []ocidnssdk.RecordOperation{add("_sip._tcp.rec.example", "SRV", "10 5 5060 sip.rec.example.", 300)},
-			want: []string{"_sip._tcp.rec.example SRV 300 10 5 5060 sip.rec.example."}, wantSerial: 2,
+			name: "srv ok",
+			ops: []ocidnssdk.RecordOperation{
+				add("_sip._tcp.rec.example", "SRV", "10 5 5060 sip.rec.example.", 300),
+			},
+			want:       []string{"_sip._tcp.rec.example SRV 300 10 5 5060 sip.rec.example."},
+			wantSerial: 2,
 		},
 		{
-			name: "caa ok", ops: []ocidnssdk.RecordOperation{add("rec.example", "CAA", `0 issue "letsencrypt.org"`, 300)},
-			want: []string{`rec.example CAA 300 0 issue "letsencrypt.org"`}, wantSerial: 2,
+			name:       "caa ok",
+			ops:        []ocidnssdk.RecordOperation{add("rec.example", "CAA", `0 issue "letsencrypt.org"`, 300)},
+			want:       []string{`rec.example CAA 300 0 issue "letsencrypt.org"`},
+			wantSerial: 2,
 		},
 		{
 			name: "wildcard ok", ops: []ocidnssdk.RecordOperation{add("*.rec.example", "A", "192.0.2.3", 300)},
 			want: []string{"*.rec.example A 300 192.0.2.3"}, wantSerial: 2,
 		},
 		{
-			name: "ttl above range", ops: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 2147483648)},
-			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
+			name:       "ttl above range",
+			ops:        []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 2147483648)},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+			wantSerial: 1,
 		},
 		{
 			name: "negative ttl", ops: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", -5)},
@@ -170,14 +187,17 @@ func TestPatchZoneRecords(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "missing operation", ops: []ocidnssdk.RecordOperation{{Domain: common.String("a.rec.example")}},
+			name: "missing operation", ops: []ocidnssdk.RecordOperation{{Domain: new("a.rec.example")}},
 			wantStatus: http.StatusBadRequest, wantCode: "MissingParameter", wantSerial: 1,
 		},
 		{
-			name: "cname beside existing a", setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
+			name:       "cname beside existing a",
+			setup:      []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
 			ops:        []ocidnssdk.RecordOperation{add("a.rec.example", "CNAME", "x.rec.example.", 300)},
 			want:       []string{"a.rec.example A 300 192.0.2.1"},
-			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 2,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+			wantSerial: 2,
 		},
 		{
 			name:  "a beside existing cname",
@@ -193,15 +213,23 @@ func TestPatchZoneRecords(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "cname replaces a when a is removed first", setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
+			name:  "cname replaces a when a is removed first",
+			setup: []ocidnssdk.RecordOperation{add("a.rec.example", "A", "192.0.2.1", 300)},
 			ops: []ocidnssdk.RecordOperation{
 				remove("a.rec.example", "A", ""), add("a.rec.example", "CNAME", "x.rec.example.", 300),
 			},
-			want: []string{"a.rec.example CNAME 300 x.rec.example."}, wantSerial: 3,
+			want:       []string{"a.rec.example CNAME 300 x.rec.example."},
+			wantSerial: 3,
 		},
 		{
 			name: "two cname targets", ops: []ocidnssdk.RecordOperation{
-				add("a.rec.example", "CNAME", "x.rec.example.", 300), add("a.rec.example", "CNAME", "y.rec.example.", 300),
+				add(
+					"a.rec.example",
+					"CNAME",
+					"x.rec.example.",
+					300,
+				),
+				add("a.rec.example", "CNAME", "y.rec.example.", 300),
 			},
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
@@ -216,24 +244,31 @@ func TestPatchZoneRecords(t *testing.T) {
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "alias at apex ok", ops: []ocidnssdk.RecordOperation{add("rec.example", "ALIAS", "x.rec.example", 300)},
-			want: []string{"rec.example ALIAS 300 x.rec.example."}, wantSerial: 2,
+			name:       "alias at apex ok",
+			ops:        []ocidnssdk.RecordOperation{add("rec.example", "ALIAS", "x.rec.example", 300)},
+			want:       []string{"rec.example ALIAS 300 x.rec.example."},
+			wantSerial: 2,
 		},
 		{
 			name: "add soa", ops: []ocidnssdk.RecordOperation{add("rec.example", "SOA", "ns. h. 1 2 3 4 5", 300)},
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "add foreign apex ns", ops: []ocidnssdk.RecordOperation{add("rec.example", "NS", "ns.evil.example.", 300)},
-			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
+			name:       "add foreign apex ns",
+			ops:        []ocidnssdk.RecordOperation{add("rec.example", "NS", "ns.evil.example.", 300)},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameter",
+			wantSerial: 1,
 		},
 		{
 			name: "remove apex ns", ops: []ocidnssdk.RecordOperation{remove("rec.example", "NS", "")},
 			wantStatus: http.StatusBadRequest, wantCode: "InvalidParameter", wantSerial: 1,
 		},
 		{
-			name: "delegation ns below apex", ops: []ocidnssdk.RecordOperation{add("sub.rec.example", "NS", "ns.sub.rec.example.", 300)},
-			want: []string{"sub.rec.example NS 300 ns.sub.rec.example."}, wantSerial: 2,
+			name:       "delegation ns below apex",
+			ops:        []ocidnssdk.RecordOperation{add("sub.rec.example", "NS", "ns.sub.rec.example.", 300)},
+			want:       []string{"sub.rec.example NS 300 ns.sub.rec.example."},
+			wantSerial: 2,
 		},
 	}
 
@@ -285,13 +320,13 @@ func TestRecordMetadata(t *testing.T) {
 	e.mustPatch(t, zoneName, op(ocidnssdk.RecordOperationOperationRequire, "", "", "", 0))
 
 	resp, err := e.patch(t, zoneName, ocidnssdk.RecordOperation{
-		Operation: ocidnssdk.RecordOperationOperationRequire, RecordHash: a.RecordHash, RrsetVersion: common.String("2"),
+		Operation: ocidnssdk.RecordOperationOperationRequire, RecordHash: a.RecordHash, RrsetVersion: new("2"),
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Items)
 
 	_, err = e.patch(t, zoneName, ocidnssdk.RecordOperation{
-		Operation: ocidnssdk.RecordOperationOperationRequire, RecordHash: a.RecordHash, RrsetVersion: common.String("99"),
+		Operation: ocidnssdk.RecordOperationOperationRequire, RecordHash: a.RecordHash, RrsetVersion: new("99"),
 	})
 	assert.Equal(t, http.StatusPreconditionFailed, svcErr(t, err).GetHTTPStatusCode())
 
@@ -313,17 +348,17 @@ func TestRecordConditionals(t *testing.T) {
 		n++
 
 		r := ocidnssdk.PatchZoneRecordsRequest{
-			ZoneNameOrId: common.String(zoneName),
-			PatchZoneRecordsDetails: ocidnssdk.PatchZoneRecordsDetails{Items: []ocidnssdk.RecordOperation{
+			ZoneNameOrId: new(zoneName),
+			Items: []ocidnssdk.RecordOperation{
 				add("c"+strconv.Itoa(n)+".rec.example", "A", "192.0.2.4", 60),
-			}},
+			},
 		}
 		if ifMatch != "" {
-			r.IfMatch = common.String(ifMatch)
+			r.IfMatch = new(ifMatch)
 		}
 
 		if unmod != "" {
-			r.IfUnmodifiedSince = common.String(unmod)
+			r.IfUnmodifiedSince = new(unmod)
 		}
 
 		_, err := e.client.PatchZoneRecords(t.Context(), r)
@@ -358,7 +393,7 @@ func TestUpdateRecordsReplace(t *testing.T) {
 	e.mustPatch(t, zoneName, add("old.rec.example", "A", "192.0.2.1", 300), add("keep.rec.example", "TXT", `"k"`, 300))
 
 	rd := func(domain, rtype, rdata string, ttl int) ocidnssdk.RecordDetails {
-		return ocidnssdk.RecordDetails{Domain: common.String(domain), Rtype: common.String(rtype), Rdata: common.String(rdata), Ttl: common.Int(ttl)}
+		return ocidnssdk.RecordDetails{Domain: new(domain), Rtype: new(rtype), Rdata: new(rdata), Ttl: new(ttl)}
 	}
 
 	// Replacing the zone keeps the protected records even when the body repeats or omits them.
@@ -367,12 +402,21 @@ func TestUpdateRecordsReplace(t *testing.T) {
 
 	for _, r := range all {
 		if *r.IsProtected {
-			body = append(body, ocidnssdk.RecordDetails{Domain: r.Domain, Rtype: r.Rtype, Rdata: r.Rdata, Ttl: r.Ttl, IsProtected: r.IsProtected})
+			body = append(
+				body,
+				ocidnssdk.RecordDetails{
+					Domain:      r.Domain,
+					Rtype:       r.Rtype,
+					Rdata:       r.Rdata,
+					Ttl:         r.Ttl,
+					IsProtected: r.IsProtected,
+				},
+			)
 		}
 	}
 
 	resp, err := e.client.UpdateZoneRecords(t.Context(), ocidnssdk.UpdateZoneRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), UpdateZoneRecordsDetails: ocidnssdk.UpdateZoneRecordsDetails{Items: body},
+		ZoneNameOrId: new(zoneName), Items: body,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"new.rec.example A 60 192.0.2.7"}, userRecords(resp.Items))
@@ -381,29 +425,57 @@ func TestUpdateRecordsReplace(t *testing.T) {
 
 	// An identical replacement is not a change.
 	_, err = e.client.UpdateZoneRecords(t.Context(), ocidnssdk.UpdateZoneRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), UpdateZoneRecordsDetails: ocidnssdk.UpdateZoneRecordsDetails{Items: body},
+		ZoneNameOrId: new(zoneName), Items: body,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), *e.getZone(t, zoneName).Serial)
 
 	tests := []struct {
 		name  string
-		items []ocidnssdk.RecordDetails
 		code  string
+		items []ocidnssdk.RecordDetails
 	}{
-		{name: "foreign apex ns", items: []ocidnssdk.RecordDetails{rd(zoneName, "NS", "ns.evil.example.", 300)}, code: "InvalidParameter"},
-		{name: "out of zone", items: []ocidnssdk.RecordDetails{rd("a.elsewhere.test", "A", "192.0.2.1", 300)}, code: "InvalidParameter"},
-		{name: "mixed ttl in a set", items: []ocidnssdk.RecordDetails{rd("a.rec.example", "A", "192.0.2.1", 300), rd("a.rec.example", "A", "192.0.2.2", 60)}, code: "InvalidParameter"},
-		{name: "cname exclusivity", items: []ocidnssdk.RecordDetails{rd("a.rec.example", "A", "192.0.2.1", 300), rd("a.rec.example", "CNAME", "x.rec.example.", 300)}, code: "InvalidParameter"},
-		{name: "missing rdata", items: []ocidnssdk.RecordDetails{{Domain: common.String("a.rec.example"), Rtype: common.String("A"), Ttl: common.Int(1)}}, code: "MissingParameter"},
+		{
+			name:  "foreign apex ns",
+			items: []ocidnssdk.RecordDetails{rd(zoneName, "NS", "ns.evil.example.", 300)},
+			code:  "InvalidParameter",
+		},
+		{
+			name:  "out of zone",
+			items: []ocidnssdk.RecordDetails{rd("a.elsewhere.test", "A", "192.0.2.1", 300)},
+			code:  "InvalidParameter",
+		},
+		{
+			name: "mixed ttl in a set",
+			items: []ocidnssdk.RecordDetails{
+				rd("a.rec.example", "A", "192.0.2.1", 300),
+				rd("a.rec.example", "A", "192.0.2.2", 60),
+			},
+			code: "InvalidParameter",
+		},
+		{
+			name: "cname exclusivity",
+			items: []ocidnssdk.RecordDetails{
+				rd("a.rec.example", "A", "192.0.2.1", 300),
+				rd("a.rec.example", "CNAME", "x.rec.example.", 300),
+			},
+			code: "InvalidParameter",
+		},
+		{
+			name:  "missing rdata",
+			items: []ocidnssdk.RecordDetails{{Domain: new("a.rec.example"), Rtype: new("A"), Ttl: new(1)}},
+			code:  "MissingParameter",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := e.client.UpdateZoneRecords(t.Context(), ocidnssdk.UpdateZoneRecordsRequest{
-				ZoneNameOrId: common.String(zoneName), UpdateZoneRecordsDetails: ocidnssdk.UpdateZoneRecordsDetails{Items: tt.items},
+			t.Parallel()
+
+			_, uerr := e.client.UpdateZoneRecords(t.Context(), ocidnssdk.UpdateZoneRecordsRequest{
+				ZoneNameOrId: new(zoneName), Items: tt.items,
 			})
-			assert.Equal(t, tt.code, svcErr(t, err).GetCode())
+			assert.Equal(t, tt.code, svcErr(t, uerr).GetCode())
 			assert.Equal(t, []string{"new.rec.example A 60 192.0.2.7"}, userRecords(e.records(t, zoneName)))
 		})
 	}
@@ -419,107 +491,125 @@ func TestDomainAndRRSetOperations(t *testing.T) {
 	)
 
 	domain, err := e.client.GetDomainRecords(t.Context(), ocidnssdk.GetDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("A.rec.example."),
+		ZoneNameOrId: new(zoneName), Domain: new("A.rec.example."),
 	})
 	require.NoError(t, err)
 	assert.Len(t, domain.Items, 3)
 
 	rrset, err := e.client.GetRRSet(t.Context(), ocidnssdk.GetRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("a"),
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("a"),
 	})
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"a.rec.example A 300 192.0.2.1", "a.rec.example A 300 192.0.2.2"}, userRecords(rrset.Items))
+	assert.ElementsMatch(
+		t,
+		[]string{"a.rec.example A 300 192.0.2.1", "a.rec.example A 300 192.0.2.2"},
+		userRecords(rrset.Items),
+	)
 	assert.NotEmpty(t, *rrset.ETag)
 
 	_, err = e.client.GetRRSet(t.Context(), ocidnssdk.GetRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("MX"),
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("MX"),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.GetDomainRecords(t.Context(), ocidnssdk.GetDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("none.rec.example"),
+		ZoneNameOrId: new(zoneName), Domain: new("none.rec.example"),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	// PatchRRSet fills domain and rtype from the path.
 	patched, err := e.client.PatchRRSet(t.Context(), ocidnssdk.PatchRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("A"),
-		PatchRrSetDetails: ocidnssdk.PatchRrSetDetails{Items: []ocidnssdk.RecordOperation{
-			{Operation: ocidnssdk.RecordOperationOperationAdd, Rdata: common.String("192.0.2.9"), Ttl: common.Int(60)},
-			{Operation: ocidnssdk.RecordOperationOperationRemove, Rdata: common.String("192.0.2.1")},
-		}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("A"),
+		Items: []ocidnssdk.RecordOperation{
+			{Operation: ocidnssdk.RecordOperationOperationAdd, Rdata: new("192.0.2.9"), Ttl: new(60)},
+			{Operation: ocidnssdk.RecordOperationOperationRemove, Rdata: new("192.0.2.1")},
+		},
 	})
 	require.NoError(t, err)
-	assert.ElementsMatch(t, []string{"a.rec.example A 60 192.0.2.2", "a.rec.example A 60 192.0.2.9"}, userRecords(patched.Items))
+	assert.ElementsMatch(
+		t,
+		[]string{"a.rec.example A 60 192.0.2.2", "a.rec.example A 60 192.0.2.9"},
+		userRecords(patched.Items),
+	)
 
 	_, err = e.client.PatchRRSet(t.Context(), ocidnssdk.PatchRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("A"),
-		PatchRrSetDetails: ocidnssdk.PatchRrSetDetails{Items: []ocidnssdk.RecordOperation{add("a.rec.example", "TXT", `"x"`, 60)}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("A"),
+		Items: []ocidnssdk.RecordOperation{add("a.rec.example", "TXT", `"x"`, 60)},
 	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "rtype differs from the path")
 
 	patchedDomain, err := e.client.PatchDomainRecords(t.Context(), ocidnssdk.PatchDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"),
-		PatchDomainRecordsDetails: ocidnssdk.PatchDomainRecordsDetails{Items: []ocidnssdk.RecordOperation{
-			{Operation: ocidnssdk.RecordOperationOperationAdd, Rtype: common.String("MX"), Rdata: common.String("5 m.rec.example."), Ttl: common.Int(90)},
-		}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"),
+		Items: []ocidnssdk.RecordOperation{
+			{
+				Operation: ocidnssdk.RecordOperationOperationAdd,
+				Rtype:     new("MX"),
+				Rdata:     new("5 m.rec.example."),
+				Ttl:       new(90),
+			},
+		},
 	})
 	require.NoError(t, err)
 	assert.Len(t, patchedDomain.Items, 4)
 
 	_, err = e.client.PatchDomainRecords(t.Context(), ocidnssdk.PatchDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"),
-		PatchDomainRecordsDetails: ocidnssdk.PatchDomainRecordsDetails{Items: []ocidnssdk.RecordOperation{add("b.rec.example", "A", "192.0.2.1", 60)}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"),
+		Items: []ocidnssdk.RecordOperation{add("b.rec.example", "A", "192.0.2.1", 60)},
 	})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), "domain differs from the path")
 
 	// UpdateRRSet replaces one set; an empty body removes it.
 	replaced, err := e.client.UpdateRRSet(t.Context(), ocidnssdk.UpdateRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("A"),
-		UpdateRrSetDetails: ocidnssdk.UpdateRrSetDetails{Items: []ocidnssdk.RecordDetails{
-			{Rdata: common.String("198.51.100.1"), Ttl: common.Int(45)},
-		}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("A"),
+		Items: []ocidnssdk.RecordDetails{
+			{Rdata: new("198.51.100.1"), Ttl: new(45)},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a.rec.example A 45 198.51.100.1"}, userRecords(replaced.Items))
 
 	// UpdateDomainRecords replaces everything at the domain.
 	domainUpd, err := e.client.UpdateDomainRecords(t.Context(), ocidnssdk.UpdateDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"),
-		UpdateDomainRecordsDetails: ocidnssdk.UpdateDomainRecordsDetails{Items: []ocidnssdk.RecordDetails{
-			{Rtype: common.String("TXT"), Rdata: common.String(`"only"`), Ttl: common.Int(30)},
-		}},
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"),
+		Items: []ocidnssdk.RecordDetails{
+			{Rtype: new("TXT"), Rdata: new(`"only"`), Ttl: new(30)},
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{`a.rec.example TXT 30 "only"`}, userRecords(domainUpd.Items))
 
 	_, err = e.client.DeleteRRSet(t.Context(), ocidnssdk.DeleteRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("TXT"),
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("TXT"),
 	})
 	require.NoError(t, err)
 
 	_, err = e.client.DeleteRRSet(t.Context(), ocidnssdk.DeleteRRSetRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("a.rec.example"), Rtype: common.String("TXT"),
+		ZoneNameOrId: new(zoneName), Domain: new("a.rec.example"), Rtype: new("TXT"),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.client.DeleteDomainRecords(t.Context(), ocidnssdk.DeleteDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String("b.rec.example"),
+		ZoneNameOrId: new(zoneName), Domain: new("b.rec.example"),
 	})
 	require.NoError(t, err)
 	assert.Empty(t, userRecords(e.records(t, zoneName)))
 
 	for _, rtype := range []string{"SOA", "NS"} {
 		_, err = e.client.DeleteRRSet(t.Context(), ocidnssdk.DeleteRRSetRequest{
-			ZoneNameOrId: common.String(zoneName), Domain: common.String(zoneName), Rtype: common.String(rtype),
+			ZoneNameOrId: new(zoneName), Domain: new(zoneName), Rtype: new(rtype),
 		})
 		assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode(), rtype)
 	}
 
 	_, err = e.client.DeleteDomainRecords(t.Context(), ocidnssdk.DeleteDomainRecordsRequest{
-		ZoneNameOrId: common.String(zoneName), Domain: common.String(zoneName),
+		ZoneNameOrId: new(zoneName), Domain: new(zoneName),
 	})
-	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "only protected records remain at the apex")
+	assert.Equal(
+		t,
+		http.StatusNotFound,
+		svcErr(t, err).GetHTTPStatusCode(),
+		"only protected records remain at the apex",
+	)
 }
 
 func TestGetZoneRecordsListing(t *testing.T) {
@@ -532,7 +622,7 @@ func TestGetZoneRecordsListing(t *testing.T) {
 	)
 
 	list := func(mutate func(*ocidnssdk.GetZoneRecordsRequest)) ocidnssdk.GetZoneRecordsResponse {
-		r := ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: common.String(zoneName)}
+		r := ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: new(zoneName)}
 		mutate(&r)
 
 		resp, err := e.client.GetZoneRecords(t.Context(), r)
@@ -552,10 +642,26 @@ func TestGetZoneRecordsListing(t *testing.T) {
 		return out
 	}
 
-	assert.Equal(t, []string{"a.rec.example", "a2.rec.example", "b.rec.example", "c.rec.example"}, domains(list(func(*ocidnssdk.GetZoneRecordsRequest) {})))
-	assert.Equal(t, []string{"a2.rec.example"}, domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.DomainContains = common.String("A2") })))
-	assert.Equal(t, []string{"b.rec.example"}, domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.Rtype = common.String("txt") })))
-	assert.Equal(t, []string{"c.rec.example"}, domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.Domain = common.String("C.rec.example") })))
+	assert.Equal(
+		t,
+		[]string{"a.rec.example", "a2.rec.example", "b.rec.example", "c.rec.example"},
+		domains(list(func(*ocidnssdk.GetZoneRecordsRequest) {})),
+	)
+	assert.Equal(
+		t,
+		[]string{"a2.rec.example"},
+		domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.DomainContains = new("A2") })),
+	)
+	assert.Equal(
+		t,
+		[]string{"b.rec.example"},
+		domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.Rtype = new("txt") })),
+	)
+	assert.Equal(
+		t,
+		[]string{"c.rec.example"},
+		domains(list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.Domain = new("C.rec.example") })),
+	)
 	asc := list(func(r *ocidnssdk.GetZoneRecordsRequest) {
 		r.SortBy, r.SortOrder = ocidnssdk.GetZoneRecordsSortByTtl, ocidnssdk.GetZoneRecordsSortOrderAsc
 	})
@@ -585,16 +691,22 @@ func TestGetZoneRecordsListing(t *testing.T) {
 
 	assert.Equal(t, 9, seen)
 
-	_, err := e.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: common.String(zoneName), ZoneVersion: common.String("1")})
+	_, err := e.client.GetZoneRecords(
+		t.Context(),
+		ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: new(zoneName), ZoneVersion: new("1")},
+	)
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "old versions are not retained")
 
-	current := list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.ZoneVersion = common.String("2") })
+	current := list(func(r *ocidnssdk.GetZoneRecordsRequest) { r.ZoneVersion = new("2") })
 	assert.Len(t, current.Items, 9)
 
-	_, err = e.client.GetZoneRecords(t.Context(), ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: common.String(zoneName), Domain: common.String("bad name")})
+	_, err = e.client.GetZoneRecords(
+		t.Context(),
+		ocidnssdk.GetZoneRecordsRequest{ZoneNameOrId: new(zoneName), Domain: new("bad name")},
+	)
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 
-	status, body, _ := rawDo(t, http.MethodGet, e.base+"/20180115/zones/"+zoneName+"/records?sortBy=bogus", "", nil)
+	status, body, _ := rawGet(t, e.base+"/20180115/zones/"+zoneName+"/records?sortBy=bogus", nil)
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, body, "InvalidParameter")
 }
@@ -606,12 +718,12 @@ func TestZoneRecordsConditionalGet(t *testing.T) {
 	etag := *e.getZone(t, zoneName).ETag
 	url := e.base + "/20180115/zones/" + zoneName + "/records"
 
-	status, _, hdr := rawDo(t, http.MethodGet, url, "", map[string]string{"If-None-Match": etag})
+	status, _, hdr := rawGet(t, url, map[string]string{"If-None-Match": etag})
 	assert.Equal(t, http.StatusNotModified, status)
-	assert.Equal(t, etag, hdr.Get("etag"))
+	assert.Equal(t, etag, hdr.Get("ETag"))
 
 	e.mustPatch(t, zoneName, add("n.rec.example", "A", "192.0.2.1", 60))
 
-	status, _, _ = rawDo(t, http.MethodGet, url, "", map[string]string{"If-None-Match": etag})
+	status, _, _ = rawGet(t, url, map[string]string{"If-None-Match": etag})
 	assert.Equal(t, http.StatusOK, status, "records changed, so the etag moved")
 }

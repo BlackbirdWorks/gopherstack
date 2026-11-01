@@ -14,6 +14,11 @@ import (
 )
 
 const (
+	keyName        = "name"
+	keyDisplayName = "displayName"
+	keyTimeCreated = "timeCreated"
+	keyZoneType    = "zoneType"
+
 	// Version is the OCI DNS API version served.
 	Version = "20180115"
 

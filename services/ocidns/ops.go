@@ -201,7 +201,7 @@ func (h *Handler) getZoneContent(q *req) error {
 
 func (h *Handler) listZones(q *req) error {
 	f := ZoneFilter{
-		Compart: q.query("compartmentId"), Name: q.query("name"), Contains: q.query("nameContains"),
+		Compart: q.query("compartmentId"), Name: q.query(keyName), Contains: q.query("nameContains"),
 		ZoneType: q.query("zoneType"), State: q.query("lifecycleState"), Scope: q.query("scope"),
 		ViewID: q.query("viewId"), TsigKeyID: q.query("tsigKeyId"), Dnssec: q.query("dnssecState"),
 		Created: q.timeFilter(),
@@ -301,7 +301,7 @@ func (h *Handler) getView(q *req) error {
 
 func (h *Handler) listViews(q *req) error {
 	f := ViewFilter{
-		Compart: q.query("compartmentId"), Name: q.query("displayName"), ID: q.query("id"),
+		Compart: q.query("compartmentId"), Name: q.query(keyDisplayName), ID: q.query("id"),
 		State: q.query("lifecycleState"), Scope: q.query("scope"),
 	}
 	res, err := h.Backend.ListViews(f, q.listOpts())
@@ -335,7 +335,7 @@ func (h *Handler) getResolver(q *req) error {
 
 func (h *Handler) listResolvers(q *req) error {
 	f := ResolverFilter{
-		Compart: q.query("compartmentId"), Name: q.query("displayName"), ID: q.query("id"),
+		Compart: q.query("compartmentId"), Name: q.query(keyDisplayName), ID: q.query("id"),
 		State: q.query("lifecycleState"),
 	}
 	res, err := h.Backend.ListResolvers(f, q.listOpts())
@@ -372,7 +372,7 @@ func (h *Handler) getEndpoint(q *req) error {
 }
 
 func (h *Handler) listEndpoints(q *req) error {
-	res, err := h.Backend.ListEndpoints(q.param("resolverId"), q.query("name"), q.query("lifecycleState"),
+	res, err := h.Backend.ListEndpoints(q.param("resolverId"), q.query(keyName), q.query("lifecycleState"),
 		q.listOpts())
 
 	return listOut(q, res, err, false)
@@ -406,7 +406,7 @@ func (h *Handler) getTsigKey(q *req) error {
 
 func (h *Handler) listTsigKeys(q *req) error {
 	f := TsigFilter{
-		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query("name"), State: q.query("lifecycleState"),
+		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query(keyName), State: q.query("lifecycleState"),
 	}
 	res, err := h.Backend.ListTsigKeys(f, q.listOpts())
 
@@ -447,7 +447,7 @@ func (h *Handler) getPolicy(q *req) error {
 
 func (h *Handler) listPolicies(q *req) error {
 	f := PolicyFilter{
-		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query("displayName"),
+		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query(keyDisplayName),
 		Contains: q.query("displayNameContains"), Monitor: q.query("healthCheckMonitorId"),
 		Template: q.query("template"), State: q.query("lifecycleState"), Created: q.timeFilter(),
 	}
@@ -490,7 +490,7 @@ func (h *Handler) getAttachment(q *req) error {
 
 func (h *Handler) listAttachments(q *req) error {
 	f := AttachmentFilter{
-		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query("displayName"),
+		Compart: q.query("compartmentId"), ID: q.query("id"), Name: q.query(keyDisplayName),
 		PolicyID: q.query("steeringPolicyId"), ZoneID: q.query("zoneId"), Domain: q.query("domain"),
 		Contains: q.query("domainContains"), State: q.query("lifecycleState"), Created: q.timeFilter(),
 	}

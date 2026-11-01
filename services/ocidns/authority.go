@@ -12,6 +12,7 @@ import (
 const (
 	maxCNAMEChain = 8
 	classicUDP    = 512
+	maxUDPSize    = 65535
 )
 
 // authority answers DNS queries from the GLOBAL zones of a backend.
@@ -46,7 +47,7 @@ func (b *InMemoryBackend) Answer(req *dns.Msg, network string) *dns.Msg {
 
 	if opt := req.IsEdns0(); opt != nil {
 		size = max(int(opt.UDPSize()), classicUDP)
-		resp.SetEdns0(uint16(min(size, 65535)), opt.Do()) //nolint:gosec // bounded by min
+		resp.SetEdns0(uint16(min(size, maxUDPSize)), opt.Do())
 	}
 
 	if strings.HasPrefix(network, "udp") {
@@ -264,16 +265,7 @@ func (a *zoneAnswer) answer(qtype uint16, qname string) {
 
 func (a *zoneAnswer) fill(qtype uint16, owner string, node map[string]*RRSet, depth int) {
 	if cn := node[rtypeCNAME]; cn != nil && qtype != dns.TypeCNAME && qtype != dns.TypeANY {
-		rrs := toRRs(owner, cn)
-		a.resp.Answer = append(a.resp.Answer, rrs...)
-
-		if len(rrs) == 1 && depth < maxCNAMEChain {
-			if rec, ok := rrs[0].(*dns.CNAME); ok {
-				if target, valid := normName(rec.Target, true); valid && inZone(a.z.Name, target) {
-					a.fill(qtype, target, a.nodes[target], depth+1)
-				}
-			}
-		}
+		a.chase(qtype, owner, cn, depth)
 
 		return
 	}
@@ -289,6 +281,24 @@ func (a *zoneAnswer) fill(qtype uint16, owner string, node map[string]*RRSet, de
 		if qtype == dns.TypeANY || dns.StringToType[t] == qtype {
 			a.resp.Answer = append(a.resp.Answer, toRRs(owner, node[t])...)
 		}
+	}
+}
+
+func (a *zoneAnswer) chase(qtype uint16, owner string, cn *RRSet, depth int) {
+	rrs := toRRs(owner, cn)
+	a.resp.Answer = append(a.resp.Answer, rrs...)
+
+	if len(rrs) != 1 || depth >= maxCNAMEChain {
+		return
+	}
+
+	rec, ok := rrs[0].(*dns.CNAME)
+	if !ok {
+		return
+	}
+
+	if target, valid := normName(rec.Target, true); valid && inZone(a.z.Name, target) {
+		a.fill(qtype, target, a.nodes[target], depth+1)
 	}
 }
 

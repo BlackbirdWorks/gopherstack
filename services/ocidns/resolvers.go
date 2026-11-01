@@ -37,18 +37,18 @@ type EndpointWire struct {
 	TimeUpdated        time.Time                 `json:"timeUpdated"`
 	FreeformTags       map[string]string         `json:"freeformTags"`
 	DefinedTags        map[string]map[string]any `json:"definedTags"`
+	SecurityAttributes map[string]map[string]any `json:"securityAttributes"`
 	ForwardingAddress  *string                   `json:"forwardingAddress"`
 	ListeningAddress   *string                   `json:"listeningAddress"`
-	Name               string                    `json:"name"`
-	ID                 string                    `json:"id"`
 	ResolverID         string                    `json:"resolverId"`
+	ID                 string                    `json:"id"`
 	CompartmentID      string                    `json:"compartmentId"`
 	LifecycleState     string                    `json:"lifecycleState"`
 	Self               string                    `json:"self"`
 	EndpointType       string                    `json:"endpointType"`
 	SubnetID           string                    `json:"subnetId"`
+	Name               string                    `json:"name"`
 	NsgIDs             []string                  `json:"nsgIds"`
-	SecurityAttributes map[string]map[string]any `json:"securityAttributes"`
 	IsForwarding       bool                      `json:"isForwarding"`
 	IsListening        bool                      `json:"isListening"`
 }
@@ -139,9 +139,13 @@ func (b *InMemoryBackend) resolverWire(r *Resolver) ResolverWire {
 
 	for _, rl := range r.Rules {
 		w.Rules = append(w.Rules, ruleWire{
-			SourceEndpointName: rl.SourceEndpointName, Action: actionFwd,
+			SourceEndpointName:      rl.SourceEndpointName,
+			Action:                  actionFwd,
 			ClientAddressConditions: nonNil(rl.ClientAddressConditions),
-			QnameCoverConditions:    nonNil(rl.QnameCoverConditions), DestinationAddresses: nonNil(rl.DestinationAddresses),
+			QnameCoverConditions: nonNil(
+				rl.QnameCoverConditions,
+			),
+			DestinationAddresses: nonNil(rl.DestinationAddresses),
 		})
 	}
 
@@ -268,8 +272,14 @@ type ResolverFilter struct {
 }
 
 var resolverSorters = sorter[*Resolver]{ //nolint:gochecknoglobals // immutable comparator table
-	"displayName": byString(func(r *Resolver) string { return r.DisplayName }, func(r *Resolver) int64 { return r.Seq }),
-	"timeCreated": byCreated(func(r *Resolver) time.Time { return r.Created }, func(r *Resolver) int64 { return r.Seq }),
+	keyDisplayName: byString(
+		func(r *Resolver) string { return r.DisplayName },
+		func(r *Resolver) int64 { return r.Seq },
+	),
+	keyTimeCreated: byCreated(
+		func(r *Resolver) time.Time { return r.Created },
+		func(r *Resolver) int64 { return r.Seq },
+	),
 }
 
 // ListResolvers lists the resolvers of a compartment.
@@ -290,7 +300,7 @@ func (b *InMemoryBackend) ListResolvers(f ResolverFilter, o ListOpts) (listResul
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, resolverSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, resolverSorters)
 	if err != nil {
 		return listResult[ResolverSummaryWire]{}, err
 	}
@@ -311,40 +321,56 @@ type RuleIn struct {
 type UpdateResolverIn struct {
 	Tags
 	DisplayName   *string            `json:"displayName"`
-	AttachedViews []attachedViewWire `json:"attachedViews"`
 	Rules         *[]RuleIn          `json:"rules"`
+	AttachedViews []attachedViewWire `json:"attachedViews"`
+}
+
+func checkRuleShape(in RuleIn) *APIError {
+	if a := strings.ToUpper(in.Action); a != "" && a != actionFwd {
+		return errParam("rules action must be FORWARD")
+	}
+
+	if len(in.DestinationAddresses) == 0 || in.SourceEndpointName == "" {
+		return errMissing("destinationAddresses and sourceEndpointName are required for each rule")
+	}
+
+	for _, d := range in.DestinationAddresses {
+		if _, err := netip.ParseAddr(d); err != nil {
+			return errParam("rules destinationAddresses must be IP addresses")
+		}
+	}
+
+	for _, c := range in.ClientAddressConditions {
+		if !isIPOrCIDR(c) {
+			return errParam("rules clientAddressConditions must be IP addresses or CIDR blocks")
+		}
+	}
+
+	for _, q := range in.QnameCoverConditions {
+		if _, ok := normName(q, false); !ok {
+			return errParam("rules qnameCoverConditions must be domain names")
+		}
+	}
+
+	return nil
+}
+
+func isIPOrCIDR(s string) bool {
+	if _, err := netip.ParsePrefix(s); err == nil {
+		return true
+	}
+
+	_, err := netip.ParseAddr(s)
+
+	return err == nil
 }
 
 func (b *InMemoryBackend) checkRules(r *Resolver, rules []RuleIn) ([]ResolverRule, *APIError) {
 	out := make([]ResolverRule, 0, len(rules))
 
 	for i, in := range rules {
-		if a := strings.ToUpper(in.Action); a != "" && a != actionFwd {
-			return nil, errParam("rules action must be FORWARD")
-		}
-
-		if len(in.DestinationAddresses) == 0 || in.SourceEndpointName == "" {
-			return nil, errMissing("destinationAddresses and sourceEndpointName are required for each rule")
-		}
-
-		for _, d := range in.DestinationAddresses {
-			if _, err := netip.ParseAddr(d); err != nil {
-				return nil, errParam("rules destinationAddresses must be IP addresses")
-			}
-		}
-
-		for _, c := range in.ClientAddressConditions {
-			if _, err := netip.ParsePrefix(c); err != nil {
-				if _, aerr := netip.ParseAddr(c); aerr != nil {
-					return nil, errParam("rules clientAddressConditions must be IP addresses or CIDR blocks")
-				}
-			}
-		}
-
-		for _, q := range in.QnameCoverConditions {
-			if _, ok := normName(q, false); !ok {
-				return nil, errParam("rules qnameCoverConditions must be domain names")
-			}
+		if err := checkRuleShape(in); err != nil {
+			return nil, err
 		}
 
 		ep := b.endpointByName(r.ID, in.SourceEndpointName)
@@ -547,25 +573,33 @@ func (b *InMemoryBackend) endpointSubnet(r *Resolver, subnetID string) (netip.Pr
 	return p, nil
 }
 
-func (b *InMemoryBackend) validateEndpoint(r *Resolver, in CreateEndpointIn) (netip.Prefix, *APIError) {
+func checkEndpointShape(in CreateEndpointIn) *APIError {
 	if et := strings.ToUpper(in.EndpointType); et != "" && et != endpointVnic {
-		return netip.Prefix{}, errParam("endpointType must be VNIC")
+		return errParam("endpointType must be VNIC")
 	}
 
 	if in.Name == "" || in.IsForwarding == nil || in.IsListening == nil || in.SubnetID == "" {
-		return netip.Prefix{}, errMissing("name, isForwarding, isListening and subnetId are required")
+		return errMissing("name, isForwarding, isListening and subnetId are required")
 	}
 
 	if len(in.Name) > maxEndpointName || !endpointNameRe.MatchString(in.Name) {
-		return netip.Prefix{}, errParam("name must be 1 to 255 letters, digits, '.', '_' or '-'")
+		return errParam("name must be 1 to 255 letters, digits, '.', '_' or '-'")
 	}
 
 	if !*in.IsForwarding && !*in.IsListening {
-		return netip.Prefix{}, errParam("an endpoint must forward, listen, or both")
+		return errParam("an endpoint must forward, listen, or both")
 	}
 
 	if (!*in.IsForwarding && in.ForwardingAddress != "") || (!*in.IsListening && in.ListeningAddress != "") {
-		return netip.Prefix{}, errParam("an address is only valid for the role that is enabled")
+		return errParam("an address is only valid for the role that is enabled")
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) validateEndpoint(r *Resolver, in CreateEndpointIn) (netip.Prefix, *APIError) {
+	if err := checkEndpointShape(in); err != nil {
+		return netip.Prefix{}, err
 	}
 
 	if b.endpointByName(r.ID, in.Name) != nil {
@@ -598,7 +632,12 @@ func (b *InMemoryBackend) CreateEndpoint(resolverID string, in CreateEndpointIn)
 	}
 
 	if e.IsForwarding {
-		if e.ForwardingAddress, aerr = pickAddress(in.ForwardingAddress, prefix, used, "forwardingAddress"); aerr != nil {
+		if e.ForwardingAddress, aerr = pickAddress(
+			in.ForwardingAddress,
+			prefix,
+			used,
+			"forwardingAddress",
+		); aerr != nil {
 			return EndpointWire{}, tag{}, aerr
 		}
 	}
@@ -643,8 +682,14 @@ func (b *InMemoryBackend) GetEndpoint(resolverID, name string) (EndpointWire, ta
 }
 
 var endpointSorters = sorter[*Endpoint]{ //nolint:gochecknoglobals // immutable comparator table
-	"name":        byString(func(e *Endpoint) string { return strings.ToLower(e.Name) }, func(e *Endpoint) int64 { return e.Seq }),
-	"timeCreated": byCreated(func(e *Endpoint) time.Time { return e.Created }, func(e *Endpoint) int64 { return e.Seq }),
+	keyName: byString(
+		func(e *Endpoint) string { return strings.ToLower(e.Name) },
+		func(e *Endpoint) int64 { return e.Seq },
+	),
+	keyTimeCreated: byCreated(
+		func(e *Endpoint) time.Time { return e.Created },
+		func(e *Endpoint) int64 { return e.Seq },
+	),
 }
 
 // ListEndpoints lists the endpoints of a resolver.
@@ -664,7 +709,7 @@ func (b *InMemoryBackend) ListEndpoints(resolverID, name, state string, o ListOp
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, endpointSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, endpointSorters)
 	if err != nil {
 		return listResult[EndpointWire]{}, err
 	}
@@ -680,7 +725,11 @@ type UpdateEndpointIn struct {
 }
 
 // UpdateEndpoint changes the tags and network security groups of an endpoint.
-func (b *InMemoryBackend) UpdateEndpoint(resolverID, name string, c cond, in UpdateEndpointIn) (EndpointWire, tag, error) {
+func (b *InMemoryBackend) UpdateEndpoint(
+	resolverID, name string,
+	c cond,
+	in UpdateEndpointIn,
+) (EndpointWire, tag, error) {
 	b.mu.Lock("UpdateEndpoint")
 	defer b.mu.Unlock()
 

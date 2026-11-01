@@ -133,10 +133,10 @@ func CatalogImages() []ImageRef {
 
 // VcnRef is the read-only view of a VCN other emulators attach to.
 type VcnRef struct {
+	TimeCreated   time.Time
 	ID            string
 	CompartmentID string
 	DisplayName   string
-	TimeCreated   time.Time
 }
 
 // ListVcns returns every live VCN, oldest first.

@@ -233,14 +233,35 @@ type PolicyFilter struct {
 	State    string
 }
 
+func (f PolicyFilter) match(p *SteeringPolicy) bool {
+	return p.CompartmentID == f.Compart && (f.ID == "" || p.ID == f.ID) &&
+		(f.Name == "" || strs.Equal(p.DisplayName, f.Name)) &&
+		(f.Contains == "" || containsFold(p.DisplayName, f.Contains)) &&
+		(f.Monitor == "" || p.HealthCheckMonitorID == f.Monitor) &&
+		(f.Template == "" || strings.EqualFold(p.Template, f.Template)) &&
+		(f.State == "" || strings.EqualFold(f.State, stateActive)) && (f.Created == nil || f.Created(p.Created))
+}
+
 var policySorters = sorter[*SteeringPolicy]{ //nolint:gochecknoglobals // immutable comparator table
-	"displayName": byString(func(p *SteeringPolicy) string { return p.DisplayName }, func(p *SteeringPolicy) int64 { return p.Seq }),
-	"template":    byString(func(p *SteeringPolicy) string { return p.Template }, func(p *SteeringPolicy) int64 { return p.Seq }),
-	"timeCreated": byCreated(func(p *SteeringPolicy) time.Time { return p.Created }, func(p *SteeringPolicy) int64 { return p.Seq }),
+	keyDisplayName: byString(
+		func(p *SteeringPolicy) string { return p.DisplayName },
+		func(p *SteeringPolicy) int64 { return p.Seq },
+	),
+	"template": byString(
+		func(p *SteeringPolicy) string { return p.Template },
+		func(p *SteeringPolicy) int64 { return p.Seq },
+	),
+	keyTimeCreated: byCreated(
+		func(p *SteeringPolicy) time.Time { return p.Created },
+		func(p *SteeringPolicy) int64 { return p.Seq },
+	),
 }
 
 // ListSteeringPolicies lists the steering policies of a compartment.
-func (b *InMemoryBackend) ListSteeringPolicies(f PolicyFilter, o ListOpts) (listResult[SteeringPolicySummaryWire], error) {
+func (b *InMemoryBackend) ListSteeringPolicies(
+	f PolicyFilter,
+	o ListOpts,
+) (listResult[SteeringPolicySummaryWire], error) {
 	b.mu.RLock("ListSteeringPolicies")
 	defer b.mu.RUnlock()
 
@@ -251,17 +272,12 @@ func (b *InMemoryBackend) ListSteeringPolicies(f PolicyFilter, o ListOpts) (list
 	var all []*SteeringPolicy
 
 	for _, p := range b.policies {
-		if p.CompartmentID == f.Compart && (f.ID == "" || p.ID == f.ID) &&
-			(f.Name == "" || strs.Equal(p.DisplayName, f.Name)) &&
-			(f.Contains == "" || containsFold(p.DisplayName, f.Contains)) &&
-			(f.Monitor == "" || p.HealthCheckMonitorID == f.Monitor) &&
-			(f.Template == "" || strings.EqualFold(p.Template, f.Template)) &&
-			(f.State == "" || strings.EqualFold(f.State, stateActive)) && (f.Created == nil || f.Created(p.Created)) {
+		if f.match(p) {
 			all = append(all, p)
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, policySorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, policySorters)
 	if err != nil {
 		return listResult[SteeringPolicySummaryWire]{}, err
 	}
@@ -511,10 +527,28 @@ type AttachmentFilter struct {
 	State    string
 }
 
+func (f AttachmentFilter) match(a *Attachment) bool {
+	return a.CompartmentID == f.Compart && f.matchIdentity(a) &&
+		(f.Domain == "" || a.Domain == mustNorm(f.Domain)) &&
+		(f.Contains == "" || containsFold(a.Domain, f.Contains)) &&
+		(f.State == "" || strings.EqualFold(f.State, stateActive)) && (f.Created == nil || f.Created(a.Created))
+}
+
+func (f AttachmentFilter) matchIdentity(a *Attachment) bool {
+	return (f.ID == "" || a.ID == f.ID) && (f.Name == "" || strs.Equal(a.DisplayName, f.Name)) &&
+		(f.PolicyID == "" || a.SteeringPolicyID == f.PolicyID) && (f.ZoneID == "" || a.ZoneID == f.ZoneID)
+}
+
 var attachmentSorters = sorter[*Attachment]{ //nolint:gochecknoglobals // immutable comparator table
-	"displayName": byString(func(a *Attachment) string { return a.DisplayName }, func(a *Attachment) int64 { return a.Seq }),
-	"domainName":  byString(func(a *Attachment) string { return a.Domain }, func(a *Attachment) int64 { return a.Seq }),
-	"timeCreated": byCreated(func(a *Attachment) time.Time { return a.Created }, func(a *Attachment) int64 { return a.Seq }),
+	keyDisplayName: byString(
+		func(a *Attachment) string { return a.DisplayName },
+		func(a *Attachment) int64 { return a.Seq },
+	),
+	"domainName": byString(func(a *Attachment) string { return a.Domain }, func(a *Attachment) int64 { return a.Seq }),
+	keyTimeCreated: byCreated(
+		func(a *Attachment) time.Time { return a.Created },
+		func(a *Attachment) int64 { return a.Seq },
+	),
 }
 
 // ListAttachments lists the steering policy attachments of a compartment.
@@ -526,25 +560,15 @@ func (b *InMemoryBackend) ListAttachments(f AttachmentFilter, o ListOpts) (listR
 		return listResult[AttachmentWire]{}, err
 	}
 
-	domain := ""
-
-	if f.Domain != "" {
-		domain = mustNorm(f.Domain)
-	}
-
 	var all []*Attachment
 
 	for _, a := range b.attachments {
-		if a.CompartmentID == f.Compart && (f.ID == "" || a.ID == f.ID) &&
-			(f.Name == "" || strs.Equal(a.DisplayName, f.Name)) &&
-			(f.PolicyID == "" || a.SteeringPolicyID == f.PolicyID) && (f.ZoneID == "" || a.ZoneID == f.ZoneID) &&
-			(domain == "" || a.Domain == domain) && (f.Contains == "" || containsFold(a.Domain, f.Contains)) &&
-			(f.State == "" || strings.EqualFold(f.State, stateActive)) && (f.Created == nil || f.Created(a.Created)) {
+		if f.match(a) {
 			all = append(all, a)
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, attachmentSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, attachmentSorters)
 	if err != nil {
 		return listResult[AttachmentWire]{}, err
 	}

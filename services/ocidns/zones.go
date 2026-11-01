@@ -259,35 +259,41 @@ func (b *InMemoryBackend) resolveScope(in *CreateZoneIn) *APIError {
 		return errParam("scope must be GLOBAL or PRIVATE")
 	}
 
-	switch in.Scope {
-	case scopePrivate:
-		if in.ViewID == "" {
-			return errMissing("viewId is required for a PRIVATE zone")
-		}
+	if in.Scope == scopePrivate {
+		return b.checkPrivateZone(in)
+	}
 
-		if _, ok := b.views[in.ViewID]; !ok {
-			return errNotFound(in.ViewID)
-		}
+	if in.ViewID != "" {
+		return errParam("viewId is only valid for PRIVATE zones")
+	}
 
-		if in.ZoneType != zonePrimary {
-			return errParam("a PRIVATE zone must have zoneType PRIMARY")
-		}
+	if in.ResolutionMode != modeStatic {
+		return errParam("resolutionMode other than STATIC is only valid for PRIVATE zones")
+	}
 
-		if len(in.ExternalDownstreams) > 0 || len(in.ExternalMasters) > 0 {
-			return errParam("externalMasters and externalDownstreams are not supported for PRIVATE zones")
-		}
+	return nil
+}
 
-		if v := b.views[in.ViewID]; v.Protected && inZone(oraclevcnZone, in.Name) {
-			return errParam("a zone at or under oraclevcn.com cannot be created in a protected view")
-		}
-	default:
-		if in.ViewID != "" {
-			return errParam("viewId is only valid for PRIVATE zones")
-		}
+func (b *InMemoryBackend) checkPrivateZone(in *CreateZoneIn) *APIError {
+	if in.ViewID == "" {
+		return errMissing("viewId is required for a PRIVATE zone")
+	}
 
-		if in.ResolutionMode != modeStatic {
-			return errParam("resolutionMode other than STATIC is only valid for PRIVATE zones")
-		}
+	v, ok := b.views[in.ViewID]
+	if !ok {
+		return errNotFound(in.ViewID)
+	}
+
+	if in.ZoneType != zonePrimary {
+		return errParam("a PRIVATE zone must have zoneType PRIMARY")
+	}
+
+	if len(in.ExternalDownstreams) > 0 || len(in.ExternalMasters) > 0 {
+		return errParam("externalMasters and externalDownstreams are not supported for PRIVATE zones")
+	}
+
+	if v.Protected && inZone(oraclevcnZone, in.Name) {
+		return errParam("a zone at or under oraclevcn.com cannot be created in a protected view")
 	}
 
 	return nil
@@ -321,6 +327,20 @@ func (b *InMemoryBackend) validateZoneIn(in *CreateZoneIn) *APIError {
 		return err
 	}
 
+	if err := checkZoneTypeRules(in); err != nil {
+		return err
+	}
+
+	for _, z := range b.zones {
+		if z.Name == in.Name && z.Scope == in.Scope && z.ViewID == in.ViewID {
+			return errConflict("A zone named " + in.Name + " already exists")
+		}
+	}
+
+	return nil
+}
+
+func checkZoneTypeRules(in *CreateZoneIn) *APIError {
 	switch {
 	case in.ZoneType == zoneSecondary && len(in.ExternalMasters) == 0:
 		return errMissing("externalMasters is required for a SECONDARY zone")
@@ -330,12 +350,6 @@ func (b *InMemoryBackend) validateZoneIn(in *CreateZoneIn) *APIError {
 		return errParam("externalDownstreams is not supported for SECONDARY zones")
 	case in.DnssecState == dnssecEnabled && (in.Scope != scopeGlobal || in.ZoneType != zonePrimary):
 		return errParam("DNSSEC can only be enabled on GLOBAL PRIMARY zones")
-	}
-
-	for _, z := range b.zones {
-		if z.Name == in.Name && z.Scope == in.Scope && z.ViewID == in.ViewID {
-			return errConflict("A zone named " + in.Name + " already exists")
-		}
 	}
 
 	return nil
@@ -396,7 +410,7 @@ type ZoneFilter struct {
 	Dnssec    string
 }
 
-func (f ZoneFilter) match(z *Zone) bool {
+func (f ZoneFilter) matchScope(z *Zone) bool {
 	scope := strings.ToUpper(f.Scope)
 	if scope == "" {
 		scope = scopeGlobal
@@ -405,23 +419,18 @@ func (f ZoneFilter) match(z *Zone) bool {
 		}
 	}
 
-	if z.CompartmentID != f.Compart || z.Scope != scope || (f.ViewID != "" && z.ViewID != f.ViewID) {
-		return false
-	}
-
-	if (f.Name != "" && !strs.Equal(z.Name, f.Name)) || (f.Contains != "" && !containsFold(z.Name, f.Contains)) ||
-		(f.ZoneType != "" && !strings.EqualFold(z.ZoneType, f.ZoneType)) ||
-		(f.State != "" && !strings.EqualFold(f.State, stateActive)) ||
-		(f.Dnssec != "" && !strings.EqualFold(z.DnssecState, f.Dnssec)) || (f.Created != nil && !f.Created(z.Created)) {
-		return false
-	}
-
-	if f.TsigKeyID != "" && !usesTsig(z, f.TsigKeyID) {
-		return false
-	}
-
-	return true
+	return z.CompartmentID == f.Compart && z.Scope == scope && (f.ViewID == "" || z.ViewID == f.ViewID)
 }
+
+func (f ZoneFilter) matchAttrs(z *Zone) bool {
+	return (f.Name == "" || strs.Equal(z.Name, f.Name)) && (f.Contains == "" || containsFold(z.Name, f.Contains)) &&
+		(f.ZoneType == "" || strings.EqualFold(z.ZoneType, f.ZoneType)) &&
+		(f.State == "" || strings.EqualFold(f.State, stateActive)) &&
+		(f.Dnssec == "" || strings.EqualFold(z.DnssecState, f.Dnssec)) && (f.Created == nil || f.Created(z.Created)) &&
+		(f.TsigKeyID == "" || usesTsig(z, f.TsigKeyID))
+}
+
+func (f ZoneFilter) match(z *Zone) bool { return f.matchScope(z) && f.matchAttrs(z) }
 
 func usesTsig(z *Zone, id string) bool {
 	for _, list := range [][]ExtServer{z.ExternalMasters, z.ExternalDownstreams} {
@@ -436,9 +445,9 @@ func usesTsig(z *Zone, id string) bool {
 }
 
 var zoneSorters = sorter[*Zone]{ //nolint:gochecknoglobals // immutable comparator table
-	"name":        byString(func(z *Zone) string { return z.Name }, func(z *Zone) int64 { return z.Seq }),
-	"zoneType":    byString(func(z *Zone) string { return z.ZoneType }, func(z *Zone) int64 { return z.Seq }),
-	"timeCreated": byCreated(func(z *Zone) time.Time { return z.Created }, func(z *Zone) int64 { return z.Seq }),
+	keyName:        byString(func(z *Zone) string { return z.Name }, func(z *Zone) int64 { return z.Seq }),
+	keyZoneType:    byString(func(z *Zone) string { return z.ZoneType }, func(z *Zone) int64 { return z.Seq }),
+	keyTimeCreated: byCreated(func(z *Zone) time.Time { return z.Created }, func(z *Zone) int64 { return z.Seq }),
 }
 
 // ListZones lists the zones of a compartment.
@@ -458,7 +467,7 @@ func (b *InMemoryBackend) ListZones(f ZoneFilter, o ListOpts) (listResult[ZoneSu
 		}
 	}
 
-	pg, err := sortPage(all, o, "timeCreated", true, zoneSorters)
+	pg, err := sortPage(all, o, keyTimeCreated, true, zoneSorters)
 	if err != nil {
 		return listResult[ZoneSummaryWire]{}, err
 	}
