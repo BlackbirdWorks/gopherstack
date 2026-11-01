@@ -527,12 +527,16 @@ func TestBackendTLSVerification(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
+		health loadbalancer.BackendHealthStatusEnum
 		name   string
 		ca     string
 		status int
+		verify bool
 	}{
-		{"trusted bundle", string(good), http.StatusOK},
-		{"wrong bundle", string(wrong), http.StatusServiceUnavailable},
+		{loadbalancer.BackendHealthStatusOk, "trusted bundle", string(good), http.StatusOK, true},
+		{loadbalancer.BackendHealthStatusCritical, "wrong bundle", string(wrong), http.StatusServiceUnavailable, true},
+		{loadbalancer.BackendHealthStatusOk, "no verify wrong bundle", string(wrong), http.StatusOK, false},
+		{loadbalancer.BackendHealthStatusOk, "no verify no bundle", "", http.StatusOK, false},
 	}
 
 	for _, tt := range tests {
@@ -542,20 +546,31 @@ func TestBackendTLSVerification(t *testing.T) {
 			e := newEnv(t, envOpts{})
 			be := startTLSBackend(t, "secure", pair)
 			set := backendSet("ROUND_ROBIN", be)
-			set.SslConfiguration = &loadbalancer.SslConfigurationDetails{
-				CertificateName: new("ca"), VerifyPeerCertificate: new(true),
-			}
+			set.SslConfiguration = &loadbalancer.SslConfigurationDetails{VerifyPeerCertificate: new(tt.verify)}
 
 			d := baseDetails("backend-tls")
-			d.Certificates = map[string]loadbalancer.CertificateDetails{
-				"ca": {CertificateName: new("ca"), CaCertificate: new(tt.ca)},
+			if tt.ca != "" {
+				set.SslConfiguration.CertificateName = new("ca")
+				d.Certificates = map[string]loadbalancer.CertificateDetails{
+					"ca": {CertificateName: new("ca"), CaCertificate: new(tt.ca)},
+				}
 			}
+
 			d.BackendSets = map[string]loadbalancer.BackendSetDetails{"bs": set}
 			d.Listeners = map[string]loadbalancer.ListenerDetails{"l": listener()}
 			id := e.mkLB(t, d)
 
 			r := e.call(t, id, httpPort, "", "/tls", nil)
 			assert.Equal(t, tt.status, r.status)
+
+			e.clock.Advance(2 * time.Second)
+
+			name := be.ip() + ":" + itoa(be.port())
+			bh, herr := e.lb.GetBackendHealth(t.Context(), loadbalancer.GetBackendHealthRequest{
+				LoadBalancerId: &id, BackendSetName: new("bs"), BackendName: &name,
+			})
+			require.NoError(t, herr)
+			assert.Equal(t, tt.health, bh.Status)
 		})
 	}
 }

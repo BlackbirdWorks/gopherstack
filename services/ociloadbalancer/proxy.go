@@ -593,11 +593,10 @@ func (d *dataPlane) dialBackend(ctx context.Context, lb *LoadBalancer, bs *Backe
 	}
 
 	d.b.mu.RLock("dialBackend")
-	cfg := d.b.backendTLS(lb, bs.SSL)
+	base := d.b.backendTLS(lb, bs.SSL)
 	d.b.mu.RUnlock()
 
-	cfg.ServerName = be.IPAddress
-	tc := tls.Client(conn, cfg)
+	tc := tls.Client(conn, backendTLSFor(base, bs.SSL, be.IPAddress))
 
 	if err = tc.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
