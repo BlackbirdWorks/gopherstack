@@ -2,7 +2,7 @@ package apptrace
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -317,7 +318,7 @@ func (r *redactor) errorCode(header string, body []byte) string {
 
 	if b[0] == '{' {
 		var env errEnvelope
-		if json.Unmarshal(b, &env) == nil {
+		if json.Unmarshal(b, &env, jsonx.V1()) == nil {
 			return cleanCode(env.pick())
 		}
 

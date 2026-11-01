@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rum"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudFormationProvisionsRUMAppMonitor(t *testing.T) {
@@ -30,7 +32,7 @@ func TestCloudFormationProvisionsRUMAppMonitor(t *testing.T) {
 			"Name": map[string]any{"Value": map[string]any{"Ref": "Mon"}},
 			"Id":   map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Mon", "Id"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

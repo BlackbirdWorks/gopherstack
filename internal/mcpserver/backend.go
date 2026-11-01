@@ -4,13 +4,15 @@ package mcpserver
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -40,7 +42,7 @@ func (b *backend) call(ctx context.Context, method, path string, q url.Values, i
 	var body io.Reader = http.NoBody
 
 	if in != nil {
-		raw, err := json.Marshal(in)
+		raw, err := json.Marshal(in, jsonx.V1())
 		if err != nil {
 			return fmt.Errorf("encode request: %w", err)
 		}
@@ -81,7 +83,7 @@ func (b *backend) call(ctx context.Context, method, path string, q url.Values, i
 		return nil
 	}
 
-	if err = json.Unmarshal(raw, out); err != nil {
+	if err = json.Unmarshal(raw, out, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 

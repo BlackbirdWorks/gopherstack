@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,6 +22,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -127,7 +128,7 @@ func callTool(t *testing.T, cs *mcp.ClientSession, name string, args map[string]
 	res, err := cs.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: args})
 	require.NoError(t, err)
 
-	raw, err := json.Marshal(res)
+	raw, err := json.Marshal(res, jsonx.V1())
 	require.NoError(t, err)
 	require.False(t, res.IsError, "tool %s: %s", name, raw)
 

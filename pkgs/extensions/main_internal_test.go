@@ -2,7 +2,7 @@ package extensions
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testleak"
 )
 
@@ -90,7 +91,7 @@ func runHelper() {
 }
 
 func mustJSON(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}

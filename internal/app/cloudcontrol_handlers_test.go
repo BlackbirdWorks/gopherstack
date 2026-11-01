@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/netip"
 	"slices"
 	"strings"
@@ -12,6 +12,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type ccDelegationCase struct {
@@ -120,7 +122,7 @@ func ccAssertGet(t *testing.T, cc *cloudcontrol.Client, tt ccDelegationCase, id 
 	assert.Equal(t, id, aws.ToString(got.ResourceDescription.Identifier))
 
 	var props map[string]any
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props, jsonx.V1()))
 
 	for _, k := range tt.wantKeys {
 		assert.Contains(t, props, k)
@@ -206,7 +208,7 @@ func ccDeleteAndVerify(t *testing.T, cc *cloudcontrol.Client, fx *sfnFixture, tt
 }
 
 func jsonScalar(v any) string {
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return string(b)
 }
@@ -215,9 +217,9 @@ func subsetJSON(t *testing.T, doc, key string) string {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(doc), &m))
+	require.NoError(t, json.Unmarshal([]byte(doc), &m, jsonx.V1()))
 
-	b, err := json.Marshal(map[string]any{key: m[key]})
+	b, err := json.Marshal(map[string]any{key: m[key]}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)
@@ -334,7 +336,7 @@ func TestCloudControlSubnetIPv6(t *testing.T) {
 			require.NoError(t, err)
 
 			var props map[string]any
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props))
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props, jsonx.V1()))
 			assert.Equal(t, []any{v6}, props["Ipv6CidrBlocks"])
 			assert.Equal(t, azID, props["AvailabilityZoneId"])
 			assert.Equal(t, true, props["AssignIpv6AddressOnCreation"])

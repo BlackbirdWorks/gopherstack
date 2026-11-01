@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -136,8 +138,7 @@ func buildInitRunHandler(st *localstackInitState) echo.HandlerFunc {
 		}
 
 		var req initRunRequest
-		if err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, initRunMaxBody)).
-			Decode(&req); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, initRunMaxBody)), &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: "invalid request body"})
 		}
 

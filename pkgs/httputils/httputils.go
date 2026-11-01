@@ -3,7 +3,7 @@ package httputils
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"hash/crc32"
 	"io"
@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -163,7 +164,7 @@ func ParseFormBody(r *http.Request) (url.Values, error) {
 func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any) {
 	log := logger.Load(ctx)
 
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to marshal JSON response", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -209,7 +210,7 @@ func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any)
 func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int, payload any) {
 	log := logger.Load(ctx)
 
-	body, err := json.Marshal(payload)
+	body, err := json.Marshal(payload, jsonx.V1())
 	if err != nil {
 		log.ErrorContext(ctx, "failed to marshal DynamoDB response", "error", err)
 		http.Error(w,

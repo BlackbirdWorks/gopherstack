@@ -3,7 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -73,7 +74,7 @@ func TestIAMPolicyStreamList(t *testing.T) {
 			var body struct {
 				Events []iampolicystream.Event `json:"events"`
 			}
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body, jsonx.V1()))
 			assert.Len(t, body.Events, tt.wantCount)
 		})
 	}
@@ -88,7 +89,7 @@ func TestIAMPolicySuggest(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var s iampolicystream.Suggestion
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &s, jsonx.V1()))
 	require.Len(t, s.Policy.Statement, 1)
 	assert.Equal(t, []string{"s3:GetObject"}, s.Policy.Statement[0].Action)
 }

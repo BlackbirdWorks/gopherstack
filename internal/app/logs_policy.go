@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -29,7 +31,7 @@ func (a *logsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN str
 	}
 
 	var (
-		statements []json.RawMessage
+		statements []jsontext.Value
 		token      string
 	)
 
@@ -55,7 +57,7 @@ func (a *logsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN str
 		return "", nil
 	}
 
-	doc, err := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": statements})
+	doc, err := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": statements}, jsonx.V1())
 	if err != nil {
 		return "", err
 	}
@@ -63,19 +65,19 @@ func (a *logsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN str
 	return string(doc), nil
 }
 
-func policyStatements(doc string) []json.RawMessage {
+func policyStatements(doc string) []jsontext.Value {
 	var parsed struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
 
-	if json.Unmarshal([]byte(doc), &parsed) != nil || len(parsed.Statement) == 0 {
+	if json.Unmarshal([]byte(doc), &parsed, jsonx.V1()) != nil || len(parsed.Statement) == 0 {
 		return nil
 	}
 
-	var list []json.RawMessage
-	if json.Unmarshal(parsed.Statement, &list) == nil {
+	var list []jsontext.Value
+	if json.Unmarshal(parsed.Statement, &list, jsonx.V1()) == nil {
 		return list
 	}
 
-	return []json.RawMessage{parsed.Statement}
+	return []jsontext.Value{parsed.Statement}
 }

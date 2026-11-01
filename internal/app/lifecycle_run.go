@@ -3,7 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type lifecycleState struct {
@@ -41,7 +43,7 @@ func (d *lifecycleDeps) loadState(t LifecycleTarget) (lifecycleState, bool) {
 	}
 
 	var st lifecycleState
-	if json.Unmarshal(b, &st) != nil {
+	if json.Unmarshal(b, &st, jsonx.V1()) != nil {
 		return lifecycleState{}, false
 	}
 
@@ -49,7 +51,7 @@ func (d *lifecycleDeps) loadState(t LifecycleTarget) (lifecycleState, bool) {
 }
 
 func (d *lifecycleDeps) saveState(t LifecycleTarget, st lifecycleState) error {
-	b, err := json.Marshal(st)
+	b, err := json.Marshal(st, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode state: %w", err)
 	}
@@ -92,7 +94,7 @@ func (d *lifecycleDeps) health(ctx context.Context, endpoint string) (healthResp
 		return h, fmt.Errorf("%w: health status %d", errLifecycleRequest, code)
 	}
 
-	if err = json.Unmarshal(body, &h); err != nil {
+	if err = json.Unmarshal(body, &h, jsonx.V1()); err != nil {
 		return h, fmt.Errorf("decode health: %w", err)
 	}
 
@@ -485,7 +487,7 @@ func (d *lifecycleDeps) serviceHealth(ctx context.Context, endpoint string) map[
 	}
 
 	var r localstackHealthResponse
-	if json.Unmarshal(body, &r) != nil {
+	if json.Unmarshal(body, &r, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -566,7 +568,7 @@ func (c *StatusCmd) run(ctx context.Context, d *lifecycleDeps) error {
 	h, err := d.health(ctx, endpoint)
 	if err != nil {
 		if c.JSON {
-			_ = json.NewEncoder(d.Out).Encode(statusReport{Endpoint: endpoint, Managed: managed})
+			_ = json.MarshalEncode(jsontext.NewEncoder(d.Out, jsonx.V1()), statusReport{Endpoint: endpoint, Managed: managed})
 		} else {
 			fmt.Fprintf(d.Out, "gopherstack is not running (%s)\n", endpoint)
 		}
@@ -576,10 +578,9 @@ func (c *StatusCmd) run(ctx context.Context, d *lifecycleDeps) error {
 
 	rep := buildStatus(endpoint, h, managed, d.serviceHealth(ctx, endpoint))
 	if c.JSON {
-		enc := json.NewEncoder(d.Out)
-		enc.SetIndent("", "  ")
+		enc := jsontext.NewEncoder(d.Out, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-		return enc.Encode(rep)
+		return json.MarshalEncode(enc, rep)
 	}
 
 	rep.print(d.Out)
@@ -652,7 +653,7 @@ func (c *ResetCmd) run(ctx context.Context, d *lifecycleDeps) error {
 			Message string `json:"message"`
 		}
 
-		_ = json.Unmarshal(body, &resp)
+		_ = json.Unmarshal(body, &resp, jsonx.V1())
 		fmt.Fprintln(d.Out, resp.Message)
 	}
 

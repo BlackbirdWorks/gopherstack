@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -95,7 +96,7 @@ func (r RESTRouter) handleREST(c *echo.Context) error {
 		return c.JSON(statusCode, struct{}{})
 	}
 
-	data, jsonErr := json.Marshal(result)
+	data, jsonErr := json.Marshal(result, jsonx.V1())
 	if jsonErr != nil {
 		return c.JSON(http.StatusInternalServerError, r.InternalErrorBody())
 	}

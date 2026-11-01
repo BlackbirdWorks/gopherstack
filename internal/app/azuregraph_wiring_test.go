@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azuregraph"
@@ -86,7 +87,7 @@ func do(
 	require.NoError(t, err)
 
 	var out map[string]any
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return resp.StatusCode, out
 }

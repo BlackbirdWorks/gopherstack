@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/timestreaminfluxdb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTimestreamInfluxDBAuthSecretWiring(t *testing.T) {
@@ -55,7 +57,7 @@ func TestTimestreamInfluxDBAuthSecretWiring(t *testing.T) {
 			require.NoError(t, err)
 
 			var secret map[string]string
-			require.NoError(t, json.Unmarshal([]byte(aws.ToString(val.SecretString)), &secret))
+			require.NoError(t, json.Unmarshal([]byte(aws.ToString(val.SecretString)), &secret, jsonx.V1()))
 			assert.Equal(t, tt.wantUsername, secret["username"])
 			assert.Equal(t, "Passw0rdPassw0rd", secret["password"])
 			assert.Len(t, secret["token"], 64)

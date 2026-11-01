@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/blackbirdworks/gopherstack/internal/replicator"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -67,10 +69,9 @@ func (c *ReplicateCmd) run(ctx context.Context, out io.Writer, fn replicateFunc)
 	}
 
 	if c.JSON {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
+		enc := jsontext.NewEncoder(out, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-		if err = enc.Encode(rep); err != nil {
+		if err = json.MarshalEncode(enc, rep); err != nil {
 			return fmt.Errorf("encode report: %w", err)
 		}
 	} else {

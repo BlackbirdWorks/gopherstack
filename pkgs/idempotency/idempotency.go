@@ -3,11 +3,12 @@
 package idempotency
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -64,7 +65,7 @@ func New(name string, opts ...Option) *Memo {
 
 // Fingerprint renders request parameters for comparison across retries.
 func Fingerprint(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return fmt.Sprintf("%+v", v)
 	}

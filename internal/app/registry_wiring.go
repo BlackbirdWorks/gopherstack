@@ -1,10 +1,11 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"path/filepath"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
@@ -103,13 +104,13 @@ func (a *azureContainerRegistryAdapter) WebhookEvents(registry, name string) ([]
 	out := make([]map[string]any, 0, len(events))
 
 	for _, ev := range events {
-		raw, marshalErr := json.Marshal(ev)
+		raw, marshalErr := json.Marshal(ev, jsonx.V1())
 		if marshalErr != nil {
 			return nil, marshalErr
 		}
 
 		var m map[string]any
-		if unmarshalErr := json.Unmarshal(raw, &m); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(raw, &m, jsonx.V1()); unmarshalErr != nil {
 			return nil, unmarshalErr
 		}
 

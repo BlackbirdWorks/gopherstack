@@ -2,7 +2,7 @@ package dmsengine_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 )
 
@@ -239,9 +240,9 @@ func TestKinesisTargetRecords(t *testing.T) {
 
 	var first, second, del map[string]map[string]any
 
-	require.NoError(t, json.Unmarshal([]byte(store.recs[0]), &first))
-	require.NoError(t, json.Unmarshal([]byte(store.recs[1]), &second))
-	require.NoError(t, json.Unmarshal([]byte(store.recs[2]), &del))
+	require.NoError(t, json.Unmarshal([]byte(store.recs[0]), &first, jsonx.V1()))
+	require.NoError(t, json.Unmarshal([]byte(store.recs[1]), &second, jsonx.V1()))
+	require.NoError(t, json.Unmarshal([]byte(store.recs[2]), &del, jsonx.V1()))
 
 	assert.Equal(t, map[string]any{"id": float64(1), "name": "alpha"}, first["data"])
 	assert.Equal(t, map[string]any{"id": float64(2)}, second["data"], "nulls are omitted by default")

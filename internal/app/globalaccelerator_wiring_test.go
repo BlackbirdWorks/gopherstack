@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func waitStack(t *testing.T, cfn *cloudformation.Client, name string) cfntypes.Stack {
@@ -80,7 +82,7 @@ func TestCloudFormationProvisionsGlobalAccelerator(t *testing.T) {
 			"GrpArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Grp", "EndpointGroupArn"}}},
 			"AttArn": map[string]any{"Value": map[string]any{"Fn::GetAtt": []string{"Att", "AttachmentArn"}}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	fx := newSFNFixture(t)

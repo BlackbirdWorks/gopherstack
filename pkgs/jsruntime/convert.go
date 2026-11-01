@@ -1,11 +1,13 @@
 package jsruntime
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
 	"github.com/dop251/goja"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrNotJSON means a value could not be converted to or from JSON.
@@ -13,7 +15,7 @@ var ErrNotJSON = errors.New("value is not JSON-serializable")
 
 // ToJS builds a fresh JS value from plain Go data via JSON.parse.
 func (s *Sandbox) ToJS(v any) (goja.Value, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNotJSON, err)
 	}
@@ -56,7 +58,7 @@ func (s *Sandbox) FromJS(v goja.Value) (any, error) {
 	}
 
 	var out any
-	if err = json.Unmarshal([]byte(str), &out); err != nil {
+	if err = json.Unmarshal([]byte(str), &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrNotJSON, err)
 	}
 

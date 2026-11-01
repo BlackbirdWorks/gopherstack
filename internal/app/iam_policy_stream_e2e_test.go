@@ -1,7 +1,8 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/iampolicystream"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
@@ -114,7 +116,7 @@ func TestIAMPolicyStreamEndToEnd(t *testing.T) {
 	var body struct {
 		Events []iampolicystream.Event `json:"events"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()))
 	require.Len(t, body.Events, 2)
 
 	allow, deny := body.Events[0], body.Events[1]

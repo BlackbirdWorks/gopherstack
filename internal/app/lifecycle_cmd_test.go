@@ -3,7 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -104,7 +106,7 @@ func healthServer(t *testing.T, code int, h healthResponse) (*httptest.Server, s
 		switch {
 		case r.URL.Path == "/_gopherstack/health":
 			w.WriteHeader(code)
-			_ = json.NewEncoder(w).Encode(h)
+			_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), h)
 		case r.URL.Path == "/_gopherstack/reset" && r.Method == http.MethodPost:
 			mu.Lock()
 			posts = append(posts, r.URL.RawQuery)
@@ -607,7 +609,7 @@ func TestLifecycleStatus(t *testing.T) {
 		require.NoError(t, cmd.run(t.Context(), d))
 
 		var rep statusReport
-		require.NoError(t, json.Unmarshal(out.Bytes(), &rep))
+		require.NoError(t, json.Unmarshal(out.Bytes(), &rep, jsonx.V1()))
 		assert.True(t, rep.Running)
 		assert.Equal(t, 4, rep.EnabledCount)
 		assert.Equal(t, 1, rep.DisabledCount)

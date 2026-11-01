@@ -1,7 +1,7 @@
 package persistence_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -220,7 +221,7 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			data, _ := json.Marshal(map[string]int{"i": i})
+			data, _ := json.Marshal(map[string]int{"i": i}, jsonx.V1())
 			if err := s.Save("concurrent", "snap", data); err != nil {
 				errs <- err
 			}
@@ -239,7 +240,7 @@ func TestFileStore_ConcurrentAccess(t *testing.T) {
 	require.NoError(t, err)
 
 	var out map[string]int
-	require.NoError(t, json.Unmarshal(data, &out))
+	require.NoError(t, json.Unmarshal(data, &out, jsonx.V1()))
 	assert.Contains(t, out, "i")
 }
 

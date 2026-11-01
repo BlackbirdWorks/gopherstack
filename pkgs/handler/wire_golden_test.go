@@ -1,7 +1,7 @@
 package handler_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -41,13 +41,13 @@ type goldenSQSOutput struct {
 }
 
 type goldenMetricResult struct {
-	ID         string          `json:"Id"`
-	Label      string          `json:"Label"`
-	StatusCode string          `json:"StatusCode"`
-	Timestamps []float64       `json:"Timestamps"`
-	Values     []float64       `json:"Values"`
-	Messages   []string        `json:"Messages"`
-	Extra      json.RawMessage `json:"Extra,omitempty"`
+	ID         string         `json:"Id"`
+	Label      string         `json:"Label"`
+	StatusCode string         `json:"StatusCode"`
+	Timestamps []float64      `json:"Timestamps"`
+	Values     []float64      `json:"Values"`
+	Messages   []string       `json:"Messages"`
+	Extra      jsontext.Value `json:"Extra,omitempty"`
 }
 
 type goldenMetricOutput struct {
@@ -89,8 +89,8 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 		{
 			name:    "dynamodb empty scan",
 			payload: goldenScanOutput{},
-			body: `{"Items":null,"Count":0,"ScannedCount":0}`,
-			crc:  "4196347728",
+			body:    `{"Items":null,"Count":0,"ScannedCount":0}`,
+			crc:     "4196347728",
 		},
 		{
 			name: "sqs receive",
@@ -105,8 +105,8 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 		{
 			name:    "sqs empty",
 			payload: goldenSQSOutput{},
-			body: `{"Messages":null}`,
-			crc:  "1433687114",
+			body:    `{"Messages":null}`,
+			crc:     "1433687114",
 		},
 		{
 			name: "cloudwatch get metric data",
@@ -116,7 +116,7 @@ func TestWireGoldenJSONRPC(t *testing.T) {
 				StatusCode: "Complete",
 				Timestamps: []float64{awstime.Epoch(ts), awstime.Epoch(ts.Add(time.Minute))},
 				Values:     []float64{1.5, 2, 1e21, 0.000001, 1e-7, 100, 123456789012},
-				Extra:      json.RawMessage(` { "a" : [1, 2] } `),
+				Extra:      jsontext.Value(` { "a" : [1, 2] } `),
 			}}},
 			body: `{"MetricDataResults":[{"Id":"q1","Label":"CPU \u003cavg\u003e","StatusCode":"Complete","Timestamps":[1741064767.1230001,1741064827.1230001],"Values":[1.5,2,1e+21,0.000001,1e-7,100,123456789012],"Messages":null,"Extra":{"a":[1,2]}}]}`,
 			crc:  "2076035819",

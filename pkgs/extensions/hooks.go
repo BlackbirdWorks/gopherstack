@@ -3,7 +3,7 @@ package extensions
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -320,12 +321,12 @@ func (h *HookSet) Post(r *http.Request, rec *Recorder) *HookResponse {
 func (h *HookSet) call(ctx context.Context, b boundHook, path string, req hookRequest, rep any) *HookResponse {
 	req.Extension = b.name
 
-	payload, err := json.Marshal(req)
+	payload, err := json.Marshal(req, jsonx.V1())
 	if err == nil {
 		var out []byte
 
 		if out, err = h.m.post(ctx, b.ep, path, payload, b.timeout); err == nil && len(bytes.TrimSpace(out)) > 0 {
-			err = json.Unmarshal(out, rep)
+			err = json.Unmarshal(out, rep, jsonx.V1())
 		}
 	}
 

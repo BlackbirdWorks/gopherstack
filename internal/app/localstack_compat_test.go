@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/inithooks"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestLocalstackEnvPlan(t *testing.T) {
@@ -355,7 +356,7 @@ func TestLocalstackInternalEndpoints(t *testing.T) {
 			}
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(raw, &body))
+			require.NoError(t, json.Unmarshal(raw, &body, jsonx.V1()))
 			tt.check(t, body)
 		})
 	}

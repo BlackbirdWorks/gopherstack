@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCloudFormationProvisionsCloudHSMCluster(t *testing.T) {
@@ -42,7 +44,7 @@ func TestCloudFormationProvisionsCloudHSMCluster(t *testing.T) {
 		"Outputs": map[string]any{
 			"Id": map[string]any{"Value": map[string]any{"Ref": "Cluster"}},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	_, err = cfn.CreateStack(t.Context(), &cloudformation.CreateStackInput{

@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -698,7 +699,7 @@ func TestDMSDockerMySQLToInProcessTargets(t *testing.T) {
 
 			for _, r := range out.Records {
 				var x dmsKinesisRec
-				require.NoError(t, json.Unmarshal(r.Data, &x))
+				require.NoError(t, json.Unmarshal(r.Data, &x, jsonx.V1()))
 				got = append(got, x)
 			}
 

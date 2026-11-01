@@ -2,7 +2,7 @@ package restroute
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Error is an AWS REST-JSON exception: HTTP status, error code, message and optional extra body members.
@@ -61,7 +62,7 @@ func (r *Request) Decode(v any) error {
 		return nil
 	}
 
-	if err := json.Unmarshal(r.Body, v); err != nil {
+	if err := json.Unmarshal(r.Body, v, jsonx.V1()); err != nil {
 		return Validation("request body is not valid JSON for this operation")
 	}
 

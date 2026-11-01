@@ -3,7 +3,8 @@ package service
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -122,11 +124,10 @@ func (b RPCv2CBORBridge) jsonToRPCv2CBOR(body []byte) ([]byte, error) {
 		return cbor.Encode(cbor.Map{}), nil
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
 
 	var v any
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, err
 	}
 
@@ -159,14 +160,14 @@ func (b RPCv2CBORBridge) anyToCBOR(v any, key string) cbor.Value {
 		return cbor.String(t)
 	case bool:
 		return cbor.Bool(t)
-	case json.Number:
+	case jsonx.Number:
 		return jsonNumberToCBOR(t, b.TimeKeys[key])
 	default:
 		return &cbor.Nil{}
 	}
 }
 
-func jsonNumberToCBOR(n json.Number, timestamp bool) cbor.Value {
+func jsonNumberToCBOR(n jsonx.Number, timestamp bool) cbor.Value {
 	if !timestamp && !strings.ContainsAny(string(n), ".eE") {
 		if u, err := strconv.ParseUint(string(n), 10, 64); err == nil {
 			return cbor.Uint(u)

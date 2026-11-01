@@ -2,7 +2,7 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 )
@@ -25,7 +26,7 @@ func fisWiringRequest(t *testing.T, h *fisbackend.Handler, method, path string, 
 	var bodyBytes []byte
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 		bodyBytes = b
 	}
@@ -94,7 +95,7 @@ func TestWireFISStopConditions_AlarmStopsRealExperiment(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"experimentTemplate"`
 		}
-		require.NoError(t, json.Unmarshal(tplRec.Body.Bytes(), &tplResp))
+		require.NoError(t, json.Unmarshal(tplRec.Body.Bytes(), &tplResp, jsonx.V1()))
 
 		expRec := fisWiringRequest(t, fisH, http.MethodPost, "/experiments", map[string]any{
 			"experimentTemplateId": tplResp.ExperimentTemplate.ID,
@@ -106,7 +107,7 @@ func TestWireFISStopConditions_AlarmStopsRealExperiment(t *testing.T) {
 				ID string `json:"id"`
 			} `json:"experiment"`
 		}
-		require.NoError(t, json.Unmarshal(expRec.Body.Bytes(), &expResp))
+		require.NoError(t, json.Unmarshal(expRec.Body.Bytes(), &expResp, jsonx.V1()))
 		expID := expResp.Experiment.ID
 
 		// Advance past the pending -> initiating -> running transition. This

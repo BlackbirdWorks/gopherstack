@@ -2,7 +2,8 @@ package service
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"hash/crc32"
 	"io"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // JSONErrorMessageMiddleware mirrors a lone "message" or "Message" key in JSON
@@ -92,8 +95,8 @@ func (w *jsonErrorMirrorWriter) flush() {
 }
 
 func mirrorMessageKey(body []byte) []byte {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(body, &obj); err != nil {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(body, &obj, jsonx.V1()); err != nil {
 		return body
 	}
 
@@ -115,7 +118,7 @@ func mirrorMessageKey(body []byte) []byte {
 		obj["message"] = upper
 	}
 
-	out, err := json.Marshal(obj)
+	out, err := json.Marshal(obj, jsonx.V1())
 	if err != nil {
 		return body
 	}

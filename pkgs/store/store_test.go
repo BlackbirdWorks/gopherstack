@@ -1,7 +1,8 @@
 package store_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -336,11 +338,11 @@ func Test_TableSnapshotJSONRoundTrip(t *testing.T) {
 
 	src := newWidgetTable(&widget{ID: "a", Group: "g", Count: 1})
 
-	data, err := json.Marshal(src.Snapshot())
+	data, err := json.Marshal(src.Snapshot(), jsonx.V1())
 	require.NoError(t, err)
 
 	var items []*widget
-	require.NoError(t, json.Unmarshal(data, &items))
+	require.NoError(t, json.Unmarshal(data, &items, jsonx.V1()))
 
 	dst := store.New(widgetKey)
 	dst.Restore(items)
@@ -590,7 +592,7 @@ func Test_RegistryRestoreAllResetsTablesMissingFromData(t *testing.T) {
 	widgets.Put(&widget{ID: "stale"})
 
 	// data intentionally omits "widgets" entirely.
-	require.NoError(t, reg.RestoreAll(map[string]json.RawMessage{}))
+	require.NoError(t, reg.RestoreAll(map[string]jsontext.Value{}))
 
 	assert.Equal(t, 0, widgets.Len())
 }

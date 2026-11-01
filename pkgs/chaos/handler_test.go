@@ -2,7 +2,8 @@ package chaos_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -77,7 +79,7 @@ func TestChaosHandler_Faults_GetEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var rules []chaos.FaultRule
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules, jsonx.V1()))
 	assert.Empty(t, rules)
 }
 
@@ -138,14 +140,14 @@ func TestChaosHandler_Faults_PostReplacesRules(t *testing.T) {
 			reg := service.NewRegistry()
 			e := buildChaosAPI(t, store, reg)
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := callGroup(t, e, http.MethodPost, "/_gopherstack/chaos/faults", bodyBytes)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var rules []chaos.FaultRule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules, jsonx.V1()))
 			assert.Equal(t, tt.wantRules, rules)
 		})
 	}
@@ -188,14 +190,14 @@ func TestChaosHandler_Faults_PatchAppendsRules(t *testing.T) {
 			reg := service.NewRegistry()
 			e := buildChaosAPI(t, store, reg)
 
-			bodyBytes, err := json.Marshal(tt.patch)
+			bodyBytes, err := json.Marshal(tt.patch, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := callGroup(t, e, http.MethodPatch, "/_gopherstack/chaos/faults", bodyBytes)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var rules []chaos.FaultRule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules, jsonx.V1()))
 			assert.Len(t, rules, tt.wantCount)
 		})
 	}
@@ -242,14 +244,14 @@ func TestChaosHandler_Faults_DeleteRemovesRules(t *testing.T) {
 			reg := service.NewRegistry()
 			e := buildChaosAPI(t, store, reg)
 
-			bodyBytes, err := json.Marshal(tt.delete)
+			bodyBytes, err := json.Marshal(tt.delete, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := callGroup(t, e, http.MethodDelete, "/_gopherstack/chaos/faults", bodyBytes)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var rules []chaos.FaultRule
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rules, jsonx.V1()))
 			assert.Len(t, rules, tt.wantCount)
 		})
 	}
@@ -301,7 +303,7 @@ func TestChaosHandler_Effects(t *testing.T) {
 			e := buildChaosAPI(t, store, reg)
 
 			if tt.postBody != nil {
-				bodyBytes, err := json.Marshal(tt.postBody)
+				bodyBytes, err := json.Marshal(tt.postBody, jsonx.V1())
 				require.NoError(t, err)
 
 				postRec := callGroup(t, e, http.MethodPost, "/_gopherstack/chaos/effects", bodyBytes)
@@ -312,7 +314,7 @@ func TestChaosHandler_Effects(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var effects chaos.NetworkEffects
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &effects))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &effects, jsonx.V1()))
 			assert.Equal(t, tt.wantEffects, effects)
 		})
 	}
@@ -407,7 +409,7 @@ func TestChaosHandler_Targets(t *testing.T) {
 			}
 
 			var resp targetsResp
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			names := make([]string, 0, len(resp.Services))
 			for _, s := range resp.Services {
@@ -503,7 +505,7 @@ func TestChaosHandler_TargetsMerge(t *testing.T) {
 			}
 
 			var resp targetsResp
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// Find the entry for the expected service name.
 			var found *targetEntry
@@ -599,8 +601,8 @@ func TestChaosHandler_Activity_GetEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-	var events []json.RawMessage
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&events))
+	var events []jsontext.Value
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &events, jsonx.V1()))
 	assert.Empty(t, events)
 }
 
@@ -655,7 +657,7 @@ func TestChaosHandler_Activity_GetWithEvents(t *testing.T) {
 			var events []struct {
 				Service string `json:"service"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&events))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &events, jsonx.V1()))
 			require.Len(t, events, tt.wantCount)
 
 			if tt.wantFirst != "" {
@@ -676,11 +678,11 @@ func TestChaosHandler_Query_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Faults   []json.RawMessage `json:"faults"`
-		Effects  json.RawMessage   `json:"effects"`
-		Activity []json.RawMessage `json:"activity"`
+		Faults   []jsontext.Value `json:"faults"`
+		Effects  jsontext.Value   `json:"effects"`
+		Activity []jsontext.Value `json:"activity"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Empty(t, resp.Faults)
 	assert.Empty(t, resp.Activity)
 }
@@ -704,7 +706,7 @@ func TestChaosHandler_Query_WithData(t *testing.T) {
 		Effects  chaos.NetworkEffects  `json:"effects"`
 		Activity []chaos.ActivityEvent `json:"activity"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	require.Len(t, resp.Faults, 1)
 	assert.Equal(t, "s3", resp.Faults[0].Service)
 	require.NotNil(t, resp.Faults[0].Probability)
@@ -730,7 +732,7 @@ func TestChaosHandler_ClearFaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var rules []chaos.FaultRule
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&rules))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &rules, jsonx.V1()))
 	assert.Empty(t, rules)
 
 	// Confirm store is empty.
@@ -801,7 +803,7 @@ func TestChaosHandler_DeleteFaultByIndex(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var rules []chaos.FaultRule
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&rules))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &rules, jsonx.V1()))
 				assert.Len(t, rules, tt.wantCount)
 			}
 		})
@@ -821,7 +823,7 @@ func TestChaosHandler_ResetEffects(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var effects chaos.NetworkEffects
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&effects))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &effects, jsonx.V1()))
 	assert.Zero(t, effects.Latency)
 	assert.Zero(t, effects.Jitter)
 

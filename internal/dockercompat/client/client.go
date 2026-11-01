@@ -3,7 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	compatcontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	compatimage "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	compatnetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Opt aliases the Moby client option type.
@@ -104,13 +106,13 @@ var errPushRejected = errors.New("image push failed")
 // pushAnonymousAuth is the base64 of "{}": the X-Registry-Auth header for a registry without credentials.
 const pushAnonymousAuth = "e30="
 
-func pushDigest(aux *json.RawMessage, statusLine, prev string) string {
+func pushDigest(aux *jsontext.Value, statusLine, prev string) string {
 	if aux != nil {
 		var a struct {
 			Digest string `json:"Digest"`
 		}
 
-		if json.Unmarshal(*aux, &a) == nil && a.Digest != "" {
+		if json.Unmarshal(*aux, &a, jsonx.V1()) == nil && a.Digest != "" {
 			return a.Digest
 		}
 	}
