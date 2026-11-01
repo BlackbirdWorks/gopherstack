@@ -28,6 +28,20 @@
         "extra": {"type": "object", "additionalProperties": {"type": ["string", "number", "boolean"]}}
       }
     },
+    "container": {
+      "type": "object",
+      "properties": {
+        "runtime": {"enum": ["docker", "kubernetes"]},
+        "kubernetes": {
+          "type": "object",
+          "properties": {
+            "namespace": {"type": "string"},
+            "fetchImage": {"type": "string", "minLength": 1},
+            "codePort": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        }
+      }
+    },
     "env": {"type": "array"},
     "envFrom": {"type": "array"},
     "service": {

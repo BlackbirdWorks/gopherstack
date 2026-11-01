@@ -63,6 +63,20 @@ serviceAccount:
   name: ""
   annotations: {}
 
+# How container-backed engines (Lambda today) run their containers.
+#   docker:     the docker daemon (see dind below, or DOCKER_HOST via config.extra).
+#   kubernetes: one Pod per container in the release namespace, through the Kubernetes API. Needs no privileged
+#               sidecar; the chart adds a namespace-scoped Role (pods, pods/log) and mounts the ServiceAccount token.
+container:
+  runtime: docker
+  kubernetes:
+    # Namespace for function Pods; empty means the release namespace.
+    namespace: ""
+    # Pod-side initContainer image that downloads and unpacks function code (needs sh, wget, unzip).
+    fetchImage: busybox:1.37.0
+    # Port Gopherstack serves function code on, reachable from function Pods by Pod IP.
+    codePort: 4599
+
 # Docker-in-Docker sidecar so docker-backed engines work in a cluster. Runs privileged.
 dind:
   enabled: false

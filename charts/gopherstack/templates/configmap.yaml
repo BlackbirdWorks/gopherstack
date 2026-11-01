@@ -25,6 +25,12 @@ data:
   {{- if .Values.dind.enabled }}
   DOCKER_HOST: "tcp://127.0.0.1:2375"
   {{- end }}
+  {{- if eq .Values.container.runtime "kubernetes" }}
+  CONTAINER_RUNTIME: "kubernetes"
+  CONTAINER_K8S_NAMESPACE: {{ default .Release.Namespace .Values.container.kubernetes.namespace | quote }}
+  CONTAINER_K8S_FETCH_IMAGE: {{ .Values.container.kubernetes.fetchImage | quote }}
+  CONTAINER_K8S_CODE_PORT: {{ .Values.container.kubernetes.codePort | quote }}
+  {{- end }}
   {{- range $k, $v := .Values.config.extra }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}

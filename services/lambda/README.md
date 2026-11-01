@@ -8,13 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 11 (11 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
+- CONTAINER_RUNTIME=kubernetes (Pod executor, gopherstack-49qct.87): EFS file systems, hot reload, layer extensions, LAMBDA_DOCKER_FLAGS and host DNS/CA injection are not supported on Pods; those functions fail to start or skip the feature. Tracked in gopherstack-49qct.88.
 - Extensions API: the Telemetry/Logs API (/2022-07-01/telemetry, /2020-08-15/logs) is not served; extensions that subscribe get 404.
 - Extensions API: container-image functions do not start /opt/extensions executables (no image entrypoint inspection; only Zip functions with layers are wrapped by the extension launcher), and internal extensions registering for SHUTDOWN are not rejected (internal vs external is not distinguishable at register time).
 - Extensions API: the error-type strings in register 4xx bodies (Extension.InvalidExtensionName, Extension.TooManyExtensions, Extension.RegistrationClosed, Extension.AlreadyRegistered, Extension.InvalidEventType) are unverified recall; the AWS docs list only the status codes. SHUTDOWN waits until each extension took the event (up to 2s), not until the process exits.

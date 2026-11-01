@@ -29,7 +29,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "gopherstack.serviceAccountName" . }}
-      automountServiceAccountToken: false
+      automountServiceAccountToken: {{ eq .Values.container.runtime "kubernetes" }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -44,14 +44,31 @@ spec:
             {{- with .Values.envFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- with .Values.env }}
+          {{- if or .Values.env (eq .Values.container.runtime "kubernetes") }}
           env:
+            {{- if eq .Values.container.runtime "kubernetes" }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: LAMBDA_DOCKER_HOST
+              value: $(POD_IP)
+            - name: CONTAINER_K8S_ADVERTISE_HOST
+              value: $(POD_IP)
+            {{- end }}
+            {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if eq .Values.container.runtime "kubernetes" }}
+            - name: fn-code
+              containerPort: {{ .Values.container.kubernetes.codePort }}
+              protocol: TCP
+            {{- end }}
             {{- range .Values.service.extraPorts }}
             - name: {{ .name }}
               containerPort: {{ .port }}
