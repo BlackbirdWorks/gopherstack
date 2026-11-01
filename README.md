@@ -135,6 +135,14 @@ docker compose up -d
 For Lambda support the container needs access to a container runtime — see
 [docs/docker.md](docs/docker.md).
 
+### Kubernetes (Helm)
+
+```bash
+helm install gopherstack ./charts/gopherstack
+```
+
+See [docs/kubernetes.md](docs/kubernetes.md).
+
 ### Testcontainers (Go)
 
 Gopherstack ships a reusable [Testcontainers for Go](https://golang.testcontainers.org/)
@@ -1149,6 +1157,7 @@ cdk deploy
 
 - [Quickstart](docs/quickstart.md)
 - [Running with Docker](docs/docker.md)
+- [Running on Kubernetes (Helm)](docs/kubernetes.md)
 - [Security group enforcement](docs/security-groups.md)
 - [Migrating from LocalStack](docs/migration.md)
 - [Architecture](docs/architecture/README.md)

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gopherstack.fullname" . }}
+  labels:
+    {{- include "gopherstack.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.service.port | quote }}
+  REGION: {{ .Values.config.region | quote }}
+  ACCOUNT_ID: {{ .Values.config.accountId | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  GOPHERSTACK_ENGINES: {{ .Values.config.engines | quote }}
+  GOPHERSTACK_ENFORCE_IAM: {{ .Values.config.enforceIam | quote }}
+  GOPHERSTACK_LOCALSTACK_COMPAT: {{ .Values.config.localstackCompat | quote }}
+  {{- with .Values.config.services }}
+  GOPHERSTACK_SERVICES: {{ join "," . | quote }}
+  {{- end }}
+  {{- with .Values.config.disableServices }}
+  GOPHERSTACK_DISABLE_SERVICES: {{ join "," . | quote }}
+  {{- end }}
+  {{- if .Values.persistence.enabled }}
+  PERSIST: "true"
+  GOPHERSTACK_DATA_DIR: {{ .Values.persistence.mountPath | quote }}
+  {{- end }}
+  {{- if .Values.dind.enabled }}
+  DOCKER_HOST: "tcp://127.0.0.1:2375"
+  {{- end }}
+  {{- range $k, $v := .Values.config.extra }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
