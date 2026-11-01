@@ -52,6 +52,9 @@ const (
 	ociDNSKeyDisplay = "displayName"
 	ociDNSKeyComp    = "compartmentId"
 	ociDNSKeySecret  = "secret"
+	ociDNSKeyPort    = "port"
+	ociDNSKeyType    = "type"
+	ociDNSKeyEnabled = "enabled"
 	ociDNSOpAdd      = "ADD"
 	ociDNSOpRemove   = "REMOVE"
 	ociDNSScopeGlob  = "GLOBAL"
@@ -77,12 +80,12 @@ var ociDNSQueryKeys = map[string][]string{
 		ociDNSKeyScope, ociDNSKeyViewID, ociDNSKeyDomain, "domainContains", ociDNSKeyRtype, "zoneVersion",
 		ociDNSKeyLimit, ociDNSKeyPage, ociDNSKeySortBy, ociDNSKeySortOrd,
 	},
-	ociDNSViews:      {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
-	ociDNSResolvers:  {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
-	ociDNSEndpoints:  {ociDNSKeyLimit, ociDNSKeyPage},
-	ociDNSTsigKeys:   {ociDNSKeyComp, ociDNSKeyName, ociDNSKeyLimit, ociDNSKeyPage},
-	ociDNSPolicies:   {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
-	ociDNSZoneItem:   {ociDNSKeyScope, ociDNSKeyViewID},
+	ociDNSViews:     {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
+	ociDNSResolvers: {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
+	ociDNSEndpoints: {ociDNSKeyLimit, ociDNSKeyPage},
+	ociDNSTsigKeys:  {ociDNSKeyComp, ociDNSKeyName, ociDNSKeyLimit, ociDNSKeyPage},
+	ociDNSPolicies:  {ociDNSKeyComp, ociDNSKeyDisplay, ociDNSKeyLimit, ociDNSKeyPage},
+	ociDNSZoneItem:  {ociDNSKeyScope, ociDNSKeyViewID},
 }
 
 // ociDNSQueryTypes are the record types the Try it panel may ask for.
@@ -126,62 +129,65 @@ func (h *DashboardHandler) registerOCIDNSRoutes() {
 	h.SubRouter.Add(http.MethodGet, ociDNSPrefix+"/dataplane", guard(func(c *echo.Context) error {
 		port := ops.DataPlanePort()
 
-		return c.JSON(http.StatusOK, map[string]any{"enabled": port > 0, "port": port})
+		return c.JSON(http.StatusOK, map[string]any{ociDNSKeyEnabled: port > 0, ociDNSKeyPort: port})
 	}))
 
 	h.SubRouter.Add(http.MethodPost, ociDNSPrefix+"/query", guard(func(c *echo.Context) error {
 		return ociDNSTryIt(c, ops.DataPlanePort())
 	}))
 
-	serve := guard(func(c *echo.Context) error {
-		r := c.Request()
-
-		parts, ok := ociSplitPath(strings.TrimPrefix(r.URL.EscapedPath(), ociDNSPrefix+"/api"))
-		if !ok {
-			return ociInvalid(c, "unsupported OCI DNS proxy request")
-		}
-
-		call, ok := ociDNSResolve(r.Method, parts)
-		if !ok {
-			return ociInvalid(c, "unsupported OCI DNS proxy request")
-		}
-
-		var body []byte
-
-		if call.body != nil {
-			if body, ok = call.body(c); !ok {
-				return ociInvalid(c, "invalid OCI DNS request")
-			}
-		}
-
-		ifMatch := ""
-		if call.cond {
-			ifMatch = r.Header.Get("If-Match")
-			if len(ifMatch) > ociDNSMaxName {
-				return ociInvalid(c, "invalid If-Match header")
-			}
-		}
-
-		query := ociArtQuery(r.URL.Query(), ociDNSQueryKeys[call.coll])
-		r.Header = http.Header{}
-
-		if ifMatch != "" {
-			r.Header.Set("If-Match", ifMatch)
-		}
-
-		r.URL.RawQuery = query
-
-		rec := ociArtForward(c, inner, call.path, body)
-		if rec.Code < http.StatusMultipleChoices {
-			rec.Body = bytes.NewBuffer(ociDNSScrub(rec.Body.Bytes()))
-		}
-
-		return ociRelay(c, rec, "opc-next-page", "etag", "opc-request-id", "opc-total-items")
-	})
+	serve := guard(func(c *echo.Context) error { return ociDNSServe(c, inner) })
 
 	for _, m := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
 		h.SubRouter.Add(m, ociDNSPrefix+"/api/*", serve)
 	}
+}
+
+// ociDNSServe forwards one allow-listed control-plane call.
+func ociDNSServe(c *echo.Context, inner *echo.Echo) error {
+	r := c.Request()
+
+	parts, ok := ociSplitPath(strings.TrimPrefix(r.URL.EscapedPath(), ociDNSPrefix+"/api"))
+	if !ok {
+		return ociInvalid(c, "unsupported OCI DNS proxy request")
+	}
+
+	call, ok := ociDNSResolve(r.Method, parts)
+	if !ok {
+		return ociInvalid(c, "unsupported OCI DNS proxy request")
+	}
+
+	var body []byte
+
+	if call.body != nil {
+		if body, ok = call.body(c); !ok {
+			return ociInvalid(c, "invalid OCI DNS request")
+		}
+	}
+
+	ifMatch := ""
+	if call.cond {
+		ifMatch = r.Header.Get("If-Match")
+		if len(ifMatch) > ociDNSMaxName {
+			return ociInvalid(c, "invalid If-Match header")
+		}
+	}
+
+	query := ociArtQuery(r.URL.Query(), ociDNSQueryKeys[call.coll])
+	r.Header = http.Header{}
+
+	if ifMatch != "" {
+		r.Header.Set("If-Match", ifMatch)
+	}
+
+	r.URL.RawQuery = query
+
+	rec := ociArtForward(c, inner, call.path, body)
+	if rec.Code < http.StatusMultipleChoices {
+		rec.Body = bytes.NewBuffer(ociDNSScrub(rec.Body.Bytes()))
+	}
+
+	return ociRelay(c, rec, "opc-next-page", "etag", "opc-request-id", "opc-total-items")
 }
 
 // ociDNSResolve maps a proxy request to its emulator call; false means the request is outside the allow-list.
@@ -458,6 +464,6 @@ func ociDNSTryIt(c *echo.Context, port int) error {
 	return c.JSON(http.StatusOK, map[string]any{
 		"rcode": mdns.RcodeToString[resp.Rcode], "authoritative": resp.Authoritative,
 		"answer": ociDNSRRs(resp.Answer), "authority": ociDNSRRs(resp.Ns), "additional": ociDNSRRs(resp.Extra),
-		"name": fqdn, "type": in.Type, "server": addr,
+		ociDNSKeyName: fqdn, ociDNSKeyType: in.Type, "server": addr,
 	})
 }

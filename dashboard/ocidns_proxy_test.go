@@ -114,7 +114,7 @@ func TestOCIDNSProxyZoneAndRecordLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 	assert.Contains(t, got.Body.String(), `"rdata":"192.0.2.1"`)
 	assert.Contains(t, got.Body.String(), `"rtype":"CNAME"`)
-	require.NotEmpty(t, got.Header().Get("etag"), "etag is relayed for If-Match")
+	require.NotEmpty(t, got.Header().Get("ETag"), "etag is relayed for If-Match")
 
 	edit := f.proxy(t, http.MethodPatch, records, `{"items":[
 	 {"operation":"REMOVE","domain":"www.example.com","rtype":"A","rdata":"192.0.2.1","ttl":60},
@@ -141,7 +141,7 @@ func TestOCIDNSProxyEtagConflict(t *testing.T) {
 	records := dnsAPI + "/zones/" + id + "/records"
 
 	first := f.proxy(t, http.MethodGet, records, "")
-	etag := first.Header().Get("etag")
+	etag := first.Header().Get("ETag")
 	require.NotEmpty(t, etag)
 
 	body := `{"items":[{"operation":"ADD","domain":"a.conflict.example","rtype":"A","rdata":"192.0.2.1","ttl":60}]}`
@@ -190,21 +190,35 @@ func TestOCIDNSProxyRejectsOutsideAllowList(t *testing.T) {
 		{"empty api", http.MethodGet, dnsAPI + "/", ""},
 		{"unknown collection", http.MethodGet, dnsAPI + "/admin", ""},
 		{"admin path", http.MethodPost, dnsAPI + "/_gopherstack/keys", `{}`},
-		{"secondary zone", http.MethodPost, dnsAPI + "/zones",
-			`{"name":"x.example","compartmentId":"` + dnsComp + `","zoneType":"SECONDARY"}`},
-		{"private zone without view", http.MethodPost, dnsAPI + "/zones",
-			`{"name":"x.example","compartmentId":"` + dnsComp + `","scope":"PRIVATE"}`},
-		{"global zone with view", http.MethodPost, dnsAPI + "/zones",
-			`{"name":"x.example","compartmentId":"` + dnsComp + `","scope":"GLOBAL","viewId":"v"}`},
+		{
+			"secondary zone", http.MethodPost, dnsAPI + "/zones",
+			`{"name":"x.example","compartmentId":"` + dnsComp + `","zoneType":"SECONDARY"}`,
+		},
+		{
+			"private zone without view", http.MethodPost, dnsAPI + "/zones",
+			`{"name":"x.example","compartmentId":"` + dnsComp + `","scope":"PRIVATE"}`,
+		},
+		{
+			"global zone with view", http.MethodPost, dnsAPI + "/zones",
+			`{"name":"x.example","compartmentId":"` + dnsComp + `","scope":"GLOBAL","viewId":"v"}`,
+		},
 		{"zone without name", http.MethodPost, dnsAPI + "/zones", `{"compartmentId":"` + dnsComp + `"}`},
-		{"unknown operation", http.MethodPatch, rec,
-			`{"items":[{"operation":"REQUIRE","domain":"a.reject.example","rtype":"A","rdata":"1.1.1.1","ttl":1}]}`},
-		{"bad record type", http.MethodPatch, rec,
-			`{"items":[{"operation":"ADD","domain":"a.reject.example","rtype":"ALIAS","rdata":"x","ttl":1}]}`},
-		{"add without ttl", http.MethodPatch, rec,
-			`{"items":[{"operation":"ADD","domain":"a.reject.example","rtype":"A","rdata":"1.1.1.1"}]}`},
-		{"bad domain", http.MethodPatch, rec,
-			`{"items":[{"operation":"ADD","domain":"a b","rtype":"A","rdata":"1.1.1.1","ttl":1}]}`},
+		{
+			"unknown operation", http.MethodPatch, rec,
+			`{"items":[{"operation":"REQUIRE","domain":"a.reject.example","rtype":"A","rdata":"1.1.1.1","ttl":1}]}`,
+		},
+		{
+			"bad record type", http.MethodPatch, rec,
+			`{"items":[{"operation":"ADD","domain":"a.reject.example","rtype":"ALIAS","rdata":"x","ttl":1}]}`,
+		},
+		{
+			"add without ttl", http.MethodPatch, rec,
+			`{"items":[{"operation":"ADD","domain":"a.reject.example","rtype":"A","rdata":"1.1.1.1"}]}`,
+		},
+		{
+			"bad domain", http.MethodPatch, rec,
+			`{"items":[{"operation":"ADD","domain":"a b","rtype":"A","rdata":"1.1.1.1","ttl":1}]}`,
+		},
 		{"empty items", http.MethodPatch, rec, `{"items":[]}`},
 		{"malformed body", http.MethodPatch, rec, `{`},
 	}
@@ -260,7 +274,8 @@ func TestOCIDNSProxyReadOnlyLists(t *testing.T) {
 	policy := f.direct(t, http.MethodPost, "/20180115/steeringPolicies",
 		`{"compartmentId":"`+dnsComp+`","displayName":"failover","template":"FAILOVER","ttl":30,
 		 "answers":[{"name":"a","rtype":"A","rdata":"192.0.2.9","pool":"p"}],
-		 "rules":[{"ruleType":"FILTER","defaultAnswerData":[{"answerCondition":"answer.isDisabled != true","shouldKeep":true}]}]}`)
+		 "rules":[{"ruleType":"FILTER",
+		  "defaultAnswerData":[{"answerCondition":"answer.isDisabled != true","shouldKeep":true}]}]}`)
 	require.Less(t, policy.Code, http.StatusMultipleChoices, policy.Body.String())
 
 	tests := []struct {
@@ -309,25 +324,21 @@ func TestOCIDNSProxyTryIt(t *testing.T) {
 		got := query(`{"name":"www.tryit.example","type":"A"}`)
 		require.Equal(t, http.StatusOK, got.Code, got.Body.String())
 
-		var out struct {
-			Rcode         string `json:"rcode"`
-			Server        string `json:"server"`
-			Authoritative bool   `json:"authoritative"`
-			Answer        []struct {
-				Name string `json:"name"`
-				Type string `json:"type"`
-				Data string `json:"data"`
-				TTL  int    `json:"ttl"`
-			} `json:"answer"`
-		}
+		var out map[string]any
 
 		require.NoError(t, json.Unmarshal(got.Body.Bytes(), &out))
-		assert.Equal(t, "NOERROR", out.Rcode)
-		assert.True(t, out.Authoritative)
-		require.Len(t, out.Answer, 1)
-		assert.Equal(t, "A", out.Answer[0].Type)
-		assert.Equal(t, "192.0.2.77", out.Answer[0].Data)
-		assert.Equal(t, 60, out.Answer[0].TTL)
+		assert.Equal(t, "NOERROR", out["rcode"])
+		assert.Equal(t, true, out["authoritative"])
+
+		answer, ok := out["answer"].([]any)
+		require.True(t, ok)
+		require.Len(t, answer, 1)
+
+		rr, ok := answer[0].(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "A", rr["type"])
+		assert.Equal(t, "192.0.2.77", rr["data"])
+		assert.InDelta(t, 60, rr["ttl"], 0)
 	})
 
 	t.Run("loopback only", func(t *testing.T) {

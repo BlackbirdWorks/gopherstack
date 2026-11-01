@@ -129,13 +129,16 @@ func TestOCIDatabaseProxyLifecycle(t *testing.T) {
 	assert.Contains(t, got.Body.String(), `"computeCount":4`)
 	assert.Contains(t, got.Body.String(), `"isFreeTier":false`, "fields outside the allow-list are dropped")
 
+	const longTerm = `,"isLongTermBackup":true,"retentionPeriodInDays":365}`
+
 	bk := f.proxy(t, http.MethodPost, dbAPI+"/autonomousDatabaseBackups",
-		`{"autonomousDatabaseId":"`+id+`","displayName":"manual-1","isLongTermBackup":true,"retentionPeriodInDays":365}`)
+		`{"autonomousDatabaseId":"`+id+`","displayName":"manual-1"`+longTerm)
 	require.Equal(t, http.StatusAccepted, bk.Code, bk.Body.String())
 	assert.Contains(t, bk.Body.String(), `"displayName":"manual-1"`)
 	assert.NotContains(t, bk.Body.String(), "LONGTERM")
 
-	bks := f.proxy(t, http.MethodGet, dbAPI+"/autonomousDatabaseBackups?compartmentId="+dbComp+"&autonomousDatabaseId="+id, "")
+	query := "?compartmentId=" + dbComp + "&autonomousDatabaseId=" + id
+	bks := f.proxy(t, http.MethodGet, dbAPI+"/autonomousDatabaseBackups"+query, "")
 	require.Equal(t, http.StatusOK, bks.Code, bks.Body.String())
 	assert.Contains(t, bks.Body.String(), `"manual-1"`)
 
@@ -272,8 +275,10 @@ func TestOCIDatabaseProxyRejectsOutsideAllowList(t *testing.T) {
 		{"too deep", http.MethodGet, item + "/a/b/c", ""},
 		{"bad db name", http.MethodPost, dbAPI + "/autonomousDatabases", strings.Replace(valid, `"X"`, `"1 bad"`, 1)},
 		{"bad workload", http.MethodPost, dbAPI + "/autonomousDatabases", strings.Replace(valid, `"OLTP"`, `"EXA"`, 1)},
-		{"no password", http.MethodPost, dbAPI + "/autonomousDatabases",
-			`{"compartmentId":"` + dbComp + `","dbName":"X","dbWorkload":"OLTP"}`},
+		{
+			"no password", http.MethodPost, dbAPI + "/autonomousDatabases",
+			`{"compartmentId":"` + dbComp + `","dbName":"X","dbWorkload":"OLTP"}`,
+		},
 		{"empty update", http.MethodPut, item, `{"freeformTags":{"a":"b"}}`},
 		{"bad acl", http.MethodPut, item, `{"whitelistedIps":["a b"]}`},
 		{"empty display name", http.MethodPut, item, `{"displayName":""}`},

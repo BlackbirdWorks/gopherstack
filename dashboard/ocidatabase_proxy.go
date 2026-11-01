@@ -55,10 +55,10 @@ var (
 var ociDBQueryKeys = map[string][]string{
 	ociDBDatabases: {
 		ociDBKeyComp, ociDBKeyState, ociDBKeyDisplay, "dbWorkload", "isFreeTier", ociDBKeyLimit, ociDBKeyPage,
-		"sortBy", "sortOrder",
+		ociDNSKeySortBy, ociDNSKeySortOrd,
 	},
 	ociDBBackups: {
-		ociDBKeyDBID, ociDBKeyComp, ociDBKeyState, ociDBKeyLimit, ociDBKeyPage, "sortBy", "sortOrder",
+		ociDBKeyDBID, ociDBKeyComp, ociDBKeyState, ociDBKeyLimit, ociDBKeyPage, ociDNSKeySortBy, ociDNSKeySortOrd,
 	},
 }
 
@@ -208,7 +208,9 @@ func ociDBBackupCall(method string, parts []string) (ociDBCall, bool) {
 
 func ociDBIDOK(seg string) bool { return ociDBIDRe.MatchString(unescapedPath(seg)) }
 
-func ociDBActionOK(a string) bool { return a == aciPxStart || a == aciPxStop || a == "restart" }
+func ociDBActionOK(a string) bool { return a == aciPxStart || a == aciPxStop || a == aciPxRestart }
+
+func ociDBACLBad(s string) bool { return !ociDBACLRe.MatchString(s) }
 
 func ociDBText(s string) bool { return s != "" && len(s) <= ociDBMaxName }
 
@@ -300,7 +302,7 @@ func ociDBUpdateBody(c *echo.Context) ([]byte, bool) {
 	}
 
 	if in.ACL != nil {
-		if len(*in.ACL) > ociDBMaxACL || slices.ContainsFunc(*in.ACL, func(s string) bool { return !ociDBACLRe.MatchString(s) }) {
+		if len(*in.ACL) > ociDBMaxACL || slices.ContainsFunc(*in.ACL, ociDBACLBad) {
 			return nil, false
 		}
 
