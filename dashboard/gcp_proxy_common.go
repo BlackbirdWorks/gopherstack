@@ -239,6 +239,7 @@ func (h *DashboardHandler) registerConsolePageRoutes() {
 	h.registerAzureContainerAppsRoutes()
 	h.registerAzureVMRoutes()
 	h.registerAzureAKSRoutes()
+	h.registerAzureNetworkRoutes()
 	h.registerOCIContainerEngineRoutes()
 	h.registerOCIMySQLRoutes()
 	h.registerOCILoggingRoutes()

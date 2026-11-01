@@ -38,6 +38,7 @@ export const ICON_IDS: ReadonlySet<string> = new Set([
   "azure-functions",
   "azure-keyvault",
   "azure-monitor",
+  "azure-network",
   "azure-queue",
   "azure-servicebus",
   "azure-table",

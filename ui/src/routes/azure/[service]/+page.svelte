@@ -22,6 +22,7 @@
 	import QueueDashboard from '#lib/components/azure/QueueDashboard.svelte';
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
 	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
+	import NetworkingDashboard from '#lib/components/azure/NetworkingDashboard.svelte';
 	import VirtualMachinesDashboard from '#lib/components/azure/VirtualMachinesDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
 
@@ -75,6 +76,8 @@
 	<FlexibleServerDashboard />
 {:else if service?.id === 'apim'}
 	<ApiManagementDashboard />
+{:else if service?.id === 'network'}
+	<NetworkingDashboard />
 {:else if service?.id === 'entra'}
 	<EntraDashboard />
 {:else}

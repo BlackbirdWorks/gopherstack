@@ -189,6 +189,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     defaultPort: 10006,
   },
   {
+    id: "network",
+    label: "Networking",
+    description:
+      "Azure virtual networks, security groups, load balancers, application gateways and firewalls (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
     id: "entra",
     label: "Entra ID & access",
     description:
