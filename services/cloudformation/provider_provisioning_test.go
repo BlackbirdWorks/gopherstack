@@ -1,13 +1,13 @@
 package cloudformation_test
 
 import (
-	"github.com/aws/aws-sdk-go-v2/aws"
-	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"log/slog"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfnsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -41,7 +41,8 @@ func TestProvider_Init_ProvisioningDelay(t *testing.T) {
 			t.Parallel()
 
 			synctest.Test(t, func(t *testing.T) {
-				svc, err := (&cloudformation.Provider{}).Init(&service.AppContext{Logger: slog.Default(), Config: tt.config})
+				appCtx := &service.AppContext{Logger: slog.Default(), Config: tt.config}
+				svc, err := (&cloudformation.Provider{}).Init(appCtx)
 				require.NoError(t, err)
 
 				h, ok := svc.(*cloudformation.Handler)
