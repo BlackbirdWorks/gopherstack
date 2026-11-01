@@ -48,20 +48,25 @@ func TestOCIDatabaseEngineFollowsGlobalSwitch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		cli  CLI
+		cli  func() *CLI
 		name string
 		want string
 	}{
-		{name: "stub-default", cli: CLI{OCIDatabase: ocidatabase.DefaultSettings()}, want: ocidatabase.EngineStub},
+		{
+			name: "stub-default", want: ocidatabase.EngineStub,
+			cli: func() *CLI { return &CLI{OCIDatabase: ocidatabase.DefaultSettings()} },
+		},
 		{
 			name: "explicit-docker", want: ocidatabase.EngineDocker,
-			cli: CLI{OCIDatabase: ocidatabase.Settings{Engine: ocidatabase.EngineDocker}},
+			cli: func() *CLI { return &CLI{OCIDatabase: ocidatabase.Settings{Engine: ocidatabase.EngineDocker}} },
 		},
 		{
 			name: "engines-switch", want: ocidatabase.EngineDocker,
-			cli: CLI{
-				OCIDatabase: ocidatabase.DefaultSettings(),
-				engineModes: map[string]string{"oci-database-engine": ocidatabase.EngineDocker},
+			cli: func() *CLI {
+				return &CLI{
+					OCIDatabase: ocidatabase.DefaultSettings(),
+					engineModes: map[string]string{"oci-database-engine": ocidatabase.EngineDocker},
+				}
 			},
 		},
 	}
@@ -70,7 +75,7 @@ func TestOCIDatabaseEngineFollowsGlobalSwitch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			assert.Equal(t, tt.want, tt.cli.GetOCIDatabaseEngine())
+			assert.Equal(t, tt.want, tt.cli().GetOCIDatabaseEngine())
 		})
 	}
 }
