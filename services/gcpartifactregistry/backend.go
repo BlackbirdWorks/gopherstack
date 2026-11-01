@@ -49,6 +49,7 @@ type InMemoryBackend struct {
 	sessions map[string]*uploadSession
 	objects  ObjectStore
 	remote   remoteOptions
+	ticker   TickerFunc
 	raw      http.Handler
 	app      http.Handler
 	dataDir  string

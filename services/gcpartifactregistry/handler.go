@@ -33,6 +33,7 @@ type Handler struct {
 	Backend *InMemoryBackend
 	srvMu   *lockmetrics.RWMutex
 	srv     *grpc.Server
+	cancel  context.CancelFunc
 	wg      *sync.WaitGroup
 	addr    string
 	Port    int
@@ -154,15 +155,27 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		}
 	})
 
+	loopCtx, cancel := context.WithCancel(workerCtx)
+
+	h.srvMu.Lock("StartWorker")
+	h.cancel = cancel
+	h.srvMu.Unlock()
+
+	h.wg.Go(func() { h.Backend.CleanupLoop(loopCtx) })
+
 	return nil
 }
 
 // Shutdown stops the server, forcing a close after a short grace period.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv := h.srv
-	h.srv = nil
+	srv, cancel := h.srv, h.cancel
+	h.srv, h.cancel = nil, nil
 	h.srvMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if srv == nil {
 		return
