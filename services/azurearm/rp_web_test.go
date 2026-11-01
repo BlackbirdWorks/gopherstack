@@ -74,8 +74,8 @@ func TestWebProvider_PlanSnapshotRoundTrip(t *testing.T) {
 type fnRecorder struct {
 	azurearm.FunctionApps
 
-	mu    sync.Mutex
 	names []string
+	mu    sync.Mutex
 }
 
 func (f *fnRecorder) PutApp(name string, _ azurearm.FunctionAppConfig) (azurearm.FunctionAppInfo, error) {

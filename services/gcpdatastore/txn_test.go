@@ -148,7 +148,8 @@ func TestKeysWithSeparatorBytesDoNotCollide(t *testing.T) {
 	require.NoError(t, err)
 
 	for key, want := range map[string]*datastorepb.Key{"nested": nested, "flat": flat} {
-		resp, lerr := e.raw.Lookup(t.Context(), &datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{want}})
+		req := &datastorepb.LookupRequest{ProjectId: project, Keys: []*datastorepb.Key{want}}
+		resp, lerr := e.raw.Lookup(t.Context(), req)
 		require.NoError(t, lerr)
 		require.Len(t, resp.GetFound(), 1)
 		assert.Equal(t, key, resp.GetFound()[0].GetEntity().GetProperties()["v"].GetStringValue())
