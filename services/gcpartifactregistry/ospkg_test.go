@@ -24,7 +24,7 @@ func getBody(t *testing.T, url string) (int, []byte) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testHTTP.Do(req)
 	require.NoError(t, err)
 
 	defer func() { _ = resp.Body.Close() }()
@@ -155,7 +155,7 @@ func TestAptRepositoryServesUploadedPackages(t *testing.T) {
 
 	req.Host = "us-central1-apt.pkg.dev"
 
-	resp, rerr := http.DefaultClient.Do(req)
+	resp, rerr := testHTTP.Do(req)
 	require.NoError(t, rerr)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "the pkg.dev host form serves the same repository")

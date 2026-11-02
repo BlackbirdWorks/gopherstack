@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"testing"
+	"time"
 
 	artifactregistry "cloud.google.com/go/artifactregistry/apiv1"
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -17,9 +18,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
+
+// testHTTP is the client the tests use against the emulator and httptest upstreams.
+var testHTTP = httpclient.New(time.Minute) //nolint:gochecknoglobals // shared test client
 
 const (
 	project = "test-project"

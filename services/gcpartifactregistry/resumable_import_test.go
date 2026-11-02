@@ -89,7 +89,7 @@ func TestResumableChunkProtocol(t *testing.T) {
 			req.Header.Set(k, v)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := testHTTP.Do(req)
 		require.NoError(t, err)
 		require.NoError(t, resp.Body.Close())
 

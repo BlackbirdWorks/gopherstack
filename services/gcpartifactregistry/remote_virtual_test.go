@@ -292,7 +292,7 @@ func putMaven(t *testing.T, url string, body []byte) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, url, bytes.NewReader(body))
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testHTTP.Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -331,7 +331,7 @@ func TestVirtualMavenRepositoryMergesByPriority(t *testing.T) {
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPut, root+"virt"+art, strings.NewReader("x"))
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testHTTP.Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, "virtual repositories are read-only")
@@ -368,7 +368,7 @@ func publishNPM(t *testing.T, e *env, repo, name, version string, tarball []byte
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testHTTP.Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
