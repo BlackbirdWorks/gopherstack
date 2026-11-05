@@ -104,6 +104,8 @@ type samTranslator struct {
 	conditions map[string]any
 	deploys    []*samDeployPref
 	sharedPlan samSharedPlan
+	curTags    map[string]any
+	bucketTags map[string]map[string]any
 }
 
 func samErr(id, format string, args ...any) error {
@@ -158,6 +160,7 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		refs:       map[string]string{},
 		params:     map[string]any{},
 		conditions: map[string]any{},
+		bucketTags: map[string]map[string]any{},
 	}
 	for name, p := range asMap(doc["Parameters"]) {
 		if def, ok := asMap(p)["Default"]; ok {
@@ -253,13 +256,13 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 	typ, _ := r[samKeyType].(string)
 	switch typ {
 	case samResPrefix + samKeyFunction:
-		return t.translateFunction(id, r)
+		return t.translateWithTags(samKeyFunction, r, func() error { return t.translateFunction(id, r) })
 	case samResPrefix + "SimpleTable":
 		return t.translateSimpleTable(id, r)
 	case samResPrefix + "LayerVersion":
 		return t.translateLayer(id, r)
 	case samResPrefix + "StateMachine":
-		return t.translateStateMachine(id, r)
+		return t.translateWithTags("StateMachine", r, func() error { return t.translateStateMachine(id, r) })
 	case samResPrefix + "Application":
 		return t.translateApplication(id, r)
 	case samResPrefix + "Api", samResPrefix + "HttpApi", samTypeConnector:

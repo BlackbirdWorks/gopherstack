@@ -26,7 +26,7 @@ const (
 func samHTTPAPIProps() map[string]bool {
 	return keySet(samKeyStageName, samKeyStageVars, samKeyCorsProp, samKeyCors, samKeyDesc, "DefaultRouteSettings",
 		samKeyRouteSetting, "AccessLogSettings", samKeyTags, "DisableExecuteApiEndpoint", "FailOnWarnings", "Name",
-		samAuthKey, "DefinitionBody", "DefinitionUri", samDomainKey)
+		samAuthKey, "DefinitionBody", "DefinitionUri", samDomainKey, samKeyPropagateTags)
 }
 
 type samHTTPRoute struct {
@@ -135,6 +135,8 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 				id: samImplicitHTTPAPI, stageName: samDefaultStage, props: props, managed: true,
 			}
 		}
+
+		t.addImplicitTags(t.httpAPIs[samImplicitHTTPAPI].props)
 
 		return t.httpAPIs[samImplicitHTTPAPI], nil
 	}

@@ -215,9 +215,6 @@ func (t *samTranslator) putFunctionRole(
 		trust = asMap(doc)
 	}
 	tags := samTags(asMap(props[scopeTags]))
-	if props["PropagateTags"] != true {
-		tags = samTags(nil)
-	}
 	res := map[string]any{
 		samKeyAssumeRole:  trust,
 		samKeyManagedARNs: toSubs(managed),

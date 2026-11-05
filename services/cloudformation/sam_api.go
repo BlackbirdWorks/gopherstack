@@ -128,6 +128,8 @@ func (t *samTranslator) apiFor(fnID string, restAPIID any) (*samAPI, error) {
 				stageRaw: samImplicitStage, props: props}
 		}
 
+		t.addImplicitTags(t.apis[samImplicitAPI].props)
+
 		return t.apis[samImplicitAPI], nil
 	}
 	ref, plain := restAPIID.(string)
@@ -158,6 +160,10 @@ func (t *samTranslator) finalizeAPIs() error {
 func (t *samTranslator) emitAPI(a *samAPI) error {
 	t.pass = passAttrs(a.raw)
 	defer func() { t.pass = nil }()
+	before := t.idSet()
+	if tags := propagatedTags(a.props); tags != nil {
+		defer func() { t.propagateNewTags(before, tags) }()
+	}
 	if !a.explicit {
 		maps.Copy(t.pass, t.implicitAttrs(a))
 	}
