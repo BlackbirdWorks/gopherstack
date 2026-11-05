@@ -33,6 +33,7 @@ type InMemoryBackend struct {
 	res         map[string]resource
 	nsgRules    map[string]*NSGRule
 	workReqs    map[string]*WorkRequest
+	ipInvReqs   map[string]*IPInventoryRequest
 	compartment func(string) bool
 	keyState    func(string) (string, bool)
 	// Auth is the API-key registry shared with the other OCI services.
@@ -54,6 +55,7 @@ func (b *InMemoryBackend) initMaps() {
 	b.res = map[string]resource{}
 	b.nsgRules = map[string]*NSGRule{}
 	b.workReqs = map[string]*WorkRequest{}
+	b.ipInvReqs = map[string]*IPInventoryRequest{}
 }
 
 // SetClock injects the time source used for lifecycle transitions.

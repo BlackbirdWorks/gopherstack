@@ -43,6 +43,7 @@ type backendSnapshot struct {
 	DrgDists     map[string]*DrgRouteDistribution   `json:"drgRouteDistributions"`
 	WorkReqs     map[string]*WorkRequest            `json:"workRequests"`
 	Ipv6s        map[string]*Ipv6                   `json:"ipv6s"`
+	IPInvReqs    map[string]*IPInventoryRequest     `json:"ipInventoryRequests"`
 	BootBackups  map[string]*BootVolumeBackup       `json:"bootVolumeBackups"`
 	VolGroups    map[string]*VolumeGroup            `json:"volumeGroups"`
 	GroupBackups map[string]*VolumeGroupBackup      `json:"volumeGroupBackups"`
@@ -111,6 +112,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		GroupBackups: typed[*VolumeGroupBackup](b.res),
 		Replicas:     typed[*BlockVolumeReplica](b.res),
 		WorkReqs:     b.workReqs,
+		IPInvReqs:    b.ipInvReqs,
 		Auth:         keys,
 		Seq:          b.seq,
 		IPSeq:        b.ipSeq,
@@ -160,9 +162,20 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		}
 	}
 
+	if snap.IPInvReqs == nil {
+		snap.IPInvReqs = map[string]*IPInventoryRequest{}
+	}
+
+	for id, r := range snap.IPInvReqs {
+		if r == nil {
+			return fmt.Errorf("%w: IP inventory request %q", ErrSnapshotNull, id)
+		}
+	}
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.ipInvReqs = snap.IPInvReqs
 	b.res, b.nsgRules, b.workReqs = res, snap.NSGRules, snap.WorkReqs
 	b.seq, b.ipSeq, b.ipv6Seq = snap.Seq, snap.IPSeq, snap.IPv6Seq
 	b.Auth.Load(snap.Auth)

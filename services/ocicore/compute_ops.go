@@ -183,6 +183,8 @@ func computeEntries() []entry {
 		kmsEntries(),
 		copyEntries(),
 		replicaEntries(),
+		inventoryEntries(),
+		topologyEntries(),
 	)
 }
 

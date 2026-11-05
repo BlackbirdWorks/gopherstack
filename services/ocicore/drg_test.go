@@ -194,7 +194,12 @@ func TestDrgAttachmentCreate(t *testing.T) {
 		{func(c *core.CreateDrgAttachmentDetails, _ core.Vcn) {
 			c.DrgNatPolicyId = new("ocid1.drgnatpolicy.oc1.iad.x")
 		}, "nat policy", "10.17.0.0/16", "NotAuthorizedOrNotFound"},
-		{func(c *core.CreateDrgAttachmentDetails, _ core.Vcn) { c.DoesPreserveOriginalRoutesWithNat = new(true) }, "preserve routes without policy", "10.18.0.0/16", "InvalidParameter"},
+		{
+			func(c *core.CreateDrgAttachmentDetails, _ core.Vcn) { c.DoesPreserveOriginalRoutesWithNat = new(true) },
+			"preserve routes without policy",
+			"10.18.0.0/16",
+			"InvalidParameter",
+		},
 		{func(c *core.CreateDrgAttachmentDetails, _ core.Vcn) {
 			c.RouteTableId = taken.DefaultRouteTableId
 		}, "vcn route table elsewhere", "10.19.0.0/16", "InvalidParameter"},
@@ -413,8 +418,16 @@ func TestUpdateDrgAttachment(t *testing.T) {
 			VcnRouteType: core.VcnDrgAttachmentNetworkDetailsVcnRouteTypeSubnetCidrs}}, "route type", ""},
 		{core.UpdateDrgAttachmentDetails{
 			ExportDrgRouteDistributionId: d.DefaultExportDrgRouteDistributionId}, "export on vcn", "InvalidParameter"},
-		{core.UpdateDrgAttachmentDetails{DrgRouteTableId: new("ocid1.drgroutetable.oc1.iad.x")}, "unknown table", "NotAuthorizedOrNotFound"},
-		{core.UpdateDrgAttachmentDetails{DrgNatPolicyId: new("ocid1.drgnatpolicy.oc1.iad.x")}, "nat policy", "NotAuthorizedOrNotFound"},
+		{
+			core.UpdateDrgAttachmentDetails{DrgRouteTableId: new("ocid1.drgroutetable.oc1.iad.x")},
+			"unknown table",
+			"NotAuthorizedOrNotFound",
+		},
+		{
+			core.UpdateDrgAttachmentDetails{DrgNatPolicyId: new("ocid1.drgnatpolicy.oc1.iad.x")},
+			"nat policy",
+			"NotAuthorizedOrNotFound",
+		},
 		{core.UpdateDrgAttachmentDetails{NetworkDetails: core.VcnDrgAttachmentNetworkUpdateDetails{
 			VcnRouteType: "BOGUS"}}, "bad route type", "InvalidParameter"},
 	}
@@ -464,9 +477,19 @@ func TestDrgRouteTables(t *testing.T) {
 		{core.CreateDrgRouteTableDetails{DrgId: d.Id, DisplayName: new("p")}, "plain", ""},
 		{core.CreateDrgRouteTableDetails{DrgId: d.Id, ImportDrgRouteDistributionId: imp.Id,
 			IsEcmpEnabled: new(true)}, "with import and ecmp", ""},
-		{core.CreateDrgRouteTableDetails{DrgId: d.Id,
-			ImportDrgRouteDistributionId: d.DefaultExportDrgRouteDistributionId}, "export as import", "InvalidParameter"},
-		{core.CreateDrgRouteTableDetails{DrgId: other.Id, ImportDrgRouteDistributionId: imp.Id}, "foreign import", "InvalidParameter"},
+		{
+			core.CreateDrgRouteTableDetails{
+				DrgId:                        d.Id,
+				ImportDrgRouteDistributionId: d.DefaultExportDrgRouteDistributionId,
+			},
+			"export as import",
+			"InvalidParameter",
+		},
+		{
+			core.CreateDrgRouteTableDetails{DrgId: other.Id, ImportDrgRouteDistributionId: imp.Id},
+			"foreign import",
+			"InvalidParameter",
+		},
 		{core.CreateDrgRouteTableDetails{}, "missing drg", "MissingParameter"},
 		{core.CreateDrgRouteTableDetails{DrgId: new("ocid1.drg.oc1.iad.x")}, "unknown drg", "NotAuthorizedOrNotFound"},
 	}
@@ -541,7 +564,9 @@ func TestDrgRouteRules(t *testing.T) {
 		DrgId: d.Id, DisplayName: new("static")})
 	require.NoError(t, err)
 
-	add := func(dest string, hop *string, typ core.AddDrgRouteRuleDetailsDestinationTypeEnum) (core.AddDrgRouteRulesResponse, error) {
+	add := func(
+		dest string, hop *string, typ core.AddDrgRouteRuleDetailsDestinationTypeEnum,
+	) (core.AddDrgRouteRulesResponse, error) {
 		return e.client.AddDrgRouteRules(ctx, core.AddDrgRouteRulesRequest{DrgRouteTableId: tbl.Id,
 			RouteRules: []core.AddDrgRouteRuleDetails{{
 				Destination: new(dest), DestinationType: typ, NextHopDrgAttachmentId: hop}}})
@@ -899,9 +924,21 @@ func TestDrgRedundancyStatus(t *testing.T) {
 		{"none", core.DrgRedundancyStatusStatusNotRedundantNoConnection, nil},
 		{"single ipsec", core.DrgRedundancyStatusStatusNotRedundantSingleIpsec, []string{"IPSEC_TUNNEL"}},
 		{"single vc", core.DrgRedundancyStatusStatusNotRedundantSingleVirtualcircuit, []string{"VIRTUAL_CIRCUIT"}},
-		{"multiple ipsec", core.DrgRedundancyStatusStatusNotRedundantMultipleIpsecs, []string{"IPSEC_TUNNEL", "IPSEC_TUNNEL"}},
-		{"multiple vc", core.DrgRedundancyStatusStatusNotRedundantMultipleVirtualcircuits, []string{"VIRTUAL_CIRCUIT", "VIRTUAL_CIRCUIT"}},
-		{"mixed", core.DrgRedundancyStatusStatusNotRedundantMixConnections, []string{"IPSEC_TUNNEL", "VIRTUAL_CIRCUIT"}},
+		{
+			"multiple ipsec",
+			core.DrgRedundancyStatusStatusNotRedundantMultipleIpsecs,
+			[]string{"IPSEC_TUNNEL", "IPSEC_TUNNEL"},
+		},
+		{
+			"multiple vc",
+			core.DrgRedundancyStatusStatusNotRedundantMultipleVirtualcircuits,
+			[]string{"VIRTUAL_CIRCUIT", "VIRTUAL_CIRCUIT"},
+		},
+		{
+			"mixed",
+			core.DrgRedundancyStatusStatusNotRedundantMixConnections,
+			[]string{"IPSEC_TUNNEL", "VIRTUAL_CIRCUIT"},
+		},
 		{"rpc only", core.DrgRedundancyStatusStatusNotRedundantNoConnection, []string{"REMOTE_PEERING_CONNECTION"}},
 	}
 

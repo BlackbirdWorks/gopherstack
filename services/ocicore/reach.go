@@ -175,7 +175,9 @@ func (r effRule) matchesPeer(other reachEnd) bool {
 	return false
 }
 
-func inRange(pr *PortRange, port int) bool { return pr == nil || port == 0 || (port >= pr.Min && port <= pr.Max) }
+func inRange(pr *PortRange, port int) bool {
+	return pr == nil || port == 0 || (port >= pr.Min && port <= pr.Max)
+}
 
 func portsOf(r effRule, proto string) *PortOptions {
 	if proto == protoUDP {
@@ -204,7 +206,12 @@ func (r effRule) matchesFlow(proto string, srcPort, dstPort, icmpType, icmpCode 
 }
 
 // firstMatch returns the best rule for the flow, preferring a stateful one; ok reports whether any rule matched.
-func firstMatch(rules []effRule, peer reachEnd, proto string, srcPort, dstPort, icmpType, icmpCode int) (effRule, bool) {
+func firstMatch(
+	rules []effRule,
+	peer reachEnd,
+	proto string,
+	srcPort, dstPort, icmpType, icmpCode int,
+) (effRule, bool) {
 	var best effRule
 
 	found := false

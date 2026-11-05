@@ -39,26 +39,17 @@ func (b *InMemoryBackend) CreateBootVolumeBackup(in CreateBootVolumeBackupIn) (r
 func (b *InMemoryBackend) snapshotBootVolume(
 	bv *BootVolume, in CreateBootVolumeBackupIn, comp string,
 ) (*BootVolumeBackup, *APIError) {
-	typ := cmpOrStr(in.Type, backupIncremental)
-	if len(liveOf(b, func(x *BootVolumeBackup) bool { return x.BootVolumeID == bv.ID })) == 0 {
-		typ = backupFull
-	}
-
+	prior := len(liveOf(b, func(x *BootVolumeBackup) bool { return x.BootVolumeID == bv.ID }))
 	bk := &BootVolumeBackup{
-		Base: b.newBase(kindBootBackup, comp, in.DisplayName, in.TagsIn), Type: typ, BootVolumeID: bv.ID,
-		SourceType: sourceManual, KmsKeyID: in.KmsKeyID, ImageID: bv.ImageID, SizeInGBs: bv.SizeInGBs,
-		TimeRequestReceived: b.nowUTC(),
-	}
-	if in.DisplayName == "" {
-		bk.DisplayName = "bootbackup" + b.nowUTC().Format("20060102-150405")
+		Base:         b.newBase(kindBootBackup, comp, b.stamped(in.DisplayName, "bootbackup"), in.TagsIn),
+		Type:         backupTypeFor(in.Type, prior),
+		BootVolumeID: bv.ID, SourceType: sourceManual, KmsKeyID: in.KmsKeyID, ImageID: bv.ImageID,
+		SizeInGBs: bv.SizeInGBs, TimeRequestReceived: b.nowUTC(),
 	}
 
-	if aerr := bk.apply(in.RetentionIn, bk.TimeCreated); aerr != nil {
+	if aerr := b.commitBackup(bk, &bk.Retention, in.RetentionIn); aerr != nil {
 		return nil, aerr
 	}
-
-	b.moveTo(bk, statCreating, statAvailable)
-	b.add(bk)
 
 	return bk, nil
 }

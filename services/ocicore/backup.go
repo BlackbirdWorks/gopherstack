@@ -78,28 +78,54 @@ func (b *InMemoryBackend) CreateVolumeBackup(in CreateVolumeBackupIn) (resource,
 	return bk.view(), bk.Internal.Etag, nil
 }
 
-// snapshotVolume records a manual backup of a volume; the first backup of a volume is always FULL.
-func (b *InMemoryBackend) snapshotVolume(vol *Volume, in CreateVolumeBackupIn, comp string) (*VolumeBackup, *APIError) {
-	typ := cmpOrStr(in.Type, backupIncremental)
-	if len(liveOf(b, func(x *VolumeBackup) bool { return x.VolumeID == vol.ID })) == 0 {
-		typ = backupFull
+// backupTypeFor picks the backup type: the first backup of a source is always FULL.
+func backupTypeFor(requested string, prior int) string {
+	if prior == 0 {
+		return backupFull
 	}
 
+	return cmpOrStr(requested, backupIncremental)
+}
+
+// stamped names a resource after the request, or prefix plus the creation time.
+func (b *InMemoryBackend) stamped(name, prefix string) string {
+	return cmpOrStr(name, prefix+b.nowUTC().Format("20060102-150405"))
+}
+
+// commitBackup applies retention to a new backup and stores it as CREATING.
+func (b *InMemoryBackend) commitBackup(r resource, ret *Retention, in RetentionIn) *APIError {
+	if aerr := ret.apply(in, r.base().TimeCreated); aerr != nil {
+		return aerr
+	}
+
+	b.moveTo(r, statCreating, statAvailable)
+	b.add(r)
+
+	return nil
+}
+
+// snapshotVolume records a manual backup of a volume.
+func (b *InMemoryBackend) snapshotVolume(vol *Volume, in CreateVolumeBackupIn, comp string) (*VolumeBackup, *APIError) {
+	prior := len(liveOf(b, func(x *VolumeBackup) bool { return x.VolumeID == vol.ID }))
 	bk := &VolumeBackup{
-		Base: b.newBase(kindBackup, comp, in.DisplayName, in.TagsIn), Type: typ, VolumeID: vol.ID,
-		SourceType: sourceManual, KmsKeyID: in.KmsKeyID, SizeInGBs: vol.SizeInGBs, SizeInMBs: vol.SizeInMBs,
+		Base: b.newBase(
+			kindBackup,
+			comp,
+			b.stamped(in.DisplayName, "backup"),
+			in.TagsIn,
+		),
+		Type:                backupTypeFor(in.Type, prior),
+		VolumeID:            vol.ID,
+		SourceType:          sourceManual,
+		KmsKeyID:            in.KmsKeyID,
+		SizeInGBs:           vol.SizeInGBs,
+		SizeInMBs:           vol.SizeInMBs,
 		TimeRequestReceived: b.nowUTC(),
 	}
-	if in.DisplayName == "" {
-		bk.DisplayName = "backup" + b.nowUTC().Format("20060102-150405")
-	}
 
-	if aerr := bk.apply(in.RetentionIn, bk.TimeCreated); aerr != nil {
+	if aerr := b.commitBackup(bk, &bk.Retention, in.RetentionIn); aerr != nil {
 		return nil, aerr
 	}
-
-	b.moveTo(bk, statCreating, statAvailable)
-	b.add(bk)
 
 	return bk, nil
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/workrequests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -639,8 +640,16 @@ func TestBlockVolumeReplicas(t *testing.T) {
 		wantCode string
 		reps     []core.BlockVolumeReplicaDetails
 	}{
-		{"same availability domain", "InvalidParameter", []core.BlockVolumeReplicaDetails{{AvailabilityDomain: new(testAD)}}},
-		{"bad availability domain", "InvalidParameter", []core.BlockVolumeReplicaDetails{{AvailabilityDomain: new("nope")}}},
+		{
+			"same availability domain",
+			"InvalidParameter",
+			[]core.BlockVolumeReplicaDetails{{AvailabilityDomain: new(testAD)}},
+		},
+		{
+			"bad availability domain",
+			"InvalidParameter",
+			[]core.BlockVolumeReplicaDetails{{AvailabilityDomain: new("nope")}},
+		},
 		{"two replicas", "LimitExceeded", []core.BlockVolumeReplicaDetails{
 			{AvailabilityDomain: new(phx)},
 			{AvailabilityDomain: new("Abcd:FRA-AD-1")},
@@ -740,6 +749,7 @@ func TestVolumeKmsKeys(t *testing.T) {
 	}
 	e.backend.SetKeyChecker(func(id string) (string, bool) {
 		s, ok := keys[id]
+
 		return s, ok
 	})
 
@@ -839,4 +849,73 @@ func TestVolumeKmsKeys(t *testing.T) {
 		},
 		CreateVnicDetails: &core.CreateVnicDetails{SubnetId: e.fixture(t).pub.Id}})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode(), "launch checks the boot volume key")
+}
+
+func TestStorageSnapshotRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, false)
+	ctx := t.Context()
+	vol := e.mkVol(t, testAD, 60)
+	bv := e.mkBoot(t)
+	f := e.v6Fixture(t)
+
+	g, err := e.block.CreateVolumeGroup(
+		ctx,
+		core.CreateVolumeGroupRequest{
+			CompartmentId: new(testComp), AvailabilityDomain: new(testAD),
+			SourceDetails: core.VolumeGroupSourceFromVolumesDetails{VolumeIds: []string{*vol.Id, *bv.Id}}},
+	)
+	require.NoError(t, err)
+	e.settle()
+
+	gb, err := e.block.CreateVolumeGroupBackup(ctx, core.CreateVolumeGroupBackupRequest{
+		VolumeGroupId: g.Id,
+		RetentionPeriod: &core.RetentionDuration{RetentionTimeUnit: core.RetentionDurationRetentionTimeUnitDays,
+			RetentionTimeAmount: new(3)}})
+	require.NoError(t, err)
+
+	rv, err := e.block.CreateVolume(ctx, core.CreateVolumeRequest{CompartmentId: new(testComp),
+		AvailabilityDomain: new(testAD2), BlockVolumeReplicas: []core.BlockVolumeReplicaDetails{
+			{AvailabilityDomain: new("Abcd:PHX-AD-1")}}})
+	require.NoError(t, err)
+
+	nic, err := e.nic(t, f.subnet, "")
+	require.NoError(t, err)
+
+	ip, err := e.client.CreateIpv6(ctx, core.CreateIpv6Request{VnicId: new(nic.VnicID)})
+	require.NoError(t, err)
+
+	_, err = e.client.AddVcnCidr(ctx, core.AddVcnCidrRequest{VcnId: f.vcn.Id, CidrBlock: new("10.77.0.0/16")})
+	require.NoError(t, err)
+
+	data := e.backend.Snapshot(ctx)
+	e2 := newEnv(t, false)
+	require.NoError(t, e2.backend.Restore(ctx, data))
+
+	got, err := e2.block.GetVolumeGroupBackup(ctx, core.GetVolumeGroupBackupRequest{VolumeGroupBackupId: gb.Id})
+	require.NoError(t, err)
+	assert.Equal(t, gb.VolumeBackupIds, got.VolumeBackupIds)
+	assert.True(t, *got.IsPreventDeletionEnabled || got.RetentionPeriod != nil)
+
+	gg, err := e2.block.GetVolumeGroup(ctx, core.GetVolumeGroupRequest{VolumeGroupId: g.Id})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, g.VolumeIds, gg.VolumeIds)
+
+	rep, err := e2.block.GetBlockVolumeReplica(ctx, core.GetBlockVolumeReplicaRequest{
+		BlockVolumeReplicaId: rv.BlockVolumeReplicas[0].BlockVolumeReplicaId})
+	require.NoError(t, err)
+	assert.Equal(t, *rv.Id, *rep.BlockVolumeId)
+
+	v6, err := e2.client.GetIpv6(ctx, core.GetIpv6Request{Ipv6Id: ip.Id})
+	require.NoError(t, err)
+	assert.Equal(t, *ip.IpAddress, *v6.IpAddress)
+
+	vn, err := e2.client.GetVcn(ctx, core.GetVcnRequest{VcnId: f.vcn.Id})
+	require.NoError(t, err)
+	assert.Contains(t, vn.CidrBlocks, "10.77.0.0/16")
+
+	l, err := e2.wr.ListWorkRequests(ctx, workrequests.ListWorkRequestsRequest{CompartmentId: new(testComp)})
+	require.NoError(t, err)
+	assert.NotEmpty(t, l.Items, "work requests persist")
 }

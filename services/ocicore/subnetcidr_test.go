@@ -210,8 +210,12 @@ func TestSubnetMultiCidrCreate(t *testing.T) {
 		{"two blocks", "", []string{"10.0.1.0/24", "10.0.2.0/24"}},
 		{"overlapping blocks", "InvalidParameter", []string{"10.0.3.0/24", "10.0.3.0/25"}},
 		{"one outside", "InvalidParameter", []string{"10.0.4.0/24", "172.16.0.0/24"}},
-		{"too many", "LimitExceeded", []string{"10.0.10.0/29", "10.0.11.0/29", "10.0.12.0/29", "10.0.13.0/29", "10.0.14.0/29",
-			"10.0.15.0/29", "10.0.16.0/29"}},
+		{
+			"too many",
+			"LimitExceeded",
+			[]string{"10.0.10.0/29", "10.0.11.0/29", "10.0.12.0/29", "10.0.13.0/29", "10.0.14.0/29",
+				"10.0.15.0/29", "10.0.16.0/29"},
+		},
 	}
 
 	for _, tt := range tests {

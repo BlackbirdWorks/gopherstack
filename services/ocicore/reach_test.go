@@ -20,12 +20,12 @@ func ingressFrom(src, proto string, stateless bool, tcp *core.TcpOptions) core.I
 		TcpOptions: tcp}
 }
 
-func tcpPort(min, max int) *core.TcpOptions {
-	return &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(min), Max: new(max)}}
+func tcpPort(lo, hi int) *core.TcpOptions {
+	return &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(lo), Max: new(hi)}}
 }
 
-func tcpFromPort(min, max int) *core.TcpOptions {
-	return &core.TcpOptions{SourcePortRange: &core.PortRange{Min: new(min), Max: new(max)}}
+func tcpFromPort(lo, hi int) *core.TcpOptions {
+	return &core.TcpOptions{SourcePortRange: &core.PortRange{Min: new(lo), Max: new(hi)}}
 }
 
 type reachSide struct {
@@ -35,11 +35,11 @@ type reachSide struct {
 }
 
 type reachSetup struct {
-	e      *env
+	subnet [2]core.Subnet
 	vcn    core.Vcn
+	e      *env
 	nicA   oci.ServiceNic
 	nicB   oci.ServiceNic
-	subnet [2]core.Subnet
 }
 
 func (e *env) mkSLSubnet(t *testing.T, v core.Vcn, cidr string, side reachSide) core.Subnet {
@@ -99,13 +99,22 @@ func TestCanReachSecurityLists(t *testing.T) {
 		wantReply   bool
 	}{
 		{
-			name: "stateful both ways", a: reachSide{egress: openOut},
-			b:    reachSide{ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", false, tcpPort(443, 443))}},
-			flow: web, wantAllowed: true, wantForward: true, wantReply: true,
+			name: "stateful both ways",
+			a:    reachSide{egress: openOut},
+			b: reachSide{
+				ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", false, tcpPort(443, 443))},
+			},
+			flow:        web,
+			wantAllowed: true,
+			wantForward: true,
+			wantReply:   true,
 		},
 		{
-			name: "port outside the rule", a: reachSide{egress: openOut},
-			b:    reachSide{ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", false, tcpPort(80, 80))}},
+			name: "port outside the rule",
+			a:    reachSide{egress: openOut},
+			b: reachSide{
+				ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", false, tcpPort(80, 80))},
+			},
 			flow: web,
 		},
 		{
@@ -125,9 +134,13 @@ func TestCanReachSecurityLists(t *testing.T) {
 			flow: web,
 		},
 		{
-			name: "stateless ingress without return rule", a: reachSide{egress: openOut},
-			b:    reachSide{ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", true, tcpPort(443, 443))}},
-			flow: web, wantForward: true,
+			name: "stateless ingress without return rule",
+			a:    reachSide{egress: openOut},
+			b: reachSide{
+				ingress: []core.IngressSecurityRule{ingressFrom("10.0.1.0/24", "6", true, tcpPort(443, 443))},
+			},
+			flow:        web,
+			wantForward: true,
 		},
 		{
 			name: "stateless ingress with return rule", a: reachSide{egress: openOut},
@@ -201,7 +214,7 @@ func TestCanReachIcmp(t *testing.T) {
 
 	echo := core.IcmpOptions{Type: new(8)}
 	reply := core.IcmpOptions{Type: new(0)}
-	any := []core.EgressSecurityRule{egressTo("0.0.0.0/0", "all", false, nil)}
+	openOut := []core.EgressSecurityRule{egressTo("0.0.0.0/0", "all", false, nil)}
 
 	tests := []struct {
 		name    string
@@ -210,7 +223,12 @@ func TestCanReachIcmp(t *testing.T) {
 		want    bool
 	}{
 		{"all icmp", core.IngressSecurityRule{Protocol: new("1"), Source: new("0.0.0.0/0")}, nil, true},
-		{"echo only", core.IngressSecurityRule{Protocol: new("1"), Source: new("0.0.0.0/0"), IcmpOptions: &echo}, nil, true},
+		{
+			"echo only",
+			core.IngressSecurityRule{Protocol: new("1"), Source: new("0.0.0.0/0"), IcmpOptions: &echo},
+			nil,
+			true,
+		},
 		{"other type", core.IngressSecurityRule{Protocol: new("1"), Source: new("0.0.0.0/0"),
 			IcmpOptions: &core.IcmpOptions{Type: new(3), Code: new(4)}}, nil, false},
 		{"stateless echo without reply", core.IngressSecurityRule{Protocol: new("1"), Source: new("0.0.0.0/0"),
@@ -224,7 +242,7 @@ func TestCanReachIcmp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := newEnv(t, false).reachPair(t, reachSide{egress: any},
+			r := newEnv(t, false).reachPair(t, reachSide{egress: openOut},
 				reachSide{ingress: []core.IngressSecurityRule{tt.ingress}, egress: tt.egress})
 
 			v := r.check(t, oci.Flow{Protocol: "icmp", IcmpType: 8})
@@ -305,11 +323,11 @@ func TestCanReachNetworkSecurityGroups(t *testing.T) {
 func TestCanReachEndpoints(t *testing.T) {
 	t.Parallel()
 
-	any := reachSide{
+	open := reachSide{
 		ingress: []core.IngressSecurityRule{ingressFrom("0.0.0.0/0", "all", false, nil)},
 		egress:  []core.EgressSecurityRule{egressTo("0.0.0.0/0", "all", false, nil)},
 	}
-	r := newEnv(t, false).reachPair(t, any, any)
+	r := newEnv(t, false).reachPair(t, open, open)
 
 	byIP, err := r.e.backend.CanReach(oci.Endpoint{IP: r.nicA.IPAddress}, oci.Endpoint{IP: r.nicB.IPAddress},
 		oci.Flow{Protocol: "tcp", Port: 80})
@@ -322,17 +340,25 @@ func TestCanReachEndpoints(t *testing.T) {
 	_, err = r.e.backend.CanReach(oci.Endpoint{}, oci.Endpoint{VnicID: r.nicB.VnicID}, oci.Flow{})
 	require.ErrorIs(t, err, oci.ErrEndpoint)
 
-	_, err = r.e.backend.CanReach(oci.Endpoint{VnicID: r.nicA.VnicID}, oci.Endpoint{VnicID: "ocid1.vnic.oc1.iad.nope"}, oci.Flow{})
+	_, err = r.e.backend.CanReach(
+		oci.Endpoint{VnicID: r.nicA.VnicID},
+		oci.Endpoint{VnicID: "ocid1.vnic.oc1.iad.nope"},
+		oci.Flow{},
+	)
 	require.ErrorIs(t, err, oci.ErrEndpoint)
 
 	other := r.e.mkVcn(t, "192.168.0.0/16", "reachother")
-	sub := r.e.mkSLSubnet(t, other, "192.168.1.0/24", any)
+	sub := r.e.mkSLSubnet(t, other, "192.168.1.0/24", open)
 	r.e.settle()
 
 	far, err := r.e.backend.CreateServiceNic(oci.ServiceNicIn{CompartmentID: testComp, AD: testAD, SubnetID: *sub.Id})
 	require.NoError(t, err)
 
-	cross, err := r.e.backend.CanReach(oci.Endpoint{VnicID: r.nicA.VnicID}, oci.Endpoint{VnicID: far.VnicID}, oci.Flow{})
+	cross, err := r.e.backend.CanReach(
+		oci.Endpoint{VnicID: r.nicA.VnicID},
+		oci.Endpoint{VnicID: far.VnicID},
+		oci.Flow{},
+	)
 	require.NoError(t, err)
 	assert.False(t, cross.Allowed)
 	assert.Contains(t, cross.Reason, "different VCNs")
