@@ -223,6 +223,7 @@ func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string
 			apiKey:     apiKey,
 			scopes:     scopes,
 		},
+		t.pass,
 	)
 
 	return nil

@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	samLambdaBasicExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-	samLambdaVPCExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-	samXRayWrite       = "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
-	samTracingDisabled = "Disabled"
-	samKeyAutoPublish  = "AutoPublishAlias"
+	samLambdaDurableExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy"
+	samLambdaBasicExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+	samLambdaVPCExec     = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+	samXRayWrite         = "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
+	samTracingDisabled   = "Disabled"
+	samKeyAutoPublish    = "AutoPublishAlias"
 )
 
 func samFnPassthrough() map[string]bool {
@@ -41,6 +42,9 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 	}
 	t.pass = passAttrs(r)
 	defer func() { t.pass = nil }()
+	if v, ok := props["AutoPublishCodeSha256"]; ok {
+		props["AutoPublishCodeSha256"] = t.paramDefault(v)
+	}
 	if v, ok := props[samKeyAutoPublish]; ok {
 		alias, isStr := t.paramDefault(v).(string)
 		if !isStr || alias == "" {
@@ -137,6 +141,9 @@ func (t *samTranslator) finishFunction(id string, props map[string]any, eicPolic
 // functionManagedPolicies is the fixed set of managed policies SAM attaches before user and event policies.
 func (t *samTranslator) functionManagedPolicies(props map[string]any) []any {
 	managed := []any{samLambdaBasicExec}
+	if dc, has := props["DurableConfig"]; has && dc != nil {
+		managed = []any{samLambdaDurableExec}
+	}
 	if tr, ok := props["Tracing"]; ok && tr != nil && t.paramDefault(tr) != samTracingDisabled {
 		managed = append(managed, samXRayWrite)
 	}
@@ -194,7 +201,8 @@ func (t *samTranslator) functionRoleValue(id string, props map[string]any) (bool
 	case isNoValue(yes):
 		return true, map[string]any{fnIf: []any{name, generated, no}}, name, nil
 	case isNoValue(no):
-		notName := t.addNotCondition(id, name)
+		notName := "NOT" + name
+		t.conditions[notName] = map[string]any{samFnNot: []any{map[string]any{samKeyCondition: name}}}
 
 		return true, map[string]any{fnIf: []any{name, yes, generated}}, notName, nil
 	}
@@ -215,9 +223,6 @@ func (t *samTranslator) putFunctionRole(
 		trust = asMap(doc)
 	}
 	tags := samTags(asMap(props[scopeTags]))
-	if props["PropagateTags"] != true {
-		tags = samTags(nil)
-	}
 	res := map[string]any{
 		samKeyAssumeRole:  trust,
 		samKeyManagedARNs: toSubs(managed),
@@ -358,6 +363,9 @@ func s3Location(id, prop string, v any, bucketKey, keyKey, verKey string) (map[s
 		if u[samKeyVersion] != nil {
 			out[verKey] = u[samKeyVersion]
 		}
+		if mode := u["StorageMode"]; mode != nil && keyKey == "S3Key" {
+			out["S3ObjectStorageMode"] = mode
+		}
 
 		return out, nil
 	default:
@@ -395,7 +403,7 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 		return nil
 	}
 	fnProps := asMap(asMap(t.out[id])[samKeyProps])
-	verID := samVersionID(id, props, fnProps)
+	verID := samVersionID(id, props, t.withPublishedLayers(fnProps))
 	verProps := map[string]any{samKeyFnName: samRef(id)}
 	if d := props["VersionDescription"]; d != nil {
 		verProps[samKeyDesc] = d
@@ -441,6 +449,28 @@ func aliasNamePattern(name string) bool {
 	}
 
 	return name != "" && !numeric
+}
+
+// withPublishedLayers adds the properties of referenced layers that set PublishLambdaVersion to the version hash input.
+func (t *samTranslator) withPublishedLayers(fnProps map[string]any) map[string]any {
+	var extra map[string]any
+	for _, l := range asList(fnProps["Layers"]) {
+		lid := logicalIDFromIntrinsic(l)
+		orig := asMap(t.input[lid])
+		lp := asMap(orig[samKeyProps])
+		if orig[samKeyType] != samResPrefix+"LayerVersion" || lp["PublishLambdaVersion"] != true {
+			continue
+		}
+		if extra == nil {
+			extra = maps.Clone(fnProps)
+		}
+		extra[lid] = lp
+	}
+	if extra == nil {
+		return fnProps
+	}
+
+	return extra
 }
 
 // samVersionID mirrors SAM's Lambda version id: the hash covers the function

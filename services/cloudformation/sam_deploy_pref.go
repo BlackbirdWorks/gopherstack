@@ -24,6 +24,7 @@ func samCodeDeployConfigs() []string {
 // samDeployPref is one function's enabled DeploymentPreference.
 type samDeployPref struct {
 	dp        map[string]any
+	tags      map[string]any
 	fnID      string
 	condition string
 }
@@ -35,7 +36,7 @@ func (t *samTranslator) deploymentPreference(id string, r, props map[string]any)
 	if err != nil || !enabled {
 		return err
 	}
-	pref := &samDeployPref{fnID: id, dp: dp}
+	pref := &samDeployPref{fnID: id, dp: dp, tags: maps.Clone(t.curTags)}
 	if pass, _ := t.paramDefault(dp["PassthroughCondition"]).(bool); pass {
 		pref.condition = asString(r[samKeyCondition])
 	}
@@ -171,8 +172,17 @@ func (t *samTranslator) deployCondition() string {
 	return samCodeDeployCondName
 }
 
+// deployTags merges the propagated tags of every enabled preference.
 func (t *samTranslator) deployTags() []any {
-	return nil
+	merged := map[string]any{}
+	for _, p := range t.deploys {
+		maps.Copy(merged, p.tags)
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+
+	return plainTagList(merged)
 }
 
 func (t *samTranslator) deploymentGroup(p *samDeployPref) (map[string]any, error) {
@@ -201,6 +211,9 @@ func (t *samTranslator) deploymentGroup(p *samDeployPref) (map[string]any, error
 	}
 	if p.dp["TriggerConfigurations"] != nil {
 		props["TriggerConfigurations"] = p.dp["TriggerConfigurations"]
+	}
+	if len(p.tags) > 0 {
+		props[samKeyTags] = plainTagList(p.tags)
 	}
 	group := map[string]any{samKeyType: samTypeCDGroup, samKeyProps: props}
 	if p.condition != "" {

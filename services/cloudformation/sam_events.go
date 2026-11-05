@@ -129,7 +129,7 @@ func lambdaPermission(fnID, principal string, sourceArn any) map[string]any {
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
 	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", samKRestAPIID, samAuthKey,
-		"RequestParameters", "TimeoutInMillis")); err != nil {
+		"RequestParameters", "TimeoutInMillis", "RequestModel")); err != nil {
 		return err
 	}
 	path, _ := props["Path"].(string)
@@ -153,6 +153,10 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
+	model, err := t.parseRequestModel(ev.id, name, api, method, path, props["RequestModel"])
+	if err != nil {
+		return err
+	}
 	api.addRoute(
 		samRoute{
 			fnID:       ev.id,
@@ -163,15 +167,17 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 			apiKey:     apiKey,
 			params:     params,
 			timeout:    timeout,
+			model:      model,
 			scopes:     scopes,
 			auth:       asMap(props[samAuthKey]),
 		},
+		t.pass,
 	)
 	suffix := api.permSuffix()
 	perm := lambdaPermission(
 		ev.target(),
 		"apigateway.amazonaws.com",
-		executeAPISourceArn(api.id, "*", permissionMethod(method),
+		executeAPISourceArn(api.idValue(), "*", permissionMethod(method),
 			permissionPath(path)),
 	)
 
@@ -199,10 +205,10 @@ func isAlnum(s string) bool {
 }
 
 // executeAPISourceArn is SAM's Fn::Sub list form with __ApiId__/__Stage__ placeholders.
-func executeAPISourceArn(apiID, stage, method, path string) map[string]any {
+func executeAPISourceArn(apiID any, stage, method, path string) map[string]any {
 	return map[string]any{samKeyFnSub: []any{
 		"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/" + method + path,
-		map[string]any{samAPIIDMarker: samRef(apiID), "__Stage__": stage},
+		map[string]any{samAPIIDMarker: apiID, "__Stage__": stage},
 	}}
 }
 
@@ -230,7 +236,7 @@ func eventAuth(fnID, name string, props map[string]any) (string, *bool, any, err
 	if err := rejectUnknown(
 		fnID+name,
 		auth,
-		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole"),
+		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy"),
 	); err != nil {
 		return "", nil, nil, err
 	}

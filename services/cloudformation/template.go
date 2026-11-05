@@ -272,10 +272,10 @@ type TemplateOutput struct {
 
 // ParseTemplate parses a CloudFormation template from a JSON or YAML string.
 func ParseTemplate(body string) (*Template, error) {
-	body = strings.TrimSpace(body)
-	if body == "" {
+	if strings.TrimSpace(body) == "" {
 		return nil, ErrEmptyTemplate
 	}
+	body = strings.TrimLeft(body, " \t\r\n")
 
 	// Expand AWS Language Extensions (Fn::ForEach) before typed unmarshalling,
 	// since ForEach keys are arrays that don't fit the TemplateResource shape.

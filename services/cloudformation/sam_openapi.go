@@ -240,11 +240,11 @@ func (e *samOpenAPI) setTitle(v any) error {
 
 func (e *samOpenAPI) setDescription(v any) error {
 	info := e.info()
-	if d := info[samKeyDesc]; d != nil && d != "" {
+	if d := info[samKeyDescLower]; d != nil && d != "" {
 		return samErr(e.id, "Unable to set Description because it is already defined within inline OpenAPI "+
 			"specified in the 'DefinitionBody' property.")
 	}
-	info[samKeyDesc] = v
+	info[samKeyDescLower] = v
 
 	return nil
 }

@@ -24,7 +24,7 @@ type samAuth struct {
 
 func samAuthKeys() map[string]bool {
 	return keySet("DefaultAuthorizer", "Authorizers", "AddDefaultAuthorizerToCorsPreflight", "ApiKeyRequired",
-		"AddApiKeyRequiredToCorsPreflight", "UsagePlan", "InvokeRole")
+		"AddApiKeyRequiredToCorsPreflight", "UsagePlan", "InvokeRole", "ResourcePolicy")
 }
 
 func (t *samTranslator) parseAPIAuth(apiID string, props map[string]any) (*samAuth, error) {
@@ -95,7 +95,7 @@ func samAuthDef(header string, ext map[string]any, authType string) map[string]a
 }
 
 func samCognitoAuthorizer(apiID, name string, cfg map[string]any) (map[string]any, error) {
-	if err := rejectUnknown(apiID+name, cfg, keySet("UserPoolArn", "Identity")); err != nil {
+	if err := rejectUnknown(apiID+name, cfg, keySet("UserPoolArn", "Identity", "AuthorizationScopes")); err != nil {
 		return nil, err
 	}
 	id := asMap(cfg["Identity"])
@@ -119,7 +119,8 @@ func samCognitoAuthorizer(apiID, name string, cfg map[string]any) (map[string]an
 
 func samLambdaAuthorizer(apiID, name string, cfg map[string]any) (map[string]any, map[string]any, error) {
 	if err := rejectUnknown(apiID+name, cfg, keySet("FunctionArn", "FunctionPayloadType", "FunctionInvokeRole",
-		"Identity", "DisableFunctionDefaultPermissions")); err != nil {
+		"Identity", "DisableFunctionDefaultPermissions", "AuthorizationScopes", "EnableSimpleResponses",
+		"AuthorizerPayloadFormatVersion")); err != nil {
 		return nil, nil, err
 	}
 	fnArn := cfg["FunctionArn"]
@@ -165,7 +166,7 @@ func samLambdaIdentity(id, payload string, identity, ext map[string]any) (string
 	var err error
 	switch payload {
 	case samTokenType:
-		header, err = samTokenIdentity(id, identity, ext)
+		header = samTokenIdentity(identity, ext)
 	case samAuthTypeReq:
 		err = samRequestIdentity(id, identity, ext)
 	default:
@@ -178,10 +179,7 @@ func samLambdaIdentity(id, payload string, identity, ext map[string]any) (string
 	return header, err
 }
 
-func samTokenIdentity(id string, identity, ext map[string]any) (string, error) {
-	if err := rejectUnknown(id, identity, keySet("Header", "ValidationExpression", "ReauthorizeEvery")); err != nil {
-		return "", err
-	}
+func samTokenIdentity(identity, ext map[string]any) string {
 	header := samAuthHeader
 	if h, ok := identity["Header"].(string); ok {
 		header = h
@@ -190,25 +188,31 @@ func samTokenIdentity(id string, identity, ext map[string]any) (string, error) {
 		ext["identityValidationExpression"] = v
 	}
 
-	return header, nil
+	return header
 }
 
 func samRequestIdentity(id string, identity, ext map[string]any) error {
-	err := rejectUnknown(
-		id,
-		identity,
-		keySet(samKeyHeaders, samKQueryStrings, samKeyStageVars, "Context", "ReauthorizeEvery"),
-	)
-	if err != nil {
-		return err
-	}
 	sources := identitySources(identity)
-	if len(sources) == 0 {
+	if len(sources) == 0 && missingIdentitySource(identity) {
 		return samErr(id, "A REQUEST authorizer needs an Identity with at least one source.")
 	}
-	ext["identitySource"] = strings.Join(sources, ", ")
+	if len(sources) > 0 {
+		ext["identitySource"] = strings.Join(sources, ", ")
+	}
 
 	return nil
+}
+
+// missingIdentitySource follows SAM: a ReauthorizeEvery of 0 (no caching) needs no identity source.
+func missingIdentitySource(identity map[string]any) bool {
+	switch ttl := identity["ReauthorizeEvery"].(type) {
+	case float64:
+		return int(ttl) > 0
+	case int:
+		return ttl > 0
+	}
+
+	return true
 }
 
 func identitySources(identity map[string]any) []string {

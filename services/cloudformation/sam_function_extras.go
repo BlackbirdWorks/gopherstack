@@ -131,8 +131,8 @@ func (t *samTranslator) eventInvokeDestination(id, logicalID, event string, d ma
 		return nil, nil, samErr(id, "'Type: %s' must be one of %v", typ, samDestinationTypes())
 	}
 	resID := logicalID + event
-	dest := d[samKeyDestination]
-	propCond, destARN, err := t.destinationCondition(id, dest)
+	dest := t.resolveParamRefs(d[samKeyDestination])
+	propCond, destARN, err := t.destinationCondition(id, logicalID, dest)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -157,6 +157,7 @@ func (t *samTranslator) eventInvokeDestination(id, logicalID, event string, d ma
 	if err = t.put(generated, res); err != nil {
 		return nil, nil, err
 	}
+	t.refs[id+".Destination"+suffix] = generated
 	dest = ref
 	if propCond != "" {
 		dest = map[string]any{fnIf: []any{propCond, ref, destARN}}
@@ -175,7 +176,7 @@ func containsString(list []string, s string) bool { return slices.Contains(list,
 
 // destinationCondition reads an Fn::If Destination with one empty branch: the condition under which SAM
 // generates the queue or topic, and the ARN of the other branch.
-func (t *samTranslator) destinationCondition(id string, dest any) (string, any, error) {
+func (t *samTranslator) destinationCondition(id, hashID string, dest any) (string, any, error) {
 	m := asMap(dest)
 	list, isIf := m[fnIf].([]any)
 	if !isIf || len(m) != 1 {
@@ -192,7 +193,7 @@ func (t *samTranslator) destinationCondition(id string, dest any) (string, any, 
 	case isNoValue(list[1]):
 		return name, list[2], nil
 	case isNoValue(list[2]):
-		return t.addNotCondition(id, name), list[1], nil
+		return t.addNotCondition(hashID, name), list[1], nil
 	}
 
 	return "", nil, nil

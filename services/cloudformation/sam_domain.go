@@ -77,7 +77,7 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	if a.props[samDomainKey] == nil {
 		return nil
 	}
-	domain, err := samDomainConfig(a.id, a.props[samDomainKey])
+	domain, err := samDomainConfig(a.id, t.resolveParamRefs(a.props[samDomainKey]))
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,9 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	}
 	props := map[string]any{
 		samKeyDomainName: domain[samKeyDomainName], "DomainNameConfigurations": []any{cfg},
-		samKeyTags: map[string]any{samHTTPAPITag: samCreatedBy},
+	}
+	if tags := a.v2Tags(); tags != nil {
+		props[samKeyTags] = tags
 	}
 	if m := mutualTLS(domain); m != nil {
 		props["MutualTlsAuthentication"] = m
@@ -229,7 +231,7 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 	if a.props[samDomainKey] == nil {
 		return nil
 	}
-	domain, err := samDomainConfig(a.id, a.props[samDomainKey])
+	domain, err := samDomainConfig(a.id, t.resolveParamRefs(a.props[samDomainKey]))
 	if err != nil {
 		return err
 	}

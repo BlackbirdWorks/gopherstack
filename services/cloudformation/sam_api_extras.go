@@ -124,6 +124,18 @@ func (a *samAPI) addModels(doc map[string]any) error {
 		return nil
 	}
 	defs := asMap(doc["definitions"])
+	if _, isV3 := doc["openapi"]; isV3 {
+		comps := asMap(doc["components"])
+		if comps == nil {
+			comps = map[string]any{}
+			doc["components"] = comps
+		}
+		defs = asMap(comps["schemas"])
+		if defs == nil {
+			defs = map[string]any{}
+		}
+		comps["schemas"] = defs
+	}
 	if defs == nil {
 		defs = map[string]any{}
 	}
@@ -137,7 +149,9 @@ func (a *samAPI) addModels(doc map[string]any) error {
 		}
 		defs[strings.ToLower(name)] = schema
 	}
-	doc["definitions"] = defs
+	if _, isV3 := doc["openapi"]; !isV3 {
+		doc["definitions"] = defs
+	}
 
 	return nil
 }
@@ -272,7 +286,7 @@ func (a *samAPI) openAPIPostprocess(doc map[string]any) {
 		delete(options, "consumes")
 		headers := asMap(asMap(asMap(options[samKeyResponses])["200"])["headers"])
 		for h, val := range headers {
-			headers[h] = map[string]any{"schema": val}
+			headers[h] = map[string]any{samKeySchema: val}
 		}
 	}
 }
@@ -324,6 +338,9 @@ func (t *samTranslator) putUsagePlan(a *samAPI, stageID string) error {
 		planID, keyID, planKeyID = samSharedUsagePlan, samSharedAPIKey, samSharedPlanKey
 		deps = t.sharedPlan.join(a.id, apiStages[0], keyStages[0])
 		apiStages, keyStages = t.sharedPlan.stages, t.sharedPlan.keys
+		saved := t.pass
+		t.pass = t.sharedPlan.combine(saved, t.conditions)
+		defer func() { t.pass = saved }()
 	}
 	props := map[string]any{"ApiStages": apiStages}
 	for _, k := range []string{"UsagePlanName", samKeyDesc, "Quota", scopeTags, "Throttle"} {
@@ -358,9 +375,63 @@ func (t *samTranslator) putUsagePlan(a *samAPI, stageID string) error {
 }
 
 type samSharedPlan struct {
-	apis   []string
-	stages []any
-	keys   []any
+	delPolicy      string
+	updPolicy      string
+	apis           []string
+	stages         []any
+	keys           []any
+	conditions     []string
+	anyWithoutCond bool
+}
+
+const samSharedPlanCondition = "SharedUsagePlanCondition"
+
+// addCondition records one API's Condition (empty for none) and keeps the template's shared condition current.
+func (p *samSharedPlan) addCondition(cond string, conditions map[string]any) {
+	switch {
+	case p.anyWithoutCond:
+	case cond == "":
+		p.anyWithoutCond = true
+		delete(conditions, samSharedPlanCondition)
+	case !slices.Contains(p.conditions, cond):
+		p.conditions = append(p.conditions, cond)
+		if len(p.conditions) == 1 {
+			conditions[samSharedPlanCondition] = map[string]any{samKeyCondition: cond}
+
+			break
+		}
+		or := make([]any, 0, len(p.conditions))
+		for _, c := range slices.Sorted(slices.Values(p.conditions)) {
+			or = append(or, map[string]any{samKeyCondition: c})
+		}
+		conditions[samSharedPlanCondition] = map[string]any{samFnOr: or}
+	}
+}
+
+// combine folds one API's Condition, DeletionPolicy and UpdateReplacePolicy into the shared plan's attributes.
+func (p *samSharedPlan) combine(attrs map[string]any, conditions map[string]any) map[string]any {
+	if dp := asString(attrs[samKeyDelPolicy]); dp != "" && (p.delPolicy == "" || dp == samDeletionRetain) {
+		p.delPolicy = dp
+	}
+	if up := asString(attrs[samKeyUpdPolicy]); up != "" {
+		if p.updPolicy == "" || up == samDeletionRetain ||
+			(up == samDeletionSnapshot && p.updPolicy == samDeletionDelete) {
+			p.updPolicy = up
+		}
+	}
+	p.addCondition(asString(attrs[samKeyCondition]), conditions)
+	out := map[string]any{}
+	if p.delPolicy != "" {
+		out[samKeyDelPolicy] = p.delPolicy
+	}
+	if p.updPolicy != "" {
+		out[samKeyUpdPolicy] = p.updPolicy
+	}
+	if len(p.conditions) > 0 && !p.anyWithoutCond {
+		out[samKeyCondition] = samSharedPlanCondition
+	}
+
+	return out
 }
 
 func appendUniqueJSON(list []any, v any) []any {

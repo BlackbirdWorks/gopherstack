@@ -221,17 +221,20 @@ func (e *samOpenAPI) setDefaultAuthorizer(id string, az *samHTTPAuthorizer) erro
 		scopes = []any{}
 	}
 	for _, path := range slices.Sorted(maps.Keys(e.paths())) {
-		item := asMap(e.paths()[path])
-		if item == nil {
-			return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
-		}
-		for method, v := range item {
-			op, exempt, err := defaultAuthTarget(id, path, method, v, item)
-			if err != nil {
-				return err
+		contents, _ := conditionalContents(e.paths()[path])
+		for _, c := range contents {
+			item := asMap(c)
+			if item == nil {
+				return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
 			}
-			if !exempt {
-				op[samOAPISecurity] = []any{map[string]any{az.name: scopes}}
+			for method, v := range item {
+				ops, err := defaultAuthTargets(id, path, method, v, item)
+				if err != nil {
+					return err
+				}
+				for _, op := range ops {
+					op[samOAPISecurity] = []any{map[string]any{az.name: scopes}}
+				}
 			}
 		}
 	}
@@ -239,36 +242,41 @@ func (e *samOpenAPI) setDefaultAuthorizer(id string, az *samHTTPAuthorizer) erro
 	return nil
 }
 
-// defaultAuthTarget returns the operation to secure, or exempt when the default authorizer skips it.
-func defaultAuthTarget(id, path, method string, v any, item map[string]any) (map[string]any, bool, error) {
+// defaultAuthTargets returns the operations to secure; the default authorizer skips OPTIONS, parameters,
+// operations without an integration and those with their own security.
+func defaultAuthTargets(id, path, method string, v any, item map[string]any) ([]map[string]any, error) {
 	norm := strings.ToLower(method)
-	if norm == "any" {
+	if norm == samMethodAny {
 		norm = samAnyMethodKey
 	}
 	if norm == samKOptions || norm == "parameters" {
-		return nil, true, nil
+		return nil, nil
 	}
 	if _, found := item[norm]; !found {
-		return nil, false, samErr(
+		return nil, samErr(
 			id,
 			"Structure of the SAM template is invalid. Could not find %s in %s within DefinitionBody.",
 			norm,
 			path,
 		)
 	}
-	op := asMap(v)
-	if op == nil {
-		if v == nil {
-			return nil, false, samErr(id, "Definition of method '%s' for path '%s' should be a map.", method, path)
+	contents, _ := conditionalContents(v)
+	var out []map[string]any
+	for _, c := range contents {
+		op := asMap(c)
+		if op == nil {
+			if c == nil {
+				return nil, samErr(id, "Definition of method '%s' for path '%s' should be a map.", method, path)
+			}
+
+			continue
 		}
-
-		return nil, true, nil
-	}
-	if op[samIntegrationKey] == nil || len(asList(op[samOAPISecurity])) > 0 {
-		return nil, true, nil
+		if op[samIntegrationKey] != nil && len(asList(op[samOAPISecurity])) == 0 {
+			out = append(out, op)
+		}
 	}
 
-	return op, false, nil
+	return out, nil
 }
 
 // addRouteAuth applies an event's Auth to its operation.

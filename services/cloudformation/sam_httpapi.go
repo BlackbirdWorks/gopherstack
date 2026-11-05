@@ -26,7 +26,7 @@ const (
 func samHTTPAPIProps() map[string]bool {
 	return keySet(samKeyStageName, samKeyStageVars, samKeyCorsProp, samKeyCors, samKeyDesc, "DefaultRouteSettings",
 		samKeyRouteSetting, "AccessLogSettings", samKeyTags, "DisableExecuteApiEndpoint", "FailOnWarnings", "Name",
-		samAuthKey, "DefinitionBody", "DefinitionUri", samDomainKey)
+		samAuthKey, "DefinitionBody", "DefinitionUri", samDomainKey, samKeyPropagateTags)
 }
 
 type samHTTPRoute struct {
@@ -34,6 +34,7 @@ type samHTTPRoute struct {
 	payload  any
 	auth     map[string]any
 	settings map[string]any
+	pass     map[string]any
 	fnID     string
 	fn       string
 	target   string
@@ -73,8 +74,28 @@ type samHTTPAPI struct {
 	props     map[string]any
 	id        string
 	stageName string
+	stageRaw  any
 	routes    []samHTTPRoute
 	managed   bool
+	plainRef  bool
+}
+
+// httpStageName reads StageName: a literal, or an intrinsic whose stage id carries no name.
+func httpStageName(id string, props map[string]any) (string, any, error) {
+	v, ok := props[samKeyStageName]
+	if !ok {
+		return samDefaultStage, samDefaultStage, nil
+	}
+	switch s := v.(type) {
+	case string:
+		if s != "" {
+			return s, v, nil
+		}
+	case map[string]any:
+		return "", v, nil
+	}
+
+	return "", nil, samErr(id, "StageName must be a literal string.")
 }
 
 func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
@@ -100,18 +121,22 @@ func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 	if props["DefinitionBody"] != nil && props["DefinitionUri"] != nil {
 		return samErr(id, "Specify either 'DefinitionUri' or 'DefinitionBody' property and not both.")
 	}
-	stage := samDefaultStage
-	if v, ok := props[samKeyStageName]; ok {
-		s, isStr := v.(string)
-		if !isStr || s == "" {
-			return samErr(id, "StageName must be a literal string.")
-		}
-		stage = s
+	stage, stageRaw, err := httpStageName(id, props)
+	if err != nil {
+		return err
 	}
 	managed := props["DefinitionBody"] == nil && props["DefinitionUri"] == nil
-	t.httpAPIs[id] = &samHTTPAPI{id: id, stageName: stage, props: props, managed: managed, raw: r}
+	t.httpAPIs[id] = &samHTTPAPI{id: id, stageName: stage, stageRaw: stageRaw, props: props, managed: managed, raw: r}
 
 	return nil
+}
+
+func (a *samHTTPAPI) idValue() any {
+	if a.plainRef {
+		return a.id
+	}
+
+	return samRef(a.id)
 }
 
 func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) {
@@ -122,14 +147,26 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 				return nil, err
 			}
 			t.httpAPIs[samImplicitHTTPAPI] = &samHTTPAPI{
-				id: samImplicitHTTPAPI, stageName: samDefaultStage, props: props, managed: true,
+				id:        samImplicitHTTPAPI,
+				stageName: samDefaultStage,
+				stageRaw:  samDefaultStage,
+				props:     props,
+				managed:   true,
 			}
 		}
 
+		t.addImplicitTags(t.httpAPIs[samImplicitHTTPAPI].props)
+
 		return t.httpAPIs[samImplicitHTTPAPI], nil
 	}
-	ref, _ := asMap(apiID)[samKeyRef].(string)
+	ref, plain := apiID.(string)
+	if !plain {
+		ref, _ = asMap(apiID)[samKeyRef].(string)
+	}
 	api := t.httpAPIs[ref]
+	if api != nil && plain {
+		api.plainRef = true
+	}
 	if api == nil {
 		return nil, samErr(fnID, "ApiId must reference an AWS::Serverless::HttpApi in this template.")
 	}
@@ -164,6 +201,7 @@ func (t *samTranslator) httpAPIEvent(ev *samEventCtx, name string, props map[str
 		}
 	}
 	rt.fn = ev.target()
+	rt.pass = maps.Clone(t.pass)
 	api.routes = append(api.routes, rt)
 
 	return nil
@@ -190,8 +228,12 @@ func (t *samTranslator) putHTTPPermissions(a *samHTTPAPI) error {
 		if rt.path != "" && a.defaultCoversFunction(rt) {
 			continue
 		}
-		perm := lambdaPermission(rt.fn, "apigateway.amazonaws.com", httpAPISourceArn(a.id, rt))
-		if err := t.put(samPermissionID(rt.fnID+rt.event, ""), perm); err != nil {
+		perm := lambdaPermission(rt.fn, "apigateway.amazonaws.com", httpAPISourceArn(a.idValue(), rt))
+		saved := t.pass
+		t.pass = rt.pass
+		err := t.put(samPermissionID(rt.fnID+rt.event, ""), perm)
+		t.pass = saved
+		if err != nil {
 			return err
 		}
 	}
@@ -199,7 +241,7 @@ func (t *samTranslator) putHTTPPermissions(a *samHTTPAPI) error {
 	return nil
 }
 
-func httpAPISourceArn(apiID string, rt samHTTPRoute) map[string]any {
+func httpAPISourceArn(apiID any, rt samHTTPRoute) map[string]any {
 	path := ""
 	if rt.path != "" {
 		path = permissionPath(rt.path)
@@ -311,15 +353,25 @@ func (a *samHTTPAPI) checkURIOnly() error {
 	return nil
 }
 
-func (a *samHTTPAPI) stageProps() map[string]any {
-	tags := map[string]any{}
-	if a.props["DefinitionUri"] == nil {
-		tags[samHTTPAPITag] = samCreatedBy
+// v2Tags are the tags of the stage and domain: the user's plus SAM's, only when SAM owns the OpenAPI body.
+func (a *samHTTPAPI) v2Tags() map[string]any {
+	if a.props["DefinitionUri"] != nil {
+		return nil
 	}
-	maps.Copy(tags, asMap(a.props[samKeyTags]))
+	tags := maps.Clone(asMap(a.props[samKeyTags]))
+	if tags == nil {
+		tags = map[string]any{}
+	}
 	tags[samHTTPAPITag] = samCreatedBy
-	stage := map[string]any{samKeyAPIID: samRef(a.id), samKeyStageName: a.stageName, "AutoDeploy": true,
-		samKeyTags: tags}
+
+	return tags
+}
+
+func (a *samHTTPAPI) stageProps() map[string]any {
+	stage := map[string]any{samKeyAPIID: samRef(a.id), samKeyStageName: a.stageRaw, "AutoDeploy": true}
+	if tags := a.v2Tags(); tags != nil {
+		stage[samKeyTags] = tags
+	}
 	for _, k := range []string{samKeyStageVars, "DefaultRouteSettings", "AccessLogSettings"} {
 		if v, ok := a.props[k]; ok {
 			stage[k] = v

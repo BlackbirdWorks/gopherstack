@@ -120,6 +120,9 @@ func transformGolden(t *testing.T, name string) (string, error) {
 	raw, err := os.ReadFile(filepath.Join(samGoldenDir, "input", name+".yaml"))
 	require.NoError(t, err)
 	body := string(raw)
+	if !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
 	if !strings.Contains(body, "\nTransform:") && !strings.HasPrefix(body, "Transform:") {
 		// A "%YAML 1.1" directive has to stay ahead of the document start marker.
 		if head, rest, found := strings.Cut(body, "---\n"); found && strings.HasPrefix(body, "%") {

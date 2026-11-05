@@ -47,6 +47,12 @@ func (t *samTranslator) s3Event(ev *samEventCtx, name string, props map[string]a
 		return err
 	}
 	t.s3Perms[bucket] = append(t.s3Perms[bucket], permID)
+	if len(t.curTags) > 0 {
+		if t.bucketTags[bucket] == nil {
+			t.bucketTags[bucket] = map[string]any{}
+		}
+		maps.Copy(t.bucketTags[bucket], t.curTags)
+	}
 	for _, e := range events {
 		cfg := map[string]any{"Event": e, samKeyFunction: ev.fnArn()}
 		if props["Filter"] != nil {
@@ -86,6 +92,9 @@ func (t *samTranslator) finalizeS3Events() error {
 		}
 		nc[samKeyLambdaCfg] = existing
 		props[samKeyNotifCfg] = nc
+		if tags := t.bucketTags[id]; len(tags) > 0 {
+			props[samKeyTags] = plainTagList(tags)
+		}
 		nb := maps.Clone(b)
 		nb[samKeyProps] = props
 		t.dependOnPermissions(nb, t.s3Perms[id])
