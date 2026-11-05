@@ -1,8 +1,6 @@
 package cloudformation
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,49 +10,77 @@ import (
 )
 
 const (
-	samTransformName = "AWS::Serverless-2016-10-31"
-	samHashLen       = 10
-	samResPrefix     = "AWS::Serverless::"
-	samKeyProps      = "Properties"
-	samKeyType       = "Type"
-	samKeyRef        = "Ref"
-	samKeyFnSub      = "Fn::Sub"
-	samKeyDependsOn  = "DependsOn"
-	samKeyDesc       = "Description"
-	samKeyFnName     = "FunctionName"
-	samKeyCondition  = "Condition"
-	samKeyTableName  = "TableName"
-	samKeyTopicArn   = "TopicArn"
-	samTypeFunction  = "AWS::Lambda::Function"
-	samTypePerm      = "AWS::Lambda::Permission"
-	samTypeESM       = "AWS::Lambda::EventSourceMapping"
-	samTypeVersion   = "AWS::Lambda::Version"
-	samTypeAlias     = "AWS::Lambda::Alias"
-	samTypeLayer     = "AWS::Lambda::LayerVersion"
-	samTypeRule      = "AWS::Events::Rule"
-	samTypeSubscr    = "AWS::SNS::Subscription"
-	samTypeRestAPI   = "AWS::ApiGateway::RestApi"
-	samTypeDeploy    = "AWS::ApiGateway::Deployment"
-	samTypeStage     = "AWS::ApiGateway::Stage"
-	samStateEnabled  = "ENABLED"
-	samStateDisabled = "DISABLED"
-	samTypeString    = "String"
-	samKeyStageName  = "StageName"
-	samKeyResponses  = "responses"
-	samKeyTypeLower  = "type"
-	samTokenType     = "TOKEN"
-	samKeyAction     = "Action"
-	samKeyPrincipal  = "Principal"
-	samKeyState      = "State"
-	samKeyAssumeRole = "AssumeRolePolicyDocument"
-	samPolicyVersion = "2012-10-17"
-	samKeyStatement  = "Statement"
-	samKeyPolicyName = "PolicyName"
-	samKeyFunction   = "Function"
-	samJSONMime      = "application/json"
-	samAuthHeader    = "Authorization"
-	samKeyVersion    = "Version"
-	samKeyEffect     = "Effect"
+	samTransformName   = "AWS::Serverless-2016-10-31"
+	samHashLen         = 10
+	samResPrefix       = "AWS::Serverless::"
+	samKeyProps        = "Properties"
+	samKeyType         = "Type"
+	samKeyRef          = "Ref"
+	samKeyFnSub        = "Fn::Sub"
+	samKeyDependsOn    = "DependsOn"
+	samKeyDesc         = "Description"
+	samKeyFnName       = "FunctionName"
+	samKeyCondition    = "Condition"
+	samKeyTableName    = "TableName"
+	samKeyTopicArn     = "TopicArn"
+	samTypeFunction    = "AWS::Lambda::Function"
+	samTypePerm        = "AWS::Lambda::Permission"
+	samTypeESM         = "AWS::Lambda::EventSourceMapping"
+	samTypeVersion     = "AWS::Lambda::Version"
+	samTypeAlias       = "AWS::Lambda::Alias"
+	samTypeLayer       = "AWS::Lambda::LayerVersion"
+	samTypeRule        = "AWS::Events::Rule"
+	samTypeSubscr      = "AWS::SNS::Subscription"
+	samTypeRestAPI     = "AWS::ApiGateway::RestApi"
+	samTypeDeploy      = "AWS::ApiGateway::Deployment"
+	samTypeStage       = "AWS::ApiGateway::Stage"
+	samStateEnabled    = "ENABLED"
+	samStateDisabled   = "DISABLED"
+	samTypeString      = "String"
+	samKeyStageName    = "StageName"
+	samKeyResponses    = "responses"
+	samKeyTypeLower    = "type"
+	samTokenType       = "TOKEN"
+	samKeyAction       = "Action"
+	samKeyPrincipal    = "Principal"
+	samKeyState        = "State"
+	samKeyAssumeRole   = "AssumeRolePolicyDocument"
+	samPolicyVersion   = "2012-10-17"
+	samKeyStatement    = "Statement"
+	samKeyPolicyName   = "PolicyName"
+	samKeyFunction     = "Function"
+	samJSONMime        = "application/json"
+	samAuthHeader      = "Authorization"
+	samKeyVersion      = "Version"
+	samKeyEffect       = "Effect"
+	samTypeAPIKey      = "apiKey"
+	samKeyHTTPMethod   = "httpMethod"
+	samKeyURI          = "uri"
+	samKeyStageVars    = "StageVariables"
+	samCreatedBy       = "SAM"
+	samKeyDomainName   = "DomainName"
+	samKeyCorsProp     = "Cors"
+	samKeyDelPolicy    = "DeletionPolicy"
+	samKeyUpdPolicy    = "UpdateReplacePolicy"
+	samLocPath         = "path"
+	samKeyOrigins      = "AllowOrigins"
+	samFnJoin          = "Fn::Join"
+	samFnNot           = "Fn::Not"
+	samFnAnd           = "Fn::And"
+	samFnOr            = "Fn::Or"
+	samKeyHeaders      = "Headers"
+	samKeyEnabled      = "Enabled"
+	samKeyKeyID        = "KeyId"
+	samKeyManagedARNs  = "ManagedPolicyArns"
+	samKeyEvents       = "Events"
+	samDestLambda      = "Lambda"
+	samKeyAllowCreds   = "AllowCredentials"
+	samKeyImage        = "Image"
+	samKeyBatchSize    = "BatchSize"
+	samKeyDatabaseName = "DatabaseName"
+	samKeyKey          = "Key"
+	samKeyLogGroup     = "LogGroupName"
+	samTypeUserPool    = "AWS::Cognito::UserPool"
 )
 
 // ErrSAMTransform is returned when a SAM template cannot be expanded.
@@ -64,12 +90,20 @@ var ErrSAMTransform = errors.New("transform " + samTransformName + " failed with
 // samTranslator expands AWS::Serverless::* into plain CloudFormation; logical IDs follow
 // the SAM developer guide page "sam-specification-generated-resources".
 type samTranslator struct {
-	out       map[string]any
-	globals   map[string]map[string]any
-	apis      map[string]*samAPI
-	httpAPIs  map[string]*samHTTPAPI
-	s3Configs map[string][]any
-	refs      map[string]string
+	out        map[string]any
+	globals    map[string]map[string]any
+	apis       map[string]*samAPI
+	httpAPIs   map[string]*samHTTPAPI
+	s3Configs  map[string][]any
+	s3Perms    map[string][]string
+	cognito    map[string][]samCognitoTrigger
+	input      map[string]any
+	refs       map[string]string
+	pass       map[string]any
+	params     map[string]any
+	conditions map[string]any
+	deploys    []*samDeployPref
+	sharedPlan samSharedPlan
 }
 
 func samErr(id, format string, args ...any) error {
@@ -80,13 +114,6 @@ func samRef(id string) map[string]any { return map[string]any{samKeyRef: id} }
 
 func samGetAtt(id, attr string) map[string]any {
 	return map[string]any{fnGetAtt: []any{id, attr}}
-}
-
-func samHash(v any) string {
-	raw, _ := json.Marshal(v)
-	sum := sha256.Sum256(raw)
-
-	return hex.EncodeToString(sum[:])[:samHashLen]
 }
 
 func asMap(v any) map[string]any {
@@ -112,25 +139,49 @@ func isSAMTransform(doc map[string]any) bool {
 
 // expandSAMDocument expands a decoded SAM template in place of Resources and
 // drops Globals; Transform is left for the caller to keep or strip.
-func expandSAMDocument(doc map[string]any) error {
+func expandSAMDocument(doc map[string]any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w. Unexpected template shape: %v", ErrSAMTransform, r)
+		}
+	}()
+
 	t := &samTranslator{
-		out:       map[string]any{},
-		globals:   map[string]map[string]any{},
-		apis:      map[string]*samAPI{},
-		httpAPIs:  map[string]*samHTTPAPI{},
-		s3Configs: map[string][]any{},
-		refs:      map[string]string{},
+		out:        map[string]any{},
+		globals:    map[string]map[string]any{},
+		apis:       map[string]*samAPI{},
+		httpAPIs:   map[string]*samHTTPAPI{},
+		s3Configs:  map[string][]any{},
+		s3Perms:    map[string][]string{},
+		cognito:    map[string][]samCognitoTrigger{},
+		input:      asMap(doc["Resources"]),
+		refs:       map[string]string{},
+		params:     map[string]any{},
+		conditions: map[string]any{},
 	}
-	if err := t.readGlobals(asMap(doc["Globals"])); err != nil {
+	for name, p := range asMap(doc["Parameters"]) {
+		if def, ok := asMap(p)["Default"]; ok {
+			t.params[name] = def
+		}
+	}
+	if err = t.readGlobals(asMap(doc["Globals"])); err != nil {
 		return err
 	}
 	delete(doc, "Globals")
 
 	res := asMap(doc["Resources"])
-	if err := t.translate(res); err != nil {
+	if err = t.translate(res); err != nil {
 		return err
 	}
 	doc["Resources"] = rewriteSAMRefs(t.out, t.refs)
+	if len(t.conditions) > 0 {
+		conds := asMap(doc["Conditions"])
+		if conds == nil {
+			conds = map[string]any{}
+		}
+		maps.Copy(conds, t.conditions)
+		doc["Conditions"] = conds
+	}
 
 	return nil
 }
@@ -170,7 +221,14 @@ func (t *samTranslator) translate(res map[string]any) error {
 		return err
 	}
 
-	return t.finalizeS3Events()
+	if err := t.finalizeDeployments(); err != nil {
+		return err
+	}
+	if err := t.finalizeS3Events(); err != nil {
+		return err
+	}
+
+	return t.finalizeCognito()
 }
 
 func (t *samTranslator) registerAPIs(id string, r map[string]any) error {
@@ -213,19 +271,52 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 	if _, exists := t.out[id]; exists {
 		return samErr(id, "Resource with this logical ID already exists in the template")
 	}
+	for k, v := range t.pass {
+		if _, has := r[k]; !has {
+			r[k] = v
+		}
+	}
 	t.out[id] = r
 
 	return nil
 }
 
+// passAttrs are the resource attributes SAM copies onto every resource it generates from r.
+func passAttrs(r map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, k := range []string{samKeyCondition, samKeyDelPolicy, samKeyUpdPolicy} {
+		if v, ok := r[k]; ok {
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
 // carryAttrs copies resource-level attributes (DependsOn, Condition, ...) from
 // a SAM resource onto its generated base resource.
 func carryAttrs(from, to map[string]any) {
-	for _, k := range []string{samKeyDependsOn, samKeyCondition, "DeletionPolicy", "UpdateReplacePolicy", "Metadata"} {
+	for _, k := range []string{samKeyDependsOn, samKeyCondition, samKeyDelPolicy, samKeyUpdPolicy, "Metadata"} {
 		if v, ok := from[k]; ok {
 			to[k] = v
 		}
 	}
+}
+
+// paramDefault resolves a Ref to a template Parameter to its Default, for the few SAM
+// properties that pick a structure rather than carry a value (the stack's own parameter
+// values are not visible to the transform); anything else is returned unchanged.
+func (t *samTranslator) paramDefault(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 1 {
+		return v
+	}
+	name, _ := m[samKeyRef].(string)
+	if def, has := t.params[name]; has {
+		return def
+	}
+
+	return v
 }
 
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
@@ -294,10 +385,10 @@ func samTags(tags map[string]any) []any {
 	keys := slices.Sorted(maps.Keys(tags))
 	rest := make([]any, 0, len(keys))
 	for _, k := range keys {
-		rest = append(rest, map[string]any{"Key": k, "Value": tags[k]})
+		rest = append(rest, map[string]any{samKeyKey: k, samKValue: tags[k]})
 	}
 
-	return slices.Concat([]any{map[string]any{"Key": "lambda:createdBy", "Value": "SAM"}}, rest)
+	return slices.Concat([]any{map[string]any{samKeyKey: "lambda:createdBy", samKValue: samCreatedBy}}, rest)
 }
 
 // rewriteSAMRefs applies referenceable-property rewrites (Ref Fn.Alias etc.).
@@ -341,9 +432,9 @@ func rewriteRefValue(v any, refs map[string]string) any {
 	}
 }
 
-// processedTemplateBody returns the template as CloudFormation reports it for
+// ProcessedTemplateBody returns the template as CloudFormation reports it for
 // GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed.
-func processedTemplateBody(body string) (string, error) {
+func ProcessedTemplateBody(body string) (string, error) {
 	if !strings.Contains(body, samTransformName) {
 		return body, nil
 	}

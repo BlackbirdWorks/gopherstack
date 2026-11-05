@@ -525,11 +525,11 @@ func (rc *ResourceCreator) createPlatformResources(
 		)
 
 		return physID, true, err
-	case "AWS::StepFunctions::StateMachineVersion":
+	case samTypeSFNVersion:
 		physID, err := rc.createSFNStateMachineVersion(props, params, physicalIDs)
 
 		return physID, true, err
-	case "AWS::StepFunctions::StateMachineAlias":
+	case samTypeSFNAlias:
 		physID, err := rc.createSFNStateMachineAlias(logicalID, props, params, physicalIDs)
 
 		return physID, true, err
@@ -1672,10 +1672,10 @@ func (rc *ResourceCreator) deletePlatformResource(
 	case resTypeStepFunctionsStateMachine:
 
 		return true, rc.deleteStepFunctionsStateMachine(ctx, physicalID)
-	case "AWS::StepFunctions::StateMachineVersion":
+	case samTypeSFNVersion:
 
 		return true, rc.deleteSFNStateMachineVersion(physicalID)
-	case "AWS::StepFunctions::StateMachineAlias":
+	case samTypeSFNAlias:
 
 		return true, rc.deleteSFNStateMachineAlias(physicalID)
 	case resTypeLogGroup:
@@ -1838,7 +1838,7 @@ func (rc *ResourceCreator) deleteRoute53Resource(resourceType, physicalID string
 	case resTypeRoute53HostedZone:
 		return rc.deleteRoute53HostedZone(physicalID)
 	case resTypeRoute53RecordSet, resTypeRoute53RecordSetGroup:
-		return nil // record sets are deleted with the hosted zone
+		return rc.deleteRoute53Records(physicalID)
 	default:
 		return rc.deleteRoute53HealthCheck(physicalID)
 	}
@@ -3035,6 +3035,11 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 	}
 
 	definition := strProp(props, "DefinitionString", params, physicalIDs)
+	if subs, ok := props["DefinitionSubstitutions"].(map[string]any); ok {
+		for k, v := range subs {
+			definition = strings.ReplaceAll(definition, "${"+k+"}", resolve(v, params, physicalIDs))
+		}
+	}
 	roleArn := strProp(props, "RoleArn", params, physicalIDs)
 	smType := strProp(props, "StateMachineType", params, physicalIDs)
 	if smType == "" {
@@ -3050,6 +3055,18 @@ func (rc *ResourceCreator) createStepFunctionsStateMachine(
 	)
 	if err != nil {
 		return "", fmt.Errorf("create StepFunctions state machine: %w", err)
+	}
+
+	var tracing *sfnbackend.TracingConfiguration
+	if tc, ok := props["TracingConfiguration"].(map[string]any); ok {
+		tracing = &sfnbackend.TracingConfiguration{Enabled: tc["Enabled"] == true || tc["Enabled"] == boolTrue}
+	}
+	if tracing != nil {
+		if err = rc.backends.StepFunctions.Backend.SetStateMachineConfigurations(
+			sm.StateMachineArn, tracing, nil, nil,
+		); err != nil {
+			return "", fmt.Errorf("configure StepFunctions state machine: %w", err)
+		}
 	}
 
 	return sm.StateMachineArn, nil

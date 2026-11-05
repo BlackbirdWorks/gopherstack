@@ -1,0 +1,85 @@
+{
+  "Resources": {
+    "FunctionWithSigningProfile": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "member_portal.zip"
+        },
+        "CodeSigningConfigArn": {
+          "Ref": "MySignedFunctionCodeSigningConfig"
+        },
+        "Handler": "index.gethtml",
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionWithSigningProfileRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithSigningProfileRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MySignedFunctionCodeSigningConfig": {
+      "Properties": {
+        "AllowedPublishers": {
+          "SigningProfileVersionArns": [
+            {
+              "Fn::GetAtt": [
+                "SigningProfile",
+                "ProfileVersionArn"
+              ]
+            }
+          ]
+        },
+        "CodeSigningPolicies": {
+          "UntrustedArtifactOnDeployment": "Enforce"
+        },
+        "Description": "Code Signing for MySignedLambdaFunction"
+      },
+      "Type": "AWS::Lambda::CodeSigningConfig"
+    },
+    "SigningProfile": {
+      "Properties": {
+        "PlatformId": "AWSLambda-SHA384-ECDSA"
+      },
+      "Type": "AWS::Signer::SigningProfile"
+    }
+  }
+}

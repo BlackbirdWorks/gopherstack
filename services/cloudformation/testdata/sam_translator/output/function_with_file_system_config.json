@@ -1,0 +1,115 @@
+{
+  "Description": "SAM + Lambda + EFS",
+  "Parameters": {
+    "ExistingEfsFileSystem": {
+      "Type": "String"
+    },
+    "SecurityGroupIds": {
+      "Description": "Security Group IDs that Lambda will use",
+      "Type": "List<AWS::EC2::SecurityGroup::Id>"
+    },
+    "VpcSubnetIds": {
+      "Description": "VPC Subnet IDs that Lambda will use",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    }
+  },
+  "Resources": {
+    "AccessPoint": {
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "EfsFileSystem"
+        }
+      },
+      "Type": "AWS::EFS::AccessPoint"
+    },
+    "EfsFileSystem": {
+      "Type": "AWS::EFS::FileSystem"
+    },
+    "LambdaFunctionWithEfs": {
+      "Properties": {
+        "Code": {
+          "ZipFile": "const fs = require('fs')\nconst path = require('path')\nconst efsMountPath = '/mnt/efs'\n\nexports.handler = async (event, context, callback) => {\nconst directory = path.join(efsMountPath, event.body)\nconst files = fs.readdirSync(directory)\nreturn files\n}\n"
+        },
+        "FileSystemConfigs": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "AccessPoint",
+                "Arn"
+              ]
+            },
+            "LocalMountPath": "/mnt/EFS"
+          }
+        ],
+        "Handler": "index.handler",
+        "MemorySize": 128,
+        "Role": {
+          "Fn::GetAtt": [
+            "LambdaFunctionWithEfsRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ],
+        "Timeout": 3,
+        "VpcConfig": {
+          "SecurityGroupIds": {
+            "Ref": "SecurityGroupIds"
+          },
+          "SubnetIds": {
+            "Ref": "VpcSubnetIds"
+          }
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "LambdaFunctionWithEfsRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MountTarget": {
+      "Properties": {
+        "FileSystemId": {
+          "Ref": "EfsFileSystem"
+        },
+        "SecurityGroups": {
+          "Ref": "SecurityGroupIds"
+        },
+        "SubnetId": "subnet-abc123"
+      },
+      "Type": "AWS::EFS::MountTarget"
+    }
+  }
+}

@@ -48,7 +48,7 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	}
 
 	if form.Get("TemplateStage") == "Processed" {
-		if body, err = processedTemplateBody(body); err != nil {
+		if body, err = ProcessedTemplateBody(body); err != nil {
 			return h.xmlError(c, "ValidationError", err.Error())
 		}
 	}

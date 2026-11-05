@@ -8,16 +8,6 @@ import (
 
 const samCorsHeaderPrefix = "method.response.header.Access-Control-"
 
-// samCorsValue single-quotes a static CORS value as API Gateway mapping expressions require.
-func samCorsValue(v any) any {
-	s, ok := v.(string)
-	if !ok || (strings.HasPrefix(s, "'") && strings.HasSuffix(s, "'")) {
-		return v
-	}
-
-	return "'" + s + "'"
-}
-
 // samCorsSettings normalises Api Cors (an origin string or CorsConfiguration map).
 func samCorsSettings(id string, cors any) (map[string]any, error) {
 	switch c := cors.(type) {
@@ -28,7 +18,7 @@ func samCorsSettings(id string, cors any) (map[string]any, error) {
 			return nil, samErr(id, "Cors requires 'AllowOrigin'.")
 		}
 		if err := rejectUnknown(id, c, keySet("AllowOrigin", "AllowMethods", "AllowHeaders", "MaxAge",
-			"AllowCredentials")); err != nil {
+			samKeyAllowCreds)); err != nil {
 			return nil, err
 		}
 
@@ -39,52 +29,56 @@ func samCorsSettings(id string, cors any) (map[string]any, error) {
 }
 
 // addCorsPreflight adds an OPTIONS mock integration to every path lacking one.
-func addCorsPreflight(id string, paths map[string]any, cors any, authorizer string) error {
+func addCorsPreflight(id string, paths map[string]any, cors any) error {
 	cfg, err := samCorsSettings(id, cors)
 	if err != nil {
 		return err
 	}
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
 		item := asMap(paths[path])
-		if _, exists := item["options"]; exists {
+		if item == nil {
+			return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
+		}
+		if _, exists := item[samKOptions]; exists {
 			continue
 		}
-		op := corsOptionsOperation(cfg, item)
-		if authorizer != "" {
-			op["security"] = security(authorizer)
-		}
-		item["options"] = op
+		item[samKOptions] = corsOptionsOperation(cfg, item)
 	}
 
 	return nil
 }
 
 func corsOptionsOperation(cfg, item map[string]any) map[string]any {
-	params := map[string]any{samCorsHeaderPrefix + "Allow-Origin": samCorsValue(cfg["AllowOrigin"])}
+	params := map[string]any{samCorsHeaderPrefix + "Allow-Origin": cfg["AllowOrigin"]}
 	methods := cfg["AllowMethods"]
 	if methods == nil {
 		methods = "'" + strings.Join(corsMethodsFor(item), ",") + "'"
 	}
-	params[samCorsHeaderPrefix+"Allow-Methods"] = samCorsValue(methods)
+	params[samCorsHeaderPrefix+"Allow-Methods"] = methods
 	if v := cfg["AllowHeaders"]; v != nil {
-		params[samCorsHeaderPrefix+"Allow-Headers"] = samCorsValue(v)
+		params[samCorsHeaderPrefix+"Allow-Headers"] = v
 	}
 	if v := cfg["MaxAge"]; v != nil {
-		params[samCorsHeaderPrefix+"Max-Age"] = samCorsValue(v)
+		params[samCorsHeaderPrefix+"Max-Age"] = v
 	}
-	if cfg["AllowCredentials"] == true {
+	if cfg[samKeyAllowCreds] == true {
 		params[samCorsHeaderPrefix+"Allow-Credentials"] = "'true'"
 	}
 	headers := map[string]any{}
 	for k := range params {
-		headers[strings.TrimPrefix(k, "method.response.header.")] = map[string]any{samKeyTypeLower: "string"}
+		typ := "string"
+		if strings.HasSuffix(k, "Max-Age") {
+			typ = "integer"
+		}
+		headers[strings.TrimPrefix(k, "method.response.header.")] = map[string]any{samKeyTypeLower: typ}
 	}
 
 	return map[string]any{
 		"summary":  "CORS support",
 		"consumes": []any{samJSONMime},
+		"produces": []any{samJSONMime},
 		samKeyResponses: map[string]any{"200": map[string]any{
-			"description": "Default response for CORS method", "headers": headers,
+			samKeyDescLower: "Default response for CORS method", "headers": headers,
 		}},
 		"x-amazon-apigateway-integration": map[string]any{
 			samKeyTypeLower:    "mock",
@@ -99,18 +93,25 @@ func corsOptionsOperation(cfg, item map[string]any) map[string]any {
 }
 
 func corsMethodsFor(item map[string]any) []string {
-	verbs := []string{"delete", "get", "head", "patch", "post", "put"}
-	if _, isAny := item[samAnyMethodKey]; !isAny {
-		verbs = slices.DeleteFunc(verbs, func(v string) bool {
-			_, ok := item[v]
-
-			return !ok
-		})
+	allHTTP := []string{samKOptions, "get", "head", "post", "put", "delete", "patch"}
+	verbs := []string{}
+	if _, isAny := item[samAnyMethodKey]; isAny {
+		verbs = allHTTP
+	} else {
+		for _, v := range allHTTP {
+			if _, ok := item[v]; ok {
+				verbs = append(verbs, v)
+			}
+		}
+		verbs = append(verbs, samKOptions)
 	}
 	up := make([]string, 0, len(verbs))
 	for _, v := range verbs {
-		up = append(up, strings.ToUpper(v))
+		if u := strings.ToUpper(v); !slices.Contains(up, u) {
+			up = append(up, u)
+		}
 	}
+	slices.Sort(up)
 
-	return slices.Concat(up, []string{"OPTIONS"})
+	return up
 }

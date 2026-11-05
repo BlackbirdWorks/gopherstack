@@ -487,7 +487,7 @@ func TestSAMTransform_EventFailures(t *testing.T) {
 			template: fn(
 				s3Event("plain-name"),
 			),
-			reason: "Ref to an AWS::S3::Bucket",
+			reason: "S3 events must reference an S3 bucket",
 		},
 		{
 			name:     "httpapi_path_without_method",
@@ -508,14 +508,6 @@ func TestSAMTransform_EventFailures(t *testing.T) {
 			reason: "Auth",
 		},
 		{
-			name: "schedulev2_dlq_needs_arn",
-			template: fn(
-				"        E:\n          Type: ScheduleV2\n          Properties:\n            ScheduleExpression: rate(1 minute)\n" +
-					"            DeadLetterConfig:\n              Type: SQS\n",
-			),
-			reason: "DeadLetterConfig",
-		},
-		{
 			name: "api_auth_unknown_authorizer",
 			template: fn(
 				"        E:\n          Type: Api\n          Properties:\n            Path: /x\n            Method: get\n" +
@@ -530,10 +522,10 @@ func TestSAMTransform_EventFailures(t *testing.T) {
 			reason: "AWS_IAM",
 		},
 		{
-			name: "api_auth_usage_plan_unsupported",
+			name: "api_auth_usage_plan_invalid_mode",
 			template: samHeader + "Resources:\n  A:\n    Type: AWS::Serverless::Api\n    Properties:\n      StageName: p\n" +
-				"      Auth:\n        UsagePlan:\n          CreateUsagePlan: PER_API\n",
-			reason: "UsagePlan",
+				"      Auth:\n        UsagePlan:\n          CreateUsagePlan: SOMETIMES\n",
+			reason: "CreateUsagePlan",
 		},
 		{
 			name:     "schedulev2_missing_expression",
@@ -613,7 +605,7 @@ func TestSAMTransform_ApiCors(t *testing.T) {
 				"      StageName: Prod\n      Cors: \"'*'\"\n" + events("            RestApiId: !Ref Api\n"),
 			want: map[string]string{
 				"Access-Control-Allow-Origin":  "*",
-				"Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+				"Access-Control-Allow-Methods": "GET,OPTIONS,POST",
 			},
 		},
 	}

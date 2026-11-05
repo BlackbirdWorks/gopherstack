@@ -1,0 +1,224 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Template with preference that does not require a new CodeDeploy Service Role",
+  "Resources": {
+    "Function": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "Handler": "lambda.lambda_handler",
+        "Role": {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/lambda-role"
+        },
+        "Runtime": "python3.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionAliaslive": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "Function"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "FunctionVersionfb53d5c2e6",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias",
+      "UpdatePolicy": {
+        "CodeDeployLambdaAliasUpdate": {
+          "ApplicationName": {
+            "Ref": "ServerlessDeploymentApplication"
+          },
+          "BeforeAllowTrafficHook": {
+            "Ref": "preTrafficHook"
+          },
+          "DeploymentGroupName": {
+            "Ref": "FunctionDeploymentGroup"
+          }
+        }
+      }
+    },
+    "FunctionApiPermissionProd": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "FunctionAliaslive"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/GET/test",
+            {
+              "__ApiId__": {
+                "Ref": "ServerlessRestApi"
+              },
+              "__Stage__": "*"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "FunctionDeploymentGroup": {
+      "Properties": {
+        "ApplicationName": {
+          "Ref": "ServerlessDeploymentApplication"
+        },
+        "AutoRollbackConfiguration": {
+          "Enabled": true,
+          "Events": [
+            "DEPLOYMENT_FAILURE",
+            "DEPLOYMENT_STOP_ON_ALARM",
+            "DEPLOYMENT_STOP_ON_REQUEST"
+          ]
+        },
+        "DeploymentConfigName": {
+          "Fn::Sub": [
+            "CodeDeployDefault.Lambda${ConfigName}",
+            {
+              "ConfigName": "Linear10PercentEvery1Minute"
+            }
+          ]
+        },
+        "DeploymentStyle": {
+          "DeploymentOption": "WITH_TRAFFIC_CONTROL",
+          "DeploymentType": "BLUE_GREEN"
+        },
+        "ServiceRoleArn": {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/custom-codedeploy-servicerole"
+        }
+      },
+      "Type": "AWS::CodeDeploy::DeploymentGroup"
+    },
+    "FunctionVersionfb53d5c2e6": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "Function"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    },
+    "ServerlessDeploymentApplication": {
+      "Properties": {
+        "ComputePlatform": "Lambda"
+      },
+      "Type": "AWS::CodeDeploy::Application"
+    },
+    "ServerlessRestApi": {
+      "Properties": {
+        "Body": {
+          "info": {
+            "title": {
+              "Ref": "AWS::StackName"
+            },
+            "version": "1.0"
+          },
+          "paths": {
+            "/test": {
+              "get": {
+                "responses": {},
+                "x-amazon-apigateway-integration": {
+                  "httpMethod": "POST",
+                  "type": "aws_proxy",
+                  "uri": {
+                    "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionAliaslive}/invocations"
+                  }
+                }
+              }
+            }
+          },
+          "swagger": "2.0"
+        }
+      },
+      "Type": "AWS::ApiGateway::RestApi"
+    },
+    "ServerlessRestApiDeployment0e07dd5b7f": {
+      "Properties": {
+        "Description": "RestApi deployment id: 0e07dd5b7f2251dbc336532c5e3bc7518feead5e",
+        "RestApiId": {
+          "Ref": "ServerlessRestApi"
+        },
+        "StageName": "Stage"
+      },
+      "Type": "AWS::ApiGateway::Deployment"
+    },
+    "ServerlessRestApiProdStage": {
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "ServerlessRestApiDeployment0e07dd5b7f"
+        },
+        "RestApiId": {
+          "Ref": "ServerlessRestApi"
+        },
+        "StageName": "Prod"
+      },
+      "Type": "AWS::ApiGateway::Stage"
+    },
+    "preTrafficHook": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "Environment": {
+          "Variables": {
+            "NewVersion": {
+              "Ref": "FunctionVersionfb53d5c2e6"
+            }
+          }
+        },
+        "FunctionName": "CodeDeployHook_preTrafficHook",
+        "Handler": "hook.lambda_handler",
+        "Role": {
+          "Fn::Sub": "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/lambda-role"
+        },
+        "Runtime": "python3.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ],
+        "Timeout": 5
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "preTrafficHookAliaslive": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "preTrafficHook"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "preTrafficHookVersion5e9ab26520",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "preTrafficHookVersion5e9ab26520": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "preTrafficHook"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    }
+  }
+}
