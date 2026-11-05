@@ -255,7 +255,7 @@ func TestManagerRelayJoinsUpstreamNetwork(t *testing.T) {
 
 			require.Len(t, f.connected, 1)
 			assert.Equal(t, "relay1", f.connected[0].Container)
-			assert.Positive(t, f.connected[0].EndpointConfig.GwPriority, "upstream network must carry the default route")
+			assert.Positive(t, f.connected[0].EndpointConfig.GwPriority, "upstream network carries the default route")
 		})
 	}
 }

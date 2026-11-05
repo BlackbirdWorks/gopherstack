@@ -325,7 +325,9 @@ func (m *Manager) createRelay(ctx context.Context) error {
 	}
 
 	if err = m.joinUpstream(ctx, created.ID); err != nil {
-		_, _ = m.api.ContainerRemove(ctx, created.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
+		_, _ = m.api.ContainerRemove(
+			ctx, created.ID, mobyclient.ContainerRemoveOptions{Force: true, RemoveVolumes: true},
+		)
 
 		return err
 	}
