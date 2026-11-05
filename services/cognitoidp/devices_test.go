@@ -275,8 +275,8 @@ func TestPersistence_DeviceWebAuthnAndUserSettingsSurviveSnapshot(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, b.UpdateDeviceStatus(accessToken, deviceKey, "remembered"))
 
-	_, err = b.CompleteWebAuthnRegistration(accessToken, "persist-cred", "platform", nil)
-	require.NoError(t, err)
+	enablePasskeys(t, b, pool.ID)
+	passkey := registerPasskey(t, b, accessToken)
 
 	require.NoError(t, b.SetUserSettings(accessToken, []cognitoidp.MFAOptionType{
 		{DeliveryMedium: "SMS", AttributeName: "phone_number"},
@@ -307,7 +307,9 @@ func TestPersistence_DeviceWebAuthnAndUserSettingsSurviveSnapshot(t *testing.T) 
 	creds, _, err := b2.ListWebAuthnCredentials(accessToken, 0, "")
 	require.NoError(t, err)
 	require.Len(t, creds, 1)
-	assert.Equal(t, "persist-cred", creds[0].CredentialID)
+	assert.Equal(t, b64u(passkey.credID), creds[0].CredentialID)
+	require.NotNil(t, creds[0].Credential, "the verified public key must survive a snapshot")
+	assert.NotEmpty(t, creds[0].Credential.PublicKey)
 	assert.Equal(t, "platform", creds[0].AuthenticatorAttachment)
 
 	// Legacy MFAOptions and linked provider survive on the restored user.

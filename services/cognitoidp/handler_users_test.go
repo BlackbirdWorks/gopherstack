@@ -376,11 +376,13 @@ func TestUserSettings_And_AuthFactors(t *testing.T) {
 	assert.Contains(t, factorsResp.ConfiguredUserAuthFactors, "SMS_OTP")
 
 	// Register a WebAuthn credential -> WEB_AUTHN factor appears too.
-	rec = doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
-		"AccessToken": accessToken,
-		"Credential":  map[string]any{"id": "factor-cred"},
+	rec = doCognitoRequest(t, h, "SetUserPoolMfaConfig", map[string]any{
+		"UserPoolId":            poolID,
+		"WebAuthnConfiguration": map[string]any{"RelyingPartyId": passkeyRPID},
 	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	registerPasskeyHandler(t, h, accessToken)
 
 	rec = doCognitoRequest(t, h, "GetUserAuthFactors", map[string]any{"AccessToken": accessToken})
 	require.Equal(t, http.StatusOK, rec.Code)

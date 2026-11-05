@@ -1,6 +1,10 @@
 package cognitoidp
 
-import "time"
+import (
+	"time"
+
+	"github.com/go-webauthn/webauthn/webauthn"
+)
 
 // mfaSessionEntry holds the pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 type mfaSessionEntry struct {
@@ -54,6 +58,8 @@ type mfaSessionEntry struct {
 	// of issuing tokens directly the way a second-factor MFA round does -- the two rounds
 	// can share a ChallengeType value (e.g. "EMAIL_OTP") but need different continuations.
 	FirstFactor bool `json:"firstFactor,omitempty"`
+	// WebAuthn is the pending passkey ceremony (registration or WEB_AUTHN sign-in).
+	WebAuthn *webauthn.SessionData `json:"webauthn,omitempty"`
 }
 
 // customAuthChallengeResult mirrors aws-lambda-go's

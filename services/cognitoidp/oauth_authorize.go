@@ -386,6 +386,8 @@ func loginMessage(err error) string {
 		return "The new password was used recently. Choose a different one."
 	case errors.Is(err, ErrUserNotConfirmed):
 		return "User is not confirmed."
+	case errors.Is(err, ErrCodeMismatch):
+		return "That code is not valid. Try again."
 	default:
 		return "Incorrect username or password."
 	}

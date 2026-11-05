@@ -1,6 +1,7 @@
 package cognitoidp_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -12,14 +13,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp/internal/esdk"
 )
 
 const testSenderARN = "arn:aws:lambda:us-east-1:000000000000:function:sender"
 
-type prefixEncrypter struct{}
+// fixedKeys hands out one known data key whose wrapped copy is the key ID, so tests can decrypt.
+type fixedKeys struct{}
 
-func (prefixEncrypter) EncryptCode(_ context.Context, keyID string, plaintext []byte) ([]byte, error) {
-	return append([]byte(keyID+":"), plaintext...), nil
+var testDataKey = bytes.Repeat([]byte{0x11}, 32)
+
+func (fixedKeys) GenerateDataKey(_ context.Context, keyID string, _ map[string]string) (*cognitoidp.DataKey, error) {
+	return &cognitoidp.DataKey{
+		KeyARN: "arn:aws:kms:us-east-1:000000000000:key/" + keyID, Plaintext: testDataKey, Ciphertext: []byte("wrapped:" + keyID),
+	}, nil
 }
 
 func TestCustomSenderDelivery(t *testing.T) {
@@ -79,7 +86,7 @@ func TestCustomSenderDelivery(t *testing.T) {
 			e.h.Backend.SetLambdaTriggerInvoker(inv)
 
 			if tt.encrypt {
-				e.h.Backend.SetCodeEncrypter(prefixEncrypter{})
+				e.h.Backend.SetDataKeyGenerator(fixedKeys{})
 			}
 
 			if tt.wantErr != "" {
@@ -106,7 +113,17 @@ func TestCustomSenderDelivery(t *testing.T) {
 
 			blob, err := base64.StdEncoding.DecodeString(req["code"].(string))
 			require.NoError(t, err)
-			assert.Equal(t, fmt.Sprintf("key-1:%s", code), string(blob))
+
+			msg, err := esdk.Decrypt(blob, func(edk []byte, encCtx map[string]string) ([]byte, error) {
+				assert.Equal(t, []byte("wrapped:key-1"), edk)
+				assert.Equal(t, map[string]string{"userpool-id": e.poolID}, encCtx)
+
+				return testDataKey, nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, code, string(msg.Plaintext))
+			assert.Equal(t, "aws-kms", msg.ProviderID)
+			assert.Equal(t, "arn:aws:kms:us-east-1:000000000000:key/key-1", msg.ProviderInfo)
 		})
 	}
 }
