@@ -9,15 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 45 (43 ok, 2 partial) |
 | Feature families | 9 (9 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Data plane (--memorydb-engine=embedded, default): one in-process miniredis per cluster; every shard and node endpoint reports that single host:port, plaintext only (TLSEnabled is reported but not terminated), and data is not slot-sharded, replicated or persisted (Restore restarts empty servers on new ports). CreateSnapshot, CopySnapshot and the final snapshot on DeleteCluster capture the keyspace (strings, hashes, lists, sets, sorted sets, streams, TTLs) in a private gzip/gob blob stored on the snapshot, and CreateCluster SnapshotName restores it; the blob is persisted with the snapshot, so large datasets grow the persisted state. docker mode starts no server, as in ElastiCache.
-- ACL enforcement is AUTH-only: first password per user is enforced via miniredis, access strings (+@all, ~keys) are not, IAM-auth users are not, and ACL/user changes re-sync running clusters only on UpdateACL, UpdateUser and UpdateCluster.
+- Data plane (--memorydb-engine=embedded, default): one in-process miniredis per cluster; every shard and node endpoint reports that single host:port, plaintext only (TLSEnabled is reported but not terminated), and data is not slot-sharded, replicated or persisted (Restore restarts empty servers on new ports). CreateSnapshot, CopySnapshot and the final snapshot on DeleteCluster capture the keyspace (strings, hashes, lists, sets, sorted sets, streams, TTLs) in a private gzip/gob blob stored on the snapshot, and CreateCluster SnapshotName restores it; the blob is persisted with the snapshot, so large datasets grow the persisted state. The docker engine runs real Redis; see the docker entries below.
+- Docker engine (--memorydb-engine=docker): not resized by UpdateCluster ShardConfiguration/ReplicaConfiguration or node-type changes; FailoverShard does not promote a replica; IAM-auth users cannot log in (Redis cannot validate IAM tokens); restored (persisted) clusters relaunch empty containers; a snapshot taken in embedded mode restores only into a one-shard cluster; node endpoints report the advertised host (MEMORYDB_HOST, default 127.0.0.1) with distinct ports, and node TLS certificates cover that host, localhost and the cluster endpoint name.
+- Embedded-engine ACL enforcement is AUTH-only: first password per user is enforced via miniredis, access strings (+@all, ~keys) are not, IAM-auth users are not, and ACL/user changes re-sync running clusters only on UpdateACL, UpdateUser and UpdateCluster.
 - ServiceUpdate.NodesUpdated is always empty: the SDK documents it only as a string 'list of nodes updated' with no format, and nodes are synthesised per request, so the wire value is not determinable.
 
 ### Structural gaps
