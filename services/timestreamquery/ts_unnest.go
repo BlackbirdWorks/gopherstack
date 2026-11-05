@@ -2,76 +2,70 @@ package timestreamquery
 
 import (
 	"database/sql/driver"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 
 	"modernc.org/sqlite/vtab"
 )
 
 const (
-	unnestNoArgCost = 1e12
-	maxUnnestShapes = 256
+	unnestNoArgCost  = 1e12
+	unnestModuleName = "ts_unnest"
+	unnestTablePfx   = unnestModuleName + "_"
+	unnestTableArg   = 2
 )
 
 var (
-	errUnnestColumn  = errors.New("UNNEST has no such column")
-	errTooManyUnnest = errors.New("too many distinct UNNEST column aliases")
-
-	unnestMu      sync.Mutex            //nolint:gochecknoglobals // sqlite module registry is process-wide
-	unnestModules = map[string]string{} //nolint:gochecknoglobals // see unnestMu
+	errUnnestColumn = errors.New("UNNEST has no such column")
+	errUnnestName   = errors.New("malformed ts_unnest table name")
 )
 
-// unnestModuleFor returns the virtual-table module exposing a timeseries/array as columns cols, registering it once.
-func unnestModuleFor(cols []string) (string, error) {
-	key := strings.Join(cols, "\x00")
+// unnestModuleFor returns the per-query virtual table name carrying cols; the single process-wide module decodes them.
+func unnestModuleFor(cols []string) string {
+	return unnestTablePfx + hex.EncodeToString([]byte(strings.Join(cols, "\x00")))
+}
 
-	unnestMu.Lock()
-	defer unnestMu.Unlock()
-
-	if name, ok := unnestModules[key]; ok {
-		return name, nil
+func registerUnnestModule() {
+	if err := vtab.RegisterModule(nil, unnestModuleName, unnestModule{}); err != nil {
+		panic(err)
 	}
-
-	if len(unnestModules) >= maxUnnestShapes {
-		return "", validationf("line 1:1: %v", errTooManyUnnest)
-	}
-
-	name := "ts_unnest_" + strconv.Itoa(len(unnestModules))
-	if err := vtab.RegisterModule(nil, name, unnestModule{cols: cols}); err != nil {
-		return "", fmt.Errorf("timestreamquery: register %s: %w", name, err)
-	}
-
-	unnestModules[key] = name
-
-	return name, nil
 }
 
 // unnestModule is a table-valued function over a timeseries (time, value rows), array or object.
-type unnestModule struct{ cols []string }
+type unnestModule struct{}
 
 func (m unnestModule) Create(ctx vtab.Context, args []string) (vtab.Table, error) {
 	return m.Connect(ctx, args)
 }
 
-func (m unnestModule) Connect(ctx vtab.Context, _ []string) (vtab.Table, error) {
-	decl := make([]string, 0, len(m.cols)+argsTwo)
-	for _, c := range m.cols {
+func (unnestModule) Connect(ctx vtab.Context, args []string) (vtab.Table, error) {
+	if len(args) <= unnestTableArg {
+		return nil, errUnnestName
+	}
+
+	raw, err := hex.DecodeString(strings.TrimPrefix(args[unnestTableArg], unnestTablePfx))
+	if err != nil {
+		return nil, errUnnestName
+	}
+
+	cols := strings.Split(string(raw), "\x00")
+
+	decl := make([]string, 0, len(cols)+argsTwo)
+	for _, c := range cols {
 		decl = append(decl, quoteIdent(c))
 	}
 
 	decl = append(decl, "_unnest_arg HIDDEN", "_unnest_pos HIDDEN")
 
-	if err := ctx.Declare("CREATE TABLE x(" + strings.Join(decl, ", ") + ")"); err != nil {
+	if err = ctx.Declare("CREATE TABLE x(" + strings.Join(decl, ", ") + ")"); err != nil {
 		return nil, err
 	}
 
-	return &unnestTable{cols: len(m.cols)}, nil
+	return &unnestTable{cols: len(cols)}, nil
 }
 
 type unnestTable struct{ cols int }

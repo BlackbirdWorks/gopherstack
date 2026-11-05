@@ -90,6 +90,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scheduledQueryTokens: newClientTokenCache(createScheduledQueryClientTokenTTL),
 		pageStore:            newNextTokenStore(),
 	}
+	registerTimestreamFuncs()
 	registerAllTables(b)
 
 	return b
