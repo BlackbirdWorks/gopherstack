@@ -13,6 +13,8 @@ const (
 	replaceSubstitute = "SUBSTITUTE"
 	minActionReplace  = "REPLACE"
 	minActionRestart  = "RESTART"
+	minActionNone     = "NONE"
+	minActionRefresh  = "REFRESH"
 )
 
 func fixedOrPercent(v *computeapi.FixedOrPercent, target int) int {
@@ -75,7 +77,7 @@ func (b *InMemoryBackend) rollStepLocked(project string, rec *migRec) {
 	}
 
 	switch up.MostDisruptiveAllowedAction {
-	case "NONE", "REFRESH", minActionRestart:
+	case minActionNone, minActionRefresh, minActionRestart:
 		return
 	}
 

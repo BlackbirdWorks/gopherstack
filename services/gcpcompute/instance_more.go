@@ -68,7 +68,10 @@ func (b *InMemoryBackend) setInstanceName(
 	}
 
 	if b.managedByGroupLocked(project, r.Inst.SelfLink) {
-		return nil, errInvalid("Invalid value for field 'name': '%s'. The instance is managed by an instance group.", name)
+		return nil, errInvalid(
+			"Invalid value for field 'name': '%s'. The instance is managed by an instance group.",
+			name,
+		)
 	}
 
 	oldLink := r.Inst.SelfLink
@@ -331,7 +334,7 @@ func (b *InMemoryBackend) updateNetworkInterface(
 		return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
 	}
 
-	if in.StackType != "" && in.StackType != "IPV4_ONLY" {
+	if in.StackType != "" && in.StackType != stackIPv4Only {
 		return nil, errField("networkInterface.stackType", in.StackType, "Only IPV4_ONLY is supported.")
 	}
 
@@ -356,14 +359,45 @@ func (b *InMemoryBackend) updateNetworkInterface(
 	return b.instOpLocked("updateNetworkInterface", project, zone, r), nil
 }
 
-func (b *InMemoryBackend) moveNICLocked(
-	project, zone string, r *instRec, next, in *computeapi.NetworkInterface, raw map[string]any,
-) *APIError {
+// nicMoveRequest returns the interface to build for a patch touching network, subnetwork or networkIP, or nil when
+// the patch leaves them as they are.
+func nicMoveRequest(cur, in *computeapi.NetworkInterface, raw map[string]any) *computeapi.NetworkInterface {
 	_, hasNet := raw["network"]
 	_, hasSub := raw["subnetwork"]
 	_, hasIP := raw["networkIP"]
 
-	if !hasNet && !hasSub && !hasIP {
+	req := &computeapi.NetworkInterface{Network: cur.Network, Subnetwork: cur.Subnetwork}
+	if hasNet || hasSub {
+		req.Network, req.Subnetwork = in.Network, in.Subnetwork
+	}
+
+	switch {
+	case hasIP:
+		req.NetworkIP = in.NetworkIP
+	case req.Subnetwork == cur.Subnetwork:
+		req.NetworkIP = cur.NetworkIP
+	}
+
+	if req.Subnetwork == cur.Subnetwork {
+		req.Network = cur.Network
+	}
+
+	if req.NetworkIP == cur.NetworkIP && req.Subnetwork == cur.Subnetwork {
+		return nil
+	}
+
+	return req
+}
+
+func nicIndex(inst *computeapi.Instance, name string) int {
+	return slices.IndexFunc(inst.NetworkInterfaces, func(n *computeapi.NetworkInterface) bool { return n.Name == name })
+}
+
+func (b *InMemoryBackend) moveNICLocked(
+	project, zone string, r *instRec, next, in *computeapi.NetworkInterface, raw map[string]any,
+) *APIError {
+	req := nicMoveRequest(next, in, raw)
+	if req == nil {
 		return nil
 	}
 
@@ -371,57 +405,29 @@ func (b *InMemoryBackend) moveNICLocked(
 		return err
 	}
 
-	req := &computeapi.NetworkInterface{Network: next.Network, Subnetwork: next.Subnetwork}
-	if hasNet || hasSub {
-		req.Network, req.Subnetwork = in.Network, in.Subnetwork
-	}
-
-	if hasIP {
-		req.NetworkIP = in.NetworkIP
-	}
-
-	if req.NetworkIP == next.NetworkIP && req.Subnetwork == next.Subnetwork {
-		return nil
-	}
-
-	idx := 0
-
-	for i, n := range r.Inst.NetworkInterfaces {
-		if n.Name == next.Name {
-			idx = i
-		}
-	}
-
-	same := req.Subnetwork == next.Subnetwork
-	if same {
-		req.Network = next.Network
-	}
-
-	saved := next.NetworkIP
-	next.NetworkIP = ""
-	r.Inst.NetworkInterfaces[idx].NetworkIP = ""
+	idx := nicIndex(r.Inst, next.Name)
+	own := r.Inst.NetworkInterfaces[idx]
+	saved := own.NetworkIP
+	own.NetworkIP = ""
 
 	built, err := b.buildNICLocked(project, regionOfZone(zone), idx, req, map[netip.Addr]bool{}, new([]string))
-	r.Inst.NetworkInterfaces[idx].NetworkIP = saved
+	own.NetworkIP = saved
 
 	if err != nil {
-		next.NetworkIP = saved
-
 		return err
 	}
 
 	for i, n := range r.Inst.NetworkInterfaces {
 		if i != idx && n.Network == built.Network {
-			next.NetworkIP = saved
-
 			return errInvalid("Invalid value for field 'network': network interfaces must be on different networks.")
 		}
 	}
 
-	next.Network, next.Subnetwork, next.NetworkIP = built.Network, built.Subnetwork, built.NetworkIP
-	if !same {
+	if built.Subnetwork != next.Subnetwork {
 		next.AliasIpRanges = nil
 	}
+
+	next.Network, next.Subnetwork, next.NetworkIP = built.Network, built.Subnetwork, built.NetworkIP
 
 	return nil
 }

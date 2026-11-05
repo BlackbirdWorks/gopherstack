@@ -3,6 +3,7 @@ package gcpcompute
 import (
 	"fmt"
 	"net/netip"
+	"strconv"
 
 	computeapi "google.golang.org/api/compute/v1"
 )
@@ -16,7 +17,9 @@ const (
 	ipv6Prefix       = 96
 )
 
-var peeringPools = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"} //nolint:gochecknoglobals // read-only lookup table
+func peeringPools() []string {
+	return []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+}
 
 // peeringRangesLocked returns the VPC_PEERING ranges reserved in the network.
 func (b *InMemoryBackend) peeringRangesLocked(network string) []netip.Prefix {
@@ -45,11 +48,13 @@ func (b *InMemoryBackend) buildGlobalInternalLocked(project string, in, a *compu
 	}
 
 	if in.Subnetwork != "" {
-		return errInvalid("Invalid value for field 'resource.subnetwork': global addresses cannot specify a subnetwork.")
+		return errInvalid(
+			"Invalid value for field 'resource.subnetwork': global addresses cannot specify a subnetwork.",
+		)
 	}
 
 	if in.PrefixLength < minPeeringPrefix || in.PrefixLength > maxPeeringPrefix {
-		return errField("resource.prefixLength", fmt.Sprint(in.PrefixLength), "Must be between 8 and 29.")
+		return errField("resource.prefixLength", strconv.FormatInt(in.PrefixLength, 10), "Must be between 8 and 29.")
 	}
 
 	n, err := b.resolveNetworkLocked(project, in.Network)
@@ -92,7 +97,7 @@ func pickPeeringRange(in *computeapi.Address, taken []netip.Prefix) (netip.Prefi
 		return p, nil
 	}
 
-	for _, pool := range peeringPools {
+	for _, pool := range peeringPools() {
 		pp := netip.MustParsePrefix(pool)
 		if bits < pp.Bits() {
 			continue
@@ -102,7 +107,6 @@ func pickPeeringRange(in *computeapi.Address, taken []netip.Prefix) (netip.Prefi
 			if !overlaps(cand, taken...) {
 				return cand, nil
 			}
-
 		}
 	}
 
@@ -110,7 +114,7 @@ func pickPeeringRange(in *computeapi.Address, taken []netip.Prefix) (netip.Prefi
 }
 
 func privateRange(p netip.Prefix) bool {
-	for _, pool := range peeringPools {
+	for _, pool := range peeringPools() {
 		if pp := netip.MustParsePrefix(pool); pp.Contains(p.Addr()) && p.Bits() >= pp.Bits() {
 			return true
 		}
@@ -144,7 +148,11 @@ func (b *InMemoryBackend) buildIPv6Locked(region string, in, a *computeapi.Addre
 	}
 
 	if in.PrefixLength != 0 && in.PrefixLength != ipv6Prefix {
-		return errField("resource.prefixLength", fmt.Sprint(in.PrefixLength), "IPV6 addresses are /96 ranges.")
+		return errField(
+			"resource.prefixLength",
+			strconv.FormatInt(in.PrefixLength, 10),
+			"IPV6 addresses are /96 ranges.",
+		)
 	}
 
 	if in.NetworkTier != "" && in.NetworkTier != tierPremium {

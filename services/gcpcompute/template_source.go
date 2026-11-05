@@ -27,7 +27,9 @@ func (b *InMemoryBackend) propsFromInstanceLocked(
 	project string, in *computeapi.InstanceTemplate,
 ) (*computeapi.InstanceProperties, *APIError) {
 	if in.Properties != nil {
-		return nil, errInvalid("Invalid value for field 'resource.properties': it cannot be combined with sourceInstance.")
+		return nil, errInvalid(
+			"Invalid value for field 'resource.properties': it cannot be combined with sourceInstance.",
+		)
 	}
 
 	r, ok := parseRef(in.SourceInstance, "instances", project, "")
@@ -48,11 +50,20 @@ func (b *InMemoryBackend) propsFromInstanceLocked(
 	}
 
 	return &computeapi.InstanceProperties{
-		CanIpForward: i.CanIpForward, Description: i.Description, Disks: disks, GuestAccelerators: i.GuestAccelerators,
-		Labels: i.Labels, MachineType: lastSegment(i.MachineType), Metadata: i.Metadata, MinCpuPlatform: i.MinCpuPlatform,
-		NetworkInterfaces: stripNICAddresses(i.NetworkInterfaces), ReservationAffinity: i.ReservationAffinity,
-		Scheduling: i.Scheduling, ServiceAccounts: i.ServiceAccounts, ShieldedInstanceConfig: i.ShieldedInstanceConfig,
-		Tags: i.Tags,
+		CanIpForward:           i.CanIpForward,
+		Description:            i.Description,
+		Disks:                  disks,
+		GuestAccelerators:      i.GuestAccelerators,
+		Labels:                 i.Labels,
+		MachineType:            lastSegment(i.MachineType),
+		Metadata:               i.Metadata,
+		MinCpuPlatform:         i.MinCpuPlatform,
+		NetworkInterfaces:      stripNICAddresses(i.NetworkInterfaces),
+		ReservationAffinity:    i.ReservationAffinity,
+		Scheduling:             i.Scheduling,
+		ServiceAccounts:        i.ServiceAccounts,
+		ShieldedInstanceConfig: i.ShieldedInstanceConfig,
+		Tags:                   i.Tags,
 	}, nil
 }
 
@@ -63,7 +74,10 @@ func (b *InMemoryBackend) templateDisksLocked(
 
 	if params != nil {
 		for _, c := range params.DiskConfigs {
-			if !slices.ContainsFunc(inst.Disks, func(ad *computeapi.AttachedDisk) bool { return ad.DeviceName == c.DeviceName }) {
+			if !slices.ContainsFunc(
+				inst.Disks,
+				func(ad *computeapi.AttachedDisk) bool { return ad.DeviceName == c.DeviceName },
+			) {
 				return nil, errField("resource.sourceInstanceParams.diskConfigs.deviceName", c.DeviceName,
 					"The source instance has no such disk.")
 			}
@@ -95,7 +109,9 @@ func (b *InMemoryBackend) templateDisksLocked(
 	}
 
 	if len(out) == 0 || !out[0].Boot {
-		return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams.diskConfigs': the boot disk cannot be excluded.")
+		return nil, errInvalid(
+			"Invalid value for field 'resource.sourceInstanceParams.diskConfigs': the boot disk cannot be excluded.",
+		)
 	}
 
 	return out, nil
@@ -120,50 +136,73 @@ func (b *InMemoryBackend) templateDiskLocked(
 	}
 
 	out := &computeapi.AttachedDisk{
-		Kind: "compute#attachedDisk", Boot: ad.Boot, AutoDelete: cfg.AutoDelete, DeviceName: ad.DeviceName,
+		Kind: kindAttachedDisk, Boot: ad.Boot, AutoDelete: cfg.AutoDelete, DeviceName: ad.DeviceName,
 		Mode: ad.Mode, Interface: ad.Interface, Type: diskPersist,
 	}
-	params := &computeapi.AttachedDiskInitializeParams{DiskSizeGb: d.SizeGb, DiskType: lastSegment(d.Type)}
 
 	switch from {
 	case instFromDoNotInclude:
 		if ad.Boot {
-			return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams.diskConfigs': the boot disk cannot be excluded.")
+			return nil, errInvalid(
+				"Invalid value for field 'resource.sourceInstanceParams.diskConfigs': the boot disk cannot be excluded.",
+			)
 		}
 
 		return nil, nil
 	case instFromReadOnly:
 		if ad.Mode != modeReadOnly {
-			return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams.diskConfigs.instantiateFrom': disk '%s' was not attached read-only.", ad.DeviceName)
+			return nil, errDiskConfig("disk '%s' was not attached read-only.", ad.DeviceName)
 		}
 
 		out.Source, out.Mode = d.SelfLink, modeReadOnly
 
 		return out, nil
+	}
+
+	image, err := b.templateImageLocked(project, from, ad.DeviceName, d, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	out.InitializeParams = &computeapi.AttachedDiskInitializeParams{
+		DiskSizeGb: d.SizeGb, DiskType: lastSegment(d.Type), SourceImage: image,
+	}
+
+	return out, nil
+}
+
+func errDiskConfig(format string, args ...any) *APIError {
+	return errInvalid(
+		"Invalid value for field 'resource.sourceInstanceParams.diskConfigs.instantiateFrom': "+format, args...)
+}
+
+// templateImageLocked names the image a template disk is created from ("" for a blank disk).
+func (b *InMemoryBackend) templateImageLocked(
+	project, from, device string, d *computeapi.Disk, cfg *computeapi.DiskInstantiationConfig,
+) (string, *APIError) {
+	switch from {
 	case instFromSourceImage:
 		if d.SourceImage == "" {
-			return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams.diskConfigs.instantiateFrom': disk '%s' was not created from an image.", ad.DeviceName)
+			return "", errDiskConfig("disk '%s' was not created from an image.", device)
 		}
 
-		params.SourceImage = d.SourceImage
+		return d.SourceImage, nil
 	case instFromImageFamily:
 		img, err := b.resolveImageLocked(project, d.SourceImage)
 		if err != nil || img.Family == "" {
-			return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams.diskConfigs.instantiateFrom': the source image of disk '%s' has no family.", ad.DeviceName)
+			return "", errDiskConfig("the source image of disk '%s' has no family.", device)
 		}
 
-		params.SourceImage = "projects/" + lastProject(img.SelfLink) + "/global/images/family/" + img.Family
+		return "projects/" + lastProject(img.SelfLink) + "/global/images/family/" + img.Family, nil
 	case instFromCustomImage:
 		if cfg.CustomImage == "" {
-			return nil, errRequired("resource.sourceInstanceParams.diskConfigs.customImage")
+			return "", errRequired("resource.sourceInstanceParams.diskConfigs.customImage")
 		}
 
-		params.SourceImage = cfg.CustomImage
+		return cfg.CustomImage, nil
 	}
 
-	out.InitializeParams = params
-
-	return out, nil
+	return "", nil
 }
 
 func lastProject(selfLink string) string {

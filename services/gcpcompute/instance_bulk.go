@@ -53,7 +53,9 @@ func (b *InMemoryBackend) bulkProps(
 func validBulk(in *computeapi.BulkInsertInstanceResource) *APIError {
 	switch {
 	case in.NamePattern == "" && len(in.PerInstanceProperties) == 0:
-		return errInvalid("Invalid value for field 'namePattern': either namePattern or perInstanceProperties is required.")
+		return errInvalid(
+			"Invalid value for field 'namePattern': either namePattern or perInstanceProperties is required.",
+		)
 	case in.NamePattern != "" && len(in.PerInstanceProperties) > 0:
 		return errInvalid("Invalid value for field 'namePattern': it cannot be combined with perInstanceProperties.")
 	case in.Count < 0 || in.MinCount < 0 || in.MinCount > in.Count && in.Count > 0:
@@ -75,7 +77,11 @@ func validBulk(in *computeapi.BulkInsertInstanceResource) *APIError {
 	return nil
 }
 
-func (b *InMemoryBackend) bulkNamesLocked(project, zone string, in *computeapi.BulkInsertInstanceResource, n int) []string {
+func (b *InMemoryBackend) bulkNamesLocked(
+	project, zone string,
+	in *computeapi.BulkInsertInstanceResource,
+	n int,
+) []string {
 	if in.NamePattern == "" {
 		names := make([]string, 0, len(in.PerInstanceProperties))
 		for k := range in.PerInstanceProperties {
@@ -92,12 +98,14 @@ func (b *InMemoryBackend) bulkNamesLocked(project, zone string, in *computeapi.B
 	next := 1
 
 	for _, r := range b.instances {
-		if r.Inst.Name == "" || !strings.HasPrefix(r.Inst.SelfLink, zoneLink(project, zone, "instances", "")) {
+		if r.Inst.Name == "" || !strings.HasPrefix(r.Inst.SelfLink, zoneLink(project, zone, collInstances, "")) {
 			continue
 		}
 
-		num, ok := strings.CutPrefix(r.Inst.Name, pre)
-		if num, ok2 := strings.CutSuffix(num, post); ok && ok2 && len(num) == digits {
+		trimmed, hasPre := strings.CutPrefix(r.Inst.Name, pre)
+		num, hasPost := strings.CutSuffix(trimmed, post)
+
+		if hasPre && hasPost && len(num) == digits {
 			if v, err := strconv.Atoi(num); err == nil && v >= next {
 				next = v + 1
 			}
@@ -112,71 +120,93 @@ func (b *InMemoryBackend) bulkNamesLocked(project, zone string, in *computeapi.B
 	return out
 }
 
-func (b *InMemoryBackend) bulkCreateLocked(
-	project string, zones []string, in *computeapi.BulkInsertInstanceResource,
-	props *computeapi.InstanceProperties, shape string,
-) (map[string]*computeapi.BulkInsertOperationStatus, *APIError) {
+type bulkSlot struct{ zone, name string }
+
+// bulkPlanLocked assigns every requested instance a zone and a name.
+func (b *InMemoryBackend) bulkPlanLocked(
+	project string, zones []string, in *computeapi.BulkInsertInstanceResource, shape string,
+) []bulkSlot {
 	want := int(in.Count)
 	if want == 0 {
 		want = len(in.PerInstanceProperties)
 	}
 
-	minCount := int(in.MinCount)
-	if minCount == 0 {
-		minCount = want
-	}
+	slots := make([]bulkSlot, want)
+	perZone := map[string]int{}
 
-	status := map[string]*computeapi.BulkInsertOperationStatus{}
-
-	type made struct{ zone, name string }
-
-	var created []made
-
-	var firstErr *APIError
-
-	namesByZone := map[string][]string{}
-	for i := range want {
+	for i := range slots {
 		z := zones[0]
 		if shape == shapeBalanced || shape == shapeAny {
 			z = zones[i%len(zones)]
 		}
 
-		if _, ok := namesByZone[z]; !ok {
-			namesByZone[z] = nil
-		}
-
-		namesByZone[z] = append(namesByZone[z], "")
+		slots[i].zone = z
+		perZone[z]++
 	}
 
-	for _, z := range zones {
-		cnt, ok := namesByZone[z]
-		if !ok {
+	if in.NamePattern == "" {
+		for i, n := range b.bulkNamesLocked(project, zones[0], in, want) {
+			slots[i].name = n
+		}
+
+		return slots
+	}
+
+	names := map[string][]string{}
+	for z, n := range perZone {
+		names[z] = b.bulkNamesLocked(project, z, in, n)
+	}
+
+	for i := range slots {
+		z := slots[i].zone
+		slots[i].name, names[z] = names[z][0], names[z][1:]
+	}
+
+	return slots
+}
+
+func (b *InMemoryBackend) bulkCreateLocked(
+	project string, zones []string, in *computeapi.BulkInsertInstanceResource,
+	props *computeapi.InstanceProperties, shape string,
+) (map[string]*computeapi.BulkInsertOperationStatus, *APIError) {
+	slots := b.bulkPlanLocked(project, zones, in, shape)
+
+	minCount := int(in.MinCount)
+	if minCount == 0 {
+		minCount = len(slots)
+	}
+
+	status := map[string]*computeapi.BulkInsertOperationStatus{}
+
+	var (
+		created  []bulkSlot
+		firstErr *APIError
+	)
+
+	for _, sl := range slots {
+		st := status["zones/"+sl.zone]
+		if st == nil {
+			st = &computeapi.BulkInsertOperationStatus{Status: bulkDone}
+			status["zones/"+sl.zone] = st
+		}
+
+		st.TargetVmCount++
+
+		inst := instanceFromProps(props, sl.name)
+		if pp, found := in.PerInstanceProperties[sl.name]; found && pp.Hostname != "" {
+			inst.Hostname = pp.Hostname
+		}
+
+		if _, err := b.insertInstanceLocked(project, sl.zone, inst); err != nil {
+			st.FailedToCreateVmCount++
+			firstErr = cmpErr(firstErr, err)
+
 			continue
 		}
 
-		st := &computeapi.BulkInsertOperationStatus{TargetVmCount: int64(len(cnt)), Status: bulkDone}
-		status["zones/"+z] = st
+		st.CreatedVmCount++
 
-		for _, name := range b.bulkNamesLocked(project, z, in, len(cnt)) {
-			inst := instanceFromProps(props, name)
-			if pp, ok := in.PerInstanceProperties[name]; ok && pp.Hostname != "" {
-				inst.Hostname = pp.Hostname
-			}
-
-			if _, err := b.insertInstanceLocked(project, z, inst); err != nil {
-				st.FailedToCreateVmCount++
-
-				if firstErr == nil {
-					firstErr = err
-				}
-
-				continue
-			}
-
-			st.CreatedVmCount++
-
-			created = append(created, made{z, name})
-		}
+		created = append(created, sl)
 	}
 
 	if len(created) >= minCount {
@@ -184,16 +214,21 @@ func (b *InMemoryBackend) bulkCreateLocked(
 	}
 
 	for _, c := range created {
-		if r, ok := b.instances[key(project, c.zone, c.name)]; ok {
+		if r, found := b.instances[key(project, c.zone, c.name)]; found {
 			b.removeInstanceLocked(project, c.zone, r)
 		}
 	}
 
-	if firstErr == nil {
-		firstErr = errInvalid("Could not create the minimum number of instances.")
+	return nil, cmpErr(firstErr, errInvalid("Could not create the minimum number of instances."))
+}
+
+// cmpErr keeps the first error.
+func cmpErr(first, next *APIError) *APIError {
+	if first != nil {
+		return first
 	}
 
-	return nil, firstErr
+	return next
 }
 
 func (b *InMemoryBackend) bulkInsert(
@@ -222,9 +257,15 @@ func (b *InMemoryBackend) bulkInsert(
 		return nil, err
 	}
 
-	op := b.newOpLocked("bulkInsert", target{project: project, scope: scope, loc: loc, collection: "instances"}, b.timing.Stage)
+	op := b.newOpLocked(
+		"bulkInsert",
+		target{project: project, scope: scope, loc: loc, collection: collInstances},
+		b.timing.Stage,
+	)
 
-	meta := &computeapi.InstancesBulkInsertOperationMetadata{PerLocationStatus: map[string]computeapi.BulkInsertOperationStatus{}}
+	meta := &computeapi.InstancesBulkInsertOperationMetadata{
+		PerLocationStatus: map[string]computeapi.BulkInsertOperationStatus{},
+	}
 	for k, v := range status {
 		meta.PerLocationStatus[k] = *v
 	}

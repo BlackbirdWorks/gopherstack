@@ -14,11 +14,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (e *env) stopNamed(t *testing.T, name string) {
+func (e *env) stopVM1(t *testing.T) {
 	t.Helper()
 
 	op, err := e.instances(t).
-		Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: name})
+		Stop(t.Context(), &computepb.StopInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	e.done(t, op, err)
 }
 
@@ -27,17 +27,44 @@ func TestSetName(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		stop    bool
 		current string
 		newName string
-		status  int
 		reason  string
+		status  int
+		stop    bool
 	}{
 		{name: "renames stopped", stop: true, current: "vm1", newName: "renamed"},
-		{name: "running is not ready", current: "vm1", newName: "renamed", status: http.StatusBadRequest, reason: "resourceNotReady"},
-		{name: "wrong current name", stop: true, current: "other", newName: "renamed", status: http.StatusBadRequest, reason: "invalid"},
-		{name: "bad new name", stop: true, current: "vm1", newName: "Bad_Name", status: http.StatusBadRequest, reason: "invalid"},
-		{name: "taken", stop: true, current: "vm1", newName: "vm2", status: http.StatusConflict, reason: "alreadyExists"},
+		{
+			name:    "running is not ready",
+			current: "vm1",
+			newName: "renamed",
+			status:  http.StatusBadRequest,
+			reason:  "resourceNotReady",
+		},
+		{
+			name:    "wrong current name",
+			stop:    true,
+			current: "other",
+			newName: "renamed",
+			status:  http.StatusBadRequest,
+			reason:  "invalid",
+		},
+		{
+			name:    "bad new name",
+			stop:    true,
+			current: "vm1",
+			newName: "Bad_Name",
+			status:  http.StatusBadRequest,
+			reason:  "invalid",
+		},
+		{
+			name:    "taken",
+			stop:    true,
+			current: "vm1",
+			newName: "vm2",
+			status:  http.StatusConflict,
+			reason:  "alreadyExists",
+		},
 	}
 
 	for _, tt := range tests {
@@ -50,7 +77,7 @@ func TestSetName(t *testing.T) {
 			e.vm(t, vmSpec("vm2"))
 
 			if tt.stop {
-				e.stopNamed(t, "vm1")
+				e.stopVM1(t)
 			}
 
 			op, err := e.instances(t).SetName(t.Context(), &computepb.SetNameInstanceRequest{
@@ -70,7 +97,8 @@ func TestSetName(t *testing.T) {
 			got := e.getVM(t, tt.newName)
 			assert.Contains(t, got.GetSelfLink(), "/instances/"+tt.newName)
 
-			_, err = e.instances(t).Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+			_, err = e.instances(t).
+				Get(t.Context(), &computepb.GetInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 			assertAPIError(t, err, http.StatusNotFound, "notFound")
 		})
 	}
@@ -98,14 +126,20 @@ func TestSetDiskAutoDeleteAndDisplayDevice(t *testing.T) {
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	_, err = e.instances(t).UpdateDisplayDevice(t.Context(), &computepb.UpdateDisplayDeviceInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", DisplayDeviceResource: &computepb.DisplayDevice{EnableDisplay: new(true)},
+		Project:               project,
+		Zone:                  zone,
+		Instance:              "vm1",
+		DisplayDeviceResource: &computepb.DisplayDevice{EnableDisplay: new(true)},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 
-	e.stopNamed(t, "vm1")
+	e.stopVM1(t)
 
 	op, err = e.instances(t).UpdateDisplayDevice(t.Context(), &computepb.UpdateDisplayDeviceInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", DisplayDeviceResource: &computepb.DisplayDevice{EnableDisplay: new(true)},
+		Project:               project,
+		Zone:                  zone,
+		Instance:              "vm1",
+		DisplayDeviceResource: &computepb.DisplayDevice{EnableDisplay: new(true)},
 	})
 	e.done(t, op, err)
 	assert.True(t, e.getVM(t, "vm1").GetDisplayDevice().GetEnableDisplay())
@@ -123,8 +157,20 @@ func TestSetMachineResources(t *testing.T) {
 	}{
 		{name: "n1 with gpu", machine: "n1-standard-1", accel: "nvidia-tesla-t4", count: 1},
 		{name: "e2 rejects gpu", machine: e2Medium, accel: "nvidia-tesla-t4", count: 1, status: http.StatusBadRequest},
-		{name: "unknown accelerator", machine: "n1-standard-1", accel: "nvidia-nope", count: 1, status: http.StatusBadRequest},
-		{name: "zero count", machine: "n1-standard-1", accel: "nvidia-tesla-t4", count: 0, status: http.StatusBadRequest},
+		{
+			name:    "unknown accelerator",
+			machine: "n1-standard-1",
+			accel:   "nvidia-nope",
+			count:   1,
+			status:  http.StatusBadRequest,
+		},
+		{
+			name:    "zero count",
+			machine: "n1-standard-1",
+			accel:   "nvidia-tesla-t4",
+			count:   0,
+			status:  http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -142,17 +188,21 @@ func TestSetMachineResources(t *testing.T) {
 			_, err := e.instances(t).SetMachineResources(t.Context(), &computepb.SetMachineResourcesInstanceRequest{
 				Project: project, Zone: zone, Instance: "vm1",
 				InstancesSetMachineResourcesRequestResource: &computepb.InstancesSetMachineResourcesRequest{
-					GuestAccelerators: []*computepb.AcceleratorConfig{{AcceleratorType: s(tt.accel), AcceleratorCount: proto.Int32(tt.count)}},
+					GuestAccelerators: []*computepb.AcceleratorConfig{
+						{AcceleratorType: s(tt.accel), AcceleratorCount: new(tt.count)},
+					},
 				},
 			})
 			assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 
-			e.stopNamed(t, "vm1")
+			e.stopVM1(t)
 
 			op, err := e.instances(t).SetMachineResources(t.Context(), &computepb.SetMachineResourcesInstanceRequest{
 				Project: project, Zone: zone, Instance: "vm1",
 				InstancesSetMachineResourcesRequestResource: &computepb.InstancesSetMachineResourcesRequest{
-					GuestAccelerators: []*computepb.AcceleratorConfig{{AcceleratorType: s(tt.accel), AcceleratorCount: proto.Int32(tt.count)}},
+					GuestAccelerators: []*computepb.AcceleratorConfig{
+						{AcceleratorType: s(tt.accel), AcceleratorCount: new(tt.count)},
+					},
 				},
 			})
 			if tt.status != 0 {
@@ -183,7 +233,8 @@ func TestUpdateAccessConfigAndNetworkInterface(t *testing.T) {
 	})
 	e.done(t, addr, err)
 
-	reserved, err := e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "static"})
+	reserved, err := e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "static"})
 	require.NoError(t, err)
 
 	vm := e.getVM(t, "vm1")
@@ -191,13 +242,21 @@ func TestUpdateAccessConfigAndNetworkInterface(t *testing.T) {
 	require.NotEqual(t, reserved.GetAddress(), oldIP)
 
 	op, err := e.instances(t).UpdateAccessConfig(t.Context(), &computepb.UpdateAccessConfigInstanceRequest{
-		Project: project, Zone: zone, Instance: "vm1", NetworkInterface: "nic0",
-		AccessConfigResource: &computepb.AccessConfig{Name: s("External NAT"), NatIP: s(reserved.GetAddress()), Type: s("ONE_TO_ONE_NAT")},
+		Project:          project,
+		Zone:             zone,
+		Instance:         "vm1",
+		NetworkInterface: "nic0",
+		AccessConfigResource: &computepb.AccessConfig{
+			Name:  s("External NAT"),
+			NatIP: s(reserved.GetAddress()),
+			Type:  s("ONE_TO_ONE_NAT"),
+		},
 	})
 	e.done(t, op, err)
 	assert.Equal(t, reserved.GetAddress(), e.getVM(t, "vm1").GetNetworkInterfaces()[0].GetAccessConfigs()[0].GetNatIP())
 
-	got, err := e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "static"})
+	got, err := e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "static"})
 	require.NoError(t, err)
 	assert.Equal(t, "IN_USE", got.GetStatus())
 
@@ -235,7 +294,7 @@ func TestUpdateAccessConfigAndNetworkInterface(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 
-	e.stopNamed(t, "vm1")
+	e.stopVM1(t)
 
 	op, err = e.instances(t).UpdateNetworkInterface(t.Context(), &computepb.UpdateNetworkInterfaceInstanceRequest{
 		Project: project, Zone: zone, Instance: "vm1", NetworkInterface: "nic0",
@@ -253,7 +312,11 @@ func TestSimulateMaintenanceEvent(t *testing.T) {
 		scheduling *computepb.Scheduling
 		want       string
 	}{
-		{name: "migrate keeps running", scheduling: &computepb.Scheduling{OnHostMaintenance: s("MIGRATE")}, want: "RUNNING"},
+		{
+			name:       "migrate keeps running",
+			scheduling: &computepb.Scheduling{OnHostMaintenance: s("MIGRATE")},
+			want:       "RUNNING",
+		},
 		{
 			name: "terminate restarts", want: "PROVISIONING",
 			scheduling: &computepb.Scheduling{OnHostMaintenance: s("TERMINATE"), AutomaticRestart: new(true)},
@@ -275,9 +338,10 @@ func TestSimulateMaintenanceEvent(t *testing.T) {
 			spec.Scheduling = tt.scheduling
 			e.vm(t, spec)
 
-			op, err := e.instances(t).SimulateMaintenanceEvent(t.Context(), &computepb.SimulateMaintenanceEventInstanceRequest{
-				Project: project, Zone: zone, Instance: "vm1",
-			})
+			op, err := e.instances(t).
+				SimulateMaintenanceEvent(t.Context(), &computepb.SimulateMaintenanceEventInstanceRequest{
+					Project: project, Zone: zone, Instance: "vm1",
+				})
 			require.NoError(t, err)
 			require.NotNil(t, op)
 			assert.Equal(t, tt.want, e.getVM(t, "vm1").GetStatus())
@@ -290,11 +354,12 @@ func TestSimulateMaintenanceEvent(t *testing.T) {
 		e := newEnv(t)
 		e.baseNet(t)
 		e.vm(t, vmSpec("vm1"))
-		e.stopNamed(t, "vm1")
+		e.stopVM1(t)
 
-		_, err := e.instances(t).SimulateMaintenanceEvent(t.Context(), &computepb.SimulateMaintenanceEventInstanceRequest{
-			Project: project, Zone: zone, Instance: "vm1",
-		})
+		_, err := e.instances(t).
+			SimulateMaintenanceEvent(t.Context(), &computepb.SimulateMaintenanceEventInstanceRequest{
+				Project: project, Zone: zone, Instance: "vm1",
+			})
 		assertAPIError(t, err, http.StatusBadRequest, "resourceNotReady")
 	})
 }
@@ -361,20 +426,27 @@ func TestBulkInsert(t *testing.T) {
 			wantNames: []string{"node-01", "node-02", "node-03"},
 		},
 		{
-			name: "pattern continues after highest", existing: []string{"node-07"}, res: &computepb.BulkInsertInstanceResource{
+			name:     "pattern continues after highest",
+			existing: []string{"node-07"},
+			res: &computepb.BulkInsertInstanceResource{
 				Count: proto.Int64(2), NamePattern: s("node-##"), InstanceProperties: props(),
 			},
 			wantNames: []string{"node-07", "node-08", "node-09"},
 		},
 		{
 			name: "per instance names", res: &computepb.BulkInsertInstanceResource{
-				InstanceProperties: props(), PerInstanceProperties: map[string]*computepb.BulkInsertInstanceResourcePerInstanceProperties{
+				InstanceProperties: props(),
+				PerInstanceProperties: map[string]*computepb.BulkInsertInstanceResourcePerInstanceProperties{
 					"alpha": {Hostname: s("alpha.example.com")}, "beta": {},
 				},
 			},
 			wantNames: []string{"alpha", "beta"},
 		},
-		{name: "needs name source", res: &computepb.BulkInsertInstanceResource{Count: proto.Int64(1), InstanceProperties: props()}, status: http.StatusBadRequest},
+		{
+			name:   "needs name source",
+			res:    &computepb.BulkInsertInstanceResource{Count: proto.Int64(1), InstanceProperties: props()},
+			status: http.StatusBadRequest,
+		},
 		{
 			name: "bad pattern", res: &computepb.BulkInsertInstanceResource{
 				Count: proto.Int64(1), NamePattern: s("a#b#c"), InstanceProperties: props(),
@@ -382,12 +454,14 @@ func TestBulkInsert(t *testing.T) {
 			status: http.StatusBadRequest,
 		},
 		{
-			name: "needs properties", res: &computepb.BulkInsertInstanceResource{Count: proto.Int64(1), NamePattern: s("a-#")},
+			name:   "needs properties",
+			res:    &computepb.BulkInsertInstanceResource{Count: proto.Int64(1), NamePattern: s("a-#")},
 			status: http.StatusBadRequest,
 		},
 		{
 			name: "min count rolls back", existing: []string{"dup"}, res: &computepb.BulkInsertInstanceResource{
-				InstanceProperties: props(), PerInstanceProperties: map[string]*computepb.BulkInsertInstanceResourcePerInstanceProperties{
+				InstanceProperties: props(),
+				PerInstanceProperties: map[string]*computepb.BulkInsertInstanceResourcePerInstanceProperties{
 					"dup": {}, "fresh": {},
 				},
 			},

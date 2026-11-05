@@ -51,8 +51,8 @@ func TestRegionalDisks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		disk   *computepb.Disk
+		name   string
 		status int
 	}{
 		{name: "ok", disk: &computepb.Disk{Name: s("rd"), SizeGb: proto.Int64(200), ReplicaZones: replicas()}},
@@ -60,12 +60,24 @@ func TestRegionalDisks(t *testing.T) {
 			Name: s("rd"), SizeGb: proto.Int64(20), ReplicaZones: replicas(),
 			Type: s("regions/" + region + "/diskTypes/pd-ssd"),
 		}},
-		{name: "needs replicas", disk: &computepb.Disk{Name: s("rd"), SizeGb: proto.Int64(200)}, status: http.StatusBadRequest},
+		{
+			name:   "needs replicas",
+			disk:   &computepb.Disk{Name: s("rd"), SizeGb: proto.Int64(200)},
+			status: http.StatusBadRequest,
+		},
 		{name: "same replica twice", disk: &computepb.Disk{
-			Name: s("rd"), SizeGb: proto.Int64(200), ReplicaZones: []string{"zones/" + region + "-a", "zones/" + region + "-a"},
+			Name: s(
+				"rd",
+			),
+			SizeGb:       proto.Int64(200),
+			ReplicaZones: []string{"zones/" + region + "-a", "zones/" + region + "-a"},
 		}, status: http.StatusBadRequest},
 		{name: "foreign replica", disk: &computepb.Disk{
-			Name: s("rd"), SizeGb: proto.Int64(200), ReplicaZones: []string{"zones/" + region + "-a", "zones/" + otherZone},
+			Name: s(
+				"rd",
+			),
+			SizeGb:       proto.Int64(200),
+			ReplicaZones: []string{"zones/" + region + "-a", "zones/" + otherZone},
 		}, status: http.StatusBadRequest},
 		{name: "standard minimum", disk: &computepb.Disk{
 			Name: s("rd"), SizeGb: proto.Int64(20), ReplicaZones: replicas(),
@@ -90,7 +102,8 @@ func TestRegionalDisks(t *testing.T) {
 
 			e.done(t, op, err)
 
-			d, err := e.regionDisks(t).Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
+			d, err := e.regionDisks(t).
+				Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
 			require.NoError(t, err)
 			assert.Contains(t, d.GetRegion(), "/regions/"+region)
 			assert.Empty(t, d.GetZone())
@@ -136,23 +149,31 @@ func TestRegionalDiskLifecycle(t *testing.T) {
 	})
 	e.vm(t, spec)
 
-	d, err := e.regionDisks(t).Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
+	d, err := e.regionDisks(t).
+		Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
 	require.NoError(t, err)
 	require.Len(t, d.GetUsers(), 1)
 	assert.Contains(t, d.GetUsers()[0], "/instances/vm1")
 
-	_, err = e.regionDisks(t).Delete(t.Context(), &computepb.DeleteRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
+	_, err = e.regionDisks(t).
+		Delete(t.Context(), &computepb.DeleteRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	bad := vmSpec("vm2")
-	bad.Disks = append(bad.Disks, &computepb.AttachedDisk{Source: s("regions/" + region + "/disks/rd"), Mode: s("READ_ONLY")})
-	_, err = e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: "us-central1-c", InstanceResource: bad})
+	bad.Disks = append(
+		bad.Disks,
+		&computepb.AttachedDisk{Source: s("regions/" + region + "/disks/rd"), Mode: s("READ_ONLY")},
+	)
+	_, err = e.instances(t).
+		Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: "us-central1-c", InstanceResource: bad})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
-	op, err = e.instances(t).Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	op, err = e.instances(t).
+		Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	e.done(t, op, err)
 
-	op, err = e.regionDisks(t).Delete(t.Context(), &computepb.DeleteRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
+	op, err = e.regionDisks(t).
+		Delete(t.Context(), &computepb.DeleteRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
 	e.done(t, op, err)
 
 	it := e.disks(t).AggregatedList(t.Context(), &computepb.AggregatedListDisksRequest{Project: project})
@@ -180,7 +201,12 @@ func TestInstantSnapshots(t *testing.T) {
 	e.done(t, op, err)
 
 	_, err = e.instantSnaps(t).Insert(t.Context(), &computepb.InsertInstantSnapshotRequest{
-		Project: project, Zone: zone, InstantSnapshotResource: &computepb.InstantSnapshot{Name: s("is"), SourceDisk: s("zones/" + zone + "/disks/nope")},
+		Project: project,
+		Zone:    zone,
+		InstantSnapshotResource: &computepb.InstantSnapshot{
+			Name:       s("is"),
+			SourceDisk: s("zones/" + zone + "/disks/nope"),
+		},
 	})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
@@ -191,7 +217,8 @@ func TestInstantSnapshots(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	got, err := e.instantSnaps(t).Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
+	got, err := e.instantSnaps(t).
+		Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
 	require.NoError(t, err)
 	assert.Equal(t, "READY", got.GetStatus())
 	assert.Equal(t, int64(30), got.GetDiskSizeGb())
@@ -204,7 +231,8 @@ func TestInstantSnapshots(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	restored, err := e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "restored"})
+	restored, err := e.disks(t).
+		Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: "restored"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(30), restored.GetSizeGb(), "size follows the instant snapshot")
 	assert.Contains(t, restored.GetSourceInstantSnapshot(), "/instantSnapshots/is")
@@ -225,10 +253,12 @@ func TestInstantSnapshots(t *testing.T) {
 
 	assert.Equal(t, 1, n)
 
-	op, err = e.instantSnaps(t).Delete(t.Context(), &computepb.DeleteInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
+	op, err = e.instantSnaps(t).
+		Delete(t.Context(), &computepb.DeleteInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
 	e.done(t, op, err)
 
-	_, err = e.instantSnaps(t).Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
+	_, err = e.instantSnaps(t).
+		Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "is"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -258,7 +288,8 @@ func TestRegionalInstantSnapshot(t *testing.T) {
 	assert.Contains(t, got.GetRegion(), "/regions/"+region)
 	assert.Equal(t, int64(200), got.GetDiskSizeGb())
 
-	_, err = e.instantSnaps(t).Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "ris"})
+	_, err = e.instantSnaps(t).
+		Get(t.Context(), &computepb.GetInstantSnapshotRequest{Project: project, Zone: zone, InstantSnapshot: "ris"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -290,7 +321,8 @@ func TestMachineImages(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	mi, err := e.machineImages(t).Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
+	mi, err := e.machineImages(t).
+		Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
 	require.NoError(t, err)
 	assert.Equal(t, "READY", mi.GetStatus())
 	assert.Contains(t, mi.GetSourceInstance(), "/instances/vm1")
@@ -321,10 +353,12 @@ func TestMachineImages(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 
-	op, err = e.machineImages(t).Delete(t.Context(), &computepb.DeleteMachineImageRequest{Project: project, MachineImage: "mi"})
+	op, err = e.machineImages(t).
+		Delete(t.Context(), &computepb.DeleteMachineImageRequest{Project: project, MachineImage: "mi"})
 	e.done(t, op, err)
 
-	_, err = e.machineImages(t).Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
+	_, err = e.machineImages(t).
+		Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
 	assertAPIError(t, err, http.StatusNotFound, "notFound")
 }
 
@@ -332,8 +366,10 @@ func reservationSpec(name string, count int64, required bool) *computepb.Reserva
 	return &computepb.Reservation{
 		Name: s(name), SpecificReservationRequired: new(required),
 		SpecificReservation: &computepb.AllocationSpecificSKUReservation{
-			Count:              proto.Int64(count),
-			InstanceProperties: &computepb.AllocationSpecificSKUAllocationReservedInstanceProperties{MachineType: s(e2Medium)},
+			Count: new(count),
+			InstanceProperties: &computepb.AllocationSpecificSKUAllocationReservedInstanceProperties{
+				MachineType: s(e2Medium),
+			},
 		},
 	}
 }
@@ -347,10 +383,11 @@ func (e *env) reserve(t *testing.T, r *computepb.Reservation) {
 	e.done(t, op, err)
 }
 
-func (e *env) inUse(t *testing.T, name string) int64 {
+func (e *env) rsvInUse(t *testing.T) int64 {
 	t.Helper()
 
-	r, err := e.reservations(t).Get(t.Context(), &computepb.GetReservationRequest{Project: project, Zone: zone, Reservation: name})
+	r, err := e.reservations(t).
+		Get(t.Context(), &computepb.GetReservationRequest{Project: project, Zone: zone, Reservation: "rsv"})
 	require.NoError(t, err)
 
 	return r.GetSpecificReservation().GetInUseCount()
@@ -360,29 +397,46 @@ func TestReservationConsumption(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		affinity *computepb.ReservationAffinity
-		required bool
+		name     string
 		wantUse  int64
 		status   int
+		required bool
 	}{
 		{name: "default consumes any", wantUse: 1},
-		{name: "no reservation", affinity: &computepb.ReservationAffinity{ConsumeReservationType: s("NO_RESERVATION")}, wantUse: 0},
 		{
-			name:     "specific",
-			affinity: &computepb.ReservationAffinity{ConsumeReservationType: s("SPECIFIC_RESERVATION"), Key: s("compute.googleapis.com/reservation-name"), Values: []string{"rsv"}},
-			required: true, wantUse: 1,
+			name:     "no reservation",
+			affinity: &computepb.ReservationAffinity{ConsumeReservationType: s("NO_RESERVATION")},
+			wantUse:  0,
+		},
+		{
+			name: "specific",
+			affinity: &computepb.ReservationAffinity{
+				ConsumeReservationType: s("SPECIFIC_RESERVATION"),
+				Key:                    s("compute.googleapis.com/reservation-name"),
+				Values:                 []string{"rsv"},
+			},
+			required: true,
+			wantUse:  1,
 		},
 		{name: "any skips specific-only", required: true, wantUse: 0},
 		{
-			name:     "specific missing reservation",
-			affinity: &computepb.ReservationAffinity{ConsumeReservationType: s("SPECIFIC_RESERVATION"), Key: s("compute.googleapis.com/reservation-name"), Values: []string{"nope"}},
-			status:   http.StatusNotFound,
+			name: "specific missing reservation",
+			affinity: &computepb.ReservationAffinity{
+				ConsumeReservationType: s("SPECIFIC_RESERVATION"),
+				Key:                    s("compute.googleapis.com/reservation-name"),
+				Values:                 []string{"nope"},
+			},
+			status: http.StatusNotFound,
 		},
 		{
-			name:     "specific wrong key",
-			affinity: &computepb.ReservationAffinity{ConsumeReservationType: s("SPECIFIC_RESERVATION"), Key: s("other"), Values: []string{"rsv"}},
-			status:   http.StatusBadRequest,
+			name: "specific wrong key",
+			affinity: &computepb.ReservationAffinity{
+				ConsumeReservationType: s("SPECIFIC_RESERVATION"),
+				Key:                    s("other"),
+				Values:                 []string{"rsv"},
+			},
+			status: http.StatusBadRequest,
 		},
 		{
 			name:     "key without specific",
@@ -402,7 +456,8 @@ func TestReservationConsumption(t *testing.T) {
 			spec := vmSpec("vm1")
 			spec.ReservationAffinity = tt.affinity
 
-			op, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec})
+			op, err := e.instances(t).
+				Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: spec})
 			if tt.status != 0 {
 				assertAPIError(t, err, tt.status, "")
 
@@ -410,11 +465,11 @@ func TestReservationConsumption(t *testing.T) {
 			}
 
 			e.done(t, op, err)
-			assert.Equal(t, tt.wantUse, e.inUse(t, "rsv"))
+			assert.Equal(t, tt.wantUse, e.rsvInUse(t))
 
 			if tt.wantUse > 0 {
-				e.stopNamed(t, "vm1")
-				assert.Zero(t, e.inUse(t, "rsv"), "stopped instances release the slot")
+				e.stopVM1(t)
+				assert.Zero(t, e.rsvInUse(t), "stopped instances release the slot")
 			}
 		})
 	}
@@ -430,7 +485,11 @@ func TestReservationCapacityAndResize(t *testing.T) {
 	specific := func(name string) *computepb.Instance {
 		spec := vmSpec(name)
 		spec.ReservationAffinity = &computepb.ReservationAffinity{
-			ConsumeReservationType: s("SPECIFIC_RESERVATION"), Key: s("compute.googleapis.com/reservation-name"), Values: []string{"rsv"},
+			ConsumeReservationType: s(
+				"SPECIFIC_RESERVATION",
+			),
+			Key:    s("compute.googleapis.com/reservation-name"),
+			Values: []string{"rsv"},
 		}
 
 		return spec
@@ -438,10 +497,12 @@ func TestReservationCapacityAndResize(t *testing.T) {
 
 	e.vm(t, specific("vm1"))
 
-	_, err := e.instances(t).Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: specific("vm2")})
+	_, err := e.instances(t).
+		Insert(t.Context(), &computepb.InsertInstanceRequest{Project: project, Zone: zone, InstanceResource: specific("vm2")})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
-	_, err = e.reservations(t).Delete(t.Context(), &computepb.DeleteReservationRequest{Project: project, Zone: zone, Reservation: "rsv"})
+	_, err = e.reservations(t).
+		Delete(t.Context(), &computepb.DeleteReservationRequest{Project: project, Zone: zone, Reservation: "rsv"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	op, err := e.reservations(t).Resize(t.Context(), &computepb.ResizeReservationRequest{
@@ -451,7 +512,7 @@ func TestReservationCapacityAndResize(t *testing.T) {
 	e.done(t, op, err)
 
 	e.vm(t, specific("vm2"))
-	assert.Equal(t, int64(2), e.inUse(t, "rsv"))
+	assert.Equal(t, int64(2), e.rsvInUse(t))
 
 	_, err = e.reservations(t).Resize(t.Context(), &computepb.ResizeReservationRequest{
 		Project: project, Zone: zone, Reservation: "rsv",
@@ -460,12 +521,18 @@ func TestReservationCapacityAndResize(t *testing.T) {
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	op, err = e.reservations(t).Update(t.Context(), &computepb.UpdateReservationRequest{
-		Project: project, Zone: zone, Reservation: "rsv", Paths: s("specificReservation.count"),
-		ReservationResource: &computepb.Reservation{SpecificReservation: &computepb.AllocationSpecificSKUReservation{Count: proto.Int64(3)}},
+		Project:     project,
+		Zone:        zone,
+		Reservation: "rsv",
+		Paths:       s("specificReservation.count"),
+		ReservationResource: &computepb.Reservation{
+			SpecificReservation: &computepb.AllocationSpecificSKUReservation{Count: proto.Int64(3)},
+		},
 	})
 	e.done(t, op, err)
 
-	r, err := e.reservations(t).Get(t.Context(), &computepb.GetReservationRequest{Project: project, Zone: zone, Reservation: "rsv"})
+	r, err := e.reservations(t).
+		Get(t.Context(), &computepb.GetReservationRequest{Project: project, Zone: zone, Reservation: "rsv"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), r.GetSpecificReservation().GetCount())
 	assert.Equal(t, "READY", r.GetStatus())
@@ -475,15 +542,20 @@ func TestReservationValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		res  *computepb.Reservation
+		name string
 	}{
 		{name: "no specific", res: &computepb.Reservation{Name: s("r")}},
 		{name: "zero count", res: reservationSpec("r", 0, false)},
 		{name: "bad name", res: reservationSpec("Bad_Name", 1, false)},
 		{name: "unknown machine", res: &computepb.Reservation{
 			Name: s("r"), SpecificReservation: &computepb.AllocationSpecificSKUReservation{
-				Count: proto.Int64(1), InstanceProperties: &computepb.AllocationSpecificSKUAllocationReservedInstanceProperties{MachineType: s("nope-1")},
+				Count: proto.Int64(
+					1,
+				),
+				InstanceProperties: &computepb.AllocationSpecificSKUAllocationReservedInstanceProperties{
+					MachineType: s("nope-1"),
+				},
 			},
 		}},
 	}
@@ -493,7 +565,8 @@ func TestReservationValidation(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t)
-			_, err := e.reservations(t).Insert(t.Context(), &computepb.InsertReservationRequest{Project: project, Zone: zone, ReservationResource: tt.res})
+			_, err := e.reservations(t).
+				Insert(t.Context(), &computepb.InsertReservationRequest{Project: project, Zone: zone, ReservationResource: tt.res})
 			require.Error(t, err)
 		})
 	}

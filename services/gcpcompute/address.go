@@ -228,23 +228,7 @@ func (b *InMemoryBackend) buildAddressLocked(
 		AddressType: typ, Labels: in.Labels, LabelFingerprint: labelFP(in.Labels), IpVersion: "IPV4",
 	}
 
-	var err *APIError
-
-	switch {
-	case in.IpVersion == ipv6:
-		a.AddressType = typ
-		err = b.buildIPv6Locked(region, in, a)
-	case typ == addrExternal:
-		err = b.buildExternalLocked(region, in, a)
-	case typ == addrInternal && region == "":
-		err = b.buildGlobalInternalLocked(project, in, a)
-	case typ == addrInternal:
-		err = b.buildInternalLocked(project, region, in, a)
-	default:
-		err = errField("resource.addressType", typ, "Must be EXTERNAL or INTERNAL.")
-	}
-
-	if err != nil {
+	if err := b.buildAddressKindLocked(project, region, in, a); err != nil {
 		return nil, err
 	}
 
@@ -258,6 +242,21 @@ func (b *InMemoryBackend) buildAddressLocked(
 	return a, nil
 }
 
+func (b *InMemoryBackend) buildAddressKindLocked(project, region string, in, a *computeapi.Address) *APIError {
+	switch {
+	case in.IpVersion == ipv6:
+		return b.buildIPv6Locked(region, in, a)
+	case a.AddressType == addrExternal:
+		return b.buildExternalLocked(region, in, a)
+	case a.AddressType == addrInternal && region == "":
+		return b.buildGlobalInternalLocked(project, in, a)
+	case a.AddressType == addrInternal:
+		return b.buildInternalLocked(project, region, in, a)
+	}
+
+	return errField("resource.addressType", a.AddressType, "Must be EXTERNAL or INTERNAL.")
+}
+
 func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.Address) *APIError {
 	if in.Subnetwork != "" || in.Network != "" {
 		return errInvalid(
@@ -266,7 +265,9 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 	}
 
 	if in.PrefixLength != 0 {
-		return errInvalid("Invalid value for field 'resource.prefixLength': only valid for IPV6 and VPC_PEERING ranges.")
+		return errInvalid(
+			"Invalid value for field 'resource.prefixLength': only valid for IPV6 and VPC_PEERING ranges.",
+		)
 	}
 
 	a.NetworkTier = in.NetworkTier

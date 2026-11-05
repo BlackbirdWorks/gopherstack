@@ -18,10 +18,10 @@ const (
 	// emulator-run endpoint (host:port, loopback IP literal only), e.g. a container's published port.
 	HealthEndpointKey = "gopherstack-health-endpoint"
 
-	healthTimeout   = "TIMEOUT"
-	actVerifying    = "VERIFYING"
-	repairAction    = "REPAIR"
-	noAction        = "DO_NOTHING"
+	healthTimeout = "TIMEOUT"
+	actVerifying  = "VERIFYING"
+	repairAction  = "REPAIR"
+	noAction      = "DO_NOTHING"
 )
 
 // HealthProbe is one health check probe against an instance endpoint.
@@ -46,7 +46,10 @@ type netProber struct {
 
 func newNetProber() *netProber {
 	tr := httpclient.NewTransport()
-	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true} //nolint:gosec // loopback probes only
+	tr.TLSClientConfig = &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true, //nolint:gosec // loopback health probes only
+	}
 
 	return &netProber{http: httpclient.New(0), https: &http.Client{Transport: tr}}
 }
@@ -58,8 +61,12 @@ func (p *netProber) Probe(ctx context.Context, hp HealthProbe) string {
 	switch hp.Type {
 	case protoHTTP, protoHTTPS, protoHTTP2:
 		return p.probeHTTP(ctx, hp)
-	case "SSL":
-		d := tls.Dialer{Config: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}} //nolint:gosec // loopback probes only
+	case protoSSL:
+		cfg := &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true, //nolint:gosec // loopback probes only
+		}
+		d := tls.Dialer{Config: cfg}
 
 		return dialResult(d.DialContext(ctx, "tcp", hp.Address))
 	}
@@ -136,13 +143,9 @@ func (b *InMemoryBackend) TickGroups(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for i := range jobs {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			res[i] = prober.Probe(ctx, jobs[i].probe)
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -224,8 +227,8 @@ func (b *InMemoryBackend) healthJobsLocked(rec *migRec) []probeJob {
 
 		m.LastProbe = now
 
-		probe, real := probeFor(hc, r)
-		if !real {
+		probe, ok := probeFor(hc, r)
+		if !ok {
 			m.Health, m.Verified = healthHealthy, true
 
 			continue
@@ -279,7 +282,6 @@ func probeFor(hc *computeapi.HealthCheck, r *instRec) (HealthProbe, bool) {
 		p.Host = hc.Http2HealthCheck.Host
 	}
 
-
 	return p, true
 }
 
@@ -318,40 +320,48 @@ func (b *InMemoryBackend) applyProbeLocked(j probeJob, result string) {
 	}
 
 	if result == healthHealthy {
-		m.HealthyRun, m.UnhealthyRun = m.HealthyRun+1, 0
-
-		switch {
-		case m.HealthyRun >= int(hc.HealthyThreshold):
-			m.Health, m.Verified = healthHealthy, true
-		case m.Health == "":
-			m.Health = healthUnknown
-		}
+		m.recordHealthy(int(hc.HealthyThreshold))
 
 		return
 	}
 
-	now := b.now().UTC()
 	delay := time.Duration(rec.Mgr.AutoHealingPolicies[0].InitialDelaySec) * time.Second
-
-	if !m.Verified && now.Before(runningAt(r, b.timing).Add(delay)) {
+	if !m.Verified && b.now().UTC().Before(runningAt(r, b.timing).Add(delay)) {
 		m.UnhealthyRun = 0
 
 		return
 	}
 
-	m.UnhealthyRun, m.HealthyRun = m.UnhealthyRun+1, 0
-	if m.UnhealthyRun < int(hc.UnhealthyThreshold) {
-		return
-	}
-
-	m.Health = result
-	if failureAction(rec.Mgr) != repairAction {
+	if !m.recordFailure(result, int(hc.UnhealthyThreshold)) || failureAction(rec.Mgr) != repairAction {
 		return
 	}
 
 	if err := b.recreateMemberLocked(rec.Project, rec, m); err == nil {
 		m.resetHealth()
 	}
+}
+
+func (m *memberRec) recordHealthy(threshold int) {
+	m.HealthyRun, m.UnhealthyRun = m.HealthyRun+1, 0
+
+	switch {
+	case m.HealthyRun >= threshold:
+		m.Health, m.Verified = healthHealthy, true
+	case m.Health == "":
+		m.Health = healthUnknown
+	}
+}
+
+// recordFailure counts a failed probe and reports whether the unhealthy threshold is reached.
+func (m *memberRec) recordFailure(result string, threshold int) bool {
+	m.UnhealthyRun, m.HealthyRun = m.UnhealthyRun+1, 0
+	if m.UnhealthyRun < threshold {
+		return false
+	}
+
+	m.Health = result
+
+	return true
 }
 
 func migLoc(rec *migRec) string {

@@ -687,14 +687,17 @@ func validUpdatePolicy(p *computeapi.InstanceGroupManagerUpdatePolicy) *APIError
 		}
 	}
 
-	if p.MaxSurge.Fixed == 0 && p.MaxSurge.Percent == 0 && p.MaxUnavailable.Fixed == 0 && p.MaxUnavailable.Percent == 0 {
+	if p.MaxSurge.Fixed == 0 && p.MaxSurge.Percent == 0 && p.MaxUnavailable.Fixed == 0 &&
+		p.MaxUnavailable.Percent == 0 {
 		return errInvalid(
-			"Invalid value for field 'resource.updatePolicy': at least one of maxSurge or maxUnavailable must be greater than 0.",
+			"Invalid value for field 'resource.updatePolicy': maxSurge or maxUnavailable must be greater than 0.",
 		)
 	}
 
 	if p.ReplacementMethod == replaceRecreate && (p.MaxSurge.Fixed != 0 || p.MaxSurge.Percent != 0) {
-		return errInvalid("Invalid value for field 'resource.updatePolicy.maxSurge': must be 0 with the RECREATE replacement method.")
+		return errInvalid(
+			"Invalid value for field 'resource.updatePolicy.maxSurge': must be 0 with the RECREATE replacement method.",
+		)
 	}
 
 	return nil

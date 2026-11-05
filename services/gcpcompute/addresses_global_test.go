@@ -2,7 +2,6 @@ package gcpcompute_test
 
 import (
 	"net/http"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/compute/apiv1/computepb"
@@ -17,7 +16,7 @@ func TestGlobalInternalPeeringRanges(t *testing.T) {
 	peering := func(name string, prefix int32) *computepb.Address {
 		return &computepb.Address{
 			Name: s(name), AddressType: s("INTERNAL"), Purpose: s("VPC_PEERING"), Network: s("global/networks/vpc"),
-			PrefixLength: proto.Int32(prefix),
+			PrefixLength: new(prefix),
 		}
 	}
 
@@ -82,11 +81,17 @@ func TestGlobalInternalPeeringRanges(t *testing.T) {
 			ga := e.globalAddresses(t)
 
 			if tt.name == "second block follows the first" {
-				op, err := ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: peering("first", 24)})
+				op, err := ga.Insert(
+					t.Context(),
+					&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: peering("first", 24)},
+				)
 				e.done(t, op, err)
 			}
 
-			op, err := ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: tt.addr})
+			op, err := ga.Insert(
+				t.Context(),
+				&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: tt.addr},
+			)
 			if tt.status != 0 {
 				assertAPIError(t, err, tt.status, "")
 
@@ -115,10 +120,13 @@ func TestPeeringRangeBlocksSubnetAndNetworkDelete(t *testing.T) {
 
 	ga := e.globalAddresses(t)
 
-	op, err := ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
-		Name: s("psa"), AddressType: s("INTERNAL"), Purpose: s("VPC_PEERING"), Network: s("global/networks/vpc"),
-		PrefixLength: proto.Int32(16), Address: s("10.50.0.0"),
-	}})
+	op, err := ga.Insert(
+		t.Context(),
+		&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
+			Name: s("psa"), AddressType: s("INTERNAL"), Purpose: s("VPC_PEERING"), Network: s("global/networks/vpc"),
+			PrefixLength: proto.Int32(16), Address: s("10.50.0.0"),
+		}},
+	)
 	e.done(t, op, err)
 
 	_, err = e.subnets(t).Insert(t.Context(), &computepb.InsertSubnetworkRequest{
@@ -146,14 +154,20 @@ func TestIPv6Addresses(t *testing.T) {
 
 	ga := e.globalAddresses(t)
 
-	op, err := ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
-		Name: s("v6a"), IpVersion: s("IPV6"),
-	}})
+	op, err := ga.Insert(
+		t.Context(),
+		&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
+			Name: s("v6a"), IpVersion: s("IPV6"),
+		}},
+	)
 	e.done(t, op, err)
 
-	op, err = ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
-		Name: s("v6b"), IpVersion: s("IPV6"),
-	}})
+	op, err = ga.Insert(
+		t.Context(),
+		&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: &computepb.Address{
+			Name: s("v6b"), IpVersion: s("IPV6"),
+		}},
+	)
 	e.done(t, op, err)
 
 	a, err := ga.Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "v6a"})
@@ -161,17 +175,20 @@ func TestIPv6Addresses(t *testing.T) {
 	b, err := ga.Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "v6b"})
 	require.NoError(t, err)
 
-	assert.True(t, strings.Contains(a.GetAddress(), ":"))
+	assert.Contains(t, a.GetAddress(), ":")
 	assert.NotEqual(t, a.GetAddress(), b.GetAddress())
 	assert.Equal(t, "IPV6", a.GetIpVersion())
 	assert.Equal(t, int32(96), a.GetPrefixLength())
 	assert.Equal(t, "EXTERNAL", a.GetAddressType())
 
 	tests := []struct {
-		name string
 		res  *computepb.Address
+		name string
 	}{
-		{name: "bad prefix", res: &computepb.Address{Name: s("x"), IpVersion: s("IPV6"), PrefixLength: proto.Int32(64)}},
+		{
+			name: "bad prefix",
+			res:  &computepb.Address{Name: s("x"), IpVersion: s("IPV6"), PrefixLength: proto.Int32(64)},
+		},
 		{name: "ipv4 literal", res: &computepb.Address{Name: s("x"), IpVersion: s("IPV6"), Address: s("1.2.3.4")}},
 		{name: "taken", res: &computepb.Address{Name: s("x"), IpVersion: s("IPV6"), Address: s(a.GetAddress())}},
 		{name: "internal", res: &computepb.Address{Name: s("x"), IpVersion: s("IPV6"), AddressType: s("INTERNAL")}},
@@ -179,7 +196,10 @@ func TestIPv6Addresses(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err = ga.Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: tt.res})
+		_, err = ga.Insert(
+			t.Context(),
+			&computepb.InsertGlobalAddressRequest{Project: project, AddressResource: tt.res},
+		)
 		assertAPIError(t, err, http.StatusBadRequest, "")
 	}
 
@@ -189,7 +209,9 @@ func TestIPv6Addresses(t *testing.T) {
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 
 	_, err = e.addresses(t).Insert(t.Context(), &computepb.InsertAddressRequest{
-		Project: project, Region: region, AddressResource: &computepb.Address{Name: s("p"), PrefixLength: proto.Int32(24)},
+		Project:         project,
+		Region:          region,
+		AddressResource: &computepb.Address{Name: s("p"), PrefixLength: proto.Int32(24)},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "invalid")
 }

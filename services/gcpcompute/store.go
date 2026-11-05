@@ -49,19 +49,19 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	DeleteAt   time.Time `json:"deleteAt"`
-	LastProbe  time.Time `json:"lastProbe,omitzero"`
-	Health     string    `json:"health,omitempty"`
-	LastError  string    `json:"lastError,omitempty"`
-	InstanceID uint64    `json:"instanceId,omitempty"`
-	HealthyRun   int     `json:"healthyRun,omitempty"`
-	UnhealthyRun int     `json:"unhealthyRun,omitempty"`
-	Verified   bool      `json:"verified,omitempty"`
-	Name       string    `json:"name"`
-	Zone       string    `json:"zone"`
-	Template   string    `json:"template"`
-	Deleting   bool      `json:"deleting"`
-	Recreating bool      `json:"recreating"`
+	DeleteAt     time.Time `json:"deleteAt"`
+	LastProbe    time.Time `json:"lastProbe,omitzero"`
+	Zone         string    `json:"zone"`
+	LastError    string    `json:"lastError,omitempty"`
+	Name         string    `json:"name"`
+	Health       string    `json:"health,omitempty"`
+	Template     string    `json:"template"`
+	InstanceID   uint64    `json:"instanceId,omitempty"`
+	HealthyRun   int       `json:"healthyRun,omitempty"`
+	UnhealthyRun int       `json:"unhealthyRun,omitempty"`
+	Verified     bool      `json:"verified,omitempty"`
+	Deleting     bool      `json:"deleting"`
+	Recreating   bool      `json:"recreating"`
 }
 
 type migRec struct {
@@ -129,7 +129,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates an empty backend on the wall clock.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu: lockmetrics.New("gcpcompute"), now: time.Now, timing: DefaultTiming(), sleep: realSleep, prober: newNetProber(),
+		mu: lockmetrics.New(
+			"gcpcompute",
+		),
+		now:    time.Now,
+		timing: DefaultTiming(),
+		sleep:  realSleep,
+		prober: newNetProber(),
 	}
 	b.resetMaps()
 

@@ -181,10 +181,47 @@ func (b *InMemoryBackend) validReplicaZonesLocked(region string, in *computeapi.
 	return out, nil
 }
 
+func (b *InMemoryBackend) checkDiskSlotLocked(project, scope, loc, name string) *APIError {
+	if err := validName("name", name); err != nil {
+		return err
+	}
+
+	if scope == scopeZone && !zoneExists(loc) || scope == scopeRegion && regionMissing(loc) {
+		return errNotFound(scopePath(project, scope, loc))
+	}
+
+	if _, dup := b.disks[key(project, loc, name)]; dup {
+		return errExists(relPath(project, scope, loc, "disks", name))
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) replicaURLsLocked(project, scope, region string, in *computeapi.Disk) ([]string, *APIError) {
+	if scope == scopeZone {
+		if len(in.ReplicaZones) > 0 {
+			return nil, errInvalid("Invalid value for field 'resource.replicaZones': only valid for regional disks.")
+		}
+
+		return nil, nil
+	}
+
+	replicas, err := b.validReplicaZonesLocked(region, in)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, z := range replicas {
+		replicas[i] = scopeURL(project, scopeZone, z)
+	}
+
+	return replicas, nil
+}
+
 func (b *InMemoryBackend) createDiskAtLocked(
 	project, scope, loc string, in *computeapi.Disk,
 ) (*computeapi.Disk, *APIError) {
-	if err := validName("name", in.Name); err != nil {
+	if err := b.checkDiskSlotLocked(project, scope, loc, in.Name); err != nil {
 		return nil, err
 	}
 
@@ -193,33 +230,14 @@ func (b *InMemoryBackend) createDiskAtLocked(
 		region = regionOfZone(loc)
 	}
 
-	if scope == scopeZone && !zoneExists(loc) || scope == scopeRegion && regionMissing(loc) {
-		return nil, errNotFound(scopePath(project, scope, loc))
-	}
-
-	if _, dup := b.disks[key(project, loc, in.Name)]; dup {
-		return nil, errExists(relPath(project, scope, loc, "disks", in.Name))
-	}
-
 	dt, err := b.resolveDiskTypeLocked(project, scope, loc, in.Type)
 	if err != nil {
 		return nil, err
 	}
 
-	if scope == scopeZone && len(in.ReplicaZones) > 0 {
-		return nil, errInvalid("Invalid value for field 'resource.replicaZones': only valid for regional disks.")
-	}
-
-	var replicas []string
-
-	if scope == scopeRegion {
-		if replicas, err = b.validReplicaZonesLocked(region, in); err != nil {
-			return nil, err
-		}
-
-		for i, z := range replicas {
-			replicas[i] = scopeURL(project, scopeZone, z)
-		}
+	replicas, err := b.replicaURLsLocked(project, scope, region, in)
+	if err != nil {
+		return nil, err
 	}
 
 	policies, apiErr := b.diskLabelsAndPoliciesLocked(project, region, in)
@@ -541,7 +559,10 @@ func (b *InMemoryBackend) setSnapshotLabels(project, name string, req labelsRequ
 	), nil
 }
 
-func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(project, region string, in *computeapi.Disk) ([]string, *APIError) {
+func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(
+	project, region string,
+	in *computeapi.Disk,
+) ([]string, *APIError) {
 	if err := validLabels(in.Labels); err != nil {
 		return nil, err
 	}

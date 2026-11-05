@@ -16,58 +16,125 @@ func TestTemplateFromSourceInstance(t *testing.T) {
 	src := "zones/" + zone + "/instances/vm1"
 
 	tests := []struct {
-		name    string
 		tmpl    *computepb.InstanceTemplate
-		status  int
+		name    string
 		wantImg string
+		status  int
 		wantLen int
 	}{
-		{name: "defaults", tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src)}, wantImg: "/images/debian-", wantLen: 2},
 		{
-			name: "family", wantLen: 2, wantImg: "/images/family/debian-12",
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{DeviceName: s("persistent-disk-0"), InstantiateFrom: s("SOURCE_IMAGE_FAMILY")}},
-			}},
+			name:    "defaults",
+			tmpl:    &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src)},
+			wantImg: "/images/debian-",
+			wantLen: 2,
 		},
 		{
-			name: "custom image", wantLen: 2, wantImg: "global/images/mine",
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{
-					DeviceName: s("persistent-disk-0"), InstantiateFrom: s("CUSTOM_IMAGE"), CustomImage: s("global/images/mine"),
-				}},
-			}},
+			name:    "family",
+			wantLen: 2,
+			wantImg: "/images/family/debian-12",
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{DeviceName: s("persistent-disk-0"), InstantiateFrom: s("SOURCE_IMAGE_FAMILY")},
+					},
+				},
+			},
 		},
 		{
-			name: "exclude data disk", wantLen: 1, wantImg: "/images/debian-",
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{DeviceName: s("data"), InstantiateFrom: s("DO_NOT_INCLUDE")}},
-			}},
+			name:    "custom image",
+			wantLen: 2,
+			wantImg: "global/images/mine",
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{
+							DeviceName: s(
+								"persistent-disk-0",
+							),
+							InstantiateFrom: s("CUSTOM_IMAGE"),
+							CustomImage:     s("global/images/mine"),
+						},
+					},
+				},
+			},
 		},
 		{
-			name: "exclude boot", status: http.StatusBadRequest,
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{DeviceName: s("persistent-disk-0"), InstantiateFrom: s("DO_NOT_INCLUDE")}},
-			}},
+			name:    "exclude data disk",
+			wantLen: 1,
+			wantImg: "/images/debian-",
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{DeviceName: s("data"), InstantiateFrom: s("DO_NOT_INCLUDE")},
+					},
+				},
+			},
 		},
 		{
-			name: "unknown device", status: http.StatusBadRequest,
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{DeviceName: s("nope"), InstantiateFrom: s("BLANK")}},
-			}},
+			name:   "exclude boot",
+			status: http.StatusBadRequest,
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{DeviceName: s("persistent-disk-0"), InstantiateFrom: s("DO_NOT_INCLUDE")},
+					},
+				},
+			},
 		},
 		{
-			name: "read-only attach of a writable disk", status: http.StatusBadRequest,
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), SourceInstanceParams: &computepb.SourceInstanceParams{
-				DiskConfigs: []*computepb.DiskInstantiationConfig{{DeviceName: s("data"), InstantiateFrom: s("ATTACH_READ_ONLY")}},
-			}},
+			name:   "unknown device",
+			status: http.StatusBadRequest,
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{DeviceName: s("nope"), InstantiateFrom: s("BLANK")},
+					},
+				},
+			},
 		},
 		{
-			name: "properties conflict", status: http.StatusBadRequest,
-			tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s(src), Properties: tmplSpec("x").GetProperties()},
+			name:   "read-only attach of a writable disk",
+			status: http.StatusBadRequest,
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				SourceInstanceParams: &computepb.SourceInstanceParams{
+					DiskConfigs: []*computepb.DiskInstantiationConfig{
+						{DeviceName: s("data"), InstantiateFrom: s("ATTACH_READ_ONLY")},
+					},
+				},
+			},
 		},
-		{name: "missing instance", status: http.StatusNotFound, tmpl: &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s("zones/" + zone + "/instances/none")}},
+		{
+			name:   "properties conflict",
+			status: http.StatusBadRequest,
+			tmpl: &computepb.InstanceTemplate{
+				Name:           s("t"),
+				SourceInstance: s(src),
+				Properties:     tmplSpec("x").GetProperties(),
+			},
+		},
+		{
+			name:   "missing instance",
+			status: http.StatusNotFound,
+			tmpl:   &computepb.InstanceTemplate{Name: s("t"), SourceInstance: s("zones/" + zone + "/instances/none")},
+		},
 		{name: "params without source", status: http.StatusBadRequest, tmpl: &computepb.InstanceTemplate{
-			Name: s("t"), Properties: tmplSpec("x").GetProperties(), SourceInstanceParams: &computepb.SourceInstanceParams{},
+			Name: s(
+				"t",
+			),
+			Properties:           tmplSpec("x").GetProperties(),
+			SourceInstanceParams: &computepb.SourceInstanceParams{},
 		}},
 	}
 
@@ -102,7 +169,8 @@ func TestTemplateFromSourceInstance(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, err := e.templates(t).Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "t"})
+			got, err := e.templates(t).
+				Get(t.Context(), &computepb.GetInstanceTemplateRequest{Project: project, InstanceTemplate: "t"})
 			require.NoError(t, err)
 			assert.Contains(t, got.GetSourceInstance(), "/instances/vm1")
 

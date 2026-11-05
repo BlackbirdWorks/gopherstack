@@ -383,6 +383,21 @@ func (b *InMemoryBackend) memberActionLocked(rec *migRec, m *memberRec) (memberA
 	return memberAction{action: actNone, inst: r}, true
 }
 
+func countAction(sum *computeapi.InstanceGroupManagerActionsSummary, action string) {
+	switch action {
+	case actNone:
+		sum.None++
+	case actCreating:
+		sum.Creating++
+	case actDeleting:
+		sum.Deleting++
+	case actRecreating:
+		sum.Recreating++
+	case actVerifying:
+		sum.Verifying++
+	}
+}
+
 func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupManager {
 	out := clone(rec.Mgr)
 	sum := &computeapi.InstanceGroupManagerActionsSummary{}
@@ -395,18 +410,7 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 			continue
 		}
 
-		switch a.action {
-		case actNone:
-			sum.None++
-		case actCreating:
-			sum.Creating++
-		case actDeleting:
-			sum.Deleting++
-		case actRecreating:
-			sum.Recreating++
-		case actVerifying:
-			sum.Verifying++
-		}
+		countAction(sum, a.action)
 
 		if a.action != actNone {
 			stable = false
@@ -468,9 +472,13 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 		}
 
 		if m.LastError != "" {
-			mi.LastAttempt = &computeapi.ManagedInstanceLastAttempt{Errors: &computeapi.ManagedInstanceLastAttemptErrors{
-				Errors: []*computeapi.ManagedInstanceLastAttemptErrorsErrors{{Code: "CONDITION_NOT_MET", Message: m.LastError}},
-			}}
+			mi.LastAttempt = &computeapi.ManagedInstanceLastAttempt{
+				Errors: &computeapi.ManagedInstanceLastAttemptErrors{
+					Errors: []*computeapi.ManagedInstanceLastAttemptErrorsErrors{
+						{Code: "CONDITION_NOT_MET", Message: m.LastError},
+					},
+				},
+			}
 		}
 
 		out = append(out, mi)

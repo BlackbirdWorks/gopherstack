@@ -16,7 +16,11 @@ func machineImageTarget(project string, m *computeapi.MachineImage) target {
 	return target{project: project, scope: scopeGlobal, collection: collMachineImages, name: m.Name, id: m.Id}
 }
 
-func savedDisksOf(r *instRec, b *InMemoryBackend, project, zone string) ([]*computeapi.SavedAttachedDisk, []*computeapi.SavedDisk, int64) {
+func savedDisksOf(
+	r *instRec,
+	b *InMemoryBackend,
+	project, zone string,
+) ([]*computeapi.SavedAttachedDisk, []*computeapi.SavedDisk, int64) {
 	var (
 		attached []*computeapi.SavedAttachedDisk
 		saved    []*computeapi.SavedDisk
@@ -89,10 +93,19 @@ func (b *InMemoryBackend) insertMachineImage(
 		Labels: in.Labels, LabelFingerprint: labelFP(in.Labels), SourceInstance: i.SelfLink,
 		StorageLocations: locs, TotalStorageBytes: total, SavedDisks: saved, GuestFlush: in.GuestFlush,
 		SourceInstanceProperties: &computeapi.SourceInstanceProperties{
-			CanIpForward: i.CanIpForward, DeletionProtection: i.DeletionProtection, Description: i.Description,
-			Disks: attached, GuestAccelerators: i.GuestAccelerators, Labels: i.Labels, MachineType: lastSegment(i.MachineType),
-			Metadata: i.Metadata, MinCpuPlatform: i.MinCpuPlatform, NetworkInterfaces: i.NetworkInterfaces,
-			Scheduling: i.Scheduling, ServiceAccounts: i.ServiceAccounts, Tags: i.Tags,
+			CanIpForward:       i.CanIpForward,
+			DeletionProtection: i.DeletionProtection,
+			Description:        i.Description,
+			Disks:              attached,
+			GuestAccelerators:  i.GuestAccelerators,
+			Labels:             i.Labels,
+			MachineType:        lastSegment(i.MachineType),
+			Metadata:           i.Metadata,
+			MinCpuPlatform:     i.MinCpuPlatform,
+			NetworkInterfaces:  i.NetworkInterfaces,
+			Scheduling:         i.Scheduling,
+			ServiceAccounts:    i.ServiceAccounts,
+			Tags:               i.Tags,
 		},
 	}
 	m = clone(m)
@@ -151,7 +164,10 @@ func (b *InMemoryBackend) deleteMachineImage(project, name string) (*computeapi.
 	return b.newOpLocked("delete", machineImageTarget(project, m), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setMachineImageLabels(project, name string, req labelsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setMachineImageLabels(
+	project, name string,
+	req labelsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetMachineImageLabels")
 	defer b.mu.Unlock()
 
@@ -172,7 +188,10 @@ func (b *InMemoryBackend) setMachineImageLabels(project, name string, req labels
 
 // instanceFromMachineImage builds an instance request from a machine image with the request body merged over it;
 // disks are recreated empty at the saved size and addresses are reallocated.
-func (b *InMemoryBackend) instanceFromMachineImage(project, imageRef string, raw map[string]any) (*computeapi.Instance, error) {
+func (b *InMemoryBackend) instanceFromMachineImage(
+	project, imageRef string,
+	raw map[string]any,
+) (*computeapi.Instance, error) {
 	b.mu.RLock("InstanceFromMachineImage")
 	defer b.mu.RUnlock()
 
@@ -197,8 +216,15 @@ func (b *InMemoryBackend) instanceFromMachineImage(project, imageRef string, raw
 
 	for _, sd := range src.Disks {
 		props.Disks = append(props.Disks, &computeapi.AttachedDisk{
-			Boot: sd.Boot, AutoDelete: sd.AutoDelete, DeviceName: sd.DeviceName, Mode: sd.Mode, Interface: sd.Interface,
-			InitializeParams: &computeapi.AttachedDiskInitializeParams{DiskSizeGb: sd.DiskSizeGb, DiskType: sd.DiskType},
+			Boot:       sd.Boot,
+			AutoDelete: sd.AutoDelete,
+			DeviceName: sd.DeviceName,
+			Mode:       sd.Mode,
+			Interface:  sd.Interface,
+			InitializeParams: &computeapi.AttachedDiskInitializeParams{
+				DiskSizeGb: sd.DiskSizeGb,
+				DiskType:   sd.DiskType,
+			},
 		})
 	}
 

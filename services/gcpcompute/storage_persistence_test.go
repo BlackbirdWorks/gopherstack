@@ -39,7 +39,8 @@ func TestSnapshotRestoreNewResources(t *testing.T) {
 	dst := newEnv(t)
 	require.NoError(t, dst.backend.Restore(t.Context(), src.backend.Snapshot(t.Context())))
 
-	rd, err := dst.regionDisks(t).Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
+	rd, err := dst.regionDisks(t).
+		Get(t.Context(), &computepb.GetRegionDiskRequest{Project: project, Region: region, Disk: "rd"})
 	require.NoError(t, err)
 	assert.Len(t, rd.GetReplicaZones(), 2)
 
@@ -49,9 +50,10 @@ func TestSnapshotRestoreNewResources(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), is.GetDiskSizeGb())
 
-	mi, err := dst.machineImages(t).Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
+	mi, err := dst.machineImages(t).
+		Get(t.Context(), &computepb.GetMachineImageRequest{Project: project, MachineImage: "mi"})
 	require.NoError(t, err)
 	assert.Len(t, mi.GetSavedDisks(), 1)
 
-	assert.Equal(t, int64(1), dst.inUse(t, "rsv"))
+	assert.Equal(t, int64(1), dst.rsvInUse(t))
 }

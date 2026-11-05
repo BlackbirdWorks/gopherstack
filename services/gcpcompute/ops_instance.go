@@ -165,7 +165,9 @@ func (h *Handler) registerInstanceMoreOps() {
 			return nil, err
 		}
 
-		return opResult(h.Backend.setInstanceMachineResources(rq.rt.project, rq.rt.loc, rq.rt.name, in.GuestAccelerators))
+		return opResult(
+			h.Backend.setInstanceMachineResources(rq.rt.project, rq.rt.loc, rq.rt.name, in.GuestAccelerators),
+		)
 	})
 	h.reg("instances", z, "setDiskAutoDelete", func(h *Handler, rq *request) (any, error) {
 		return opResult(h.Backend.setDiskAutoDelete(
@@ -185,7 +187,9 @@ func (h *Handler) registerInstanceMoreOps() {
 			return nil, err
 		}
 
-		return opResult(h.Backend.updateAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in))
+		return opResult(
+			h.Backend.updateAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in),
+		)
 	})
 	h.reg("instances", z, "updateNetworkInterface", func(h *Handler, rq *request) (any, error) {
 		in, raw, err := decode[computeapi.NetworkInterface](rq)

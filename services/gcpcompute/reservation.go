@@ -12,9 +12,9 @@ import (
 const (
 	collReservations   = "reservations"
 	reservationNameKey = "compute.googleapis.com/reservation-name"
-	resvAny        = "ANY_RESERVATION"
-	resvSpecific   = "SPECIFIC_RESERVATION"
-	resvNone       = "NO_RESERVATION"
+	resvAny            = "ANY_RESERVATION"
+	resvSpecific       = "SPECIFIC_RESERVATION"
+	resvNone           = "NO_RESERVATION"
 	reservationReady   = "READY"
 )
 
@@ -31,9 +31,16 @@ func (b *InMemoryBackend) getReservationLocked(project, zone, name string) (*com
 	return r, nil
 }
 
-func (b *InMemoryBackend) reservationMachineLocked(project, zone string, sr *computeapi.AllocationSpecificSKUReservation) (string, *APIError) {
+func (b *InMemoryBackend) reservationMachineLocked(
+	project, zone string,
+	sr *computeapi.AllocationSpecificSKUReservation,
+) (string, *APIError) {
 	if sr.SourceInstanceTemplate != "" {
-		t, err := b.resolveTemplateLocked(project, sr.SourceInstanceTemplate, "specificReservation.sourceInstanceTemplate")
+		t, err := b.resolveTemplateLocked(
+			project,
+			sr.SourceInstanceTemplate,
+			"specificReservation.sourceInstanceTemplate",
+		)
 		if err != nil {
 			return "", err
 		}
@@ -173,7 +180,10 @@ func (b *InMemoryBackend) consumedReservationLocked(
 	return ""
 }
 
-func (b *InMemoryBackend) reservationViewLocked(project, zone string, r *computeapi.Reservation) *computeapi.Reservation {
+func (b *InMemoryBackend) reservationViewLocked(
+	project, zone string,
+	r *computeapi.Reservation,
+) *computeapi.Reservation {
 	out := clone(r)
 	out.SpecificReservation.InUseCount = b.reservationUsageLocked(project, zone)[r.Name]
 
@@ -232,7 +242,11 @@ type reservationResizeRequest struct {
 	SpecificSkuCount string `json:"specificSkuCount"`
 }
 
-func (b *InMemoryBackend) setReservationCountLocked(project, zone string, r *computeapi.Reservation, count int64) *APIError {
+func (b *InMemoryBackend) setReservationCountLocked(
+	project, zone string,
+	r *computeapi.Reservation,
+	count int64,
+) *APIError {
 	if count < 1 {
 		return errField("specificSkuCount", strconv.FormatInt(count, 10), "Must be at least 1.")
 	}
@@ -318,7 +332,8 @@ func (b *InMemoryBackend) normalizeAffinityLocked(
 	case resvAny, resvNone:
 		if in.Key != "" || len(in.Values) > 0 {
 			return nil, errInvalid(
-				"Invalid value for field 'resource.reservationAffinity': key and values are only valid with SPECIFIC_RESERVATION.")
+				"Invalid value for field 'resource.reservationAffinity': key and values are only valid with SPECIFIC_RESERVATION.",
+			)
 		}
 
 		return &computeapi.ReservationAffinity{ConsumeReservationType: in.ConsumeReservationType}, nil
@@ -328,7 +343,10 @@ func (b *InMemoryBackend) normalizeAffinityLocked(
 	}
 
 	if in.Key != reservationNameKey || len(in.Values) == 0 {
-		return nil, errInvalid("Invalid value for field 'resource.reservationAffinity': SPECIFIC_RESERVATION needs key %s and at least one value.", reservationNameKey)
+		return nil, errInvalid(
+			"Invalid value for field 'resource.reservationAffinity': SPECIFIC_RESERVATION needs key %s and at least one value.",
+			reservationNameKey,
+		)
 	}
 
 	usage := b.reservationUsageLocked(project, zone)
@@ -341,7 +359,10 @@ func (b *InMemoryBackend) normalizeAffinityLocked(
 		}
 
 		if lastSegment(res.SpecificReservation.InstanceProperties.MachineType) != lastSegment(machine) {
-			return nil, errInvalid("Invalid value for field 'resource.reservationAffinity.values': reservation '%s' is for a different machine type.", res.Name)
+			return nil, errInvalid(
+				"Invalid value for field 'resource.reservationAffinity.values': reservation '%s' is for a different machine type.",
+				res.Name,
+			)
 		}
 
 		free = free || usage[res.Name] < res.SpecificReservation.Count

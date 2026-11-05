@@ -27,7 +27,7 @@ const (
 )
 
 func instTarget(project, zone string, i *computeapi.Instance) target {
-	return target{project: project, scope: scopeZone, loc: zone, collection: "instances", name: i.Name, id: i.Id}
+	return target{project: project, scope: scopeZone, loc: zone, collection: collInstances, name: i.Name, id: i.Id}
 }
 
 func (r *instRec) status(now time.Time, t Timing) string {
@@ -318,7 +318,7 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 	}
 
 	return &computeapi.AttachedDisk{
-		Kind:            "compute#attachedDisk",
+		Kind:            kindAttachedDisk,
 		Type:            diskPersist,
 		Mode:            mode,
 		Source:          d.SelfLink,
@@ -592,7 +592,7 @@ func (b *InMemoryBackend) buildNICLocked(
 
 	nic := &computeapi.NetworkInterface{
 		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
-		NetworkIP: ip.String(), StackType: "IPV4_ONLY", Fingerprint: newFingerprint(), NicType: in.NicType,
+		NetworkIP: ip.String(), StackType: stackIPv4Only, Fingerprint: newFingerprint(), NicType: in.NicType,
 		AliasIpRanges: in.AliasIpRanges,
 	}
 
@@ -1344,16 +1344,16 @@ func (b *InMemoryBackend) attachableDiskLocked(project, zone, field, source stri
 	}
 
 	if r.scope == scopeRegion {
-		d, ok := b.disks[key(r.project, r.loc, r.name)]
-		if !ok || d.Region == "" {
+		rd, found := b.disks[key(r.project, r.loc, r.name)]
+		if !found || rd.Region == "" {
 			return nil, errNotFound(relPath(r.project, scopeRegion, r.loc, "disks", r.name))
 		}
 
-		if !slices.ContainsFunc(d.ReplicaZones, func(z string) bool { return lastSegment(z) == zone }) {
+		if !slices.ContainsFunc(rd.ReplicaZones, func(z string) bool { return lastSegment(z) == zone }) {
 			return nil, errField(field+".source", source, "The instance zone is not one of the disk's replica zones.")
 		}
 
-		return d, nil
+		return rd, nil
 	}
 
 	if r.loc != zone {

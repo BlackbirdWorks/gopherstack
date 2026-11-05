@@ -394,7 +394,8 @@ func TestMIGSetInstanceTemplate(t *testing.T) {
 				n := 0
 
 				for _, mi := range e.managed(t) {
-					if mi.GetCurrentAction() != "DELETING" && trimToPath(mi.GetVersion().GetInstanceTemplate()) == tmpl {
+					if mi.GetCurrentAction() != "DELETING" &&
+						trimToPath(mi.GetVersion().GetInstanceTemplate()) == tmpl {
 						n++
 					}
 				}

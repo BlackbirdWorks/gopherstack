@@ -141,8 +141,15 @@ func (h *Handler) registerMachineImageOps() {
 
 func (h *Handler) registerReservationOps() {
 	z := scopeZone
-	h.scopedList(collReservations, z, "compute#reservationList", "compute#reservationAggregatedList",
-		collReservations, zoneScopes(), func(b *InMemoryBackend, p, s, l string) []entry { return b.listReservations(p, s, l) })
+	h.scopedList(
+		collReservations,
+		z,
+		"compute#reservationList",
+		"compute#reservationAggregatedList",
+		collReservations,
+		zoneScopes(),
+		func(b *InMemoryBackend, p, s, l string) []entry { return b.listReservations(p, s, l) },
+	)
 	h.reg(collReservations, z, verbGet, func(h *Handler, rq *request) (any, error) {
 		return h.Backend.getReservation(rq.rt.project, rq.rt.loc, rq.rt.name)
 	})

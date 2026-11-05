@@ -160,7 +160,7 @@ type applyUpdatesRequest struct {
 
 func validAction(field, v string) *APIError {
 	switch v {
-	case "", "NONE", "REFRESH", minActionRestart, minActionReplace:
+	case "", minActionNone, minActionRefresh, minActionRestart, minActionReplace:
 		return nil
 	}
 
@@ -168,7 +168,7 @@ func validAction(field, v string) *APIError {
 }
 
 func migActionRank(a string) int {
-	return slices.Index([]string{"NONE", "REFRESH", minActionRestart, minActionReplace}, a)
+	return slices.Index([]string{minActionNone, minActionRefresh, minActionRestart, minActionReplace}, a)
 }
 
 func (b *InMemoryBackend) applyMIGUpdates(

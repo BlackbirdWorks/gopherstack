@@ -61,7 +61,7 @@ func (b *InMemoryBackend) normalizePropsLocked(p *computeapi.InstanceProperties)
 	}
 
 	for _, d := range p.Disks {
-		d.Kind = "compute#attachedDisk"
+		d.Kind = kindAttachedDisk
 		if d.Type == "" {
 			d.Type = diskPersist
 		}

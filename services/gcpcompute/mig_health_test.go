@@ -21,8 +21,8 @@ const probeEvery = 5
 
 type fakeProber struct {
 	result atomic.Value
-	mu     sync.Mutex
 	probes []gcpcompute.HealthProbe
+	mu     sync.Mutex
 }
 
 func (p *fakeProber) set(v string) { p.result.Store(v) }
@@ -67,9 +67,15 @@ func (e *env) httpCheck(t *testing.T, name string) string {
 
 	op, err := e.healthChecks(t).Insert(t.Context(), &computepb.InsertHealthCheckRequest{
 		Project: project, HealthCheckResource: &computepb.HealthCheck{
-			Name: s(name), Type: s("HTTP"), CheckIntervalSec: proto.Int32(probeEvery), TimeoutSec: proto.Int32(probeEvery),
-			HealthyThreshold: proto.Int32(2), UnhealthyThreshold: proto.Int32(2),
-			HttpHealthCheck: &computepb.HTTPHealthCheck{Port: proto.Int32(80), RequestPath: s("/healthz")},
+			Name: s(
+				name,
+			),
+			Type:               s("HTTP"),
+			CheckIntervalSec:   proto.Int32(probeEvery),
+			TimeoutSec:         proto.Int32(probeEvery),
+			HealthyThreshold:   proto.Int32(2),
+			UnhealthyThreshold: proto.Int32(2),
+			HttpHealthCheck:    &computepb.HTTPHealthCheck{Port: proto.Int32(80), RequestPath: s("/healthz")},
 		},
 	})
 	e.done(t, op, err)
@@ -85,7 +91,7 @@ func (e *env) healingMig(
 	m := &computepb.InstanceGroupManager{
 		Name: s("web"), BaseInstanceName: s("web"), InstanceTemplate: s(tmpl), TargetSize: proto.Int32(1),
 		AutoHealingPolicies: []*computepb.InstanceGroupManagerAutoHealingPolicy{
-			{HealthCheck: s(hc), InitialDelaySec: proto.Int32(delay)},
+			{HealthCheck: s(hc), InitialDelaySec: new(delay)},
 		},
 	}
 	if mut != nil {
@@ -171,10 +177,10 @@ func TestAutohealingWithFakeProber(t *testing.T) {
 	tests := []struct {
 		name       string
 		result     string
-		delay      int32
 		lifecycle  string
 		wantHealth string
 		wantAction string
+		delay      int32
 		recreated  bool
 		probe      bool
 	}{
@@ -239,27 +245,34 @@ func TestAutohealingWithFakeProber(t *testing.T) {
 	}
 }
 
-func (e *env) liveTemplates(t *testing.T) (old, fresh int, total int, names map[string]bool) {
+type rollState struct {
+	names map[string]bool
+	old   int
+	fresh int
+	total int
+}
+
+func (e *env) liveTemplates(t *testing.T) rollState {
 	t.Helper()
 
-	names = map[string]bool{}
+	st := rollState{names: map[string]bool{}}
 
 	for _, mi := range e.managed(t) {
 		if mi.GetCurrentAction() == "DELETING" {
 			continue
 		}
 
-		total++
-		names[mi.GetName()] = true
+		st.total++
+		st.names[mi.GetName()] = true
 
 		if trimToPath(mi.GetVersion().GetInstanceTemplate()) == globalTmplPath+"v1" {
-			old++
+			st.old++
 		} else {
-			fresh++
+			st.fresh++
 		}
 	}
 
-	return old, fresh, total, names
+	return st
 }
 
 func TestRollingUpdatePacing(t *testing.T) {
@@ -293,39 +306,41 @@ func TestRollingUpdatePacing(t *testing.T) {
 					TargetSize: proto.Int32(4),
 					UpdatePolicy: &computepb.InstanceGroupManagerUpdatePolicy{
 						Type: s("PROACTIVE"), ReplacementMethod: s(tt.method),
-						MaxSurge: &computepb.FixedOrPercent{Fixed: proto.Int32(tt.surge)},
-						MaxUnavailable: &computepb.FixedOrPercent{Fixed: proto.Int32(tt.unavail)},
+						MaxSurge:       &computepb.FixedOrPercent{Fixed: new(tt.surge)},
+						MaxUnavailable: &computepb.FixedOrPercent{Fixed: new(tt.unavail)},
 					},
 				},
 			})
 			e.done(t, op, err)
 
-			_, _, _, before := e.liveTemplates(t)
+			before := e.liveTemplates(t).names
 
-			op, err = e.migs(t).SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersSetInstanceTemplateRequestResource: setTmplReq(globalTmplPath + "v2"),
-			})
+			op, err = e.migs(t).
+				SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
+					Project: project, Zone: zone, InstanceGroupManager: "web",
+					InstanceGroupManagersSetInstanceTemplateRequestResource: setTmplReq(globalTmplPath + "v2"),
+				})
 			require.NoError(t, err)
 			require.NotNil(t, op)
 
-			old, fresh, total, _ := e.liveTemplates(t)
-			assert.Positive(t, old, "the roll is paced, not instantaneous")
-			assert.LessOrEqual(t, total, tt.maxTotal)
+			st := e.liveTemplates(t)
+			assert.Positive(t, st.old, "the roll is paced, not instantaneous")
+			assert.LessOrEqual(t, st.total, tt.maxTotal)
 
-			for i := 0; i < 20 && old > 0; i++ {
+			for i := 0; i < 20 && st.old > 0; i++ {
 				e.clock.Advance(time.Minute)
 
-				old, fresh, total, _ = e.liveTemplates(t)
-				assert.LessOrEqual(t, total, tt.maxTotal)
+				st = e.liveTemplates(t)
+				assert.LessOrEqual(t, st.total, tt.maxTotal)
 			}
 
 			e.clock.Advance(time.Minute)
 
-			old, fresh, total, after := e.liveTemplates(t)
-			assert.Zero(t, old)
-			assert.Equal(t, 4, fresh)
-			assert.Equal(t, 4, total)
+			st = e.liveTemplates(t)
+			after := st.names
+			assert.Zero(t, st.old)
+			assert.Equal(t, 4, st.fresh)
+			assert.Equal(t, 4, st.total)
 
 			if tt.keepsNames {
 				assert.Equal(t, before, after)
@@ -376,8 +391,7 @@ func TestRollingUpdateKeepsAvailability(t *testing.T) {
 
 		assert.GreaterOrEqual(t, running, 3, "maxUnavailable 0 never drops below the target size")
 
-		old, _, _, _ := e.liveTemplates(t)
-		if old == 0 {
+		if e.liveTemplates(t).old == 0 {
 			return
 		}
 
@@ -412,24 +426,29 @@ func TestApplyUpdatesToInstances(t *testing.T) {
 			e.template(t, "v2")
 			e.mig(t, "web", globalTmplPath+"v1", 2)
 
-			op, err := e.migs(t).SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersSetInstanceTemplateRequestResource: setTmplReq(globalTmplPath + "v2"),
-			})
+			op, err := e.migs(t).
+				SetInstanceTemplate(t.Context(), &computepb.SetInstanceTemplateInstanceGroupManagerRequest{
+					Project: project, Zone: zone, InstanceGroupManager: "web",
+					InstanceGroupManagersSetInstanceTemplateRequestResource: setTmplReq(globalTmplPath + "v2"),
+				})
 			e.done(t, op, err)
 
 			victim := e.managed(t)[0]
 
-			op, err = e.migs(t).ApplyUpdatesToInstances(t.Context(), &computepb.ApplyUpdatesToInstancesInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersApplyUpdatesRequestResource: &computepb.InstanceGroupManagersApplyUpdatesRequest{
-					Instances: []string{victim.GetInstance()}, MinimalAction: s(tt.minimal),
-					MostDisruptiveAllowedAction: s(tt.mostAllowed),
-				},
-			})
+			op, err = e.migs(t).
+				ApplyUpdatesToInstances(t.Context(), &computepb.ApplyUpdatesToInstancesInstanceGroupManagerRequest{
+					Project:              project,
+					Zone:                 zone,
+					InstanceGroupManager: "web",
+					InstanceGroupManagersApplyUpdatesRequestResource: &computepb.InstanceGroupManagersApplyUpdatesRequest{
+						Instances:                   []string{victim.GetInstance()},
+						MinimalAction:               s(tt.minimal),
+						MostDisruptiveAllowedAction: s(tt.mostAllowed),
+					},
+				})
 			e.done(t, op, err)
 
-			_, fresh, _, _ := e.liveTemplates(t)
+			fresh := e.liveTemplates(t).fresh
 			assert.Equal(t, tt.wantFresh, fresh, "fresh count after apply")
 
 			got := e.managed(t)
