@@ -1,4 +1,4 @@
-package esdk
+package esdk_test
 
 import (
 	"bytes"
@@ -6,7 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/cognitoidp/internal/esdk"
 )
+
+const frameLen = 4096
 
 func TestEncryptDecryptRoundTrip(t *testing.T) {
 	t.Parallel()
@@ -19,22 +23,26 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 		{name: "code", plaintext: []byte("123456"), encCtx: map[string]string{"userpool-id": "us-east-1_abc"}},
 		{name: "empty plaintext", plaintext: nil, encCtx: map[string]string{"b": "2", "a": "1"}},
 		{name: "no encryption context", plaintext: []byte("x"), encCtx: nil},
-		{name: "exactly one frame", plaintext: bytes.Repeat([]byte{7}, esdkFrameLen)},
-		{name: "multi frame", plaintext: bytes.Repeat([]byte{9}, esdkFrameLen*2+17)},
+		{name: "exactly one frame", plaintext: bytes.Repeat([]byte{7}, frameLen)},
+		{name: "multi frame", plaintext: bytes.Repeat([]byte{9}, frameLen*2+17)},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			dataKey := bytes.Repeat([]byte{0x42}, esdkDataKeyLen)
+			dataKey := bytes.Repeat([]byte{0x42}, 32)
 			wrapped := []byte("kms-ciphertext")
-			dk := &DataKey{KeyARN: "arn:aws:kms:us-east-1:000000000000:key/k1", Plaintext: dataKey, Ciphertext: wrapped}
+			dk := &esdk.DataKey{
+				KeyARN:     "arn:aws:kms:us-east-1:000000000000:key/k1",
+				Plaintext:  dataKey,
+				Ciphertext: wrapped,
+			}
 
-			msg, err := Encrypt(tt.plaintext, tt.encCtx, dk)
+			msg, err := esdk.Encrypt(tt.plaintext, tt.encCtx, dk)
 			require.NoError(t, err)
 
-			got, err := Decrypt(msg, func(edk []byte, ctx map[string]string) ([]byte, error) {
+			got, err := esdk.Decrypt(msg, func(edk []byte, ctx map[string]string) ([]byte, error) {
 				assert.Equal(t, wrapped, edk)
 				assert.Equal(t, len(tt.encCtx) == 0, len(ctx) == 0)
 
@@ -43,7 +51,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "aws-kms", got.ProviderID)
 			assert.Equal(t, dk.KeyARN, got.ProviderInfo)
-			assert.Equal(t, len(tt.plaintext), len(got.Plaintext))
+			assert.Len(t, got.Plaintext, len(tt.plaintext))
 			assert.True(t, bytes.Equal(tt.plaintext, got.Plaintext))
 
 			if len(tt.encCtx) > 0 {
@@ -51,7 +59,7 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 			}
 
 			msg[len(msg)-1] ^= 1
-			_, err = Decrypt(msg, func([]byte, map[string]string) ([]byte, error) { return dataKey, nil })
+			_, err = esdk.Decrypt(msg, func([]byte, map[string]string) ([]byte, error) { return dataKey, nil })
 			require.Error(t, err)
 		})
 	}
@@ -60,6 +68,6 @@ func TestEncryptDecryptRoundTrip(t *testing.T) {
 func TestEncryptRejectsShortDataKey(t *testing.T) {
 	t.Parallel()
 
-	_, err := Encrypt([]byte("1"), nil, &DataKey{Plaintext: []byte("short")})
-	require.ErrorIs(t, err, ErrInvalidDataKey)
+	_, err := esdk.Encrypt([]byte("1"), nil, &esdk.DataKey{Plaintext: []byte("short")})
+	require.ErrorIs(t, err, esdk.ErrInvalidDataKey)
 }

@@ -16,6 +16,7 @@ import (
 )
 
 const (
+	schemeHTTP               = "http"
 	webauthnRegSessionPrefix = "webauthn-reg:"
 	webauthnConfigRPID       = "RelyingPartyId"
 	webauthnConfigUV         = "UserVerification"
@@ -95,7 +96,8 @@ func (b *InMemoryBackend) passkeyRPLocked(pool *UserPool) (passkeyRP, error) {
 		cfg = full.WebAuthnConfiguration
 	}
 
-	allowed := pool.SignInPolicy != nil && slices.Contains(pool.SignInPolicy.AllowedFirstAuthFactors, authFactorWebAuthn)
+	allowed := pool.SignInPolicy != nil &&
+		slices.Contains(pool.SignInPolicy.AllowedFirstAuthFactors, authFactorWebAuthn)
 	if len(cfg) == 0 && !allowed {
 		return passkeyRP{}, fmt.Errorf("%w: passkeys are not enabled for pool %q", ErrWebAuthnNotEnabled, pool.ID)
 	}
@@ -159,7 +161,7 @@ func originAllowed(origin, rpID string) bool {
 	host := strings.ToLower(u.Hostname())
 	loopback := host == "localhost" || host == "127.0.0.1" || host == "::1"
 
-	if u.Scheme != "https" && (u.Scheme != "http" || !loopback) {
+	if u.Scheme != "https" && (u.Scheme != schemeHTTP || !loopback) {
 		return false
 	}
 

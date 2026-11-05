@@ -93,8 +93,10 @@ func (p *softPasskey) register(t *testing.T, opts map[string]any) map[string]any
 
 	p.userHandle = handle
 
-	x := p.key.PublicKey.X.FillBytes(make([]byte, coseKeyLen))
-	y := p.key.PublicKey.Y.FillBytes(make([]byte, coseKeyLen))
+	pub, err := p.key.PublicKey.Bytes()
+	require.NoError(t, err)
+
+	x, y := pub[1:1+coseKeyLen], pub[1+coseKeyLen:]
 
 	cose, err := cbor.Marshal(map[int]any{1: 2, 3: -7, -1: 1, -2: x, -3: y})
 	require.NoError(t, err)

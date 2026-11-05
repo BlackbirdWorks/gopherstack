@@ -96,7 +96,10 @@ var (
 	ErrWebAuthnRelyingPartyMismatch = awserr.New("WebAuthnRelyingPartyMismatchException", awserr.ErrInvalidParameter)
 
 	// ErrWebAuthnCredentialNotSupported: the authenticator or attestation is not supported.
-	ErrWebAuthnCredentialNotSupported = awserr.New("WebAuthnCredentialNotSupportedException", awserr.ErrInvalidParameter)
+	ErrWebAuthnCredentialNotSupported = awserr.New(
+		"WebAuthnCredentialNotSupportedException",
+		awserr.ErrInvalidParameter,
+	)
 
 	// ErrAuthEventNotFound is returned when an adaptive-authentication event does not exist.
 	ErrAuthEventNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)

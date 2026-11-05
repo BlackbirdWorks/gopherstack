@@ -21,11 +21,11 @@ const testSenderARN = "arn:aws:lambda:us-east-1:000000000000:function:sender"
 // fixedKeys hands out one known data key whose wrapped copy is the key ID, so tests can decrypt.
 type fixedKeys struct{}
 
-var testDataKey = bytes.Repeat([]byte{0x11}, 32)
+func testDataKey() []byte { return bytes.Repeat([]byte{0x11}, 32) }
 
 func (fixedKeys) GenerateDataKey(_ context.Context, keyID string, _ map[string]string) (*cognitoidp.DataKey, error) {
 	return &cognitoidp.DataKey{
-		KeyARN: "arn:aws:kms:us-east-1:000000000000:key/" + keyID, Plaintext: testDataKey, Ciphertext: []byte("wrapped:" + keyID),
+		KeyARN: "arn:aws:kms:us-east-1:000000000000:key/" + keyID, Plaintext: testDataKey(), Ciphertext: []byte("wrapped:" + keyID),
 	}, nil
 }
 
@@ -118,7 +118,7 @@ func TestCustomSenderDelivery(t *testing.T) {
 				assert.Equal(t, []byte("wrapped:key-1"), edk)
 				assert.Equal(t, map[string]string{"userpool-id": e.poolID}, encCtx)
 
-				return testDataKey, nil
+				return testDataKey(), nil
 			})
 			require.NoError(t, err)
 			assert.Equal(t, code, string(msg.Plaintext))

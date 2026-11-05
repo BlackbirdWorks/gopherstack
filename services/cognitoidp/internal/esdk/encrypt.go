@@ -58,11 +58,14 @@ func esdkSerializeEncryptionContext(encCtx map[string]string) []byte {
 
 	sort.Strings(keys)
 
-	out := binary.BigEndian.AppendUint16(nil, uint16(min(len(keys), esdkMaxEncCtxPairs)))
+	out := binary.BigEndian.AppendUint16(
+		nil,
+		uint16(min(len(keys), esdkMaxEncCtxPairs)),
+	) //nolint:gosec // clamped to 16 bits
 	for _, k := range keys {
-		out = binary.BigEndian.AppendUint16(out, uint16(len(k)))
+		out = binary.BigEndian.AppendUint16(out, uint16(len(k))) //nolint:gosec // ESDK caps keys at 16 bits
 		out = append(out, k...)
-		out = binary.BigEndian.AppendUint16(out, uint16(len(encCtx[k])))
+		out = binary.BigEndian.AppendUint16(out, uint16(len(encCtx[k]))) //nolint:gosec // ESDK caps values at 16 bits
 		out = append(out, encCtx[k]...)
 	}
 
@@ -70,7 +73,7 @@ func esdkSerializeEncryptionContext(encCtx map[string]string) []byte {
 }
 
 func esdkAppendField16(dst []byte, field []byte) []byte {
-	dst = binary.BigEndian.AppendUint16(dst, uint16(len(field)))
+	dst = binary.BigEndian.AppendUint16(dst, uint16(len(field))) //nolint:gosec // fields are 16-bit length-prefixed
 
 	return append(dst, field...)
 }
@@ -165,7 +168,7 @@ func esdkSealFrame(
 
 	out = append(out, iv...)
 	if final {
-		out = binary.BigEndian.AppendUint32(out, uint32(len(content)))
+		out = binary.BigEndian.AppendUint32(out, uint32(len(content))) //nolint:gosec // content is at most one frame
 	}
 
 	return append(out, aead.Seal(nil, iv, content, aad)...)

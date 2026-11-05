@@ -9,6 +9,12 @@ import (
 	"errors"
 )
 
+const (
+	u16Len     = 2
+	u32Len     = 4
+	suiteIDLen = 2
+)
+
 // ErrMalformed is returned for a message that does not parse or authenticate as a v2 committed message.
 var ErrMalformed = errors.New("esdk: malformed message")
 
@@ -39,9 +45,9 @@ func (r *reader) take(n int) []byte {
 	return out
 }
 
-func (r *reader) u16() int { return int(binary.BigEndian.Uint16(r.take(2))) }
+func (r *reader) u16() int { return int(binary.BigEndian.Uint16(r.take(u16Len))) }
 
-func (r *reader) u32() uint32 { return binary.BigEndian.Uint32(r.take(4)) }
+func (r *reader) u32() uint32 { return binary.BigEndian.Uint32(r.take(u32Len)) }
 
 // Decrypt parses and authenticates a v2 committed message following the ESDK data-format spec.
 // unwrap stands in for the keyring: it returns the plaintext data key for the encrypted data key.
@@ -50,7 +56,7 @@ func Decrypt(msg []byte, unwrap func(edk []byte, encCtx map[string]string) ([]by
 	out := &Message{EncryptionContext: map[string]string{}}
 
 	version := r.take(1)[0]
-	suite := r.take(2)
+	suite := r.take(suiteIDLen)
 	msgID := r.take(esdkMessageIDLen)
 	aad := &reader{data: r.take(r.u16())}
 
@@ -137,7 +143,7 @@ func openBody(r *reader, aead cipher.AEAD, msgID []byte, frameLen int) ([]byte, 
 
 		aad := append(append([]byte{}, msgID...), label...)
 		aad = binary.BigEndian.AppendUint32(aad, seq)
-		aad = binary.BigEndian.AppendUint64(aad, uint64(n))
+		aad = binary.BigEndian.AppendUint64(aad, uint64(n)) //nolint:gosec // n is non-negative
 
 		if r.err != nil {
 			return nil, ErrMalformed

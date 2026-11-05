@@ -76,7 +76,11 @@ func (b *InMemoryBackend) hostedChallengeLocked(pool *UserPool, clientID string,
 
 		res := b.newMFASession(pool, clientID, user.Username, challengeNewPasswordRequired)
 
-		return hostedLogin{Username: user.Username, ChallengeName: challengeNewPasswordRequired, Session: res.MFASession}, nil
+		return hostedLogin{
+			Username:      user.Username,
+			ChallengeName: challengeNewPasswordRequired,
+			Session:       res.MFASession,
+		}, nil
 	}
 
 	return b.hostedMFAChallengeLocked(pool, clientID, user)

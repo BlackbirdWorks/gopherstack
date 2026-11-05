@@ -14,8 +14,8 @@ func TestCognitoKMSDataKeys(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		decrypt map[string]string
+		name    string
 		wantErr bool
 	}{
 		{name: "same context decrypts", decrypt: map[string]string{"userpool-id": "pool-1"}},

@@ -8,11 +8,13 @@ import (
 
 // mfaSessionEntry holds the pending challenge context (MFA or NEW_PASSWORD_REQUIRED).
 type mfaSessionEntry struct {
-	ExpiresAt     time.Time `json:"expiresAt"`
-	PoolID        string    `json:"poolID,omitempty"`
-	ClientID      string    `json:"clientID,omitempty"`
-	Username      string    `json:"username,omitempty"`
-	ChallengeType string    `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
+	// WebAuthn is the pending passkey ceremony (registration or WEB_AUTHN sign-in).
+	WebAuthn      *webauthn.SessionData `json:"webauthn,omitempty"`
+	ExpiresAt     time.Time             `json:"expiresAt"`
+	PoolID        string                `json:"poolID,omitempty"`
+	ClientID      string                `json:"clientID,omitempty"`
+	Username      string                `json:"username,omitempty"`
+	ChallengeType string                `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
 	// AvailableChallenges holds the offered factor set for a pending SELECT_CHALLENGE
 	// round (user_auth.go), so RespondToSelectChallenge can validate ANSWER against
 	// exactly what InitiateAuth(USER_AUTH) offered.
@@ -58,8 +60,6 @@ type mfaSessionEntry struct {
 	// of issuing tokens directly the way a second-factor MFA round does -- the two rounds
 	// can share a ChallengeType value (e.g. "EMAIL_OTP") but need different continuations.
 	FirstFactor bool `json:"firstFactor,omitempty"`
-	// WebAuthn is the pending passkey ceremony (registration or WEB_AUTHN sign-in).
-	WebAuthn *webauthn.SessionData `json:"webauthn,omitempty"`
 }
 
 // customAuthChallengeResult mirrors aws-lambda-go's

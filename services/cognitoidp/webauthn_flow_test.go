@@ -220,11 +220,14 @@ func TestWebAuthnRegistrationAndPasskeySignIn(t *testing.T) {
 					[]types.ChallengeNameType{types.ChallengeNameTypePassword, types.ChallengeNameTypeWebAuthn},
 					out.AvailableChallenges)
 
-				sel, selErr := env.client.RespondToAuthChallenge(t.Context(), &cognitoidpsdk.RespondToAuthChallengeInput{
-					ClientId: aws.String(env.clientID), ChallengeName: types.ChallengeNameTypeSelectChallenge,
-					Session:            out.Session,
-					ChallengeResponses: map[string]string{"USERNAME": passkeyUsername, "ANSWER": "WEB_AUTHN"},
-				})
+				sel, selErr := env.client.RespondToAuthChallenge(
+					t.Context(),
+					&cognitoidpsdk.RespondToAuthChallengeInput{
+						ClientId: aws.String(env.clientID), ChallengeName: types.ChallengeNameTypeSelectChallenge,
+						Session:            out.Session,
+						ChallengeResponses: map[string]string{"USERNAME": passkeyUsername, "ANSWER": "WEB_AUTHN"},
+					},
+				)
 				require.NoError(t, selErr)
 
 				out = &cognitoidpsdk.InitiateAuthOutput{
@@ -251,21 +254,33 @@ func TestWebAuthnSignInRejections(t *testing.T) {
 		name     string
 		wantCode string
 	}{
-		{name: "foreign key signature", wantCode: "NotAuthorizedException", mutate: func(_ *testing.T, pk, intruder *softPasskey) *softPasskey {
-			intruder.credID, intruder.userHandle = pk.credID, pk.userHandle
+		{
+			name:     "foreign key signature",
+			wantCode: "NotAuthorizedException",
+			mutate: func(_ *testing.T, pk, intruder *softPasskey) *softPasskey {
+				intruder.credID, intruder.userHandle = pk.credID, pk.userHandle
 
-			return intruder
-		}},
-		{name: "cloned authenticator sign count", wantCode: "NotAuthorizedException", mutate: func(_ *testing.T, pk, _ *softPasskey) *softPasskey {
-			pk.signCount = 0
+				return intruder
+			},
+		},
+		{
+			name:     "cloned authenticator sign count",
+			wantCode: "NotAuthorizedException",
+			mutate: func(_ *testing.T, pk, _ *softPasskey) *softPasskey {
+				pk.signCount = 0
 
-			return pk
-		}},
-		{name: "foreign origin", wantCode: "WebAuthnOriginNotAllowedException", mutate: func(_ *testing.T, pk, _ *softPasskey) *softPasskey {
-			pk.origin = "https://evil.example.org"
+				return pk
+			},
+		},
+		{
+			name:     "foreign origin",
+			wantCode: "WebAuthnOriginNotAllowedException",
+			mutate: func(_ *testing.T, pk, _ *softPasskey) *softPasskey {
+				pk.origin = "https://evil.example.org"
 
-			return pk
-		}},
+				return pk
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -277,16 +292,28 @@ func TestWebAuthnSignInRejections(t *testing.T) {
 			env.register(t, pk)
 
 			first := env.startPasskeySignIn(t, false)
-			ok, err := env.respondWebAuthn(t, first.Session, pk.assert(t, first.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]))
+			ok, err := env.respondWebAuthn(
+				t,
+				first.Session,
+				pk.assert(t, first.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]),
+			)
 			require.NoError(t, err)
 			require.NotNil(t, ok.AuthenticationResult)
 
 			second := env.startPasskeySignIn(t, false)
 			actor := tt.mutate(t, pk, newSoftPasskey(t))
-			_, err = env.respondWebAuthn(t, second.Session, actor.assert(t, second.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]))
+			_, err = env.respondWebAuthn(
+				t,
+				second.Session,
+				actor.assert(t, second.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]),
+			)
 			requireAPIErrorCode(t, err, tt.wantCode)
 
-			_, err = env.respondWebAuthn(t, second.Session, pk.assert(t, second.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]))
+			_, err = env.respondWebAuthn(
+				t,
+				second.Session,
+				pk.assert(t, second.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]),
+			)
 			requireAPIErrorCode(t, err, "NotAuthorizedException")
 		})
 	}
@@ -363,7 +390,11 @@ func TestWebAuthnRegistrationErrors(t *testing.T) {
 			opts["rp"].(map[string]any)["id"] = "other.example.net"
 			pk := newSoftPasskey(t)
 			pk.origin = "https://" + passkeyRPID
-			requireAPIErrorCode(t, env.completeRegistration(t, pk.register(t, opts)), "WebAuthnRelyingPartyMismatchException")
+			requireAPIErrorCode(
+				t,
+				env.completeRegistration(t, pk.register(t, opts)),
+				"WebAuthnRelyingPartyMismatchException",
+			)
 		}},
 		{name: "user verification required", run: func(t *testing.T) {
 			t.Helper()
@@ -414,7 +445,10 @@ func TestWebAuthnConfigurationValidation(t *testing.T) {
 			t.Parallel()
 
 			client := newTestCognitoIDPClient(t, newTestHandler(t))
-			pool, err := client.CreateUserPool(t.Context(), &cognitoidpsdk.CreateUserPoolInput{PoolName: aws.String("p")})
+			pool, err := client.CreateUserPool(
+				t.Context(),
+				&cognitoidpsdk.CreateUserPoolInput{PoolName: aws.String("p")},
+			)
 			require.NoError(t, err)
 
 			_, err = client.SetUserPoolMfaConfig(t.Context(), &cognitoidpsdk.SetUserPoolMfaConfigInput{
@@ -440,7 +474,11 @@ func TestWebAuthnPasskeySatisfiesMFA(t *testing.T) {
 		verified  bool
 		wantToken bool
 	}{
-		{name: "single factor still asks for mfa", factor: types.WebAuthnFactorConfigurationTypeSingleFactor, verified: true},
+		{
+			name:     "single factor still asks for mfa",
+			factor:   types.WebAuthnFactorConfigurationTypeSingleFactor,
+			verified: true,
+		},
 		{
 			name: "multi factor with user verification", verified: true, wantToken: true,
 			factor: types.WebAuthnFactorConfigurationTypeMultiFactorWithUserVerification,
@@ -470,7 +508,11 @@ func TestWebAuthnPasskeySatisfiesMFA(t *testing.T) {
 
 			pk.verified = tt.verified
 			out := env.startPasskeySignIn(t, false)
-			done, err := env.respondWebAuthn(t, out.Session, pk.assert(t, out.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]))
+			done, err := env.respondWebAuthn(
+				t,
+				out.Session,
+				pk.assert(t, out.ChallengeParameters["CREDENTIAL_REQUEST_OPTIONS"]),
+			)
 
 			require.NoError(t, err)
 

@@ -55,7 +55,9 @@ func (e *signUpEnv) signUp(t *testing.T, username string) (*cognitoidpsdk.SignUp
 
 	out, err := e.client.SignUp(t.Context(), &cognitoidpsdk.SignUpInput{
 		ClientId: aws.String(e.clientID), Username: aws.String(username), Password: aws.String("Passw0rd1!"),
-		UserAttributes: []types.AttributeType{{Name: aws.String("email"), Value: aws.String(username + "@example.com")}},
+		UserAttributes: []types.AttributeType{
+			{Name: aws.String("email"), Value: aws.String(username + "@example.com")},
+		},
 	})
 	require.NoError(t, err)
 
@@ -71,14 +73,20 @@ func (e *signUpEnv) confirm(t *testing.T, username, code string, session *string
 	t.Helper()
 
 	out, err := e.client.ConfirmSignUp(t.Context(), &cognitoidpsdk.ConfirmSignUpInput{
-		ClientId: aws.String(e.clientID), Username: aws.String(username), ConfirmationCode: aws.String(code), Session: session,
+		ClientId: aws.String(
+			e.clientID,
+		), Username: aws.String(username), ConfirmationCode: aws.String(code), Session: session,
 	})
 	require.NoError(t, err)
 
 	return out
 }
 
-func (e *signUpEnv) autoSignIn(t *testing.T, username string, session *string) (*cognitoidpsdk.InitiateAuthOutput, error) {
+func (e *signUpEnv) autoSignIn(
+	t *testing.T,
+	username string,
+	session *string,
+) (*cognitoidpsdk.InitiateAuthOutput, error) {
 	t.Helper()
 
 	return e.client.InitiateAuth(t.Context(), &cognitoidpsdk.InitiateAuthInput{
@@ -213,5 +221,4 @@ func TestSignUpSessionKeepsPoolMFA(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.ChallengeNameTypeMfaSetup, out.ChallengeName)
 	assert.Nil(t, out.AuthenticationResult)
-
 }

@@ -9381,6 +9381,7 @@
       "WebAuthnCredential.AuthenticatorAttachment string `json:\"authenticatorAttachment,omitempty\"`",
       "WebAuthnCredential.AuthenticatorTransports []string `json:\"authenticatorTransports,omitempty\"`",
       "WebAuthnCredential.CreatedAt time.Time `json:\"createdAt\"`",
+      "WebAuthnCredential.Credential *webauthn.Credential `json:\"credential,omitempty\"`",
       "WebAuthnCredential.CredentialID string `json:\"credentialID,omitempty\"`",
       "WebAuthnCredential.FriendlyName string `json:\"friendlyName,omitempty\"`",
       "WebAuthnCredential.RelyingPartyID string `json:\"relyingPartyID,omitempty\"`",

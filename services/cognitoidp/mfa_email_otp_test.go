@@ -16,10 +16,10 @@ func TestRespondToAuthChallenge_EmailOTPAsMFA(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		code     func(real string) string
+		code     func(valid string) string
 		wantCode string
 	}{
-		{name: "right code", code: func(real string) string { return real }},
+		{name: "right code", code: func(valid string) string { return valid }},
 		{name: "wrong code", code: func(string) string { return "000000" }, wantCode: "CodeMismatchException"},
 	}
 
@@ -49,7 +49,9 @@ func TestRespondToAuthChallenge_EmailOTPAsMFA(t *testing.T) {
 			require.Len(t, code, 6)
 
 			done, err := env.client.RespondToAuthChallenge(t.Context(), &cognitoidpsdk.RespondToAuthChallengeInput{
-				ClientId: aws.String(env.clientID), ChallengeName: types.ChallengeNameTypeEmailOtp, Session: out.Session,
+				ClientId: aws.String(
+					env.clientID,
+				), ChallengeName: types.ChallengeNameTypeEmailOtp, Session: out.Session,
 				ChallengeResponses: map[string]string{"USERNAME": passkeyUsername, "EMAIL_OTP_CODE": tt.code(code)},
 			})
 			if tt.wantCode != "" {

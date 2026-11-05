@@ -200,7 +200,11 @@ func TestHostedLoginCodeChallenges(t *testing.T) {
 
 				require.NoError(t, e.backend.AdminSetUserMFAPreference(e.poolID, oauthUser, true, false, "SMS_MFA"))
 			},
-			code: func(t *testing.T, e *hostedMFAEnv, _ string) string { t.Helper(); return e.lastSMSCode(t) },
+			code: func(t *testing.T, e *hostedMFAEnv, _ string) string {
+				t.Helper()
+
+				return e.lastSMSCode(t)
+			},
 		},
 		{
 			name: "email", challenge: "EMAIL_OTP",
@@ -210,7 +214,11 @@ func TestHostedLoginCodeChallenges(t *testing.T) {
 				require.NoError(t, e.backend.AdminSetUserMFAPreference(
 					e.poolID, oauthUser, false, false, "EMAIL_OTP", "EMAIL_OTP"))
 			},
-			code: func(t *testing.T, e *hostedMFAEnv, _ string) string { t.Helper(); return e.lastEmailCode(t) },
+			code: func(t *testing.T, e *hostedMFAEnv, _ string) string {
+				t.Helper()
+
+				return e.lastEmailCode(t)
+			},
 		},
 	}
 
@@ -266,7 +274,12 @@ func TestHostedLoginNewPasswordThenMFA(t *testing.T) {
 
 	env := newHostedMFAEnv(t)
 	env.requireMFA(t)
-	_, err := env.backend.AdminCreateUser(env.poolID, "temp-user", "Temp1234!", map[string]string{"email": "t@example.com"})
+	_, err := env.backend.AdminCreateUser(
+		env.poolID,
+		"temp-user",
+		"Temp1234!",
+		map[string]string{"email": "t@example.com"},
+	)
 	require.NoError(t, err)
 
 	step, name := env.startChallenge(t, authorizeQuery(env.webID, ""), "temp-user", "Temp1234!")

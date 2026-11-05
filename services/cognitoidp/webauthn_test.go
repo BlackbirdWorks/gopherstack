@@ -137,19 +137,29 @@ func TestHandler_CompleteWebAuthnRegistration_Validation(t *testing.T) {
 		credential map[string]any
 		wantCode   string
 	}{
-		{name: "invalid_token", token: "not-a-real-token", credential: map[string]any{"id": "abc"}, wantCode: "NotAuthorizedException"},
-		{name: "no_pending_challenge", token: accessToken, credential: map[string]any{"id": "abc"}, wantCode: "WebAuthnChallengeNotFoundException"},
+		{
+			name:       "invalid_token",
+			token:      "not-a-real-token",
+			credential: map[string]any{"id": "abc"},
+			wantCode:   "NotAuthorizedException",
+		},
+		{
+			name:       "no_pending_challenge",
+			token:      accessToken,
+			credential: map[string]any{"id": "abc"},
+			wantCode:   "WebAuthnChallengeNotFoundException",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rec := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
+			resp := doCognitoRequest(t, h, "CompleteWebAuthnRegistration", map[string]any{
 				"AccessToken": tt.token, "Credential": tt.credential,
 			})
-			assert.Equal(t, http.StatusBadRequest, rec.Code)
-			assert.Contains(t, rec.Body.String(), tt.wantCode)
+			assert.Equal(t, http.StatusBadRequest, resp.Code)
+			assert.Contains(t, resp.Body.String(), tt.wantCode)
 		})
 	}
 
@@ -163,12 +173,16 @@ func TestHandler_CompleteWebAuthnRegistration_Validation(t *testing.T) {
 		require.Equal(t, http.StatusOK, doCognitoRequest(t, h2, "SetUserPoolMfaConfig", map[string]any{
 			"UserPoolId": poolID2, "WebAuthnConfiguration": map[string]any{"RelyingPartyId": passkeyRPID},
 		}).Code)
-		require.Equal(t, http.StatusOK, doCognitoRequest(t, h2, "StartWebAuthnRegistration", map[string]any{"AccessToken": token}).Code)
+		require.Equal(
+			t,
+			http.StatusOK,
+			doCognitoRequest(t, h2, "StartWebAuthnRegistration", map[string]any{"AccessToken": token}).Code,
+		)
 
-		rec := doCognitoRequest(t, h2, "CompleteWebAuthnRegistration", map[string]any{
+		resp := doCognitoRequest(t, h2, "CompleteWebAuthnRegistration", map[string]any{
 			"AccessToken": token, "Credential": map[string]any{"id": "abc", "type": "public-key"},
 		})
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+		assert.Equal(t, http.StatusBadRequest, resp.Code)
+		assert.Contains(t, resp.Body.String(), "InvalidParameterException")
 	})
 }
