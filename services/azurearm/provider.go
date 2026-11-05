@@ -226,6 +226,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		Port:     settings.AppConfigPort,
 	}, nil))
 
+	registry.Register(NewSearchProvider(SearchEndpointConfig{
+		Override: settings.AdvertiseSearch,
+		Port:     settings.SearchPort,
+	}, nil))
+
 	registry.Register(NewContainerRegistryProvider(ContainerRegistryEndpointConfig{
 		Override: settings.AdvertiseACR,
 		Port:     settings.ACRPort,

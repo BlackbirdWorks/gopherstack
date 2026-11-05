@@ -47,6 +47,14 @@ var (
 	ErrAppConfigPurgeProtected   = errors.New("azurearm: app configuration store has purge protection enabled")
 	ErrAppConfigUnavailable      = errors.New("azurearm: app configuration data plane is not available")
 
+	ErrSearchServiceNotFound   = errors.New("azurearm: search service not found")
+	ErrSearchNameTaken         = errors.New("azurearm: search service name is already in use")
+	ErrSearchQueryKeyNotFound  = errors.New("azurearm: search query key not found")
+	ErrSearchInvalidConfig     = errors.New("azurearm: invalid search service configuration")
+	ErrSearchUnavailable       = errors.New("azurearm: search data plane is not available")
+	ErrSearchSKUImmutable      = errors.New("azurearm: search service sku cannot be changed")
+	ErrSearchQueryKeyNameTaken = errors.New("azurearm: search query key name is already in use")
+
 	errWebSiteName             = errors.New("site name must be 2-60 letters, digits or hyphens")
 	errWebAppSetting           = errors.New("app setting values must be strings")
 	errWebAllowRequired        = errors.New("properties.allow is required")

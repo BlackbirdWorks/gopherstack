@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 20 (15 ok, 2 partial, 3 gap) |
+| PARITY entries audited | 21 (15 ok, 3 partial, 3 gap) |
 | Feature families | 27 (27 ok) |
-| Known gaps | 73 |
+| Known gaps | 74 |
 | Deferred items | 3 |
 | Resource leaks | clean |
 
@@ -23,6 +23,7 @@
 - Multi-account namespace isolation: all ARM-created storage accounts alias one shared Blob/Queue/Table container/queue/table namespace (services/azureblob/azurequeue/azuretable discard the account-name path segment entirely). Two ARM storage accounts see each other's containers. Deferred to M10 per AZURE.md section 10.4's original note; StorageAccounts.RegisterAccount/DeleteAccount (interfaces.go) is the forward-compat seam for that fix.
 - ARM error codes are a small hand-picked table (errors.go's errorDetails), not audited against ARM's full published error-code catalog the way services/sqs's errorDetails table has been over multiple audit passes.
 - management locks, Azure Policy, RBAC/Microsoft.Authorization, ARM template deployments (Microsoft.Resources/deployments), PATCH-merge semantics beyond full-replace, $filter/$expand and nextLink pagination on list operations, cross-subscription/cross-tenant, resource moves, What-If, and LRO polling are all explicitly out of MVP scope per AZURE.md section 10.1/10.3 -- not bugs, deliberate scope boundaries for this milestone.
+- Microsoft.Search: private endpoint connections, shared private link resources, network security perimeter configurations, the upgrade action, customer-managed encryption and semanticSearch are not implemented; usage quotas are unverified defaults; BadRequest/NameAlreadyExists error codes are unverified.
 - Flexible servers: only the listed operations are modelled. PostgreSQL administrators (Entra), backups, migrations, virtual-network subnet usage, and MySQL updateConfigurations (batch), maintenances, logFiles, backupAndExport, advanced threat protection, Entra administrators, failover, detachVNet, resetGtid and private endpoint connections answer from the generic store or 404.
 - Flexible servers: replicas and point-in-time/geo restores are state-level (a copy of the source configuration and database list); under the docker engine they are refused with 400 InvalidParameterValue because a new container would start without the source data or the administrator password. Replication is not run.
 - Flexible servers: server parameter changes are stored, validated against a documented subset of parameters and flagged pending-restart, but are not applied to the docker engine; max_connections defaults follow the documented per-SKU tables for both engines, but the docker engine itself is not started with that value; the PostgreSQL max_connections range, every other parameter default/range/allowed value, and the MySQL storage IOPS formula (360 minimum, 3 per GiB) are not taken from a published table.
