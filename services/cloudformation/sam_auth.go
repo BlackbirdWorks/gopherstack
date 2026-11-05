@@ -150,8 +150,10 @@ func samLambdaAuthorizer(apiID, name string, cfg map[string]any) (map[string]any
 	}
 	var perm map[string]any
 	if cfg["DisableFunctionDefaultPermissions"] != true {
-		perm = lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: "arn:${AWS::Partition}:" +
-			"execute-api:${AWS::Region}:${AWS::AccountId}:${" + apiID + "}/authorizers/*"})
+		perm = lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: []any{
+			"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/authorizers/*",
+			map[string]any{samAPIIDMarker: samRef(apiID)},
+		}})
 		asMap(perm[samKeyProps])[samKeyFnName] = fnArn
 	}
 

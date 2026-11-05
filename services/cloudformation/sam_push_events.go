@@ -18,12 +18,14 @@ const (
 )
 
 // samTargetID is the EventBridge target id: <event logical id>LambdaTarget, truncated to 64 characters.
-func samTargetID(logicalID string) string {
-	if len(logicalID)+len(samTargetSuffix) <= samTargetIDMax {
-		return logicalID + samTargetSuffix
+func samTargetID(logicalID string) string { return samTargetIDSuffix(logicalID, samTargetSuffix) }
+
+func samTargetIDSuffix(logicalID, suffix string) string {
+	if len(logicalID)+len(suffix) <= samTargetIDMax {
+		return logicalID + suffix
 	}
 
-	return logicalID[:samTargetIDMax-len(samTargetSuffix)] + samTargetSuffix
+	return logicalID[:samTargetIDMax-len(suffix)] + suffix
 }
 
 func (t *samTranslator) s3Event(ev *samEventCtx, name string, props map[string]any) error {
@@ -330,7 +332,7 @@ func (t *samTranslator) ruleEvent(ev *samEventCtx, name string, props map[string
 		return err
 	}
 	rule := map[string]any{}
-	for src, dst := range map[string]string{"EventBusName": "EventBusName", "Pattern": "EventPattern",
+	for src, dst := range map[string]string{samKeyEventBus: "EventBusName", "Pattern": "EventPattern",
 		samKRuleName: attrNameName} {
 		if props[src] != nil {
 			rule[dst] = props[src]

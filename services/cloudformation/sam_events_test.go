@@ -508,14 +508,6 @@ func TestSAMTransform_EventFailures(t *testing.T) {
 			reason: "Auth",
 		},
 		{
-			name: "schedulev2_dlq_needs_arn",
-			template: fn(
-				"        E:\n          Type: ScheduleV2\n          Properties:\n            ScheduleExpression: rate(1 minute)\n" +
-					"            DeadLetterConfig:\n              Type: SQS\n",
-			),
-			reason: "DeadLetterConfig",
-		},
-		{
 			name: "api_auth_unknown_authorizer",
 			template: fn(
 				"        E:\n          Type: Api\n          Properties:\n            Path: /x\n            Method: get\n" +

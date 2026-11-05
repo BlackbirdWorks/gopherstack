@@ -334,7 +334,7 @@ func (t *samTranslator) putHTTPAuthorizerPermissions(a *samHTTPAPI) error {
 		}
 		perm := lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: []any{
 			"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/authorizers/*",
-			map[string]any{"__ApiId__": samRef(a.id)},
+			map[string]any{samAPIIDMarker: samRef(a.id)},
 		}})
 		asMap(perm[samKeyProps])[samKeyFnName] = az.cfg["FunctionArn"]
 		if err = t.put(a.id+name+"AuthorizerPermission", perm); err != nil {

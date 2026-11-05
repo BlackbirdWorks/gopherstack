@@ -403,7 +403,7 @@ func routeOperation(rt samRoute) map[string]any {
 	if rt.roleID != "" {
 		return map[string]any{
 			samKeyResponses: map[string]any{
-				"200": map[string]any{samKeyDesc: "OK"}, "400": map[string]any{samKeyDesc: "Bad Request"},
+				"200": map[string]any{samKeyDescLower: "OK"}, "400": map[string]any{samKeyDescLower: "Bad Request"},
 			},
 			samIntegrationKey: smIntegration(rt),
 		}

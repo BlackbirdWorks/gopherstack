@@ -245,7 +245,7 @@ func buildAlarmConfig(fnID string, alarms any) (any, error) {
 	}
 	out := make([]any, len(list))
 	for i, a := range list {
-		out[i] = map[string]any{"Name": a}
+		out[i] = map[string]any{attrNameName: a}
 	}
 
 	return map[string]any{samKeyEnabled: true, "Alarms": out}, nil

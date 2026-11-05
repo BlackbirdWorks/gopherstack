@@ -202,7 +202,7 @@ func isAlnum(s string) bool {
 func executeAPISourceArn(apiID, stage, method, path string) map[string]any {
 	return map[string]any{samKeyFnSub: []any{
 		"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/" + method + path,
-		map[string]any{"__ApiId__": samRef(apiID), "__Stage__": stage},
+		map[string]any{samAPIIDMarker: samRef(apiID), "__Stage__": stage},
 	}}
 }
 

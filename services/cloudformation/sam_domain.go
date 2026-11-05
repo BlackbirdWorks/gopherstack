@@ -213,7 +213,7 @@ func recordSetsFor(domain, cfg map[string]any, domainID, endpoint string) []any 
 	}
 	out := make([]any, 0, len(types))
 	for _, typ := range types {
-		rec := map[string]any{attrNameName: domain[samKeyDomainName], "Type": typ, "AliasTarget": alias}
+		rec := map[string]any{attrNameName: domain[samKeyDomainName], samKeyType: typ, "AliasTarget": alias}
 		for _, k := range []string{"Region", "SetIdentifier"} {
 			if cfg[k] != nil {
 				rec[k] = cfg[k]

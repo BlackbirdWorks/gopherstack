@@ -1,6 +1,11 @@
 package cloudformation
 
 const (
+	samKeyDescLower               = "description"
+	samAPIIDMarker                = "__ApiId__"
+	samKeyEventBus                = "EventBusName"
+	samTypeSFNVersion             = "AWS::StepFunctions::StateMachineVersion"
+	samTypeSFNAlias               = "AWS::StepFunctions::StateMachineAlias"
 	samKConsumptionMode           = "ConsumptionMode"
 	samKMaximumRetryAttempts      = "MaximumRetryAttempts"
 	samKMode                      = "Mode"

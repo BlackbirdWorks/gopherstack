@@ -227,11 +227,6 @@ func TestSAMTransform_StateMachineEventFailures(t *testing.T) {
 		{"unknown_type", samEvent("E", "SQS", "Queue: x"), "not supported"},
 		{"schedule_missing_expression", samEvent("E", "Schedule", "Name: x"), "Schedule"},
 		{"unknown_property", samEvent("E", "Schedule", "Schedule: rate(1 minute)", "Bogus: 1"), "Bogus"},
-		{
-			"dlq_generated",
-			samEvent("E", "Schedule", "Schedule: rate(1 minute)", "DeadLetterConfig:", "  Type: SQS"),
-			"DeadLetterConfig",
-		},
 		{"api_missing_method", samEvent("E", "Api", "Path: /x"), "'Path' and 'Method'"},
 	}
 

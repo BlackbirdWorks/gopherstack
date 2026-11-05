@@ -78,7 +78,7 @@ func corsOptionsOperation(cfg, item map[string]any) map[string]any {
 		"consumes": []any{samJSONMime},
 		"produces": []any{samJSONMime},
 		samKeyResponses: map[string]any{"200": map[string]any{
-			"description": "Default response for CORS method", "headers": headers,
+			samKeyDescLower: "Default response for CORS method", "headers": headers,
 		}},
 		"x-amazon-apigateway-integration": map[string]any{
 			samKeyTypeLower:    "mock",

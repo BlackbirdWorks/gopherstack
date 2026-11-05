@@ -184,3 +184,60 @@ func samPartitionLiteral(v any) any {
 
 	return v
 }
+
+// pyJSONIndented matches Python's json.dumps(sort_keys=True, indent=4, separators=(",", ": ")).
+func pyJSONIndented(v any) string {
+	var b bytes.Buffer
+	pyJSONIndentValue(&b, v, 0)
+
+	return b.String()
+}
+
+const pyIndentWidth = 4
+
+func pyJSONIndentValue(b *bytes.Buffer, v any, depth int) {
+	pad := func(n int) {
+		b.WriteByte('\n')
+		for range n * pyIndentWidth {
+			b.WriteByte(' ')
+		}
+	}
+	switch t := v.(type) {
+	case []any:
+		if len(t) == 0 {
+			b.WriteString("[]")
+
+			return
+		}
+		b.WriteByte('[')
+		for i, e := range t {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			pad(depth + 1)
+			pyJSONIndentValue(b, e, depth+1)
+		}
+		pad(depth)
+		b.WriteByte(']')
+	case map[string]any:
+		if len(t) == 0 {
+			b.WriteString("{}")
+
+			return
+		}
+		b.WriteByte('{')
+		for i, k := range slices.Sorted(maps.Keys(t)) {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			pad(depth + 1)
+			pyJSONString(b, k)
+			b.WriteString(": ")
+			pyJSONIndentValue(b, t[k], depth+1)
+		}
+		pad(depth)
+		b.WriteByte('}')
+	default:
+		pyJSONValue(b, v)
+	}
+}
