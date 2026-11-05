@@ -18,6 +18,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
 	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
@@ -124,7 +125,7 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 		req, rerr := http.NewRequestWithContext(t.Context(), http.MethodPost, base+path, strings.NewReader(body))
 		require.NoError(t, rerr)
 
-		resp, derr := http.DefaultClient.Do(req)
+		resp, derr := testclient.New(t).Do(req)
 		require.NoError(t, derr)
 
 		defer resp.Body.Close()
@@ -162,7 +163,7 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer opaque")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer resp.Body.Close()
