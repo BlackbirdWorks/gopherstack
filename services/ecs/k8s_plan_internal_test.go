@@ -29,9 +29,6 @@ func planInput(td *TaskDefinition) k8sPlanInput {
 	}
 }
 
-//go:fix inline
-func intp(v int) *int { return new(v) }
-
 func TestPlanK8sPod_Mapping(t *testing.T) {
 	t.Parallel()
 

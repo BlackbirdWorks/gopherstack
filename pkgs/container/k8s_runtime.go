@@ -76,8 +76,8 @@ type KubernetesRuntime struct {
 	restCfg    *rest.Config
 	ns         string
 	fetchImage string
-	start      time.Duration
 	codeCfg    KubernetesConfig
+	start      time.Duration
 }
 
 func (c KubernetesConfig) withEnv() KubernetesConfig {
