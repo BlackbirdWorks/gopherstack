@@ -249,6 +249,7 @@ gaps: []
   #    this was flagged as a "cross-service concern" in the prior ledger -- it is now
   #    fixed for elasticache specifically; other services were not touched.
 items_still_open:
+  - "Docker engine (--elasticache-engine=docker): CreateReplicationGroup/CreateCacheCluster block until the containers serve traffic; resharding, PrimaryClusterId adoption, IncreaseReplicaCount (new replicas share the primary address), failover promotion and RestoreClusterData on an existing cluster are not container-backed; TransitEncryptionMode preferred serves plaintext only (required/default serve TLS only); memcached stays pass-through; restored (persisted) groups relaunch no containers; node TLS certificates cover the advertised host (ELASTICACHE_HOST, default 127.0.0.1) and localhost, not the synthetic endpoint names; a snapshot taken in embedded mode restores only into groups with matching node-group count."
   - "creating/modifying/deleting dwell states exist (SetLifecycleDelay) but the default delay is zero, so a running server reports available at once: in-repo integration tests and ~170 unit tests assert immediate availability and root wiring cannot set a delay."
   - "ReplicationGroup.EffectiveDurability when Durability is default or unset: the SDK says the service resolves it from engine version and cluster mode without documenting the rules, so only an explicit async/sync/disabled is mirrored."
 structural_gaps:
