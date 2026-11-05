@@ -53,6 +53,7 @@ type samAPI struct {
 	stageRaw  any
 	routes    []samRoute
 	explicit  bool
+	plainRef  bool
 }
 
 func (rt samRoute) invokeRef() string {
@@ -70,6 +71,15 @@ func (a *samAPI) permSuffix() string {
 	}
 
 	return a.stageName
+}
+
+// idValue is the API id as a permission refers to it: the literal logical id when events named it as a string.
+func (a *samAPI) idValue() any {
+	if a.plainRef {
+		return a.id
+	}
+
+	return samRef(a.id)
 }
 
 func (a *samAPI) addRoute(rt samRoute) {
@@ -111,8 +121,14 @@ func (t *samTranslator) apiFor(fnID string, restAPIID any) (*samAPI, error) {
 
 		return t.apis[samImplicitAPI], nil
 	}
-	ref, _ := asMap(restAPIID)[samKeyRef].(string)
+	ref, plain := restAPIID.(string)
+	if !plain {
+		ref, _ = asMap(restAPIID)[samKeyRef].(string)
+	}
 	api := t.apis[ref]
+	if api != nil && plain {
+		api.plainRef = true
+	}
 	if api == nil {
 		return nil, samErr(fnID, "RestApiId must reference an AWS::Serverless::Api in this template.")
 	}

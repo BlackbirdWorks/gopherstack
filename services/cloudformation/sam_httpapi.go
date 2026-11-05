@@ -75,6 +75,7 @@ type samHTTPAPI struct {
 	stageName string
 	routes    []samHTTPRoute
 	managed   bool
+	plainRef  bool
 }
 
 func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
@@ -114,6 +115,14 @@ func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 	return nil
 }
 
+func (a *samHTTPAPI) idValue() any {
+	if a.plainRef {
+		return a.id
+	}
+
+	return samRef(a.id)
+}
+
 func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) {
 	if apiID == nil {
 		if t.httpAPIs[samImplicitHTTPAPI] == nil {
@@ -128,8 +137,14 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 
 		return t.httpAPIs[samImplicitHTTPAPI], nil
 	}
-	ref, _ := asMap(apiID)[samKeyRef].(string)
+	ref, plain := apiID.(string)
+	if !plain {
+		ref, _ = asMap(apiID)[samKeyRef].(string)
+	}
 	api := t.httpAPIs[ref]
+	if api != nil && plain {
+		api.plainRef = true
+	}
 	if api == nil {
 		return nil, samErr(fnID, "ApiId must reference an AWS::Serverless::HttpApi in this template.")
 	}
@@ -190,7 +205,7 @@ func (t *samTranslator) putHTTPPermissions(a *samHTTPAPI) error {
 		if rt.path != "" && a.defaultCoversFunction(rt) {
 			continue
 		}
-		perm := lambdaPermission(rt.fn, "apigateway.amazonaws.com", httpAPISourceArn(a.id, rt))
+		perm := lambdaPermission(rt.fn, "apigateway.amazonaws.com", httpAPISourceArn(a.idValue(), rt))
 		if err := t.put(samPermissionID(rt.fnID+rt.event, ""), perm); err != nil {
 			return err
 		}
@@ -199,7 +214,7 @@ func (t *samTranslator) putHTTPPermissions(a *samHTTPAPI) error {
 	return nil
 }
 
-func httpAPISourceArn(apiID string, rt samHTTPRoute) map[string]any {
+func httpAPISourceArn(apiID any, rt samHTTPRoute) map[string]any {
 	path := ""
 	if rt.path != "" {
 		path = permissionPath(rt.path)

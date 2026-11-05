@@ -200,6 +200,9 @@ func (t *samTranslator) readGlobals(g map[string]any) error {
 }
 
 func (t *samTranslator) translate(res map[string]any) error {
+	if err := extractEmbeddedConnectors(res); err != nil {
+		return err
+	}
 	ids := slices.Sorted(maps.Keys(res))
 	for _, id := range ids {
 		r := asMap(res[id])
@@ -228,7 +231,11 @@ func (t *samTranslator) translate(res map[string]any) error {
 		return err
 	}
 
-	return t.finalizeCognito()
+	if err := t.finalizeCognito(); err != nil {
+		return err
+	}
+
+	return t.translateConnectors(res)
 }
 
 func (t *samTranslator) registerAPIs(id string, r map[string]any) error {
@@ -253,7 +260,9 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 		return t.translateLayer(id, r)
 	case samResPrefix + "StateMachine":
 		return t.translateStateMachine(id, r)
-	case samResPrefix + "Api", samResPrefix + "HttpApi":
+	case samResPrefix + "Application":
+		return t.translateApplication(id, r)
+	case samResPrefix + "Api", samResPrefix + "HttpApi", samTypeConnector:
 		return nil
 	}
 	if strings.HasPrefix(typ, samResPrefix) {

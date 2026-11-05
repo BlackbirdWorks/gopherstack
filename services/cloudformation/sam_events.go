@@ -171,7 +171,7 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	perm := lambdaPermission(
 		ev.target(),
 		"apigateway.amazonaws.com",
-		executeAPISourceArn(api.id, "*", permissionMethod(method),
+		executeAPISourceArn(api.idValue(), "*", permissionMethod(method),
 			permissionPath(path)),
 	)
 
@@ -199,10 +199,10 @@ func isAlnum(s string) bool {
 }
 
 // executeAPISourceArn is SAM's Fn::Sub list form with __ApiId__/__Stage__ placeholders.
-func executeAPISourceArn(apiID, stage, method, path string) map[string]any {
+func executeAPISourceArn(apiID any, stage, method, path string) map[string]any {
 	return map[string]any{samKeyFnSub: []any{
 		"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/" + method + path,
-		map[string]any{samAPIIDMarker: samRef(apiID), "__Stage__": stage},
+		map[string]any{samAPIIDMarker: apiID, "__Stage__": stage},
 	}}
 }
 
