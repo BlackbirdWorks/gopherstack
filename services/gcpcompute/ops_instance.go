@@ -33,6 +33,15 @@ func (h *Handler) registerInstanceOps() {
 			in = merged
 		}
 
+		if img := rq.q.Get("sourceMachineImage"); img != "" {
+			merged, merr := h.Backend.instanceFromMachineImage(rq.rt.project, img, raw)
+			if merr != nil {
+				return nil, merr
+			}
+
+			in = merged
+		}
+
 		return opResult(h.Backend.insertInstance(rq.rt.project, rq.rt.loc, in))
 	})
 

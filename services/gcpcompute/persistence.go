@@ -24,6 +24,9 @@ type backendSnapshot struct {
 	Disks           map[string]*computeapi.Disk                 `json:"disks"`
 	Images          map[string]*computeapi.Image                `json:"images"`
 	Snapshots       map[string]*computeapi.Snapshot             `json:"snapshots"`
+	InstantSnaps    map[string]*computeapi.InstantSnapshot      `json:"instantSnapshots"`
+	MachineImages   map[string]*computeapi.MachineImage         `json:"machineImages"`
+	Reservations    map[string]*computeapi.Reservation          `json:"reservations"`
 	Instances       map[string]*instRec                         `json:"instances"`
 	Templates       map[string]*computeapi.InstanceTemplate     `json:"templates"`
 	Healths         map[string]*computeapi.HealthCheck          `json:"healthChecks"`
@@ -57,7 +60,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	return persistence.MarshalSnapshot(ctx, "gcpcompute", backendSnapshot{
 		Version: snapshotVersion, Networks: b.networks, Subnets: b.subnets, Firewalls: b.firewalls,
 		Routes: b.routes, Addresses: b.addresses, Routers: b.routers, Disks: b.disks, Images: b.images,
-		Snapshots: b.snapshots, Instances: b.instances, Ops: b.ops, Projects: b.projects,
+		Snapshots: b.snapshots, InstantSnaps: b.instantSnaps, MachineImages: b.machineImages,
+		Reservations: b.reservations, Instances: b.instances, Ops: b.ops, Projects: b.projects,
 		Templates: b.templates, Healths: b.healths, Migs: b.migs, Groups: b.groups, Scalers: b.scalers,
 		BackendServices: b.backendSvcs, BackendBuckets: b.backendBuckets, URLMaps: b.urlMaps,
 		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
@@ -103,7 +107,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.firewalls, snap.Firewalls), copyNonNil(b.routes, snap.Routes),
 		copyNonNil(b.addresses, snap.Addresses), copyNonNil(b.routers, snap.Routers),
 		copyNonNil(b.disks, snap.Disks), copyNonNil(b.images, snap.Images),
-		copyNonNil(b.snapshots, snap.Snapshots), copyNonNil(b.instances, snap.Instances),
+		copyNonNil(b.snapshots, snap.Snapshots), copyNonNil(b.instantSnaps, snap.InstantSnaps),
+		copyNonNil(b.machineImages, snap.MachineImages), copyNonNil(b.reservations, snap.Reservations),
+		copyNonNil(b.instances, snap.Instances),
 		copyNonNil(b.ops, snap.Ops), copyNonNil(b.projects, snap.Projects),
 		copyNonNil(b.templates, snap.Templates), copyNonNil(b.healths, snap.Healths),
 		copyNonNil(b.migs, snap.Migs), copyNonNil(b.groups, snap.Groups), copyNonNil(b.scalers, snap.Scalers),

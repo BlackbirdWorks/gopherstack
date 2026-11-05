@@ -98,6 +98,9 @@ type InMemoryBackend struct {
 	disks          map[string]*computeapi.Disk
 	images         map[string]*computeapi.Image
 	snapshots      map[string]*computeapi.Snapshot
+	instantSnaps   map[string]*computeapi.InstantSnapshot
+	machineImages  map[string]*computeapi.MachineImage
+	reservations   map[string]*computeapi.Reservation
 	instances      map[string]*instRec
 	templates      map[string]*computeapi.InstanceTemplate
 	healths        map[string]*computeapi.HealthCheck
@@ -169,6 +172,9 @@ func (b *InMemoryBackend) resetMaps() {
 	b.disks = map[string]*computeapi.Disk{}
 	b.images = map[string]*computeapi.Image{}
 	b.snapshots = map[string]*computeapi.Snapshot{}
+	b.instantSnaps = map[string]*computeapi.InstantSnapshot{}
+	b.machineImages = map[string]*computeapi.MachineImage{}
+	b.reservations = map[string]*computeapi.Reservation{}
 	b.instances = map[string]*instRec{}
 	b.templates = map[string]*computeapi.InstanceTemplate{}
 	b.healths = map[string]*computeapi.HealthCheck{}
