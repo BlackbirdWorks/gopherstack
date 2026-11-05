@@ -327,7 +327,7 @@ func (a *ecsEBS) CreateTaskVolume(spec ecsbackend.EBSVolumeSpec) (string, error)
 		return "", err
 	}
 
-	vol, err := bk.CreateVolume("", spec.VolumeType, spec.SizeInGiB, spec.SnapshotID, int32(spec.VolumeInitializationRate))
+	vol, err := bk.CreateVolume("", spec.VolumeType, spec.SizeInGiB, spec.SnapshotID, spec.VolumeInitializationRate)
 	if err != nil {
 		return "", err
 	}

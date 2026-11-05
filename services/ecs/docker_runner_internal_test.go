@@ -1138,7 +1138,9 @@ func (f *fakeDockerClient) ContainerInspect(
 	if len(f.networks) > 0 {
 		resp.NetworkSettings = &mobycontainer.NetworkSettings{Networks: map[string]*mobynetwork.EndpointSettings{}}
 		for _, n := range f.networks {
-			resp.NetworkSettings.Networks[n] = &mobynetwork.EndpointSettings{IPAddress: netip.MustParseAddr("172.30.0.2")}
+			resp.NetworkSettings.Networks[n] = &mobynetwork.EndpointSettings{
+				IPAddress: netip.MustParseAddr("172.30.0.2"),
+			}
 		}
 	}
 

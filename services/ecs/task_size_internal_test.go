@@ -12,11 +12,11 @@ func TestParseTaskSizes(t *testing.T) {
 
 	tests := []struct {
 		in      string
-		cpu     int
-		cpuOK   bool
-		mem     int
-		memOK   bool
 		comment string
+		cpu     int
+		mem     int
+		cpuOK   bool
+		memOK   bool
 	}{
 		{in: "1024", cpu: 1024, cpuOK: true, mem: 1024, memOK: true},
 		{in: "1 vCPU", cpu: 1024, cpuOK: true},
@@ -189,7 +189,13 @@ func TestRunTask_DockerTaskLimits(t *testing.T) {
 		{
 			name: "container hard limit wins",
 			task: Task{CPU: "1 vCPU", Memory: "2 GB"},
-			cd:   ContainerDefinition{Name: "a", Image: "i", Memory: 256}, wantMemory: 256 << 20, wantNano: 1_000_000_000,
+			cd: ContainerDefinition{
+				Name:   "a",
+				Image:  "i",
+				Memory: 256,
+			},
+			wantMemory: 256 << 20,
+			wantNano:   1_000_000_000,
 		},
 		{
 			name: "no task size",

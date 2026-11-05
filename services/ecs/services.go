@@ -249,12 +249,8 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
-	taskDefinitionArn, err := b.resolveServiceTaskDefinitionArnLocked(input.TaskDefinition)
+	taskDefinitionArn, err := b.resolveCheckedServiceTaskDefLocked(input.TaskDefinition, input.VolumeConfigurations)
 	if err != nil {
-		return nil, err
-	}
-
-	if err = b.validateServiceVolumesLocked(taskDefinitionArn, input.VolumeConfigurations); err != nil {
 		return nil, err
 	}
 
@@ -609,31 +605,10 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 		svc.DesiredCount = *input.DesiredCount
 	}
 
-	rotateDeployment := false
-	newTaskDef := svc.TaskDefinition
-
-	if input.TaskDefinition != nil {
-		td, err := b.findTaskDefinitionLocked(*input.TaskDefinition)
-		if err != nil {
-			return nil, err
-		}
-
-		newTaskDef = td.TaskDefinitionArn
-		rotateDeployment = true
-	}
-
-	volumes := svc.VolumeConfigurations
-	if len(input.VolumeConfigurations) > 0 {
-		volumes = input.VolumeConfigurations
-		rotateDeployment = true
-	}
-
-	if err := b.validateServiceVolumesLocked(newTaskDef, volumes); err != nil {
+	rotateDeployment, err := b.applyServiceTaskDefAndVolumesLocked(svc, input)
+	if err != nil {
 		return nil, err
 	}
-
-	svc.TaskDefinition = newTaskDef
-	svc.VolumeConfigurations = volumes
 
 	// UpdateServiceInput.ForceNewDeployment's own doc comment: "you can use
 	// this option to start a new deployment with no service definition
@@ -1100,4 +1075,48 @@ func (b *InMemoryBackend) validateServiceVolumesLocked(taskDefinitionArn string,
 	}
 
 	return b.checkVolumeConfigurations(td, cfgs, true)
+}
+
+// resolveCheckedServiceTaskDefLocked resolves a service's task definition ARN and checks its volumeConfigurations.
+func (b *InMemoryBackend) resolveCheckedServiceTaskDefLocked(
+	taskDefinition string, cfgs []VolumeConfiguration,
+) (string, error) {
+	arn, err := b.resolveServiceTaskDefinitionArnLocked(taskDefinition)
+	if err != nil {
+		return "", err
+	}
+
+	return arn, b.validateServiceVolumesLocked(arn, cfgs)
+}
+
+// applyServiceTaskDefAndVolumesLocked applies UpdateService's taskDefinition and volumeConfigurations and reports
+// whether either calls for a new deployment.
+func (b *InMemoryBackend) applyServiceTaskDefAndVolumesLocked(svc *Service, input UpdateServiceInput) (bool, error) {
+	rotate := false
+	taskDef := svc.TaskDefinition
+
+	if input.TaskDefinition != nil {
+		td, err := b.findTaskDefinitionLocked(*input.TaskDefinition)
+		if err != nil {
+			return false, err
+		}
+
+		taskDef = td.TaskDefinitionArn
+		rotate = true
+	}
+
+	volumes := svc.VolumeConfigurations
+	if len(input.VolumeConfigurations) > 0 {
+		volumes = input.VolumeConfigurations
+		rotate = true
+	}
+
+	if err := b.validateServiceVolumesLocked(taskDef, volumes); err != nil {
+		return false, err
+	}
+
+	svc.TaskDefinition = taskDef
+	svc.VolumeConfigurations = volumes
+
+	return rotate, nil
 }

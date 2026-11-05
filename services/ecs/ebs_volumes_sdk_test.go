@@ -17,9 +17,9 @@ import (
 var errFakeEBS = errors.New("snapshot not found")
 
 type fakeEBS struct {
+	failFor string
 	specs   []ecs.EBSVolumeSpec
 	deleted []string
-	failFor string
 	mu      sync.Mutex
 }
 
@@ -82,8 +82,8 @@ func TestRunTask_ManagedEBSVolume(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		managed    *ecstypes.TaskManagedEBSVolumeConfiguration
+		name       string
 		wantDelete bool
 	}{
 		{
@@ -101,8 +101,11 @@ func TestRunTask_ManagedEBSVolume(t *testing.T) {
 		{
 			name: "kept when deleteOnTermination is false",
 			managed: &ecstypes.TaskManagedEBSVolumeConfiguration{
-				RoleArn: aws.String("arn:aws:iam::000000000000:role/infra"), SizeInGiB: aws.Int32(8),
-				TerminationPolicy: &ecstypes.TaskManagedEBSVolumeTerminationPolicy{DeleteOnTermination: aws.Bool(false)},
+				RoleArn:   aws.String("arn:aws:iam::000000000000:role/infra"),
+				SizeInGiB: aws.Int32(8),
+				TerminationPolicy: &ecstypes.TaskManagedEBSVolumeTerminationPolicy{
+					DeleteOnTermination: aws.Bool(false),
+				},
 			},
 		},
 	}
@@ -168,9 +171,9 @@ func TestRunTask_ManagedEBSVolumeValidation(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		withEBS bool
-		cfg     []ecstypes.TaskVolumeConfiguration
 		wantErr string
+		cfg     []ecstypes.TaskVolumeConfiguration
+		withEBS bool
 	}{
 		{name: "missing configuration", withEBS: true, wantErr: "needs a volume configuration"},
 		{
@@ -181,8 +184,12 @@ func TestRunTask_ManagedEBSVolumeValidation(t *testing.T) {
 			}},
 		},
 		{
-			name: "role required", withEBS: true, wantErr: "roleArn is required",
-			cfg: ebsConfig(&ecstypes.TaskManagedEBSVolumeConfiguration{RoleArn: aws.String(""), SizeInGiB: aws.Int32(1)}),
+			name:    "role required",
+			withEBS: true,
+			wantErr: "roleArn is required",
+			cfg: ebsConfig(
+				&ecstypes.TaskManagedEBSVolumeConfiguration{RoleArn: aws.String(""), SizeInGiB: aws.Int32(1)},
+			),
 		},
 		{
 			name: "size or snapshot", withEBS: true, wantErr: "sizeInGiB or snapshotId",
@@ -262,7 +269,11 @@ func TestCreateService_ManagedEBSVolumeConfiguration(t *testing.T) {
 	require.NotEmpty(t, out.Service.Deployments)
 	require.Len(t, out.Service.Deployments[0].VolumeConfigurations, 1)
 	assert.Equal(t, "data", aws.ToString(out.Service.Deployments[0].VolumeConfigurations[0].Name))
-	assert.Equal(t, int32(5), aws.ToInt32(out.Service.Deployments[0].VolumeConfigurations[0].ManagedEBSVolume.SizeInGiB))
+	assert.Equal(
+		t,
+		int32(5),
+		aws.ToInt32(out.Service.Deployments[0].VolumeConfigurations[0].ManagedEBSVolume.SizeInGiB),
+	)
 
 	_, err = client.UpdateService(t.Context(), &ecssdk.UpdateServiceInput{
 		Service: aws.String("ebs-svc"),

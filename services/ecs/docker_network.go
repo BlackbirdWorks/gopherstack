@@ -56,7 +56,7 @@ func containerNetwork(ecsMode string, net *taskNet) netSetup {
 	case networkModeHost:
 		return netSetup{mode: "host"}
 	case networkModeNone:
-		return netSetup{mode: "none"}
+		return netSetup{mode: networkModeNone}
 	case networkModeAwsvpc:
 		if net != nil {
 			return netSetup{mode: dockerNetworkContainerPrefix + net.pauseID, shared: true}

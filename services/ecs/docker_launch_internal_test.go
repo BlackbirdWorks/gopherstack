@@ -717,10 +717,10 @@ func TestRunTask_ManagedEBSVolumeMount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		mounts     map[string]ebsMount
-		wantErr    bool
+		name       string
 		wantRemove []string
+		wantErr    bool
 	}{
 		{
 			name:       "deleted with the task",

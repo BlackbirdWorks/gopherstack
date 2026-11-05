@@ -155,7 +155,13 @@ func (e *liveEnv) awaitRunning(t *testing.T, arn string) ecstypes.Task {
 	}, liveTimeout*2, liveTick)
 
 	task := e.describe(t, arn)
-	require.Equal(t, statusRunning, aws.ToString(task.LastStatus), "stopped reason: %s", aws.ToString(task.StoppedReason))
+	require.Equal(
+		t,
+		statusRunning,
+		aws.ToString(task.LastStatus),
+		"stopped reason: %s",
+		aws.ToString(task.StoppedReason),
+	)
 
 	return task
 }
@@ -239,7 +245,11 @@ func TestLiveAwsvpcContainersShareLocalhost(t *testing.T) {
 		return inspectErr != nil
 	}, liveTimeout, liveTick, "pause container removed with the task")
 
-	_, err = env.probe.NetworkInspect(t.Context(), taskNetworkName(&Task{TaskArn: arn}), mobyclient.NetworkInspectOptions{})
+	_, err = env.probe.NetworkInspect(
+		t.Context(),
+		taskNetworkName(&Task{TaskArn: arn}),
+		mobyclient.NetworkInspectOptions{},
+	)
 	require.Error(t, err, "task network removed with the task")
 }
 
@@ -373,7 +383,12 @@ func TestLiveLogDrivers(t *testing.T) {
 		options map[string]string
 		wantMax string
 	}{
-		{name: "json-file", driver: "json-file", options: map[string]string{"max-size": "1m", "max-file": "2"}, wantMax: "1m"},
+		{
+			name:    "json-file",
+			driver:  "json-file",
+			options: map[string]string{"max-size": "1m", "max-file": "2"},
+			wantMax: "1m",
+		},
 		{name: "awslogs", driver: "awslogs", options: map[string]string{"awslogs-group": "g", "mode": "non-blocking"}},
 		{name: "syslog", driver: "syslog", options: map[string]string{"syslog-address": "udp://127.0.0.1:65000"}},
 	}
@@ -439,9 +454,13 @@ func TestLiveSharedDockerVolume(t *testing.T) {
 		}},
 		ContainerDefinitions: []ecstypes.ContainerDefinition{
 			{
-				Name: aws.String("writer"), Image: aws.String(liveImage), Essential: aws.Bool(true),
-				Command:     []string{"sh", "-c", "echo shared-data > /data/f; sleep 60"},
-				MountPoints: []ecstypes.MountPoint{{SourceVolume: aws.String(volName), ContainerPath: aws.String("/data")}},
+				Name:      aws.String("writer"),
+				Image:     aws.String(liveImage),
+				Essential: aws.Bool(true),
+				Command:   []string{"sh", "-c", "echo shared-data > /data/f; sleep 60"},
+				MountPoints: []ecstypes.MountPoint{
+					{SourceVolume: aws.String(volName), ContainerPath: aws.String("/data")},
+				},
 			},
 			{
 				Name: aws.String("reader"), Image: aws.String(liveImage), Essential: aws.Bool(false),

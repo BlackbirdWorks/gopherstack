@@ -114,13 +114,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 			return
 		}
 
-		if err = b.checkVolumeConfigurations(td, input.VolumeConfigurations, false); err != nil {
-			ferr = err
-
-			return
-		}
-
-		if err = validateRunTaskSize(td, input, launchTypeOf(input)); err != nil {
+		if err = b.validateRunTaskInputLocked(td, input); err != nil {
 			ferr = err
 
 			return
@@ -1225,7 +1219,11 @@ func validateRunTaskSize(td *TaskDefinition, input RunTaskInput, launchType stri
 }
 
 // checkVolumeConfigurations validates volumeConfigurations and requires the EC2 service when any are given.
-func (b *InMemoryBackend) checkVolumeConfigurations(td *TaskDefinition, cfgs []VolumeConfiguration, forService bool) error {
+func (b *InMemoryBackend) checkVolumeConfigurations(
+	td *TaskDefinition,
+	cfgs []VolumeConfiguration,
+	forService bool,
+) error {
 	if err := validateVolumeConfigurations(td, cfgs, forService); err != nil {
 		return err
 	}
@@ -1235,4 +1233,12 @@ func (b *InMemoryBackend) checkVolumeConfigurations(td *TaskDefinition, cfgs []V
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) validateRunTaskInputLocked(td *TaskDefinition, input RunTaskInput) error {
+	if err := b.checkVolumeConfigurations(td, input.VolumeConfigurations, false); err != nil {
+		return err
+	}
+
+	return validateRunTaskSize(td, input, launchTypeOf(input))
 }

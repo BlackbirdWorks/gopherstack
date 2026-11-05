@@ -94,7 +94,8 @@ func validateContainerMemoryWithinTask(memory string, defs []ContainerDefinition
 		if cd.Memory > taskMiB {
 			return fmt.Errorf(
 				"%w: Invalid setting for container '%s'. The 'memory' setting for container is greater than for the task",
-				kind, cd.Name,
+				kind,
+				cd.Name,
 			)
 		}
 	}

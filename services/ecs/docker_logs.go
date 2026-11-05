@@ -13,6 +13,9 @@ var errInvalidLogOption = errors.New("invalid log option")
 
 const (
 	dockerLogJSONFile = "json-file"
+	logDriverNone     = "none"
+
+	logOptsExtra = 2
 
 	logOptMode          = "mode"
 	logOptMaxBufferSize = "max-buffer-size"
@@ -32,7 +35,7 @@ func buildLogConfig(lc *LogConfiguration, secretOpts map[string]string) (mobycon
 		return mobycontainer.LogConfig{}, nil
 	}
 
-	opts := make(map[string]string, len(lc.Options)+len(secretOpts)+2)
+	opts := make(map[string]string, len(lc.Options)+len(secretOpts)+logOptsExtra)
 	maps.Copy(opts, lc.Options)
 	maps.Copy(opts, secretOpts)
 
@@ -43,7 +46,7 @@ func buildLogConfig(lc *LogConfiguration, secretOpts map[string]string) (mobycon
 		opts = pickLogOptions(opts, logOptMode, logOptMaxBufferSize)
 	}
 
-	if driver == "none" {
+	if driver == logDriverNone {
 		return mobycontainer.LogConfig{Type: driver}, nil
 	}
 

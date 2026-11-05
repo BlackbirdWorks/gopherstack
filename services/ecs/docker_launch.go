@@ -241,20 +241,10 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		r.mu.Unlock()
 	}()
 
-	if l.netMode == networkModeAwsvpc {
-		if netErr := r.setupTaskNetwork(ctx, l, order); netErr != nil {
-			r.abortLaunch(r.svcCtx, l)
+	if startErr := r.startContainers(ctx, l, order); startErr != nil {
+		r.abortLaunch(r.svcCtx, l)
 
-			return netErr
-		}
-	}
-
-	for _, cd := range order {
-		if launchErr := r.launchContainer(ctx, l, cd); launchErr != nil {
-			r.abortLaunch(r.svcCtx, l)
-
-			return launchErr
-		}
+		return startErr
 	}
 
 	select {
@@ -278,6 +268,23 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 	}
 
 	r.containers[task.TaskArn] = inDefOrder
+
+	return nil
+}
+
+// startContainers sets up the task network (awsvpc) and launches the containers in dependency order.
+func (r *realDockerRunner) startContainers(ctx context.Context, l *launch, order []ContainerDefinition) error {
+	if l.netMode == networkModeAwsvpc {
+		if err := r.setupTaskNetwork(ctx, l, order); err != nil {
+			return err
+		}
+	}
+
+	for _, cd := range order {
+		if err := r.launchContainer(ctx, l, cd); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

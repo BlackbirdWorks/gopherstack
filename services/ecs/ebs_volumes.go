@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 
@@ -29,10 +30,11 @@ const (
 var (
 	errEBSUnavailable = errors.New("managed EBS volumes are unavailable: the EC2 service is not enabled")
 	errVolumeConfig   = errors.New("invalid volumeConfigurations")
-
-	ebsVolumeTypes = []string{"gp2", "gp3", "io1", "io2", "sc1", "st1", "standard"}
-	ebsFilesystems = []string{"ext3", "ext4", "xfs", "ntfs"}
 )
+
+func ebsVolumeTypes() []string { return []string{"gp2", "gp3", "io1", "io2", "sc1", "st1", "standard"} }
+
+func ebsFilesystems() []string { return []string{"ext3", "ext4", "xfs", "ntfs"} }
 
 // ManagedEBSVolume is types.TaskManagedEBSVolumeConfiguration and types.ServiceManagedEBSVolumeConfiguration;
 // terminationPolicy applies to tasks only.
@@ -72,15 +74,15 @@ type VolumeConfiguration struct {
 // EBSVolumeSpec is one EBS volume ECS asks the EC2 service to create for a task.
 type EBSVolumeSpec struct {
 	Encrypted                *bool
-	Iops                     int
-	Throughput               int
-	VolumeInitializationRate int
 	Region                   string
 	VolumeType               string
 	SnapshotID               string
 	KMSKeyID                 string
 	Tags                     []Tag
+	Iops                     int
+	Throughput               int
 	SizeInGiB                int
+	VolumeInitializationRate int32
 }
 
 // EBSProvisioner creates and deletes the EBS volumes ECS manages for tasks.
@@ -161,10 +163,10 @@ func validateManagedEBS(c VolumeConfiguration, forService bool) error {
 		return bad("either sizeInGiB or snapshotId must be specified")
 	case e.SizeInGiB != nil && *e.SizeInGiB <= 0:
 		return bad("sizeInGiB must be positive")
-	case e.VolumeType != "" && !slices.Contains(ebsVolumeTypes, e.VolumeType):
-		return bad("volumeType %q is not one of %v", e.VolumeType, ebsVolumeTypes)
-	case e.FilesystemType != "" && !slices.Contains(ebsFilesystems, e.FilesystemType):
-		return bad("filesystemType %q is not one of %v", e.FilesystemType, ebsFilesystems)
+	case e.VolumeType != "" && !slices.Contains(ebsVolumeTypes(), e.VolumeType):
+		return bad("volumeType %q is not one of %v", e.VolumeType, ebsVolumeTypes())
+	case e.FilesystemType != "" && !slices.Contains(ebsFilesystems(), e.FilesystemType):
+		return bad("filesystemType %q is not one of %v", e.FilesystemType, ebsFilesystems())
 	case forService && e.TerminationPolicy != nil:
 		return bad("terminationPolicy is not supported for services")
 	}
@@ -238,7 +240,7 @@ func ebsSpecFor(region string, e *ManagedEBSVolume) EBSVolumeSpec {
 	}
 
 	if e.VolumeInitializationRate != nil {
-		spec.VolumeInitializationRate = *e.VolumeInitializationRate
+		spec.VolumeInitializationRate = clampInt32(*e.VolumeInitializationRate)
 	}
 
 	for _, ts := range e.TagSpecifications {
@@ -297,4 +299,16 @@ func attachmentDetail(a TaskAttachment, name string) string {
 	}
 
 	return ""
+}
+
+func clampInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(n)
 }

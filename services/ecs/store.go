@@ -95,6 +95,7 @@ type InMemoryBackend struct {
 	linkLocal        LinkLocal
 	secrets          SecretsResolver
 	efs              EFSResolver
+	ebs              EBSProvisioner
 	envFiles         EnvFileStore
 	hooksInFlight    map[string]struct{}
 	asgResolver      AutoScalingGroupResolver
@@ -172,7 +173,6 @@ type InMemoryBackend struct {
 	// startDelay is the per-phase delay applied to the no-runner task start
 	// lifecycle (PROVISIONING→PENDING→RUNNING). Zero finalizes immediately.
 	startDelay time.Duration
-	ebs        EBSProvisioner
 	hooksMu    sync.Mutex
 }
 

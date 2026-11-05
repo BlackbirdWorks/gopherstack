@@ -131,10 +131,10 @@ type createServiceInput struct {
 	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 	DesiredCount                  int                               `json:"desiredCount"`
 	EnableExecuteCommand          bool                              `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                              `json:"enableECSManagedTags,omitempty"`
-	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 }
 
 type createServiceOutput struct {
@@ -283,8 +283,8 @@ type updateServiceInput struct {
 	CapacityProviderStrategy      []cpStrategyItemInput             `json:"capacityProviderStrategy,omitempty"`
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
-	ForceNewDeployment            bool                              `json:"forceNewDeployment,omitempty"`
 	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
+	ForceNewDeployment            bool                              `json:"forceNewDeployment,omitempty"`
 }
 
 type updateServiceOutput struct {
@@ -650,21 +650,21 @@ type serviceEventView struct {
 
 // deploymentView is the handler view of a service deployment record.
 type deploymentView struct {
+	UpdatedAt                   *float64                         `json:"updatedAt,omitempty"`
 	ServiceConnectConfiguration *serviceConnectConfigurationView `json:"serviceConnectConfiguration,omitempty"`
 	CreatedAt                   *float64                         `json:"createdAt,omitempty"`
-	UpdatedAt                   *float64                         `json:"updatedAt,omitempty"`
+	TaskDefinition              string                           `json:"taskDefinition"`
 	ID                          string                           `json:"id"`
 	Status                      string                           `json:"status"`
-	TaskDefinition              string                           `json:"taskDefinition"`
 	LaunchType                  string                           `json:"launchType,omitempty"`
 	PlatformVersion             string                           `json:"platformVersion,omitempty"`
 	RolloutState                string                           `json:"rolloutState,omitempty"`
 	RolloutStateReason          string                           `json:"rolloutStateReason,omitempty"`
+	VolumeConfigurations        []VolumeConfiguration            `json:"volumeConfigurations,omitempty"`
 	DesiredCount                int                              `json:"desiredCount"`
 	PendingCount                int                              `json:"pendingCount"`
 	RunningCount                int                              `json:"runningCount"`
 	FailedTasks                 int                              `json:"failedTasks"`
-	VolumeConfigurations        []VolumeConfiguration            `json:"volumeConfigurations,omitempty"`
 }
 
 // toDeploymentView maps a backend Deployment onto the wire view. ServiceRevisionArn

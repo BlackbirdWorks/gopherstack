@@ -80,27 +80,7 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		return nil, err
 	}
 
-	isFargate := false
-
-	for _, rc := range input.RequiresCompatibilities {
-		if strings.EqualFold(rc, launchTypeFargate) {
-			isFargate = true
-
-			break
-		}
-	}
-
-	if isFargate {
-		if err := validateFargateCPUMemory(input.CPU, input.Memory); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := validateEphemeralStorage(input.EphemeralStorage, ErrClient); err != nil {
-		return nil, err
-	}
-
-	if err := validateContainerMemoryWithinTask(input.Memory, input.ContainerDefinitions, ErrClient); err != nil {
+	if err := validateRegisteredTaskSize(input); err != nil {
 		return nil, err
 	}
 
@@ -432,4 +412,24 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(
 	}
 
 	return deleted, failures, nil
+}
+
+// validateRegisteredTaskSize checks the Fargate cpu/memory pairing, ephemeralStorage and container memory
+// against the task's.
+func validateRegisteredTaskSize(input RegisterTaskDefinitionInput) error {
+	isFargate := slices.ContainsFunc(input.RequiresCompatibilities, func(rc string) bool {
+		return strings.EqualFold(rc, launchTypeFargate)
+	})
+
+	if isFargate {
+		if err := validateFargateCPUMemory(input.CPU, input.Memory); err != nil {
+			return err
+		}
+	}
+
+	if err := validateEphemeralStorage(input.EphemeralStorage, ErrClient); err != nil {
+		return err
+	}
+
+	return validateContainerMemoryWithinTask(input.Memory, input.ContainerDefinitions, ErrClient)
 }

@@ -41,10 +41,10 @@ type runTaskInput struct {
 	PlacementConstraints     []placementConstraintInput `json:"placementConstraints,omitempty"`
 	PlacementStrategy        []placementStrategyInput   `json:"placementStrategy,omitempty"`
 	CapacityProviderStrategy []cpStrategyItemInput      `json:"capacityProviderStrategy,omitempty"`
+	VolumeConfigurations     []VolumeConfiguration      `json:"volumeConfigurations,omitempty"`
 	Count                    int                        `json:"count,omitempty"`
 	EnableECSManagedTags     bool                       `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                       `json:"enableExecuteCommand,omitempty"`
-	VolumeConfigurations     []VolumeConfiguration      `json:"volumeConfigurations,omitempty"`
 }
 
 type runTaskOutput struct {
