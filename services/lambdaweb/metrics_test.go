@@ -214,7 +214,12 @@ func TestMetrics_EnvironmentMetrics(t *testing.T) {
 	require.NotNil(t, active)
 	assert.Equal(t, "Milliseconds", active.Unit)
 	assert.GreaterOrEqual(t, active.Value, float64(61_000))
-	assert.Equal(t, map[string]string{"FunctionName": "app"}, dimMap(active), "environment metrics have no EndpointName")
+	assert.Equal(
+		t,
+		map[string]string{"FunctionName": "app"},
+		dimMap(active),
+		"environment metrics have no EndpointName",
+	)
 
 	conc := m.find(nsWeb, "EnvironmentConcurrentRequests")
 	require.NotNil(t, conc)

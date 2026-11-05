@@ -87,14 +87,14 @@ func (b *InMemoryBackend) recordRequest(ep *Endpoint, cw *captureWriter, rm *req
 		errType := cw.Header().Get(hdrErrorType)
 		rec := map[string]any{
 			"requestId": cw.Header().Get(hdrRequestID), "endpointName": ep.Name, "result": status,
-			"metrics": map[string]any{"durationMs": msSince(b.run.now(), rm.start), "responseBytes": cw.bytes},
+			keyMetrics: map[string]any{"durationMs": msSince(b.run.now(), rm.start), "responseBytes": cw.bytes},
 		}
 
 		if errType != "" {
 			rec["errorType"] = errType
 		}
 
-		rm.lease.inst.ship.system("platform.requestComplete", "DEBUG", rec)
+		rm.lease.inst.ship.system("platform.requestComplete", levelDebug, rec)
 	}
 
 	if em == nil {
@@ -104,7 +104,10 @@ func (b *InMemoryBackend) recordRequest(ep *Endpoint, cw *captureWriter, rm *req
 	web := []cwmetric.Dimension{
 		{Name: "FunctionName", Value: ep.FunctionName}, {Name: "EndpointName", Value: ep.Name},
 	}
-	usage := append(append([]cwmetric.Dimension{}, web...), cwmetric.Dimension{Name: "ExecutionRegion", Value: ep.Region})
+	usage := append(
+		append([]cwmetric.Dimension{}, web...),
+		cwmetric.Dimension{Name: "ExecutionRegion", Value: ep.Region},
+	)
 
 	switch {
 	case status >= http.StatusInternalServerError:

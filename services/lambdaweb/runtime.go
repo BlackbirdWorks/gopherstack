@@ -81,16 +81,16 @@ type instance struct {
 // runtimeState owns the execution environments, the per-endpoint rate windows and the routing randomness.
 type runtimeState struct {
 	launcher  Launcher
-	client    *http.Client
+	stopped   chan struct{}
 	insts     map[string][]*instance
 	windows   map[string]*window
 	intn      func(int) int
 	mu        *lockmetrics.RWMutex
-	stopped   chan struct{}
+	client    *http.Client
 	clock     atomic.Pointer[func() time.Time]
-	lastSweep atomic.Int64
-	wg        sync.WaitGroup
 	tick      func()
+	wg        sync.WaitGroup
+	lastSweep atomic.Int64
 	idle      time.Duration
 	closed    bool
 	janitor   bool
@@ -202,11 +202,11 @@ type capacity struct {
 	metrics   cwmetric.Emitter
 	preflight func(*Revision) error
 	maxEnv    *int32
-	scope     []string
 	reqID     string
 	endpoint  string
-	perEnv    int32
+	scope     []string
 	regionMax int
+	perEnv    int32
 }
 
 // lease is one request's hold on an environment slot.
@@ -239,15 +239,32 @@ func (r *runtimeState) release(in *instance, reqID string, respBytes int64) {
 }
 
 // throttle names the limit that rejected a request to scale out.
-type throttle struct{ errType, metric string }
+type throttle int
 
-var (
-	throttleMaxEnv = &throttle{errEndpointMaxEnvThrottle, "EndpointActiveEnvironmentThrottles"}
-	throttleVCPU   = &throttle{errAccountVCPUThrottle, "AccountActiveVCPUArm64Throttles"}
+const (
+	throttleNone throttle = iota
+	throttleMaxEnv
+	throttleVCPU
 )
 
+func (t throttle) errType() string {
+	if t == throttleVCPU {
+		return errAccountVCPUThrottle
+	}
+
+	return errEndpointMaxEnvThrottle
+}
+
+func (t throttle) metric() string {
+	if t == throttleVCPU {
+		return "AccountActiveVCPUArm64Throttles"
+	}
+
+	return "EndpointActiveEnvironmentThrottles"
+}
+
 // acquire reserves a slot on a ready environment of rev, scaling out when every environment is full.
-func (r *runtimeState) acquire(ctx context.Context, rev *Revision, c capacity) (*lease, *throttle, error) {
+func (r *runtimeState) acquire(ctx context.Context, rev *Revision, c capacity) (*lease, throttle, error) {
 	key := envKey(rev.Region, rev.FunctionName, rev.ID)
 
 	r.mu.Lock("acquire")
@@ -255,12 +272,12 @@ func (r *runtimeState) acquire(ctx context.Context, rev *Revision, c capacity) (
 	if r.closed || r.launcher == nil {
 		r.mu.Unlock()
 
-		return nil, nil, errEngineUnavailable
+		return nil, throttleNone, errEngineUnavailable
 	}
 
 	in := r.freeLocked(key, c.perEnv)
 	if in == nil {
-		var th *throttle
+		var th throttle
 
 		if in, th = r.scaleOutLocked(rev, key, c); in == nil {
 			r.mu.Unlock()
@@ -281,16 +298,16 @@ func (r *runtimeState) acquire(ctx context.Context, rev *Revision, c capacity) (
 	case <-ctx.Done():
 		l.done(0)
 
-		return nil, nil, fmt.Errorf("waiting for execution environment: %w", ctx.Err())
+		return nil, throttleNone, fmt.Errorf("waiting for execution environment: %w", ctx.Err())
 	}
 
 	if in.err != nil {
 		l.done(0)
 
-		return nil, nil, in.err
+		return nil, throttleNone, in.err
 	}
 
-	return l, nil, nil
+	return l, throttleNone, nil
 }
 
 func (r *runtimeState) freeLocked(key string, perEnv int32) *instance {
@@ -303,7 +320,7 @@ func (r *runtimeState) freeLocked(key string, perEnv int32) *instance {
 	return nil
 }
 
-func (r *runtimeState) scaleOutLocked(rev *Revision, key string, c capacity) (*instance, *throttle) {
+func (r *runtimeState) scaleOutLocked(rev *Revision, key string, c capacity) (*instance, throttle) {
 	if c.maxEnv != nil && r.activeLocked(c.scope) >= int(*c.maxEnv) {
 		return nil, throttleMaxEnv
 	}
@@ -328,7 +345,7 @@ func (r *runtimeState) scaleOutLocked(rev *Revision, key string, c capacity) (*i
 	r.startJanitorLocked()
 	r.wg.Go(func() { r.launch(launcher, in, c.preflight) })
 
-	return in, nil
+	return in, throttleNone
 }
 
 // attribution reports the request a log line belongs to when exactly one is in flight.
@@ -417,21 +434,21 @@ func (r *runtimeState) launch(l Launcher, in *instance, preflight func(*Revision
 
 	start := r.now()
 
-	in.ship.system("platform.initStart", "INFO", map[string]any{
-		"functionName": in.rev.FunctionName, "revisionId": in.rev.ID, "instanceId": in.id,
+	in.ship.system("platform.initStart", levelInfo, map[string]any{
+		keyFunctionName: in.rev.FunctionName, keyRevisionID: in.rev.ID, keyInstanceID: in.id,
 		"initializationType": "native-http", "runtimeVersion": in.rev.Runtime,
 	})
 
 	env, err := r.start(l, in, preflight)
 
 	report := map[string]any{
-		"status": "success", "initializationType": "native-http",
-		"metrics": map[string]any{"totalDurationMs": msSince(r.now(), start)},
+		keyStatus: statusSuccess, "initializationType": "native-http",
+		keyMetrics: map[string]any{keyTotalMs: msSince(r.now(), start)},
 	}
-	level := "INFO"
+	level := levelInfo
 
 	if err != nil {
-		report["status"], report["errorType"], level = "failure", launchErrorType(err), "WARN"
+		report[keyStatus], report["errorType"], level = "failure", launchErrorType(err), levelWarn
 	}
 
 	in.ship.system("platform.initReport", level, report)
@@ -457,8 +474,8 @@ func (r *runtimeState) launch(l Launcher, in *instance, preflight func(*Revision
 	switch {
 	case err != nil:
 	case current:
-		in.ship.system("platform.invokeStart", "INFO", map[string]any{
-			"functionName": in.rev.FunctionName, "revisionId": in.rev.ID, "instanceId": in.id,
+		in.ship.system("platform.invokeStart", levelInfo, map[string]any{
+			keyFunctionName: in.rev.FunctionName, keyRevisionID: in.rev.ID, keyInstanceID: in.id,
 		})
 	default:
 		teardown(env)
@@ -472,7 +489,10 @@ func (r *runtimeState) start(l Launcher, in *instance, preflight func(*Revision)
 		}
 	}
 
-	return l.Launch(context.Background(), LaunchSpec{Revision: in.rev, LogStream: in.stream, Output: in.ship.application})
+	return l.Launch(
+		context.Background(),
+		LaunchSpec{Revision: in.rev, LogStream: in.stream, Output: in.ship.application},
+	)
 }
 
 func msSince(now, start time.Time) float64 { return float64(now.Sub(start).Microseconds()) / 1000 } //nolint:mnd // ms
@@ -508,20 +528,20 @@ func (r *runtimeState) retire(in *instance) {
 	now := r.now()
 	in.emitEnvironmentMetrics(r.takeWindow(in, now), now)
 
-	in.ship.system("platform.invokeReport", "INFO", map[string]any{
-		"status": "success", "instanceId": in.id,
-		"metrics": map[string]any{
-			"totalDurationMs": msSince(now, in.started), "totalRequests": in.totalReqs, "concurrentRequests": in.peak,
+	in.ship.system("platform.invokeReport", levelInfo, map[string]any{
+		keyStatus: statusSuccess, keyInstanceID: in.id,
+		keyMetrics: map[string]any{
+			keyTotalMs: msSince(now, in.started), "totalRequests": in.totalReqs, "concurrentRequests": in.peak,
 		},
 	})
-	in.ship.system("platform.spinDownStart", "INFO", map[string]any{
-		"functionName": in.rev.FunctionName, "revisionId": in.rev.ID, "instanceId": in.id,
+	in.ship.system("platform.spinDownStart", levelInfo, map[string]any{
+		keyFunctionName: in.rev.FunctionName, keyRevisionID: in.rev.ID, keyInstanceID: in.id,
 	})
 
 	teardown(in.env)
 
-	in.ship.system("platform.spinDownReport", "INFO", map[string]any{
-		"status": "success", "metrics": map[string]any{"totalDurationMs": msSince(r.now(), now)},
+	in.ship.system("platform.spinDownReport", levelInfo, map[string]any{
+		keyStatus: statusSuccess, keyMetrics: map[string]any{keyTotalMs: msSince(r.now(), now)},
 	})
 }
 

@@ -13,6 +13,20 @@ const (
 	unitCount = "Count"
 	unitMs    = "Milliseconds"
 	unitBytes = "Bytes"
+
+	levelDebug = "DEBUG"
+	levelInfo  = "INFO"
+	levelWarn  = "WARN"
+	levelError = "ERROR"
+
+	statusSuccess = "success"
+	keyTotalMs    = "totalDurationMs"
+
+	keyInstanceID   = "instanceId"
+	keyMetrics      = "metrics"
+	keyFunctionName = "functionName"
+	keyStatus       = "status"
+	keyRevisionID   = "revisionId"
 )
 
 // startJanitorLocked starts the background sweep on first use; callers hold r.mu.
@@ -73,33 +87,40 @@ type drainJob struct {
 func (r *runtimeState) sweep(routed map[string]bool) {
 	now := r.now()
 
+	r.mu.Lock("sweep")
+	drains, reports := r.collectLocked(now, routed)
+	r.mu.Unlock()
+
+	for _, d := range drains {
+		r.drain(d.in, d.limit)
+	}
+
+	for _, in := range reports {
+		r.report(in, now)
+	}
+}
+
+// collectLocked removes the environments to retire from the fleet and lists those due a periodic report.
+func (r *runtimeState) collectLocked(now time.Time, routed map[string]bool) ([]drainJob, []*instance) {
 	var (
 		drains  []drainJob
 		reports []*instance
 	)
 
-	r.mu.Lock("sweep")
-
 	for key, list := range r.insts {
 		keep := make([]*instance, 0, len(list))
 
 		for _, in := range list {
-			switch {
-			case in.env == nil:
-				keep = append(keep, in)
-			case !routed[key] || (in.inflight == 0 && now.Sub(in.lastUsed) >= r.idle):
-				in.draining = true
-				if in.inflight == 0 {
-					close(in.drained)
-				}
-
+			if r.retireLocked(in, now, routed[key]) {
 				drains = append(drains, drainJob{in, time.Duration(in.rev.ServiceConfig.TimeoutSeconds) * time.Second})
-			default:
-				keep = append(keep, in)
 
-				if now.Sub(in.lastReport) >= reportInterval {
-					reports = append(reports, in)
-				}
+				continue
+			}
+
+			keep = append(keep, in)
+
+			if in.env != nil && now.Sub(in.lastReport) >= reportInterval {
+				reports = append(reports, in)
 			}
 		}
 
@@ -110,15 +131,21 @@ func (r *runtimeState) sweep(routed map[string]bool) {
 		}
 	}
 
-	r.mu.Unlock()
+	return drains, reports
+}
 
-	for _, d := range drains {
-		r.drain(d.in, d.limit)
+// retireLocked marks a ready environment draining when its revision is unrouted or it has been idle too long.
+func (r *runtimeState) retireLocked(in *instance, now time.Time, routed bool) bool {
+	if in.env == nil || (routed && (in.inflight > 0 || now.Sub(in.lastUsed) < r.idle)) {
+		return false
 	}
 
-	for _, in := range reports {
-		r.report(in, now)
+	in.draining = true
+	if in.inflight == 0 {
+		close(in.drained)
 	}
+
+	return true
 }
 
 type windowStats struct {
@@ -142,9 +169,9 @@ func (r *runtimeState) takeWindow(in *instance, now time.Time) windowStats {
 func (r *runtimeState) report(in *instance, now time.Time) {
 	st := r.takeWindow(in, now)
 
-	in.ship.system("platform.invokeSummary", "INFO", map[string]any{
-		"startTime": st.start.UTC().Format(time.RFC3339Nano), "instanceId": in.id,
-		"metrics": map[string]any{"requests": st.reqs, "concurrentRequests": st.peak},
+	in.ship.system("platform.invokeSummary", levelInfo, map[string]any{
+		"startTime": st.start.UTC().Format(time.RFC3339Nano), keyInstanceID: in.id,
+		keyMetrics: map[string]any{"requests": st.reqs, "concurrentRequests": st.peak},
 	})
 	in.emitEnvironmentMetrics(st, now)
 }

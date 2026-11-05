@@ -54,10 +54,10 @@ func (a *fakeApp) Close(context.Context) {
 type fakeLauncher struct {
 	err      error
 	hold     chan struct{}
-	apps     sync.Map
-	all      []*fakeApp
 	logs     func(spec lambdaweb.LaunchSpec, line func(stderr bool, msg string))
+	apps     sync.Map
 	holdRev  string
+	all      []*fakeApp
 	once     sync.Once
 	mu       sync.Mutex
 	launches atomic.Int32

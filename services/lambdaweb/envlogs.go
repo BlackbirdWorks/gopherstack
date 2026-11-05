@@ -12,15 +12,17 @@ import (
 
 const logTimeLayout = "2006-01-02T15:04:05.000Z07:00"
 
-// Log levels in severity order.
-var levelOrder = []string{"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
+// levelOrder lists log levels in severity order.
+func levelOrder() []string {
+	return []string{"TRACE", levelDebug, levelInfo, levelWarn, levelError, "FATAL"}
+}
 
 func levelRank(level string) int {
 	if level == "" {
-		level = defaultLogLevel
+		level = levelInfo
 	}
 
-	return slices.Index(levelOrder, strings.ToUpper(level))
+	return slices.Index(levelOrder(), strings.ToUpper(level))
 }
 
 type appEvent struct {
@@ -45,11 +47,11 @@ type shipper struct {
 	sink     LogSink
 	now      func() time.Time
 	live     func() (reqID, endpoint string)
+	groups   [2]string
 	region   string
 	stream   string
 	appLevel int
 	sysLevel int
-	groups   [2]string
 	mu       sync.Mutex
 	ready    bool
 }
@@ -58,10 +60,10 @@ func newShipper(sink LogSink, now func() time.Time, rev *Revision, stream string
 	group := logGroupOf(rev)
 	lc := rev.ServiceConfig.Logging
 
-	appLevel, sysLevel := levelRank(defaultLogLevel), levelRank(defaultLogLevel)
+	appLevel, sysLevel := levelRank(levelInfo), levelRank(levelInfo)
 	if lc != nil {
 		// Node.js has no FATAL console method, so FATAL filters like ERROR.
-		appLevel = min(levelRank(lc.ApplicationLogLevel), levelRank("ERROR"))
+		appLevel = min(levelRank(lc.ApplicationLogLevel), levelRank(levelError))
 		sysLevel = levelRank(lc.SystemLogLevel)
 	}
 
@@ -113,9 +115,9 @@ func (s *shipper) application(stderr bool, line string) {
 		return
 	}
 
-	level := "INFO"
+	level := levelInfo
 	if stderr {
-		level = "ERROR"
+		level = levelError
 	}
 
 	if levelRank(level) < s.appLevel {

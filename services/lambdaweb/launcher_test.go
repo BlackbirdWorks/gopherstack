@@ -178,7 +178,7 @@ func launchSpec(t *testing.T, env *testEnv, vars map[string]string) lambdaweb.La
 	return lambdaweb.LaunchSpec{Revision: got}
 }
 
-func newLauncherEnv(t *testing.T, files map[string]string) (*testEnv, *fakeRuntime, *fakeLogs, lambdaweb.Launcher) {
+func newLauncherEnv(t *testing.T, files map[string]string) (*testEnv, *fakeRuntime, lambdaweb.Launcher) {
 	t.Helper()
 
 	env := newTestEnv(t)
@@ -187,12 +187,11 @@ func newLauncherEnv(t *testing.T, files map[string]string) (*testEnv, *fakeRunti
 	env.backend.SetCodeStore(codes)
 
 	rt := &fakeRuntime{}
-	logs := &fakeLogs{}
-	env.backend.SetLogSink(logs)
+	env.backend.SetLogSink(&fakeLogs{})
 	env.backend.SetCredentialIssuer(fakeCreds{})
 	env.backend.SetEndpointURL("http://host.docker.internal:4566")
 
-	return env, rt, logs, lambdaweb.NewDockerLauncher(
+	return env, rt, lambdaweb.NewDockerLauncher(
 		env.backend,
 		lambdaweb.DockerConfig{Runtime: rt, ListenTimeout: 3 * time.Second},
 	)
@@ -201,7 +200,7 @@ func newLauncherEnv(t *testing.T, files map[string]string) (*testEnv, *fakeRunti
 func TestDockerLauncher_Launch(t *testing.T) {
 	t.Parallel()
 
-	env, rt, _, l := newLauncherEnv(t, map[string]string{"index.js": "console.log('hi')", "lib/util.js": "x"})
+	env, rt, l := newLauncherEnv(t, map[string]string{"index.js": "console.log('hi')", "lib/util.js": "x"})
 	rt.logLines = "line one\nline two\n"
 	spec := launchSpec(t, env, map[string]string{"AWS_LAMBDA_NODEJS_ENTRYPOINT": "server.js", "FOO": "bar"})
 
@@ -269,7 +268,7 @@ func TestDockerLauncher_Launch(t *testing.T) {
 func TestDockerLauncher_DefaultEntrypoint(t *testing.T) {
 	t.Parallel()
 
-	env, rt, _, l := newLauncherEnv(t, map[string]string{"index.js": "x"})
+	env, rt, l := newLauncherEnv(t, map[string]string{"index.js": "x"})
 
 	e, err := l.Launch(t.Context(), launchSpec(t, env, nil))
 	require.NoError(t, err)
@@ -281,7 +280,7 @@ func TestDockerLauncher_DefaultEntrypoint(t *testing.T) {
 func TestDockerLauncher_NeverListens(t *testing.T) {
 	t.Parallel()
 
-	env, rt, _, _ := newLauncherEnv(t, map[string]string{"index.js": "x"})
+	env, rt, _ := newLauncherEnv(t, map[string]string{"index.js": "x"})
 	rt.delay = -1
 
 	l := lambdaweb.NewDockerLauncher(
@@ -317,7 +316,7 @@ func TestDockerLauncher_CodeProblems(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			env, _, _, l := newLauncherEnv(t, map[string]string{"index.js": "x"})
+			env, _, l := newLauncherEnv(t, map[string]string{"index.js": "x"})
 			spec := launchSpec(t, env, nil)
 
 			if tc.raw != nil {

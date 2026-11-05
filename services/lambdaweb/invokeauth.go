@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
@@ -43,8 +44,10 @@ func (b *InMemoryBackend) callerOf(r *http.Request, auth, account string) caller
 		}
 	}
 
-	return caller{arn: "arn:aws:iam::" + account + ":root", account: account}
+	return caller{arn: rootARN(account), account: account}
 }
+
+func rootARN(account string) string { return arn.Build("iam", "", account, "root") }
 
 func callerFrom(p *awsmeta.Principal) caller { return caller{arn: p.Arn, account: p.AccountID} }
 
@@ -105,8 +108,8 @@ func boolString(v bool) string {
 // the Principal element.
 func statementsFor(policy string, c caller) string {
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
 		Version   string          `json:"Version,omitempty"`
+		Statement json.RawMessage `json:"Statement"`
 	}
 
 	if json.Unmarshal([]byte(policy), &doc) != nil {
@@ -164,7 +167,7 @@ func principalListed(raw json.RawMessage, c caller) bool {
 	}
 
 	for _, id := range stringsOf(m["AWS"]) {
-		if id == "*" || id == c.arn || id == c.account || id == "arn:aws:iam::"+c.account+":root" {
+		if id == "*" || id == c.arn || id == c.account || id == rootARN(c.account) {
 			return true
 		}
 	}

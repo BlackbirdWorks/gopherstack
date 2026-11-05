@@ -171,7 +171,8 @@ func TestDockerEngine_ScalesOutAndToZero(t *testing.T) {
 	env.backend.SweepEnvironments()
 
 	assert.Eventually(t, func() bool {
-		out, cerr := exec.CommandContext(t.Context(), "docker", "ps", "-q", "--filter", "name=gopherstack-lambdaweb-scale-").Output()
+		out, cerr := exec.CommandContext(t.Context(), "docker", "ps", "-q", "--filter", "name=gopherstack-lambdaweb-scale-").
+			Output()
 
 		return cerr == nil && len(out) == 0
 	}, 60*time.Second, 500*time.Millisecond)

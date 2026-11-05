@@ -44,9 +44,11 @@ func TestInvokeAuth_ResourcePolicy(t *testing.T) {
 		{name: "no policy same account", want: http.StatusOK},
 		{name: "no policy cross account", principal: crossUser, want: http.StatusForbidden},
 		{
-			name:   "deny everyone",
-			policy: policyJSON(`{"Effect":"Deny","Principal":"*","Action":"` + invokeAct + `","Resource":"` + endpointARN + `"}`),
-			want:   http.StatusForbidden,
+			name: "deny everyone",
+			policy: policyJSON(
+				`{"Effect":"Deny","Principal":"*","Action":"` + invokeAct + `","Resource":"` + endpointARN + `"}`,
+			),
+			want: http.StatusForbidden,
 		},
 		{
 			name: "deny a named user", principal: sameUser,
@@ -56,8 +58,10 @@ func TestInvokeAuth_ResourcePolicy(t *testing.T) {
 		},
 		{
 			name: "deny a different user", principal: sameUser,
-			policy: policyJSON(`{"Effect":"Deny","Principal":{"AWS":"arn:aws:iam::123456789012:user/carol"},"Action":"` +
-				invokeAct + `","Resource":"` + endpointARN + `"}`),
+			policy: policyJSON(
+				`{"Effect":"Deny","Principal":{"AWS":"arn:aws:iam::123456789012:user/carol"},"Action":"` +
+					invokeAct + `","Resource":"` + endpointARN + `"}`,
+			),
 			want: http.StatusOK,
 		},
 		{

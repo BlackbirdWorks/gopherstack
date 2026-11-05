@@ -13,8 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
-	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )

@@ -2,6 +2,7 @@ package lambdaweb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -295,11 +296,17 @@ func platformError(w http.ResponseWriter, status int, errType, msg string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = io.WriteString(w, `{"message":`+strconv.Quote(msg)+`}`)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": msg})
 }
 
 // proxy picks a revision by weight and forwards the request to one of its execution environments.
-func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, ep *Endpoint, reqID string, rm *requestMetrics) {
+func (b *InMemoryBackend) proxy(
+	w http.ResponseWriter,
+	r *http.Request,
+	ep *Endpoint,
+	reqID string,
+	rm *requestMetrics,
+) {
 	revID, ok := b.run.pick(ep.Weights)
 	if !ok {
 		platformError(w, http.StatusConflict, errRevisionNotActive, "")
@@ -329,9 +336,9 @@ func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, ep *Endp
 	rm.scope = scopeOf(ep)
 
 	lease, th, err := b.run.acquire(ctx, cp, b.capacityFor(ep, cp, reqID))
-	if th != nil {
-		rm.throttle = th.metric
-		platformError(w, http.StatusTooManyRequests, th.errType, "")
+	if th != throttleNone {
+		rm.throttle = th.metric()
+		platformError(w, http.StatusTooManyRequests, th.errType(), "")
 
 		return
 	}

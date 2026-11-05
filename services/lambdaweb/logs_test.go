@@ -16,10 +16,10 @@ import (
 )
 
 type logOpts struct {
+	emit     func(spec lambdaweb.LaunchSpec, line func(stderr bool, msg string))
 	appLevel types.ApplicationLogLevel
 	sysLevel types.SystemLogLevel
 	group    string
-	emit     func(spec lambdaweb.LaunchSpec, line func(stderr bool, msg string))
 }
 
 func newLoggedEnv(t *testing.T, o logOpts) (*dataEnv, *fakeLogs) {
@@ -56,9 +56,10 @@ func newLoggedEnv(t *testing.T, o logOpts) (*dataEnv, *fakeLogs) {
 func events(t *testing.T, logs *fakeLogs, group string) []map[string]any {
 	t.Helper()
 
-	var out []map[string]any
+	lines := logs.snapshot(group)
+	out := make([]map[string]any, 0, len(lines))
 
-	for _, line := range logs.snapshot(group) {
+	for _, line := range lines {
 		var ev map[string]any
 		require.NoError(t, json.Unmarshal([]byte(line), &ev), "log line %q is a JSON event", line)
 
@@ -96,11 +97,11 @@ func TestLogs_ApplicationEventsAreStructured(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantMessage any
 		name        string
-		stderr      bool
 		line        string
 		wantLevel   string
-		wantMessage any
+		stderr      bool
 	}{
 		{name: "stdout text", line: "hello", wantLevel: "INFO", wantMessage: "hello"},
 		{name: "stderr is error", stderr: true, line: "bad", wantLevel: "ERROR", wantMessage: "bad"},

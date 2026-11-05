@@ -74,8 +74,8 @@ func TestScaling_ScalesOutPerEnvironmentConcurrency(t *testing.T) {
 	tests := []struct {
 		maxEnv   *int32
 		name     string
-		perEnv   int32
 		requests int
+		perEnv   int32
 		wantEnvs int32
 	}{
 		{name: "one fits", perEnv: 4, requests: 4, wantEnvs: 1},
