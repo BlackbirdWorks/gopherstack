@@ -56,6 +56,7 @@ func TestE2E_DynamoDBPartiQL(t *testing.T) {
 	// route in favor of it.
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=PartiQLTestTable")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Wait for the table detail page to load.
@@ -121,6 +122,7 @@ func TestE2E_DynamoDBPartiQL_TabVisible(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb?table=TabVisibleTable")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	// Wait for the page to load.

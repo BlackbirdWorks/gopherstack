@@ -39,6 +39,7 @@ func TestSESDashboard(t *testing.T) {
 	// Navigate to the SES dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/ses")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the SES page to render.
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

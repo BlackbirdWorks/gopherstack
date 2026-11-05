@@ -47,6 +47,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -97,6 +98,7 @@ func TestTimestreamQueryDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -154,6 +156,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/timestream")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

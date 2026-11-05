@@ -48,6 +48,7 @@ func TestEMRServerlessDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/emrserverless")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -83,6 +84,7 @@ func TestEMRServerlessDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/emrserverless")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -137,6 +139,7 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/emrserverless")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -230,6 +233,7 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/emrserverless")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -301,6 +305,7 @@ func TestEMRServerlessDashboard_Refresh(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/emrserverless")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

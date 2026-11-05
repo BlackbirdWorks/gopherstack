@@ -35,6 +35,7 @@ func TestIoTDataPlaneDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iotdataplane")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -71,6 +72,7 @@ func TestIoTDataPlaneDashboard_Snippet(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/iotdataplane")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

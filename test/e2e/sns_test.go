@@ -40,6 +40,7 @@ func TestSNSDashboard(t *testing.T) {
 	// Navigate to the Dashboard SNS page
 	_, err = page.Goto(server.URL + "/dashboard/sns")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -82,6 +83,7 @@ func TestSNSDashboard(t *testing.T) {
 	// Step 3: Navigate back to list and delete topic.
 	_, err = page.Goto(server.URL + "/dashboard/sns")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -131,6 +133,7 @@ func TestSNSDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sns")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,

@@ -38,6 +38,7 @@ func TestCodeConnectionsDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/codeconnections")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("#codeconnections-title").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -73,6 +74,7 @@ func TestCodeConnectionsDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/codeconnections")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 	waitForSPA(t, page)
 
 	err = page.Locator("#codeconnections-title").First().WaitFor(playwright.LocatorWaitForOptions{
