@@ -16,6 +16,16 @@ func errorDetails() map[error]errorDetail {
 	out := lookupErrorDetails()
 	maps.Copy(out, constraintErrorDetails())
 	maps.Copy(out, delegatedAdminErrorDetails())
+	maps.Copy(out, map[error]errorDetail{
+		ErrNonDetachablePolicy: {
+			message: "You can't detach this Amazon Web Services managed policy.",
+			reason:  "NON_DETACHABLE_POLICY",
+		},
+		ErrInvalidPolicyPrincipal: {
+			message: "You specified an invalid principal element in the policy.",
+			reason:  "INVALID_PRINCIPAL",
+		},
+	})
 
 	return out
 }
@@ -169,14 +179,6 @@ func constraintErrorDetails() map[error]errorDetail {
 		ErrCannotRemoveDelegatedAdministratorFromOrg: {
 			message: "You can't remove an account that is a delegated administrator for a service.",
 			reason:  "CANNOT_REMOVE_DELEGATED_ADMINISTRATOR_FROM_ORG",
-		},
-		ErrNonDetachablePolicy: {
-			message: "You can't detach this Amazon Web Services managed policy.",
-			reason:  "NON_DETACHABLE_POLICY",
-		},
-		ErrInvalidPolicyPrincipal: {
-			message: "You specified an invalid principal element in the policy.",
-			reason:  "INVALID_PRINCIPAL",
 		},
 		ErrAccessDeniedManagedPolicy: {
 			message: "You can't modify or delete an Amazon Web Services managed policy.",

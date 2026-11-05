@@ -270,6 +270,10 @@ const errInvalidInput = "InvalidInputException"
 func getErrorTable() map[error]awserr.APIError {
 	table := baseErrorTable()
 	maps.Copy(table, handshakeErrorTable())
+	maps.Copy(table, map[error]awserr.APIError{
+		ErrNonDetachablePolicy:    {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+		ErrInvalidPolicyPrincipal: {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+	})
 
 	return table
 }
@@ -385,8 +389,6 @@ func baseErrorTable() map[error]awserr.APIError {
 			HTTPStatus: http.StatusBadRequest,
 		},
 		ErrAccessDeniedManagedPolicy: {Code: "AccessDeniedException", HTTPStatus: http.StatusBadRequest},
-		ErrNonDetachablePolicy:       {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
-		ErrInvalidPolicyPrincipal:    {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
 	}
 }
 

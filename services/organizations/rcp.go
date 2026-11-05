@@ -90,9 +90,9 @@ func validateRCPStatement(s rcpStatement) error {
 
 func validateRCPActions(raw json.RawMessage) error {
 	var actions []string
-	if err := json.Unmarshal(raw, &actions); err != nil {
+	if json.Unmarshal(raw, &actions) != nil {
 		var one string
-		if err := json.Unmarshal(raw, &one); err != nil {
+		if json.Unmarshal(raw, &one) != nil {
 			return ErrMalformedPolicyDocument
 		}
 

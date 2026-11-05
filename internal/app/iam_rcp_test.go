@@ -28,11 +28,11 @@ func (f *scpFixture) enableRCP(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func (f *scpFixture) createRCP(t *testing.T, name, doc string) string {
+func (f *scpFixture) createRCP(t *testing.T, doc string) string {
 	t.Helper()
 
 	out, err := f.orgs.CreatePolicy(t.Context(), &organizations.CreatePolicyInput{
-		Name: aws.String(name), Description: aws.String(name), Content: aws.String(doc),
+		Name: aws.String("perimeter"), Description: aws.String("perimeter"), Content: aws.String(doc),
 		Type: orgtypes.PolicyTypeResourceControlPolicy,
 	})
 	require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestRCPEnforcement(t *testing.T) {
 				require.NoError(t, err, "no RCP attached yet")
 
 				f.enableRCP(t)
-				pid := f.createRCP(t, "perimeter", orgPerimeterRCP(f.orgID(t)))
+				pid := f.createRCP(t, orgPerimeterRCP(f.orgID(t)))
 				f.attach(t, pid, f.rootID)
 
 				_, err = f.s3(t, outsider).GetObject(t.Context(), &s3.GetObjectInput{
@@ -133,7 +133,7 @@ func TestRCPEnforcement(t *testing.T) {
 				t.Helper()
 
 				f.enableRCP(t)
-				f.attach(t, f.createRCP(t, "perimeter", orgPerimeterRCP(f.orgID(t))), f.rootID)
+				f.attach(t, f.createRCP(t, orgPerimeterRCP(f.orgID(t))), f.rootID)
 
 				mgmt := f.adminUser(t, "", "mgmt-admin")
 				f.bucketWithObject(t, mgmt, "mgmt-b")
@@ -152,7 +152,7 @@ func TestRCPEnforcement(t *testing.T) {
 
 				f.bucketWithObject(t, member, "off-b")
 				f.enableRCP(t)
-				pid := f.createRCP(t, "perimeter", orgPerimeterRCP(f.orgID(t)))
+				pid := f.createRCP(t, orgPerimeterRCP(f.orgID(t)))
 				f.attach(t, pid, f.rootID)
 
 				_, err := f.orgs.DisablePolicyType(t.Context(), &organizations.DisablePolicyTypeInput{
@@ -173,7 +173,7 @@ func TestRCPEnforcement(t *testing.T) {
 				t.Helper()
 
 				f.enableRCP(t)
-				f.attach(t, f.createRCP(t, "perimeter", orgPerimeterRCP(f.orgID(t))), f.rootID)
+				f.attach(t, f.createRCP(t, orgPerimeterRCP(f.orgID(t))), f.rootID)
 				f.bucketWithObject(t, member, "svc-b")
 
 				_, err := f.s3(t, member).ListBuckets(t.Context(), &s3.ListBucketsInput{})

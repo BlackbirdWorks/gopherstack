@@ -42,8 +42,8 @@ func scpExemptPrincipal(principalArn string) bool {
 type scpVerdict struct {
 	policyArn string
 	resource  string
-	rcp       bool
 	match     EvalMatch
+	rcp       bool
 	denied    bool
 	explicit  bool
 }

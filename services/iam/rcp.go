@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 
@@ -27,23 +28,17 @@ const ctxKeyPrincipalOrgID = "aws:principalorgid"
 
 // rcpSupportedServices are the action prefixes listed under "List of AWS services that support RCPs"
 // in the Organizations User Guide.
-//
-//nolint:gochecknoglobals // read-only lookup table
-var rcpSupportedServices = []string{
-	"appstream", "dsql", "clouddirectory", "cloudfront", "cloudsearch", "logs", "networkmonitor",
-	"cognito-identity", "cognito-idp", "comprehend", "comprehendmedical", "firehose", "dynamodb", "dax",
-	"autoscaling", "ecr", "ecr-public", "gamelift", "inspector-scan", "kendra", "kinesisvideo", "memorydb",
-	"aoss", "personalize", "polly", "s3", "swf", "sqs", "textract", "timestream-influxdb", "transcribe",
-	"translate", "workspaces", "appconfig", "autoscaling-plans", "budgets", "servicediscovery",
-	"cloudtrail-data", "codeartifact", "codebuild", "codecommit", "codepipeline", "compute-optimizer",
-	"cost-optimization-hub", "events", "fms", "fis", "health", "rolesanywhere", "kms", "opensearch",
-	"pricing", "pca-connector-ad", "resource-groups", "secretsmanager", "sts", "signin", "support",
-	"transfer", "notifications", "wafv2", "xray",
-}
+const rcpSupportedServices = "appstream dsql clouddirectory cloudfront cloudsearch logs networkmonitor " +
+	"cognito-identity cognito-idp comprehend comprehendmedical firehose dynamodb dax autoscaling ecr ecr-public " +
+	"gamelift inspector-scan kendra kinesisvideo memorydb aoss personalize polly s3 swf sqs textract " +
+	"timestream-influxdb transcribe translate workspaces appconfig autoscaling-plans budgets servicediscovery " +
+	"cloudtrail-data codeartifact codebuild codecommit codepipeline compute-optimizer cost-optimization-hub " +
+	"events fms fis health rolesanywhere kms opensearch pricing pca-connector-ad resource-groups secretsmanager " +
+	"sts signin support transfer notifications wafv2 xray"
 
 // RCPSupportsService reports whether service (an IAM action prefix) supports RCPs.
 func RCPSupportsService(service string) bool {
-	return slices.Contains(rcpSupportedServices, strings.ToLower(service))
+	return slices.Contains(strings.Fields(rcpSupportedServices), strings.ToLower(service))
 }
 
 func (cfg EnforcementConfig) rcpProvider() RCPProvider {
@@ -76,9 +71,7 @@ func withPrincipalOrg(p RCPProvider, condCtx ConditionContext) ConditionContext 
 	}
 
 	extra := make(map[string]string, len(condCtx.Extra)+1)
-	for k, v := range condCtx.Extra {
-		extra[k] = v
-	}
+	maps.Copy(extra, condCtx.Extra)
 
 	extra[ctxKeyPrincipalOrgID] = orgID
 	condCtx.Extra = extra

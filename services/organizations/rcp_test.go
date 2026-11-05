@@ -12,62 +12,68 @@ import (
 func TestRCPContentValidation(t *testing.T) {
 	t.Parallel()
 
+	const (
+		head = `{"Version":"2012-10-17","Statement":`
+		deny = `{"Effect":"Deny","Principal":"*",`
+	)
+
 	tests := []struct {
 		name    string
 		content string
 		wantErr string
 	}{
 		{
-			name:    "valid_deny_with_condition",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":["s3:*","sts:AssumeRole"],"Resource":"*","Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}`,
+			name: "valid_deny_with_condition",
+			content: head + `[` + deny + `"Action":["s3:*","sts:AssumeRole"],"Resource":"*",` +
+				`"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}`,
 		},
 		{
 			name:    "valid_single_statement_object_notresource",
-			content: `{"Version":"2012-10-17","Statement":{"Effect":"Deny","Principal":"*","Action":"kms:Decrypt","NotResource":"arn:aws:kms:*:*:key/x"}}`,
+			content: head + deny + `"Action":"kms:Decrypt","NotResource":"arn:aws:kms:*:*:key/x"}}`,
 		},
 		{
 			name:    "allow_effect_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:*","Resource":"*"}]}`,
+			content: head + `[{"Effect":"Allow","Principal":"*","Action":"s3:*","Resource":"*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 		{
 			name:    "principal_must_be_star",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":{"AWS":"*"},"Action":"s3:*","Resource":"*"}]}`,
+			content: head + `[{"Effect":"Deny","Principal":{"AWS":"*"},"Action":"s3:*","Resource":"*"}]}`,
 			wantErr: "InvalidInputException",
 		},
 		{
 			name:    "missing_principal_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Action":"s3:*","Resource":"*"}]}`,
+			content: head + `[{"Effect":"Deny","Action":"s3:*","Resource":"*"}]}`,
 			wantErr: "InvalidInputException",
 		},
 		{
 			name:    "notprincipal_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","NotPrincipal":"*","Action":"s3:*","Resource":"*"}]}`,
+			content: head + `[{"Effect":"Deny","NotPrincipal":"*","Action":"s3:*","Resource":"*"}]}`,
 			wantErr: "InvalidInputException",
 		},
 		{
 			name:    "notaction_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","NotAction":"s3:*","Resource":"*"}]}`,
+			content: head + `[` + deny + `"NotAction":"s3:*","Resource":"*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 		{
 			name:    "bare_star_action_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"*","Resource":"*"}]}`,
+			content: head + `[` + deny + `"Action":"*","Resource":"*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 		{
 			name:    "unsupported_service_rejected",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"ec2:*","Resource":"*"}]}`,
+			content: head + `[` + deny + `"Action":"ec2:*","Resource":"*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 		{
 			name:    "resource_required",
-			content: `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:*"}]}`,
+			content: head + `[` + deny + `"Action":"s3:*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 		{
 			name:    "wrong_version_rejected",
-			content: `{"Version":"2008-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"s3:*","Resource":"*"}]}`,
+			content: `{"Version":"2008-10-17","Statement":[` + deny + `"Action":"s3:*","Resource":"*"}]}`,
 			wantErr: "MalformedPolicyDocumentException",
 		},
 	}
@@ -124,7 +130,7 @@ func TestRCPsForAccount(t *testing.T) {
 	assert.NotEmpty(t, o.b.OrgIDForAccount("000000000000"))
 	assert.Empty(t, o.b.OrgIDForAccount("999999999999"))
 
-	assert.ErrorContains(t, o.b.DetachPolicy("p-RCPFullAWSAccess", o.ouID), "InvalidInputException")
+	require.ErrorContains(t, o.b.DetachPolicy("p-RCPFullAWSAccess", o.ouID), "InvalidInputException")
 
 	_, err = o.b.DisablePolicyType(o.rootID, "RESOURCE_CONTROL_POLICY")
 	require.NoError(t, err)

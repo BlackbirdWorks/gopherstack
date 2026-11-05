@@ -26,6 +26,8 @@ const (
 	acctPeer    = "333333333333"
 	acctOutside = "222222222222"
 	acctMgmt    = "000000000000"
+
+	rcpARNPrefix = "arn:aws:organizations::000000000000:policy/o-test/resource_control_policy/p-"
 )
 
 type fakeOrg struct {
@@ -62,7 +64,11 @@ func (f fakeBucketOwners) ResourceOwnerAccount(_ context.Context, resourceARN st
 	return a, found
 }
 
-func (f fakeBucketOwners) get(k string) (string, bool) { a, ok := f[k]; return a, ok }
+func (f fakeBucketOwners) get(k string) (string, bool) {
+	a, ok := f[k]
+
+	return a, ok
+}
 
 // levels returns one hierarchy level holding every doc.
 func levels(docs ...string) []iam.SCPLevel {
@@ -70,7 +76,7 @@ func levels(docs ...string) []iam.SCPLevel {
 
 	for i, d := range docs {
 		lvl.Policies = append(lvl.Policies, iam.SCPPolicy{
-			ARN:      "arn:aws:organizations::" + acctMgmt + ":policy/o-test/resource_control_policy/p-" + string(rune('a'+i)),
+			ARN:      rcpARNPrefix + string(rune('a'+i)),
 			Document: d,
 		})
 	}
