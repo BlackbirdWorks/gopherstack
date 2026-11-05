@@ -1,0 +1,67 @@
+name: lint-setup
+description: Disk, swap, Go and golangci-lint setup shared by the lint jobs
+runs:
+  using: composite
+  steps:
+    # Full-repo lint (go.mod/.golangci.yml changed) exhausts the default runner disk; lint needs no docker images or apt packages.
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+      with:
+        tool-cache: true
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
+    - name: Keep Go temp files and build cache off the /tmp tmpfs
+      shell: bash
+      run: |
+        # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
+        if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
+        sudo mkdir -p "$base/gotmp" "$base/gocache"
+        sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
+        {
+          echo "GOTMPDIR=$base/gotmp"
+          echo "TMPDIR=$base/gotmp"
+          echo "GOCACHE=$base/gocache"
+        } >> "$GITHUB_ENV"
+        df -h / /tmp "$base" || true
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: go.mod
+        check-latest: true
+        cache: true
+
+    - name: Download Go modules (retry proxy stream errors)
+      shell: bash
+      run: |
+        for i in 1 2 3 4 5; do
+          go mod download && exit 0
+          sleep $((i * 15))
+        done
+        exit 1
+
+    # Full-repo lint (go.mod changed) exceeds runner RAM; the runner is killed without swap.
+    - name: Add swap
+      shell: bash
+      run: |
+        sudo swapoff -a || true
+        sudo fallocate -l 16G /mnt/lint.swap
+        sudo chmod 600 /mnt/lint.swap
+        sudo mkswap /mnt/lint.swap
+        sudo swapon /mnt/lint.swap
+
+    - name: Read golangci-lint version
+      id: golangci-lint-version
+      shell: bash
+      run: |
+        echo "version=$(sed -n 's/^  GOLANGCI_LINT_VERSION: \(.*\)$/\1/p' Taskfile.yml)" >> "$GITHUB_OUTPUT"
+
+    - name: Install golangci-lint
+      shell: bash
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "v${{ steps.golangci-lint-version.outputs.version }}"

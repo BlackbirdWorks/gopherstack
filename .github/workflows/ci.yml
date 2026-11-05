@@ -52,7 +52,36 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
 
-  lint:
+  # Required status check "lint" is the aggregator at the bottom of this group.
+  # Config change (or no base): sharded full-repo lint. Otherwise: changed
+  # packages plus importers of any go.mod-bumped module (lint-changed.sh).
+  lint-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+          fetch-depth: 0
+
+      - name: Decide lint scope
+        id: mode
+        run: |
+          set -euo pipefail
+          mode=full
+          if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
+            merge_base=$(git merge-base HEAD origin/main)
+            if git diff --quiet "$merge_base" HEAD -- .golangci.yml; then
+              mode=changed
+            fi
+          fi
+          echo "lint: scope=$mode"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+  lint-changed:
+    needs: [lint-scope]
+    if: needs.lint-scope.outputs.mode == 'changed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,78 +89,44 @@ jobs:
           token: ${{ env.GH_CI_TOKEN }}
           fetch-depth: 0
 
-      # Full-repo lint (go.mod/.golangci.yml changed) exhausts the default runner disk; lint needs no docker images or apt packages.
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # main
+      - uses: ./.github/actions/lint-setup
+
+      - name: Run golangci-lint on changed packages
+        run: bash scripts/lint-changed.sh
+
+  lint-shard:
+    needs: [lint-scope]
+    if: needs.lint-scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [svc-a, svc-b-c, svc-d-e, svc-f-h, svc-i-m, svc-n-o, svc-p-r, svc-s, svc-t-z, pkgs, rest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+          token: ${{ env.GH_CI_TOKEN }}
+          fetch-depth: 0
 
-      - name: Keep Go temp files and build cache off the /tmp tmpfs
+      - uses: ./.github/actions/lint-setup
+
+      - name: Run golangci-lint shard
+        run: bash scripts/lint-shard.sh "${{ matrix.shard }}"
+
+  lint:
+    needs: [lint-scope, lint-changed, lint-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every lint job to pass or be skipped by scope
+        env:
+          RESULTS: ${{ needs.lint-scope.result }} ${{ needs.lint-changed.result }} ${{ needs.lint-shard.result }}
         run: |
-          # /tmp is a small tmpfs on hosted runners; use /mnt when mounted, else the root disk.
-          if mountpoint -q /mnt; then base=/mnt; else base="$RUNNER_TEMP"; fi
-          sudo mkdir -p "$base/gotmp" "$base/gocache"
-          sudo chown -R "$(id -u):$(id -g)" "$base/gotmp" "$base/gocache"
-          {
-            echo "GOTMPDIR=$base/gotmp"
-            echo "TMPDIR=$base/gotmp"
-            echo "GOCACHE=$base/gocache"
-          } >> "$GITHUB_ENV"
-          df -h / /tmp "$base" || true
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          check-latest: true
-          cache: true
-
-      - name: Download Go modules (retry proxy stream errors)
-        run: |
-          for i in 1 2 3 4 5; do
-            go mod download && exit 0
-            sleep $((i * 15))
-          done
-          exit 1
-
-      # Full-repo lint (go.mod changed) exceeds runner RAM; the runner is killed without swap.
-      - name: Add swap
-        run: |
-          sudo swapoff -a || true
-          sudo fallocate -l 16G /mnt/lint.swap
-          sudo chmod 600 /mnt/lint.swap
-          sudo mkswap /mnt/lint.swap
-          sudo swapon /mnt/lint.swap
-
-      - name: Read golangci-lint version
-        id: golangci-lint-version
-        run: |
-          echo "version=$(sed -n 's/^  GOLANGCI_LINT_VERSION: \(.*\)$/\1/p' Taskfile.yml)" >> "$GITHUB_OUTPUT"
-
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b "$(go env GOPATH)/bin" "v${{ steps.golangci-lint-version.outputs.version }}"
-
-      - name: Run golangci-lint (changed packages or full repo on config change)
-        run: |
-          set -euo pipefail
-          if git rev-parse --verify -q origin/main >/dev/null 2>&1; then
-            merge_base=$(git merge-base HEAD origin/main)
-            if git diff --name-only "$merge_base" HEAD -- .golangci.yml go.mod | grep -q .; then
-              echo "lint: .golangci.yml or go.mod changed vs origin/main — running full-repo lint"
-              golangci-lint run --timeout 55m ./...
-            else
-              bash scripts/lint-changed.sh
-            fi
-          else
-            golangci-lint run --timeout 55m ./...
-          fi
+          echo "lint: results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac
+          [[ "${{ needs.lint-scope.result }}" == success ]]
 
   # Fails fast on tag-gated compile breaks (e2e, integration) before the slow
   # e2e/integration/terraform jobs run any tests -- see gopherstack-0bpp.
