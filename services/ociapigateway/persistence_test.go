@@ -1,6 +1,11 @@
 package ociapigateway_test
 
 import (
+	"context"
+	"strconv"
+	"time"
+
+	"github.com/oracle/oci-go-sdk/v65/apigateway"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -103,5 +108,77 @@ func TestProviderInit(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, ociapigateway.DefaultPort, h.Port)
 	assert.Equal(t, "OCIAPIGateway", h.Name())
-	assert.Len(t, h.GetSupportedOperations(), 22)
+	assert.Len(t, h.GetSupportedOperations(), 64)
+}
+
+func TestSnapshotRestoreNewResources(t *testing.T) {
+	t.Parallel()
+
+	e := newTLSEnv(t)
+	dep := e.mkDeployment(t, *e.gw.Id, "/u", usageSpec())
+	a := e.mkAPI(t, "persist-api", petsYAML)
+	plan := e.mkPlan(t, "persist-plan", apigateway.Entitlement{
+		Name: new("e"), Targets: []apigateway.EntitlementTarget{{DeploymentId: &dep}},
+	})
+	sub := e.mkSubscriber(t, "persist-tok", plan)
+
+	_, err := e.api.CreateSdk(t.Context(), apigateway.CreateSdkRequest{
+		CreateSdkDetails: apigateway.CreateSdkDetails{ApiId: a.Id, TargetLanguage: new("JAVA")},
+	})
+	require.NoError(t, err)
+
+	e.post(t, "/apis/"+*a.Id+"/actions/addLock", `{"type":"FULL"}`, http.StatusOK)
+
+	snap := e.handler.Snapshot(t.Context())
+
+	other := ociapigateway.NewInMemoryBackend()
+	other.SetClock(e.clock.Now)
+	require.NoError(t, other.Restore(t.Context(), snap))
+
+	gotAPI, _, err := other.GetAPI(*a.Id)
+	require.NoError(t, err)
+	assert.Len(t, gotAPI.Locks, 1)
+
+	gotSub, _, err := other.GetSubscriber(sub)
+	require.NoError(t, err)
+	assert.Equal(t, []string{plan}, gotSub.UsagePlans)
+
+	sdks, err := other.ListSDKs("", *a.Id, "", "", ociapigateway.ListOpts{})
+	require.NoError(t, err)
+	assert.Len(t, sdks.Data, 1)
+
+	content, _, _, err := other.APIContent(*a.Id)
+	require.NoError(t, err)
+	assert.Equal(t, petsYAML, content)
+
+	// the TLS material and CA bundles survive, so mutual TLS keeps working on a restored backend
+	h := ociapigateway.NewHandler(other)
+	h.Port = 0
+
+	require.NoError(t, h.StartWorker(t.Context()))
+	t.Cleanup(func() { h.Shutdown(context.Background()) })
+
+	restored := *e
+	restored.env = &env{backend: other, port: h.Port, clock: e.clock, base: e.base}
+	restored.httpsBase = "https://" + e.serverName + ":" + strconv.Itoa(h.Port)
+
+	other.Sweep()
+
+	open := e.mkDeployment(t, *e.gw.Id, "/m", `{"requestPolicies":{"mutualTls":{"isVerifiedCertificateRequired":true}},`+
+		`"routes":[`+stock("/hi", `"GET"`, "secure")+`]}`)
+	require.NotEmpty(t, open)
+
+	snap = e.handler.Snapshot(t.Context())
+	require.NoError(t, other.Restore(t.Context(), snap))
+	other.Sweep()
+
+	good := e.clientCA.issue(t, clientTemplate("c.example.com", time.Now().Add(time.Hour)))
+
+	status, _, err := restored.get(t, "/m/hi", good.tls)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, status)
+
+	status, _, err = restored.get(t, "/m/hi")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, status)
 }

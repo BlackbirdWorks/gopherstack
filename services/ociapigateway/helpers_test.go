@@ -78,6 +78,8 @@ type env struct {
 	dep     apigateway.DeploymentClient
 	api     apigateway.ApiGatewayClient
 	wr      apigateway.WorkRequestsClient
+	sub     apigateway.SubscribersClient
+	plans   apigateway.UsagePlansClient
 	base    string
 	port    int
 }
@@ -124,7 +126,14 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	e.wr, err = apigateway.NewWorkRequestsClientWithConfigurationProvider(prov)
 	require.NoError(t, err)
 
+	e.sub, err = apigateway.NewSubscribersClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
+	e.plans, err = apigateway.NewUsagePlansClientWithConfigurationProvider(prov)
+	require.NoError(t, err)
+
 	e.gw.Host, e.dep.Host, e.api.Host, e.wr.Host = e.base, e.base, e.base, e.base
+	e.sub.Host, e.plans.Host = e.base, e.base
 
 	return e
 }

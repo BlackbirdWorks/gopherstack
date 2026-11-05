@@ -31,6 +31,34 @@ const (
 	opListWorkRequests  = "ListWorkRequests"
 	opListWorkReqErrors = "ListWorkRequestErrors"
 	opListWorkReqLogs   = "ListWorkRequestLogs"
+	opCancelWorkRequest = "CancelWorkRequest"
+	opCreateAPI         = "CreateApi"
+	opGetAPI            = "GetApi"
+	opListAPIs          = "ListApis"
+	opUpdateAPI         = "UpdateApi"
+	opDeleteAPI         = "DeleteApi"
+	opChangeAPIComp     = "ChangeApiCompartment"
+	opGetAPIContent     = "GetApiContent"
+	opGetAPIDeploySpec  = "GetApiDeploymentSpecification"
+	opGetAPIValidations = "GetApiValidations"
+	opCreateSdk         = "CreateSdk"
+	opGetSdk            = "GetSdk"
+	opListSdks          = "ListSdks"
+	opUpdateSdk         = "UpdateSdk"
+	opDeleteSdk         = "DeleteSdk"
+	opListSdkLangs      = "ListSdkLanguageTypes"
+	opCreateUsagePlan   = "CreateUsagePlan"
+	opGetUsagePlan      = "GetUsagePlan"
+	opListUsagePlans    = "ListUsagePlans"
+	opUpdateUsagePlan   = "UpdateUsagePlan"
+	opDeleteUsagePlan   = "DeleteUsagePlan"
+	opChangeUPComp      = "ChangeUsagePlanCompartment"
+	opCreateSubscriber  = "CreateSubscriber"
+	opGetSubscriber     = "GetSubscriber"
+	opListSubscribers   = "ListSubscribers"
+	opUpdateSubscriber  = "UpdateSubscriber"
+	opDeleteSubscriber  = "DeleteSubscriber"
+	opChangeSubComp     = "ChangeSubscriberCompartment"
 	opAdminKeys         = "ManageAPIKeys"
 	opDataPlane         = "Invoke"
 	opUnknown           = "Unknown"
@@ -41,10 +69,24 @@ const (
 	deploymentPath      = base + "/deployments/{deploymentId}"
 	certificatePath     = base + "/certificates/{certificateId}"
 	workRequestPath     = base + "/workRequests/{workRequestId}"
+	apiPath             = base + "/apis/{apiId}"
+	sdkPath             = base + "/sdks/{sdkId}"
+	usagePlanPath       = base + "/usagePlans/{usagePlanId}"
+	subscriberPath      = base + "/subscribers/{subscriberId}"
 )
 
+// lockKinds maps each lockable resource to its path template and path parameter.
+//
+//nolint:gochecknoglobals // immutable table
+var lockKinds = []struct{ kind, path, param string }{
+	{kindGateway, gatewayPath, "gatewayId"}, {kindDeployment, deploymentPath, "deploymentId"},
+	{kindCertificate, certificatePath, "certificateId"}, {kindAPI, apiPath, "apiId"},
+	{kindSdk, sdkPath, "sdkId"}, {kindSubscriber, subscriberPath, "subscriberId"},
+	{kindUsagePlan, usagePlanPath, "usagePlanId"},
+}
+
 //nolint:gochecknoglobals // immutable route table
-var router = restroute.New([]restroute.Route{
+var router = restroute.New(append(lockRoutes(), []restroute.Route{
 	{Method: http.MethodPost, Path: base + "/gateways", Op: opCreateGateway},
 	{Method: http.MethodGet, Path: base + "/gateways", Op: opListGateways},
 	{Method: http.MethodGet, Path: gatewayPath, Op: opGetGateway},
@@ -67,7 +109,48 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodGet, Path: workRequestPath, Op: opGetWorkRequest},
 	{Method: http.MethodGet, Path: workRequestPath + "/errors", Op: opListWorkReqErrors},
 	{Method: http.MethodGet, Path: workRequestPath + "/logs", Op: opListWorkReqLogs},
-})
+	{Method: http.MethodDelete, Path: workRequestPath, Op: opCancelWorkRequest},
+	{Method: http.MethodPost, Path: base + "/apis", Op: opCreateAPI},
+	{Method: http.MethodGet, Path: base + "/apis", Op: opListAPIs},
+	{Method: http.MethodGet, Path: apiPath, Op: opGetAPI},
+	{Method: http.MethodPut, Path: apiPath, Op: opUpdateAPI},
+	{Method: http.MethodDelete, Path: apiPath, Op: opDeleteAPI},
+	{Method: http.MethodPost, Path: apiPath + "/actions/changeCompartment", Op: opChangeAPIComp},
+	{Method: http.MethodGet, Path: apiPath + "/content", Op: opGetAPIContent},
+	{Method: http.MethodGet, Path: apiPath + "/deploymentSpecification", Op: opGetAPIDeploySpec},
+	{Method: http.MethodGet, Path: apiPath + "/validations", Op: opGetAPIValidations},
+	{Method: http.MethodPost, Path: base + "/sdks", Op: opCreateSdk},
+	{Method: http.MethodGet, Path: base + "/sdks", Op: opListSdks},
+	{Method: http.MethodGet, Path: sdkPath, Op: opGetSdk},
+	{Method: http.MethodPut, Path: sdkPath, Op: opUpdateSdk},
+	{Method: http.MethodDelete, Path: sdkPath, Op: opDeleteSdk},
+	{Method: http.MethodGet, Path: base + "/sdkLanguageTypes", Op: opListSdkLangs},
+	{Method: http.MethodPost, Path: base + "/usagePlans", Op: opCreateUsagePlan},
+	{Method: http.MethodGet, Path: base + "/usagePlans", Op: opListUsagePlans},
+	{Method: http.MethodGet, Path: usagePlanPath, Op: opGetUsagePlan},
+	{Method: http.MethodPut, Path: usagePlanPath, Op: opUpdateUsagePlan},
+	{Method: http.MethodDelete, Path: usagePlanPath, Op: opDeleteUsagePlan},
+	{Method: http.MethodPost, Path: usagePlanPath + "/actions/changeCompartment", Op: opChangeUPComp},
+	{Method: http.MethodPost, Path: base + "/subscribers", Op: opCreateSubscriber},
+	{Method: http.MethodGet, Path: base + "/subscribers", Op: opListSubscribers},
+	{Method: http.MethodGet, Path: subscriberPath, Op: opGetSubscriber},
+	{Method: http.MethodPut, Path: subscriberPath, Op: opUpdateSubscriber},
+	{Method: http.MethodDelete, Path: subscriberPath, Op: opDeleteSubscriber},
+	{Method: http.MethodPost, Path: subscriberPath + "/actions/changeCompartment", Op: opChangeSubComp},
+}...))
+
+func lockRoutes() []restroute.Route {
+	out := make([]restroute.Route, 0, 2*len(lockKinds))
+
+	for _, k := range lockKinds {
+		out = append(out,
+			restroute.Route{Method: http.MethodPost, Path: k.path + "/actions/addLock", Op: "Add" + k.kind + "Lock"},
+			restroute.Route{Method: http.MethodPost, Path: k.path + "/actions/removeLock", Op: "Remove" + k.kind + "Lock"},
+		)
+	}
+
+	return out
+}
 
 type route struct {
 	params map[string]string

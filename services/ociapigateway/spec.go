@@ -111,7 +111,9 @@ type additionalDoc struct {
 }
 
 type validationDoc struct {
-	Additional          *additionalDoc `json:"additionalValidationPolicy"`
+	Additional          *additionalDoc    `json:"additionalValidationPolicy"`
+	ClientDetails       *clientDetailsDoc `json:"clientDetails"`
+	SourceURI           *sourceURIDoc     `json:"sourceUriDetails"`
 	URI                 string         `json:"uri"`
 	Type                string         `json:"type"`
 	MaxCacheHours       *int           `json:"maxCacheDurationInHours"`
@@ -147,9 +149,9 @@ type requestPolicies struct {
 	Authentication        *authDoc        `json:"authentication"`
 	RateLimiting          *rateDoc        `json:"rateLimiting"`
 	Cors                  *corsDoc        `json:"cors"`
-	MutualTLS             json.RawMessage `json:"mutualTls"`
-	UsagePlans            json.RawMessage `json:"usagePlans"`
-	DynamicAuthentication json.RawMessage `json:"dynamicAuthentication"`
+	MutualTLS             *mtlsDoc        `json:"mutualTls"`
+	UsagePlans            *usagePlansDoc  `json:"usagePlans"`
+	DynamicAuthentication *dynamicAuthDoc `json:"dynamicAuthentication"`
 }
 
 type setItem struct {
@@ -200,15 +202,15 @@ type routeRequestPolicies struct {
 	Cors                *corsDoc        `json:"cors"`
 	HeaderTransform     *transformDoc   `json:"headerTransformations"`
 	QueryTransform      *transformDoc   `json:"queryParameterTransformations"`
-	QueryValidations    json.RawMessage `json:"queryParameterValidations"`
-	HeaderValidations   json.RawMessage `json:"headerValidations"`
-	BodyValidation      json.RawMessage `json:"bodyValidation"`
-	ResponseCacheLookup json.RawMessage `json:"responseCacheLookup"`
+	QueryValidations    *paramValidationDoc `json:"queryParameterValidations"`
+	HeaderValidations   *paramValidationDoc `json:"headerValidations"`
+	BodyValidation      *bodyValidationDoc  `json:"bodyValidation"`
+	ResponseCacheLookup *cacheLookupDoc     `json:"responseCacheLookup"`
 }
 
 type routeResponsePolicies struct {
 	HeaderTransform    *transformDoc   `json:"headerTransformations"`
-	ResponseCacheStore json.RawMessage `json:"responseCacheStore"`
+	ResponseCacheStore *cacheStoreDoc  `json:"responseCacheStore"`
 }
 
 type routeDoc struct {
@@ -312,12 +314,8 @@ func validateRequestPolicies(p *requestPolicies) *APIError {
 		return nil
 	}
 
-	for name, raw := range map[string]json.RawMessage{
-		"mutualTls": p.MutualTLS, "usagePlans": p.UsagePlans, "dynamicAuthentication": p.DynamicAuthentication,
-	} {
-		if isPresent(raw) {
-			return errUnsupported("requestPolicies." + name)
-		}
+	if err := validateGlobalPolicies(p); err != nil {
+		return err
 	}
 
 	if p.RateLimiting != nil {
@@ -336,6 +334,7 @@ func validateRequestPolicies(p *requestPolicies) *APIError {
 
 	return validateAuth(p.Authentication)
 }
+
 
 func validateCors(c *corsDoc, where string) *APIError {
 	if c == nil {
@@ -394,6 +393,10 @@ func validateJWT(a *authDoc) *APIError {
 func validateTokenPolicy(a *authDoc) *APIError {
 	if a.ValidationPolicy == nil {
 		return errMissing("TOKEN_AUTHENTICATION requires validationPolicy")
+	}
+
+	if a.ValidationPolicy.Type == keysRemoteDiscovery {
+		return validateRemoteDiscovery(a.ValidationPolicy)
 	}
 
 	return validateKeySource(a.ValidationPolicy.Type, a.ValidationPolicy.URI, a.ValidationPolicy.Keys)
@@ -525,13 +528,8 @@ func validateRouteRequestPolicies(p *routeRequestPolicies) *APIError {
 		return nil
 	}
 
-	for name, raw := range map[string]json.RawMessage{
-		"queryParameterValidations": p.QueryValidations, "headerValidations": p.HeaderValidations,
-		"bodyValidation": p.BodyValidation, "responseCacheLookup": p.ResponseCacheLookup,
-	} {
-		if isPresent(raw) {
-			return errUnsupported("route requestPolicies." + name)
-		}
+	if err := validateRouteValidations(p); err != nil {
+		return err
 	}
 
 	if a := p.Authorization; a != nil {
@@ -550,8 +548,7 @@ func validateRouteRequestPolicies(p *routeRequestPolicies) *APIError {
 }
 
 func checkAnonymousRoutes(doc *specDoc) *APIError {
-	anonymousOK := doc.RequestPolicies != nil && doc.RequestPolicies.Authentication != nil &&
-		doc.RequestPolicies.Authentication.IsAnonymousAllowed != nil && *doc.RequestPolicies.Authentication.IsAnonymousAllowed
+	anonymousOK := anonymousAllowed(doc.RequestPolicies)
 
 	for i := range doc.Routes {
 		p := doc.Routes[i].RequestPolicies
@@ -561,6 +558,26 @@ func checkAnonymousRoutes(doc *specDoc) *APIError {
 	}
 
 	return nil
+}
+
+func anonymousAllowed(rp *requestPolicies) bool {
+	if rp == nil {
+		return false
+	}
+
+	if rp.Authentication != nil && isTrue(rp.Authentication.IsAnonymousAllowed) {
+		return true
+	}
+
+	if d := rp.DynamicAuthentication; d != nil {
+		for i := range d.Servers {
+			if s := d.Servers[i].Detail; s != nil && isTrue(s.IsAnonymousAllowed) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func httpURL(u *url.URL) bool {

@@ -1,6 +1,7 @@
 package ociapigateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"maps"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -20,6 +22,7 @@ type target struct {
 	depID   string
 	rel     string
 	gateway string
+	cacheOn bool
 }
 
 func writeGWError(w http.ResponseWriter, status int, msg string) {
@@ -60,7 +63,9 @@ func (b *InMemoryBackend) resolveTarget(r *http.Request) (target, bool) {
 		rel = "/"
 	}
 
-	return target{spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID}, true
+	return target{
+		spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID, cacheOn: cacheOnFor(b.gateways[gwID]),
+	}, true
 }
 
 func servable(state string) bool { return state == stateActive || state == stateUpdating }
@@ -110,6 +115,12 @@ func (b *InMemoryBackend) ServeData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rp := tgt.spec.doc.RequestPolicies
+
+	if d := b.checkMTLS(r, tgt); d.status != 0 {
+		writeGWError(w, d.status, d.msg)
+
+		return
+	}
 
 	if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" &&
 		r.Header.Get("Access-Control-Request-Method") != "" {
@@ -178,7 +189,8 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 
 	rv := &reqView{params: m.params, query: cloneValues(r.URL.Query()), header: r.Header.Clone()}
 
-	if d := b.authorize(r, rp, m.route, rv); d.status != 0 {
+	d := b.authorize(r, rp, m.route, rv)
+	if d.status != 0 {
 		if d.www != "" {
 			w.Header().Set("WWW-Authenticate", d.www)
 		}
@@ -189,12 +201,45 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 		return
 	}
 
+	uv := b.enforceUsage(r, usagePolicy(rp), tgt.depID)
+	if uv.status != 0 {
+		if uv.retry > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(uv.retry))
+		}
+
+		corsHeaders(w.Header(), cors, origin)
+		writeGWError(w, uv.status, uv.msg)
+
+		return
+	}
+
+	if fail, soft := validateRequest(r, m.route.doc.RequestPolicies, body); fail != "" || soft != "" {
+		if fail != "" {
+			b.refundQuota(uv.refund)
+			corsHeaders(w.Header(), cors, origin)
+			writeGWError(w, http.StatusBadRequest, fail)
+
+			return
+		}
+
+		logger.Load(r.Context()).InfoContext(r.Context(), "ociapigateway: request failed PERMISSIVE validation", "reason", soft)
+	}
+
 	if pol := m.route.doc.RequestPolicies; pol != nil {
 		transformHeaders(rv.header, pol.HeaderTransform, rv)
 		transformQuery(rv.query, pol.QueryTransform, rv)
 	}
 
+	rc := cachePlan(tgt, m.route, r, rv, d.claims)
+	if rc.active && !rc.bypass && b.cacheServe(w, r, rc, cors) {
+		return
+	}
+
 	res := b.runBackend(r.Context(), m.route.doc.Backend, r, rv, body)
+	if res.err != nil || res.status >= http.StatusInternalServerError {
+		b.refundQuota(uv.refund)
+	}
+
 	if res.err != nil {
 		corsHeaders(w.Header(), cors, origin)
 		writeGWError(w, http.StatusBadGateway, "Bad Gateway")
@@ -208,7 +253,43 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 		transformHeaders(res.header, pol.HeaderTransform, rv)
 	}
 
-	corsHeaders(res.header, cors, origin)
+	b.respond(w, r, res, respondOpts{cors: cors, cache: rc, tgt: tgt})
+}
+
+type respondOpts struct {
+	cors  *corsDoc
+	tgt   target
+	cache routeCache
+}
+
+// respond writes the backend response, storing it in the response cache when the route's policies call for it.
+func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res backendResponse, o respondOpts) {
+	var captured []byte
+
+	storable := o.cache.active && !o.cache.bypass && cachedStatus(res.status)
+	if storable {
+		captured, _ = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
+		storable = len(captured) <= cacheMaxBody
+
+		res.body = io.NopCloser(io.MultiReader(bytes.NewReader(captured), res.body))
+	}
+
+	if storable {
+		stored := res.header.Clone()
+		now := b.clock()
+		b.cache.put(o.cache.key, &cacheEntry{
+			status: res.status, header: stored, body: captured, dep: o.tgt.depID, expires: now.Add(o.cache.ttl),
+		}, now)
+	}
+
+	switch {
+	case o.cache.bypass:
+		res.header.Set(cacheStatusHeader, cacheBypass)
+	case o.cache.active:
+		res.header.Set(cacheStatusHeader, cacheMiss)
+	}
+
+	corsHeaders(res.header, o.cors, r.Header.Get("Origin"))
 
 	maps.Copy(w.Header(), res.header)
 
@@ -230,13 +311,27 @@ func cloneValues(v url.Values) url.Values {
 
 // denial is an authentication or authorization refusal; a zero status means the request may proceed.
 type denial struct {
+	claims map[string]any
 	www    string
 	msg    string
 	status int
 }
 
+func usagePolicy(rp *requestPolicies) *usagePlansDoc {
+	if rp == nil {
+		return nil
+	}
+
+	return rp.UsagePlans
+}
+
 func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route *compiledRoute, rv *reqView) denial {
-	if rp == nil || rp.Authentication == nil {
+	a, ok := authPolicy(rp, rv)
+	if !ok {
+		return denial{status: http.StatusUnauthorized, msg: "Unauthorized"}
+	}
+
+	if a == nil {
 		return denial{}
 	}
 
@@ -250,7 +345,7 @@ func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route 
 		return denial{}
 	}
 
-	res, anonymous := b.authenticate(r.Context(), rp.Authentication, r, rv)
+	res, anonymous := b.authenticate(r.Context(), a, r, rv)
 	if !res.ok {
 		return denial{status: http.StatusUnauthorized, www: res.wwwAuth, msg: "Unauthorized"}
 	}
@@ -259,7 +354,7 @@ func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route 
 		return denial{status: http.StatusForbidden, msg: "Forbidden"}
 	}
 
-	return denial{}
+	return denial{claims: res.claims}
 }
 
 func hasAnyScope(have, allowed []string) bool {

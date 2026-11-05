@@ -71,6 +71,14 @@ func entityPath(entityType string) string {
 		return "/gateways/"
 	case entityDeploy:
 		return "/deployments/"
+	case entityAPI:
+		return "/apis/"
+	case entitySdk:
+		return "/sdks/"
+	case entityUsagePlan:
+		return "/usagePlans/"
+	case entitySubscribe:
+		return "/subscribers/"
 	default:
 		return "/certificates/"
 	}
@@ -101,6 +109,11 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	if !wr.FinishAt.After(now) {
 		out.Status, out.PercentComplete, out.TimeFinished = "SUCCEEDED", 100, &wr.FinishAt
 		out.Resources[0].ActionType = wr.Action
+
+		if wr.Canceled {
+			out.Status, out.PercentComplete = "CANCELED", halfComplete
+			out.Resources[0].ActionType = "IN_PROGRESS"
+		}
 	}
 
 	return out
@@ -157,6 +170,30 @@ func (b *InMemoryBackend) ListWorkRequests(
 	return page.Page[workRequestSummaryWire]{Data: out, Next: pg.Next}, nil
 }
 
+// CancelWorkRequest cancels a work request that has not finished; the resource transition it describes still runs.
+func (b *InMemoryBackend) CancelWorkRequest(id, ifMatch string) error {
+	b.mu.Lock("CancelWorkRequest")
+	defer b.mu.Unlock()
+
+	wr, ok := b.workReqs[id]
+	if !ok {
+		return errNotFound(id)
+	}
+
+	if ifMatch != "" {
+		return errEtag()
+	}
+
+	now := b.nowUTC()
+	if !wr.FinishAt.After(now) {
+		return errState("work request " + id + " has already finished")
+	}
+
+	wr.Canceled, wr.FinishAt = true, now
+
+	return nil
+}
+
 // WorkRequestLogs returns the log entries of a work request.
 func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[wrLogWire], error) {
 	b.mu.RLock("WorkRequestLogs")
@@ -168,7 +205,11 @@ func (b *InMemoryBackend) WorkRequestLogs(id string, o ListOpts) (page.Page[wrLo
 	}
 
 	logs := []wrLogWire{{Timestamp: wr.Accepted, Message: wr.Operation + " accepted"}}
-	if !wr.FinishAt.After(b.nowUTC()) {
+
+	switch {
+	case wr.Canceled:
+		logs = append(logs, wrLogWire{Timestamp: wr.FinishAt, Message: wr.Operation + " canceled"})
+	case !wr.FinishAt.After(b.nowUTC()):
 		logs = append(logs, wrLogWire{Timestamp: wr.FinishAt, Message: wr.Operation + " succeeded"})
 	}
 
@@ -191,6 +232,16 @@ func (h *Handler) getWorkRequest(q *req) error {
 	w, err := h.Backend.GetWorkRequest(q.param("workRequestId"))
 
 	return reply(q, w, "", err)
+}
+
+func (h *Handler) cancelWorkRequest(q *req) error {
+	if err := h.Backend.CancelWorkRequest(q.param("workRequestId"), q.ifMatch()); err != nil {
+		return err
+	}
+
+	q.w.WriteHeader(http.StatusAccepted)
+
+	return nil
 }
 
 func (h *Handler) listWorkRequests(q *req) error {

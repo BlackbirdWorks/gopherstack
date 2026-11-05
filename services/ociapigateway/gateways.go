@@ -12,7 +12,7 @@ import (
 
 type createGatewayIn struct {
 	Tags
-	Locks         json.RawMessage `json:"locks"`
+	Locks         []lockIn        `json:"locks"`
 	CaBundles     json.RawMessage `json:"caBundles"`
 	ResponseCache json.RawMessage `json:"responseCacheDetails"`
 	DisplayName   string          `json:"displayName"`
@@ -43,7 +43,7 @@ type GatewayWire struct {
 	TimeUpdated    time.Time                 `json:"timeUpdated"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
-	Locks          json.RawMessage           `json:"locks,omitempty"`
+	Locks          []Lock                    `json:"locks,omitempty"`
 	CaBundles      json.RawMessage           `json:"caBundles,omitempty"`
 	ResponseCache  json.RawMessage           `json:"responseCacheDetails,omitempty"`
 	ID             string                    `json:"id"`
@@ -110,19 +110,11 @@ func (b *InMemoryBackend) validateGateway(in *createGatewayIn) *APIError {
 		return errParam("ipMode must be IPV4, IPV6 or DUAL_STACK")
 	}
 
-	if len(in.ResponseCache) > 0 && string(in.ResponseCache) != jsonNull && !jsonIsNoCache(in.ResponseCache) {
-		return errUnsupported("responseCacheDetails other than type NONE")
+	if err := validateResponseCache(in.ResponseCache); err != nil {
+		return err
 	}
 
 	return b.checkCertificateRef(in.CertificateID)
-}
-
-func jsonIsNoCache(raw json.RawMessage) bool {
-	var d struct {
-		Type string `json:"type"`
-	}
-
-	return json.Unmarshal(raw, &d) == nil && d.Type == "NONE"
 }
 
 func (b *InMemoryBackend) gatewayNameTaken(compartment, name, except string) bool {
@@ -146,6 +138,12 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	}
 
 	now := b.nowUTC()
+
+	locks, lerr := newLocks(in.Locks, now)
+	if lerr != nil {
+		return GatewayWire{}, "", "", lerr
+	}
+
 	name := in.DisplayName
 
 	if name == "" {
@@ -159,7 +157,7 @@ func (b *InMemoryBackend) CreateGateway(in createGatewayIn) (GatewayWire, string
 	g := &Gateway{
 		ID: newOCID("apigateway"), CompartmentID: in.CompartmentID, EndpointType: in.EndpointType,
 		DisplayName: name, SubnetID: in.SubnetID, Hostname: newHostname(), CertificateID: in.CertificateID,
-		IPMode: in.IPMode, NSGs: in.NSGs, Locks: nullRaw(in.Locks), CaBundles: nullRaw(in.CaBundles),
+		IPMode: in.IPMode, NSGs: in.NSGs, Locks: locks, CaBundles: nullRaw(in.CaBundles),
 		ResponseCache: nullRaw(in.ResponseCache), State: stateCreating, TransitionAt: b.transitionAt(),
 		TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
 	}
@@ -250,6 +248,10 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 		return "", err
 	}
 
+	if lerr := checkLocked(g.Locks, false); lerr != nil {
+		return "", lerr
+	}
+
 	if in.CertificateID != nil {
 		if cerr := b.checkCertificateRef(*in.CertificateID); cerr != nil {
 			return "", cerr
@@ -274,8 +276,13 @@ func (b *InMemoryBackend) UpdateGateway(id, ifMatch string, in updateGatewayIn) 
 		g.CaBundles = nullRaw(in.CaBundles)
 	}
 
-	if len(in.ResponseCache) > 0 && !jsonIsNoCache(in.ResponseCache) && string(in.ResponseCache) != jsonNull {
-		return "", errUnsupported("responseCacheDetails other than type NONE")
+	if len(in.ResponseCache) > 0 {
+		if cerr := validateResponseCache(in.ResponseCache); cerr != nil {
+			return "", cerr
+		}
+
+		g.ResponseCache = nullRaw(in.ResponseCache)
+		b.forgetGatewayCache(g.ID)
 	}
 
 	g.Tags.merge(in.Tags)
@@ -308,6 +315,10 @@ func (b *InMemoryBackend) DeleteGateway(id, ifMatch string) (string, error) {
 		return "", err
 	}
 
+	if lerr := checkLocked(g.Locks, true); lerr != nil {
+		return "", lerr
+	}
+
 	for _, d := range b.deployments {
 		if d.GatewayID == id && d.State != stateDeleted {
 			return "", errConflict("gateway " + id + " still has API deployments")
@@ -328,6 +339,10 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 	g, err := b.liveGateway(id)
 	if err != nil {
 		return "", err
+	}
+
+	if lerr := checkLocked(g.Locks, false); lerr != nil {
+		return "", lerr
 	}
 
 	if err = b.checkMove(g.Etag, ifMatch, in.CompartmentID); err != nil {

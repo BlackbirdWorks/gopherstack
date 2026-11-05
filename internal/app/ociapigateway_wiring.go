@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -9,6 +10,7 @@ import (
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	ocifunctions "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
+	ocivaultbackend "github.com/blackbirdworks/gopherstack/services/ocivault"
 )
 
 // GetOCIAPIGatewaySettings returns OCI API Gateway settings (ociapigateway.ConfigProvider).
@@ -59,5 +61,18 @@ func wireOCIAPIGateway(byName map[string]service.Registerable) {
 
 	if fnH, found := byName["OCIFunctions"].(*ocifunctions.Handler); found {
 		gwH.Backend.SetFunctionInvoker(ociAPIGatewayFunctions{fn: fnH.Backend})
+	}
+
+	if vaultH, found := byName["OCIVault"].(*ocivaultbackend.Handler); found {
+		gwH.Backend.SetSecretResolver(func(id string, version int64) (string, bool) {
+			w, _, err := vaultH.Backend.GetSecretBundle(id, ocivaultbackend.BundleSelector{VersionNumber: &version})
+			if err != nil || w.Content == nil {
+				return "", false
+			}
+
+			raw, derr := base64.StdEncoding.DecodeString(w.Content.Content)
+
+			return string(raw), derr == nil
+		})
 	}
 }

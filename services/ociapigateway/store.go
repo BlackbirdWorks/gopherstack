@@ -35,14 +35,23 @@ type InMemoryBackend struct {
 	deployments   map[string]*Deployment
 	certificates  map[string]*Certificate
 	workReqs      map[string]*WorkRequest
+	apis          map[string]*API
+	sdks          map[string]*SDK
+	usagePlans    map[string]*UsagePlan
+	subscribers   map[string]*Subscriber
+	caPEMs        map[string]string
 	specs         map[string]*compiledSpec
 	Auth          *ociauth.Registry
 	compartment   func(string) bool
 	subnet        func(string) bool
 	functions     FunctionInvoker
 	limiter       *rateLimiter
+	usage         *usageTracker
+	cache         *respCache
+	secrets       SecretResolver
 	client        *http.Client
 	jwks          *jwksCache
+	disco         *discoveryCache
 	transition    time.Duration
 	seq           int64
 	allowExternal bool
@@ -54,7 +63,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 	b.resetMaps()
 	b.Auth = ociauth.NewRegistry()
 	b.limiter = newRateLimiter()
+	b.usage = newUsageTracker()
+	b.cache = newRespCache()
 	b.jwks = newJWKSCache()
+	b.disco = newDiscoveryCache()
 	b.client = b.newBackendClient()
 
 	return b
@@ -64,6 +76,9 @@ func (b *InMemoryBackend) resetMaps() {
 	b.gateways, b.deployments = map[string]*Gateway{}, map[string]*Deployment{}
 	b.certificates, b.workReqs = map[string]*Certificate{}, map[string]*WorkRequest{}
 	b.specs = map[string]*compiledSpec{}
+	b.apis, b.sdks = map[string]*API{}, map[string]*SDK{}
+	b.usagePlans, b.subscribers = map[string]*UsagePlan{}, map[string]*Subscriber{}
+	b.caPEMs = map[string]string{}
 }
 
 // newBackendClient builds the data-plane HTTP client. The dial guard rejects non-loopback peers
@@ -135,7 +150,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Unlock()
 	b.Auth.Reset()
 	b.limiter.reset()
+	b.usage.reset()
+	b.cache.reset()
 	b.jwks.reset()
+	b.disco.reset()
 }
 
 func (b *InMemoryBackend) nowUTC() time.Time { return b.now().UTC() }
@@ -274,5 +292,21 @@ func (b *InMemoryBackend) Sweep() {
 
 	for _, c := range b.certificates {
 		settleState(&c.State, &c.TransitionAt, now)
+	}
+
+	for _, a := range b.apis {
+		settleState(&a.State, &a.TransitionAt, now)
+	}
+
+	for _, s := range b.sdks {
+		settleState(&s.State, &s.TransitionAt, now)
+	}
+
+	for _, p := range b.usagePlans {
+		settleState(&p.State, &p.TransitionAt, now)
+	}
+
+	for _, s := range b.subscribers {
+		settleState(&s.State, &s.TransitionAt, now)
 	}
 }

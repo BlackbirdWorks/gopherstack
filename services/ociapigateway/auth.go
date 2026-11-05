@@ -40,6 +40,7 @@ var (
 
 // authResult is the outcome of authenticating a data-plane request.
 type authResult struct {
+	claims  map[string]any
 	wwwAuth string
 	scopes  []string
 	ok      bool
@@ -329,7 +330,7 @@ func (b *InMemoryBackend) verifyJWT(ctx context.Context, a *authDoc, token strin
 		return authResult{}
 	}
 
-	return authResult{ok: true, scopes: scopesOf(claims)}
+	return authResult{ok: true, scopes: scopesOf(claims), claims: claims}
 }
 
 // checkKeyAlg refuses a key whose type does not fit the token's signing algorithm family.
@@ -434,6 +435,10 @@ func (b *InMemoryBackend) authenticate(
 
 	if a.Type == authCustom {
 		return b.customAuth(ctx, a, token, rv), false
+	}
+
+	if a.Type == authToken && a.ValidationPolicy != nil && a.ValidationPolicy.Type == keysRemoteDiscovery {
+		return b.introspect(ctx, a, token), false
 	}
 
 	return b.verifyJWT(ctx, a, token), false

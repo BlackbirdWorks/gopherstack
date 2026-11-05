@@ -3,7 +3,6 @@ package ociapigateway
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"time"
 
@@ -18,7 +17,7 @@ type createCertificateIn struct {
 	PrivateKey    string          `json:"privateKey"`
 	Certificate   string          `json:"certificate"`
 	Intermediate  string          `json:"intermediateCertificates"`
-	Locks         json.RawMessage `json:"locks"`
+	Locks         []lockIn `json:"locks"`
 }
 
 type updateCertificateIn struct {
@@ -33,7 +32,7 @@ type CertificateWire struct {
 	TimeNotValidAfter time.Time                 `json:"timeNotValidAfter"`
 	DefinedTags       map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags      map[string]string         `json:"freeformTags,omitempty"`
-	Locks             json.RawMessage           `json:"locks,omitempty"`
+	Locks             []Lock                    `json:"locks,omitempty"`
 	ID                string                    `json:"id"`
 	CompartmentID     string                    `json:"compartmentId"`
 	DisplayName       string                    `json:"displayName"`
@@ -140,6 +139,12 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 
 	now := b.nowUTC()
+
+	locks, lerr := newLocks(in.Locks, now)
+	if lerr != nil {
+		return CertificateWire{}, "", "", lerr
+	}
+
 	name := in.DisplayName
 
 	if name == "" {
@@ -154,8 +159,8 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 
 	c := &Certificate{
 		ID: newOCID("apigatewaycertificate"), CompartmentID: in.CompartmentID, DisplayName: name,
-		CertPEM: in.Certificate, Intermediate: in.Intermediate, SubjectNames: subjectNames(leaf),
-		TimeNotValidAfter: leaf.NotAfter.UTC(), Locks: nullRaw(in.Locks), State: stateCreating,
+		CertPEM: in.Certificate, Intermediate: in.Intermediate, PrivateKey: in.PrivateKey, SubjectNames: subjectNames(leaf),
+		TimeNotValidAfter: leaf.NotAfter.UTC(), Locks: locks, State: stateCreating,
 		TransitionAt: b.transitionAt(), TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
 	}
 	b.certificates[c.ID] = c
@@ -237,6 +242,10 @@ func (b *InMemoryBackend) UpdateCertificate(id, ifMatch string, in updateCertifi
 		return "", err
 	}
 
+	if lerr := checkLocked(c.Locks, false); lerr != nil {
+		return "", lerr
+	}
+
 	if in.DisplayName != nil && *in.DisplayName != "" {
 		if b.certNameTaken(c.CompartmentID, *in.DisplayName, c.ID) {
 			return "", errConflict("a certificate named " + *in.DisplayName + " already exists in this compartment")
@@ -270,6 +279,10 @@ func (b *InMemoryBackend) DeleteCertificate(id, ifMatch string) (string, error) 
 		return "", err
 	}
 
+	if lerr := checkLocked(c.Locks, true); lerr != nil {
+		return "", lerr
+	}
+
 	for _, g := range b.gateways {
 		if g.CertificateID == id && g.State != stateDeleted {
 			return "", errConflict("certificate " + id + " is used by gateway " + g.ID)
@@ -290,6 +303,10 @@ func (b *InMemoryBackend) ChangeCertificateCompartment(id, ifMatch string, in ch
 	c, err := b.liveCertificate(id)
 	if err != nil {
 		return "", err
+	}
+
+	if lerr := checkLocked(c.Locks, false); lerr != nil {
+		return "", lerr
 	}
 
 	if err = b.checkMove(c.Etag, ifMatch, in.CompartmentID); err != nil {
