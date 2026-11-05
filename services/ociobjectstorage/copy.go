@@ -7,7 +7,10 @@ import (
 )
 
 // asyncLag is how long replication and cross-region copies take on the backend clock.
-const asyncLag = 30 * time.Second
+const (
+	asyncLag     = 30 * time.Second
+	inProgressAt = asyncLag / 2
+)
 
 // CopyInput is the CopyObjectDetails payload.
 type CopyInput struct {
@@ -145,7 +148,7 @@ func (b *InMemoryBackend) CopyObjectWith(ns, bucket string, in CopyInput, opt Co
 		return wr.ID, nil
 	}
 
-	if _, err = b.copyLocked(dst, o, in, hash, opt.Dest.KmsKeyID); err != nil {
+	if err = b.copyLocked(dst, o, in, hash, opt.Dest.KmsKeyID); err != nil {
 		delete(b.workRequests, wr.ID)
 
 		return "", err
@@ -167,20 +170,20 @@ func (b *InMemoryBackend) checkDestPreconds(dst *Bucket, in CopyInput) error {
 	return (Preconds{IfMatch: in.DestIfMatch, IfNoneMatch: in.DestIfNoneMatch}).check(etag, cur != nil, false)
 }
 
-func (b *InMemoryBackend) copyLocked(dst *Bucket, o *Object, in CopyInput, hash, kms string) (*Object, error) {
+func (b *InMemoryBackend) copyLocked(dst *Bucket, o *Object, in CopyInput, hash, kms string) error {
 	replaced := live(dst, in.DestinationObject) != nil
 	spec := specOf(o)
 	spec.SseHash, spec.Kms = hash, kms
 
 	stored, err := b.storeLocked(dst, in.DestinationObject, append([]byte(nil), o.Data...), copyMeta(o, dst, in), spec)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	b.recordEvent(dst, writeEventType(replaced), in.DestinationObject, stored.Etag)
 	b.replicate(dst, in.DestinationObject, false)
 
-	return stored, nil
+	return nil
 }
 
 // runPendingCopies completes cross-region copies whose due time has passed.
@@ -239,14 +242,12 @@ func (b *InMemoryBackend) finishCopy(p *PendingCopy) error {
 		return err
 	}
 
-	_, err = b.copyLocked(dst, o, p.Input, p.SseKeySha256, p.KmsKeyID)
-
-	return err
+	return b.copyLocked(dst, o, p.Input, p.SseKeySha256, p.KmsKeyID)
 }
 
 // statusAt is the wire status of a work request at now.
 func (w *WorkRequest) statusAt(now time.Time) string {
-	if w.Pending != nil && w.Status == wrAccepted && !now.Before(w.TimeAccepted.Add(asyncLag/2)) {
+	if w.Pending != nil && w.Status == wrAccepted && !now.Before(w.TimeAccepted.Add(inProgressAt)) {
 		return wrInProgress
 	}
 

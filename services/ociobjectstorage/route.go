@@ -280,17 +280,8 @@ func parseBucketConfig(rt route, m string, sub []string) route {
 		rt.op = map[string]string{
 			http.MethodGet: opGetRetention, http.MethodPut: opUpdateRetention, http.MethodDelete: opDeleteRetention,
 		}[m]
-	case "replicationPolicies":
-		if len(rest) == 0 {
-			rt.op = map[string]string{http.MethodPost: opCreateReplication, http.MethodGet: opListReplications}[m]
-
-			break
-		}
-
-		rt.id = unesc(rest[0])
-		rt.op = map[string]string{http.MethodGet: opGetReplication, http.MethodDelete: opDeleteReplication}[m]
-	case "replicationSources":
-		rt.op = map[string]string{http.MethodGet: opListReplicationSources}[m]
+	case "replicationPolicies", "replicationSources":
+		return parseReplication(rt, m, sub)
 	case "objectversions":
 		rt.op = map[string]string{http.MethodGet: opListObjectVersions}[m]
 	case "actions":
@@ -315,6 +306,27 @@ func parseBucketConfig(rt route, m string, sub []string) route {
 			}[rest[0]]
 		}
 	}
+
+	return orUnknown(rt)
+}
+
+func parseReplication(rt route, m string, sub []string) route {
+	rest := sub[1:]
+
+	if sub[0] == "replicationSources" {
+		rt.op = map[string]string{http.MethodGet: opListReplicationSources}[m]
+
+		return orUnknown(rt)
+	}
+
+	if len(rest) == 0 {
+		rt.op = map[string]string{http.MethodPost: opCreateReplication, http.MethodGet: opListReplications}[m]
+
+		return orUnknown(rt)
+	}
+
+	rt.id = unesc(rest[0])
+	rt.op = map[string]string{http.MethodGet: opGetReplication, http.MethodDelete: opDeleteReplication}[m]
 
 	return orUnknown(rt)
 }

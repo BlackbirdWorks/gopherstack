@@ -160,7 +160,13 @@ func (b *InMemoryBackend) PutObjectWith(
 		return ObjectInfo{}, err
 	}
 
-	o, err := b.storeLocked(bk, name, data, meta, writeSpec{MD5: sum, Checksum: ck, SseHash: hash, Kms: opt.SSE.KmsKeyID})
+	o, err := b.storeLocked(
+		bk,
+		name,
+		data,
+		meta,
+		writeSpec{MD5: sum, Checksum: ck, SseHash: hash, Kms: opt.SSE.KmsKeyID},
+	)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
@@ -209,6 +215,15 @@ func (b *InMemoryBackend) storeLocked(
 		o.TimeArchived = now
 	}
 
+	if err := b.placeLocked(bk, o); err != nil {
+		return nil, err
+	}
+
+	return o, nil
+}
+
+func (b *InMemoryBackend) placeLocked(bk *Bucket, o *Object) error {
+	name := o.Name
 	vs := bk.Objects[name]
 
 	switch bk.Versioning {
@@ -224,7 +239,7 @@ func (b *InMemoryBackend) storeLocked(
 			if v.VersionID != nullVersion {
 				kept = append(kept, v)
 			} else if b.underRetention(bk, v) {
-				return nil, errRetention(name)
+				return errRetention(name)
 			}
 		}
 
@@ -232,7 +247,7 @@ func (b *InMemoryBackend) storeLocked(
 	default:
 		for _, v := range vs {
 			if b.underRetention(bk, v) {
-				return nil, errRetention(name)
+				return errRetention(name)
 			}
 		}
 
@@ -240,7 +255,7 @@ func (b *InMemoryBackend) storeLocked(
 		bk.Objects[name] = []*Object{o}
 	}
 
-	return o, nil
+	return nil
 }
 
 func pick(bk *Bucket, name, versionID string) *Object {

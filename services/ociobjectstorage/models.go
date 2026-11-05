@@ -137,18 +137,18 @@ type Bucket struct {
 	Lifecycle           *Lifecycle                `json:"lifecycle,omitempty"`
 	Replication         *ReplicationPolicy        `json:"replication,omitempty"`
 	ReplicationSource   *ReplicationSource        `json:"replicationSource,omitempty"`
-	ReplQueue           []ReplTask                `json:"replQueue,omitempty"`
 	Name                string                    `json:"name"`
+	Versioning          string                    `json:"versioning"`
 	CompartmentID       string                    `json:"compartmentId"`
 	CreatedBy           string                    `json:"createdBy"`
 	Etag                string                    `json:"etag"`
 	PublicAccessType    string                    `json:"publicAccessType"`
 	StorageTier         string                    `json:"storageTier"`
-	Versioning          string                    `json:"versioning"`
+	LifecycleEtag       string                    `json:"lifecycleEtag,omitempty"`
 	AutoTiering         string                    `json:"autoTiering,omitempty"`
 	KmsKeyID            string                    `json:"kmsKeyId,omitempty"`
 	ID                  string                    `json:"id"`
-	LifecycleEtag       string                    `json:"lifecycleEtag,omitempty"`
+	ReplQueue           []ReplTask                `json:"replQueue,omitempty"`
 	ObjectEventsEnabled bool                      `json:"objectEventsEnabled"`
 	IsBucketKeyEnabled  bool                      `json:"isBucketKeyEnabled"`
 }

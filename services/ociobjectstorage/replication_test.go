@@ -24,9 +24,7 @@ func replEnv(t *testing.T) (*env, objectstorage.ReplicationPolicy) {
 
 	p, err := e.client.CreateReplicationPolicy(t.Context(), objectstorage.CreateReplicationPolicyRequest{
 		NamespaceName: new(e.ns), BucketName: new("src"),
-		CreateReplicationPolicyDetails: objectstorage.CreateReplicationPolicyDetails{
-			Name: new("to-phx"), DestinationRegionName: new(replRegion), DestinationBucketName: new("dst"),
-		},
+		Name: new("to-phx"), DestinationRegionName: new(replRegion), DestinationBucketName: new("dst"),
 	})
 	require.NoError(t, err)
 
@@ -34,6 +32,8 @@ func replEnv(t *testing.T) (*env, objectstorage.ReplicationPolicy) {
 }
 
 func headOf(t *testing.T, e *env, bucket, name string) (objectstorage.HeadObjectResponse, error) {
+	t.Helper()
+
 	return e.client.HeadObject(t.Context(), objectstorage.HeadObjectRequest{
 		NamespaceName: new(e.ns), BucketName: new(bucket), ObjectName: new(name),
 	})
@@ -49,9 +49,7 @@ func TestReplicationCopiesNewObjectsAfterClockAdvance(t *testing.T) {
 
 	p, err := e.client.CreateReplicationPolicy(t.Context(), objectstorage.CreateReplicationPolicyRequest{
 		NamespaceName: new(e.ns), BucketName: new("src"),
-		CreateReplicationPolicyDetails: objectstorage.CreateReplicationPolicyDetails{
-			Name: new("to-phx"), DestinationRegionName: new(replRegion), DestinationBucketName: new("dst"),
-		},
+		Name: new("to-phx"), DestinationRegionName: new(replRegion), DestinationBucketName: new("dst"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, objectstorage.ReplicationPolicyStatusActive, p.Status)
@@ -138,22 +136,8 @@ func TestReplicationDestinationIsReadOnly(t *testing.T) {
 	assert.Zero(t, e.backend.SweepAsync(), "a policy in CLIENT_ERROR no longer replicates")
 }
 
-func TestReplicationPolicyRules(t *testing.T) {
+func TestReplicationPolicyRejections(t *testing.T) {
 	t.Parallel()
-
-	e, p := replEnv(t)
-	e.mkBucket(t, "other", nil)
-
-	create := func(src, dst string) error {
-		_, err := e.client.CreateReplicationPolicy(t.Context(), objectstorage.CreateReplicationPolicyRequest{
-			NamespaceName: new(e.ns), BucketName: new(src),
-			CreateReplicationPolicyDetails: objectstorage.CreateReplicationPolicyDetails{
-				Name: new("p2"), DestinationRegionName: new(replRegion), DestinationBucketName: new(dst),
-			},
-		})
-
-		return err
-	}
 
 	tests := []struct {
 		name    string
@@ -169,15 +153,26 @@ func TestReplicationPolicyRules(t *testing.T) {
 		{name: "missing destination", src: "other", dst: "nope", wantHTT: 404},
 	}
 
-	t.Run("rejected", func(t *testing.T) {
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-				assert.Equal(t, tt.wantHTT, svcErr(t, create(tt.src, tt.dst)).GetHTTPStatusCode())
+			e, _ := replEnv(t)
+			e.mkBucket(t, "other", nil)
+
+			_, err := e.client.CreateReplicationPolicy(t.Context(), objectstorage.CreateReplicationPolicyRequest{
+				NamespaceName: new(e.ns), BucketName: new(tt.src),
+				Name: new("p2"), DestinationRegionName: new(replRegion), DestinationBucketName: new(tt.dst),
 			})
-		}
-	})
+			assert.Equal(t, tt.wantHTT, svcErr(t, err).GetHTTPStatusCode())
+		})
+	}
+}
+
+func TestReplicationPolicyLifecycle(t *testing.T) {
+	t.Parallel()
+
+	e, p := replEnv(t)
 
 	_, err := e.client.GetReplicationPolicy(t.Context(), objectstorage.GetReplicationPolicyRequest{
 		NamespaceName: new(e.ns), BucketName: new("src"), ReplicationId: new("nope"),
@@ -218,15 +213,13 @@ func TestReplicationSurvivesSnapshot(t *testing.T) {
 	assert.Equal(t, "v", string(o.Data))
 }
 
-func copyTo(e *env, t *testing.T, region, dst, name string) (string, error) {
+func copyTo(t *testing.T, e *env, region, dst, name string) (string, error) {
 	t.Helper()
 
 	r, err := e.client.CopyObject(t.Context(), objectstorage.CopyObjectRequest{
 		NamespaceName: new(e.ns), BucketName: new("src"),
-		CopyObjectDetails: objectstorage.CopyObjectDetails{
-			SourceObjectName: new("orig"), DestinationRegion: new(region), DestinationNamespace: new(e.ns),
-			DestinationBucket: new(dst), DestinationObjectName: new(name),
-		},
+		SourceObjectName: new("orig"), DestinationRegion: new(region), DestinationNamespace: new(e.ns),
+		DestinationBucket: new(dst), DestinationObjectName: new(name),
 	})
 	if err != nil {
 		return "", err
@@ -235,7 +228,7 @@ func copyTo(e *env, t *testing.T, region, dst, name string) (string, error) {
 	return *r.OpcWorkRequestId, nil
 }
 
-func wrStatus(e *env, t *testing.T, id string) objectstorage.WorkRequestStatusEnum {
+func wrStatus(t *testing.T, e *env, id string) objectstorage.WorkRequestStatusEnum {
 	t.Helper()
 
 	wr, err := e.client.GetWorkRequest(t.Context(), objectstorage.GetWorkRequestRequest{WorkRequestId: new(id)})
@@ -252,27 +245,32 @@ func TestCrossRegionCopyWorkRequest(t *testing.T) {
 	e.mkBucket(t, "far", nil)
 	e.put(t, "src", "orig", "payload")
 
-	id, err := copyTo(e, t, replRegion, "far", "copy")
+	id, err := copyTo(t, e, replRegion, "far", "copy")
 	require.NoError(t, err)
-	assert.Equal(t, objectstorage.WorkRequestStatusAccepted, wrStatus(e, t, id))
+	assert.Equal(t, objectstorage.WorkRequestStatusAccepted, wrStatus(t, e, id))
 
 	_, err = headOf(t, e, "far", "copy")
 	assert.Equal(t, 404, svcErr(t, err).GetHTTPStatusCode())
 
 	e.clock.Advance(20 * time.Second)
-	assert.Equal(t, objectstorage.WorkRequestStatusInProgress, wrStatus(e, t, id))
+	assert.Equal(t, objectstorage.WorkRequestStatusInProgress, wrStatus(t, e, id))
 
 	e.clock.Advance(time.Minute)
 	e.backend.SweepAsync()
-	assert.Equal(t, objectstorage.WorkRequestStatusCompleted, wrStatus(e, t, id))
+	assert.Equal(t, objectstorage.WorkRequestStatusCompleted, wrStatus(t, e, id))
 	assert.Equal(t, "payload", e.get(t, "far", "copy"))
 
 	_, err = e.client.CancelWorkRequest(t.Context(), objectstorage.CancelWorkRequestRequest{WorkRequestId: new(id)})
 	assert.Equal(t, 409, svcErr(t, err).GetHTTPStatusCode())
 
-	same, err := copyTo(e, t, oci.Region, "far", "sync-copy")
+	same, err := copyTo(t, e, oci.Region, "far", "sync-copy")
 	require.NoError(t, err)
-	assert.Equal(t, objectstorage.WorkRequestStatusCompleted, wrStatus(e, t, same), "same-region copy completes at once")
+	assert.Equal(
+		t,
+		objectstorage.WorkRequestStatusCompleted,
+		wrStatus(t, e, same),
+		"same-region copy completes at once",
+	)
 }
 
 func TestCrossRegionCopyCancelAndFailure(t *testing.T) {
@@ -280,12 +278,12 @@ func TestCrossRegionCopyCancelAndFailure(t *testing.T) {
 
 	tests := []struct {
 		name string
-		act  func(e *env, t *testing.T, id string)
+		act  func(t *testing.T, e *env, id string)
 		want objectstorage.WorkRequestStatusEnum
 	}{
 		{
 			name: "canceled", want: objectstorage.WorkRequestStatusCanceled,
-			act: func(e *env, t *testing.T, id string) {
+			act: func(t *testing.T, e *env, id string) {
 				t.Helper()
 
 				_, err := e.client.CancelWorkRequest(t.Context(), objectstorage.CancelWorkRequestRequest{
@@ -296,7 +294,7 @@ func TestCrossRegionCopyCancelAndFailure(t *testing.T) {
 		},
 		{
 			name: "source deleted before the copy runs", want: objectstorage.WorkRequestStatusFailed,
-			act: func(e *env, t *testing.T, _ string) {
+			act: func(t *testing.T, e *env, _ string) {
 				t.Helper()
 
 				_, err := e.client.DeleteObject(t.Context(), objectstorage.DeleteObjectRequest{
@@ -316,14 +314,14 @@ func TestCrossRegionCopyCancelAndFailure(t *testing.T) {
 			e.mkBucket(t, "far", nil)
 			e.put(t, "src", "orig", "payload")
 
-			id, err := copyTo(e, t, replRegion, "far", "copy")
+			id, err := copyTo(t, e, replRegion, "far", "copy")
 			require.NoError(t, err)
 
-			tt.act(e, t, id)
+			tt.act(t, e, id)
 			e.clock.Advance(time.Minute)
 			e.backend.SweepAsync()
 
-			assert.Equal(t, tt.want, wrStatus(e, t, id))
+			assert.Equal(t, tt.want, wrStatus(t, e, id))
 
 			_, err = headOf(t, e, "far", "copy")
 			assert.Equal(t, 404, svcErr(t, err).GetHTTPStatusCode())
@@ -338,7 +336,7 @@ func TestCrossRegionCopyErrors(t *testing.T) {
 	e.mkBucket(t, "src", nil)
 	e.put(t, "src", "orig", "payload")
 
-	_, err := copyTo(e, t, replRegion, "nope", "copy")
+	_, err := copyTo(t, e, replRegion, "nope", "copy")
 	assert.Equal(t, 404, svcErr(t, err).GetHTTPStatusCode(), "destination bucket must exist at accept time")
 }
 
@@ -349,6 +347,8 @@ func TestRestoreTimingPerTier(t *testing.T) {
 	e.mkBucket(t, "arch", nil)
 
 	put := func(name string, tier objectstorage.PutObjectStorageTierEnum) {
+		t.Helper()
+
 		_, err := e.client.PutObject(t.Context(), objectstorage.PutObjectRequest{
 			NamespaceName: new(e.ns), BucketName: new("arch"), ObjectName: new(name),
 			ContentLength: new(int64(1)), PutObjectBody: io.NopCloser(strings.NewReader("x")), StorageTier: tier,
@@ -356,9 +356,11 @@ func TestRestoreTimingPerTier(t *testing.T) {
 		require.NoError(t, err)
 	}
 	restore := func(name string) error {
+		t.Helper()
+
 		_, err := e.client.RestoreObjects(t.Context(), objectstorage.RestoreObjectsRequest{
 			NamespaceName: new(e.ns), BucketName: new("arch"),
-			RestoreObjectsDetails: objectstorage.RestoreObjectsDetails{ObjectName: new(name), Hours: new(3)},
+			ObjectName: new(name), Hours: new(3),
 		})
 
 		return err
@@ -400,5 +402,10 @@ func TestRestoreTimingPerTier(t *testing.T) {
 
 	h, err = headOf(t, e, "arch", "cold")
 	require.NoError(t, err)
-	assert.Equal(t, objectstorage.HeadObjectArchivalStateArchived, h.ArchivalState, "window of hours then archived again")
+	assert.Equal(
+		t,
+		objectstorage.HeadObjectArchivalStateArchived,
+		h.ArchivalState,
+		"window of hours then archived again",
+	)
 }

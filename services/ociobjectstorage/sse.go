@@ -12,13 +12,13 @@ const (
 	sseAlgorithm     = "AES256"
 	sseKeyBytes      = 32
 	keyStateEnabled  = "ENABLED"
-	hdrSSEAlgorithm  = "opc-sse-customer-algorithm"
-	hdrSSEKey        = "opc-sse-customer-key"
-	hdrSSEKeySha     = "opc-sse-customer-key-sha256"
-	hdrSrcSSEAlg     = "opc-source-sse-customer-algorithm"
-	hdrSrcSSEKey     = "opc-source-sse-customer-key"
-	hdrSrcSSEKeySha  = "opc-source-sse-customer-key-sha256"
-	hdrSSEKmsKeyID   = "opc-sse-kms-key-id"
+	hdrSSEAlgorithm  = "Opc-Sse-Customer-Algorithm"
+	hdrSSEKey        = "Opc-Sse-Customer-Key"
+	hdrSSEKeySha     = "Opc-Sse-Customer-Key-Sha256"
+	hdrSrcSSEAlg     = "Opc-Source-Sse-Customer-Algorithm"
+	hdrSrcSSEKey     = "Opc-Source-Sse-Customer-Key"
+	hdrSrcSSEKeySha  = "Opc-Source-Sse-Customer-Key-Sha256"
+	hdrSSEKmsKeyID   = "Opc-Sse-Kms-Key-Id"
 	codeSSEKeyNeeded = "InvalidSseCustomerKey"
 )
 

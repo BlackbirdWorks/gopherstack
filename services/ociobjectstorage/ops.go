@@ -360,8 +360,8 @@ func (q *req) objectHeaders(o *ObjectInfo) {
 
 func checksumFromHeaders(h http.Header) ChecksumReq {
 	return ChecksumReq{
-		Algorithm: h.Get(hdrChecksumAlg), CRC32C: h.Get("opc-content-crc32c"),
-		SHA256: h.Get("opc-content-sha256"), SHA384: h.Get("opc-content-sha384"),
+		Algorithm: h.Get(hdrChecksumAlg), CRC32C: h.Get(hdrCRC32C),
+		SHA256: h.Get(hdrSHA256), SHA384: h.Get(hdrSHA384),
 	}
 }
 

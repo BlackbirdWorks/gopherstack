@@ -3,6 +3,7 @@ package ociobjectstorage
 import (
 	"encoding/base64"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -223,50 +224,9 @@ func (b *InMemoryBackend) CommitUpload(
 		return ObjectInfo{}, err
 	}
 
-	parts := append([]CommitPart(nil), in.PartsToCommit...)
-	sort.Slice(parts, func(i, j int) bool { return parts[i].PartNum < parts[j].PartNum })
-
-	var (
-		data   []byte
-		digest []byte
-		used   []Part
-	)
-
-	for i, p := range parts {
-		stored, ok := u.Parts[p.PartNum]
-		if !ok || (i > 0 && parts[i-1].PartNum == p.PartNum) {
-			return ObjectInfo{}, newErr(
-				http.StatusBadRequest,
-				"InvalidUploadPart",
-				"Part "+strconv.Itoa(p.PartNum)+" is missing or listed twice",
-			)
-		}
-
-		if !etagMatches(p.Etag, stored.Etag) {
-			return ObjectInfo{}, newErr(
-				http.StatusBadRequest,
-				"InvalidUploadPart",
-				"ETag for part "+strconv.Itoa(p.PartNum)+" does not match",
-			)
-		}
-
-		if i < len(parts)-1 && int64(len(stored.Data)) < b.minPartSize {
-			return ObjectInfo{}, newErr(
-				http.StatusBadRequest,
-				"InvalidUploadPart",
-				"Part "+strconv.Itoa(p.PartNum)+" is smaller than the minimum part size of "+
-					strconv.FormatInt(b.minPartSize, 10)+" bytes; only the last part may be smaller",
-			)
-		}
-
-		if i > 0 && stored.ChecksumAlg != used[0].ChecksumAlg {
-			return ObjectInfo{}, errParam("All parts must be uploaded with the same opc-checksum-algorithm")
-		}
-
-		raw, _ := base64.StdEncoding.DecodeString(stored.MD5)
-		digest = append(digest, raw...)
-		data = append(data, stored.Data...)
-		used = append(used, stored)
+	used, data, digest, err := b.collectParts(u, in.PartsToCommit)
+	if err != nil {
+		return ObjectInfo{}, err
 	}
 
 	cur := live(bk, object)
@@ -280,7 +240,7 @@ func (b *InMemoryBackend) CommitUpload(
 		return ObjectInfo{}, err
 	}
 
-	mp := base64.StdEncoding.EncodeToString(md5Raw(digest)) + "-" + strconv.Itoa(len(parts))
+	mp := base64.StdEncoding.EncodeToString(md5Raw(digest)) + "-" + strconv.Itoa(len(used))
 
 	spec := writeSpec{
 		MD5: md5b64(data), MultipartMD5: mp, Checksum: assembleChecksum(used[0].ChecksumAlg, used, data),
@@ -407,3 +367,46 @@ func (b *InMemoryBackend) ListUploads(ns, bucket, token string, limit int) (page
 
 // UploadInfo returns the wire form of a freshly created upload.
 func UploadInfo(ns, bucket string, u *Upload) UploadWire { return uploadWire(ns, bucket, u) }
+
+// collectParts validates the committed parts in part-number order and returns them with the assembled data
+// and the concatenated part md5 digests.
+func (b *InMemoryBackend) collectParts(u *Upload, commit []CommitPart) ([]Part, []byte, []byte, error) {
+	parts := slices.Clone(commit)
+	sort.Slice(parts, func(i, j int) bool { return parts[i].PartNum < parts[j].PartNum })
+
+	var (
+		data, digest []byte
+		used         = make([]Part, 0, len(parts))
+	)
+
+	for i, p := range parts {
+		stored, ok := u.Parts[p.PartNum]
+		if !ok || (i > 0 && parts[i-1].PartNum == p.PartNum) {
+			return nil, nil, nil, partErr("Part " + strconv.Itoa(p.PartNum) + " is missing or listed twice")
+		}
+
+		if !etagMatches(p.Etag, stored.Etag) {
+			return nil, nil, nil, partErr("ETag for part " + strconv.Itoa(p.PartNum) + " does not match")
+		}
+
+		if i < len(parts)-1 && int64(len(stored.Data)) < b.minPartSize {
+			return nil, nil, nil, partErr(
+				"Part " + strconv.Itoa(p.PartNum) + " is smaller than the minimum part size of " +
+					strconv.FormatInt(b.minPartSize, 10) + " bytes; only the last part may be smaller",
+			)
+		}
+
+		if i > 0 && stored.ChecksumAlg != used[0].ChecksumAlg {
+			return nil, nil, nil, errParam("All parts must be uploaded with the same opc-checksum-algorithm")
+		}
+
+		raw, _ := base64.StdEncoding.DecodeString(stored.MD5)
+		digest = append(digest, raw...)
+		data = append(data, stored.Data...)
+		used = append(used, stored)
+	}
+
+	return used, data, digest, nil
+}
+
+func partErr(msg string) *APIError { return newErr(http.StatusBadRequest, "InvalidUploadPart", msg) }

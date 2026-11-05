@@ -1,7 +1,7 @@
 package ociobjectstorage_test
 
 import (
-	"crypto/md5" //nolint:gosec // OCI object md5 is an API-defined integrity checksum
+	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -34,15 +34,14 @@ func sum(alg string, data []byte) []byte {
 }
 
 func md5Sum(s string) []byte {
-	h := md5.Sum([]byte(s)) //nolint:gosec // see import
+	h := md5.Sum([]byte(s))
 
 	return h[:]
 }
 
 func sum64(alg string, data []byte) string { return base64.StdEncoding.EncodeToString(sum(alg, data)) }
 
-func putChecksum(
-	e *env, t *testing.T, alg, header, body string,
+func putChecksum(t *testing.T, e *env, alg, header, body string,
 ) (objectstorage.PutObjectResponse, error) {
 	t.Helper()
 
@@ -127,7 +126,7 @@ func TestObjectChecksums(t *testing.T) {
 				header = sum64(tt.alg, []byte("other"))
 			}
 
-			put, err := putChecksum(e, t, tt.alg, header, body)
+			put, err := putChecksum(t, e, tt.alg, header, body)
 			if tt.corrupt {
 				assert.Equal(t, "InvalidDigest", svcErr(t, err).GetCode())
 				assert.Equal(t, 400, svcErr(t, err).GetHTTPStatusCode())
@@ -176,27 +175,20 @@ func TestPutWithoutAlgorithmHasNoChecksumHeaders(t *testing.T) {
 	assert.Nil(t, head.OpcContentSha256)
 }
 
-type mpResult struct {
-	commit objectstorage.CommitMultipartUploadResponse
-	etags  []string
-	id     string
-}
-
-func startUpload(
-	e *env, t *testing.T, object string, alg objectstorage.CreateMultipartUploadOpcChecksumAlgorithmEnum,
+func startUpload(t *testing.T, e *env, object string, alg objectstorage.CreateMultipartUploadOpcChecksumAlgorithmEnum,
 ) string {
 	t.Helper()
 
 	up, err := e.client.CreateMultipartUpload(t.Context(), objectstorage.CreateMultipartUploadRequest{
 		NamespaceName: new(e.ns), BucketName: new("mp"), OpcChecksumAlgorithm: alg,
-		CreateMultipartUploadDetails: objectstorage.CreateMultipartUploadDetails{Object: new(object)},
+		Object: new(object),
 	})
 	require.NoError(t, err)
 
 	return *up.UploadId
 }
 
-func uploadPart(e *env, t *testing.T, object, id string, num int, body string) (*string, error) {
+func uploadPart(t *testing.T, e *env, object, id string, num int, body string) (*string, error) {
 	t.Helper()
 
 	r, err := e.client.UploadPart(t.Context(), objectstorage.UploadPartRequest{
@@ -211,19 +203,18 @@ func uploadPart(e *env, t *testing.T, object, id string, num int, body string) (
 	return r.ETag, nil
 }
 
-func commitParts(
-	e *env, t *testing.T, object, id string, etags []string,
+func commitParts(t *testing.T, e *env, object, id string, etags []string,
 ) (objectstorage.CommitMultipartUploadResponse, error) {
 	t.Helper()
 
-	var parts []objectstorage.CommitMultipartUploadPartDetails
+	parts := make([]objectstorage.CommitMultipartUploadPartDetails, 0, len(etags))
 	for i, et := range etags {
 		parts = append(parts, objectstorage.CommitMultipartUploadPartDetails{PartNum: new(i + 1), Etag: new(et)})
 	}
 
 	return e.client.CommitMultipartUpload(t.Context(), objectstorage.CommitMultipartUploadRequest{
 		NamespaceName: new(e.ns), BucketName: new("mp"), ObjectName: new(object), UploadId: new(id),
-		CommitMultipartUploadDetails: objectstorage.CommitMultipartUploadDetails{PartsToCommit: parts},
+		PartsToCommit: parts,
 	})
 }
 
@@ -234,24 +225,24 @@ func TestMultipartRules(t *testing.T) {
 	e.backend.SetMinPartSize(4)
 	e.mkBucket(t, "mp", nil)
 
-	id := startUpload(e, t, "rules", "")
-	small, err := uploadPart(e, t, "rules", id, 1, "AAA")
+	id := startUpload(t, e, "rules", "")
+	small, err := uploadPart(t, e, "rules", id, 1, "AAA")
 	require.NoError(t, err)
 
-	last, err := uploadPart(e, t, "rules", id, 2, "B")
+	last, err := uploadPart(t, e, "rules", id, 2, "B")
 	require.NoError(t, err)
 
-	_, err = commitParts(e, t, "rules", id, []string{*small, *last})
+	_, err = commitParts(t, e, "rules", id, []string{*small, *last})
 	require.Error(t, err)
 	assert.Equal(t, "InvalidUploadPart", svcErr(t, err).GetCode(), "non-last part below the minimum")
 
-	full, err := uploadPart(e, t, "rules", id, 1, "AAAA")
+	full, err := uploadPart(t, e, "rules", id, 1, "AAAA")
 	require.NoError(t, err)
 
-	_, err = commitParts(e, t, "rules", id, []string{*small, *last})
+	_, err = commitParts(t, e, "rules", id, []string{*small, *last})
 	assert.Equal(t, "InvalidUploadPart", svcErr(t, err).GetCode(), "overwritten part's old etag is stale")
 
-	done, err := commitParts(e, t, "rules", id, []string{*full, *last})
+	done, err := commitParts(t, e, "rules", id, []string{*full, *last})
 	require.NoError(t, err)
 
 	raw1, raw2 := md5Sum("AAAA"), md5Sum("B")
@@ -259,11 +250,11 @@ func TestMultipartRules(t *testing.T) {
 	assert.Equal(t, want, *done.OpcMultipartMd5)
 	assert.Equal(t, "AAAAB", e.get(t, "mp", "rules"))
 
-	single := startUpload(e, t, "one", "")
-	only, err := uploadPart(e, t, "one", single, 1, "x")
+	single := startUpload(t, e, "one", "")
+	only, err := uploadPart(t, e, "one", single, 1, "x")
 	require.NoError(t, err)
 
-	_, err = commitParts(e, t, "one", single, []string{*only})
+	_, err = commitParts(t, e, "one", single, []string{*only})
 	require.NoError(t, err, "a lone part is the last part")
 }
 
@@ -289,20 +280,20 @@ func TestMultipartCompositeChecksums(t *testing.T) {
 			e := newEnv(t, envOpts{})
 			e.mkBucket(t, "mp", nil)
 
-			id := startUpload(e, t, "obj", objectstorage.CreateMultipartUploadOpcChecksumAlgorithmEnum(tt.alg))
+			id := startUpload(t, e, "obj", objectstorage.CreateMultipartUploadOpcChecksumAlgorithmEnum(tt.alg))
 			etags := make([]string, len(parts))
 
-			var concat []byte
+			concat := make([]byte, 0, 64)
 
 			for i, p := range parts {
-				et, err := uploadPart(e, t, "obj", id, i+1, p)
+				et, err := uploadPart(t, e, "obj", id, i+1, p)
 				require.NoError(t, err)
 
 				etags[i] = *et
 				concat = append(concat, sum(tt.alg, []byte(p))...)
 			}
 
-			done, err := commitParts(e, t, "obj", id, etags)
+			done, err := commitParts(t, e, "obj", id, etags)
 			require.NoError(t, err)
 
 			head, err := e.client.HeadObject(t.Context(), objectstorage.HeadObjectRequest{
@@ -334,7 +325,7 @@ func TestMultipartPartChecksumMismatchAndMixedAlgorithms(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.mkBucket(t, "mp", nil)
 
-	id := startUpload(e, t, "obj", objectstorage.CreateMultipartUploadOpcChecksumAlgorithmSha256)
+	id := startUpload(t, e, "obj", objectstorage.CreateMultipartUploadOpcChecksumAlgorithmSha256)
 
 	_, err := e.client.UploadPart(t.Context(), objectstorage.UploadPartRequest{
 		NamespaceName: new(e.ns), BucketName: new("mp"), ObjectName: new("obj"), UploadId: new(id),
@@ -344,7 +335,7 @@ func TestMultipartPartChecksumMismatchAndMixedAlgorithms(t *testing.T) {
 	})
 	assert.Equal(t, "InvalidDigest", svcErr(t, err).GetCode())
 
-	first, err := uploadPart(e, t, "obj", id, 1, "a")
+	first, err := uploadPart(t, e, "obj", id, 1, "a")
 	require.NoError(t, err)
 
 	r, err := e.client.UploadPart(t.Context(), objectstorage.UploadPartRequest{
@@ -355,6 +346,6 @@ func TestMultipartPartChecksumMismatchAndMixedAlgorithms(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, sum64("CRC32C", []byte("b")), deref(r.OpcContentCrc32c))
 
-	_, err = commitParts(e, t, "obj", id, []string{*first, *r.ETag})
+	_, err = commitParts(t, e, "obj", id, []string{*first, *r.ETag})
 	assert.Equal(t, "InvalidParameter", svcErr(t, err).GetCode())
 }

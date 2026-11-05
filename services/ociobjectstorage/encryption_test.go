@@ -33,7 +33,7 @@ func (c cust) details() *objectstorage.SseCustomerKeyDetails {
 	}
 }
 
-func putSSE(e *env, t *testing.T, name, body string, c cust) error {
+func putSSE(t *testing.T, e *env, name, body string, c cust) error {
 	t.Helper()
 
 	_, err := e.client.PutObject(t.Context(), objectstorage.PutObjectRequest{
@@ -45,7 +45,7 @@ func putSSE(e *env, t *testing.T, name, body string, c cust) error {
 	return err
 }
 
-func getSSE(e *env, t *testing.T, name string, c *cust) (string, error) {
+func getSSE(t *testing.T, e *env, name string, c *cust) (string, error) {
 	t.Helper()
 
 	r := objectstorage.GetObjectRequest{NamespaceName: new(e.ns), BucketName: new("sse"), ObjectName: new(name)}
@@ -90,9 +90,9 @@ func TestSSECustomerKey(t *testing.T) {
 
 			e := newEnv(t, envOpts{})
 			e.mkBucket(t, "sse", nil)
-			require.NoError(t, putSSE(e, t, "o", "secret", right))
+			require.NoError(t, putSSE(t, e, "o", "secret", right))
 
-			body, err := getSSE(e, t, "o", tt.key)
+			body, err := getSSE(t, e, "o", tt.key)
 			if tt.wantCode != "" {
 				assert.Equal(t, tt.wantCode, svcErr(t, err).GetCode())
 				assert.Equal(t, 400, svcErr(t, err).GetHTTPStatusCode())
@@ -113,7 +113,7 @@ func TestSSECustomerKeyHeadCopyAndInvalidPut(t *testing.T) {
 	e.mkBucket(t, "sse", nil)
 
 	c := newCust(7)
-	require.NoError(t, putSSE(e, t, "o", "secret", c))
+	require.NoError(t, putSSE(t, e, "o", "secret", c))
 
 	_, err := e.client.HeadObject(t.Context(), objectstorage.HeadObjectRequest{
 		NamespaceName: new(e.ns), BucketName: new("sse"), ObjectName: new("o"),
@@ -129,10 +129,8 @@ func TestSSECustomerKeyHeadCopyAndInvalidPut(t *testing.T) {
 	copyReq := func(src *cust, dest *cust, name string) error {
 		r := objectstorage.CopyObjectRequest{
 			NamespaceName: new(e.ns), BucketName: new("sse"),
-			CopyObjectDetails: objectstorage.CopyObjectDetails{
-				SourceObjectName: new("o"), DestinationRegion: new("us-ashburn-1"), DestinationNamespace: new(e.ns),
-				DestinationBucket: new("sse"), DestinationObjectName: new(name),
-			},
+			SourceObjectName: new("o"), DestinationRegion: new("us-ashburn-1"), DestinationNamespace: new(e.ns),
+			DestinationBucket: new("sse"), DestinationObjectName: new(name),
 		}
 		if src != nil {
 			r.OpcSourceSseCustomerAlgorithm, r.OpcSourceSseCustomerKey, r.OpcSourceSseCustomerKeySha256 =
@@ -154,11 +152,11 @@ func TestSSECustomerKeyHeadCopyAndInvalidPut(t *testing.T) {
 	d := newCust(9)
 	require.NoError(t, copyReq(&c, &d, "reencrypted-copy"))
 
-	body, err := getSSE(e, t, "reencrypted-copy", &d)
+	body, err := getSSE(t, e, "reencrypted-copy", &d)
 	require.NoError(t, err)
 	assert.Equal(t, "secret", body)
 
-	_, err = getSSE(e, t, "reencrypted-copy", &c)
+	_, err = getSSE(t, e, "reencrypted-copy", &c)
 	assert.Equal(t, "InvalidSseCustomerKey", svcErr(t, err).GetCode())
 
 	require.NoError(t, copyReq(&c, nil, "plain-copy"))
@@ -184,7 +182,7 @@ func TestSSECustomerKeyMultipart(t *testing.T) {
 	up, err := e.client.CreateMultipartUpload(t.Context(), objectstorage.CreateMultipartUploadRequest{
 		NamespaceName: new(e.ns), BucketName: new("mp"),
 		OpcSseCustomerAlgorithm: new("AES256"), OpcSseCustomerKey: new(c.key), OpcSseCustomerKeySha256: new(c.sha),
-		CreateMultipartUploadDetails: objectstorage.CreateMultipartUploadDetails{Object: new("big")},
+		Object: new("big"),
 	})
 	require.NoError(t, err)
 
@@ -209,9 +207,7 @@ func TestSSECustomerKeyMultipart(t *testing.T) {
 
 	_, err = e.client.CommitMultipartUpload(t.Context(), objectstorage.CommitMultipartUploadRequest{
 		NamespaceName: new(e.ns), BucketName: new("mp"), ObjectName: new("big"), UploadId: up.UploadId,
-		CommitMultipartUploadDetails: objectstorage.CommitMultipartUploadDetails{
-			PartsToCommit: []objectstorage.CommitMultipartUploadPartDetails{{PartNum: new(1), Etag: et}},
-		},
+		PartsToCommit: []objectstorage.CommitMultipartUploadPartDetails{{PartNum: new(1), Etag: et}},
 	})
 	require.NoError(t, err)
 
@@ -272,7 +268,11 @@ func TestKMSKeyValidationAndReencrypt(t *testing.T) {
 
 	require.NoError(t, reencrypt("b", objectstorage.ReencryptObjectDetails{KmsKeyId: new(second)}))
 	assert.Equal(t, second, keyOf("b"))
-	assert.Equal(t, 404, svcErr(t, reencrypt("b", objectstorage.ReencryptObjectDetails{KmsKeyId: new("nope")})).GetHTTPStatusCode())
+	assert.Equal(
+		t,
+		404,
+		svcErr(t, reencrypt("b", objectstorage.ReencryptObjectDetails{KmsKeyId: new("nope")})).GetHTTPStatusCode(),
+	)
 	assert.Equal(t, 404, svcErr(t, reencrypt("zz", objectstorage.ReencryptObjectDetails{})).GetHTTPStatusCode())
 
 	require.NoError(t, reencrypt("a", objectstorage.ReencryptObjectDetails{}))
@@ -281,10 +281,10 @@ func TestKMSKeyValidationAndReencrypt(t *testing.T) {
 	c := newCust(5)
 	require.NoError(t, reencrypt("a", objectstorage.ReencryptObjectDetails{SseCustomerKey: c.details()}))
 
-	_, err := getSSE(e, t, "a", nil)
+	_, err := getSSE(t, e, "a", nil)
 	assert.Equal(t, "InvalidSseCustomerKey", svcErr(t, err).GetCode())
 
-	body, err := getSSE(e, t, "a", &c)
+	body, err := getSSE(t, e, "a", &c)
 	require.NoError(t, err)
 	assert.Equal(t, "x", body)
 
@@ -308,11 +308,11 @@ func TestReencryptBucket(t *testing.T) {
 	e.put(t, "sse", "o", "x")
 
 	c := newCust(6)
-	require.NoError(t, putSSE(e, t, "ssec", "y", c))
+	require.NoError(t, putSSE(t, e, "ssec", "y", c))
 
 	_, err := e.client.UpdateBucket(t.Context(), objectstorage.UpdateBucketRequest{
 		NamespaceName: new(e.ns), BucketName: new("sse"),
-		UpdateBucketDetails: objectstorage.UpdateBucketDetails{KmsKeyId: new(key)},
+		KmsKeyId: new(key),
 	})
 	require.NoError(t, err)
 
@@ -321,7 +321,10 @@ func TestReencryptBucket(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	wr, err := e.client.GetWorkRequest(t.Context(), objectstorage.GetWorkRequestRequest{WorkRequestId: r.OpcWorkRequestId})
+	wr, err := e.client.GetWorkRequest(
+		t.Context(),
+		objectstorage.GetWorkRequestRequest{WorkRequestId: r.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, objectstorage.WorkRequestOperationTypeReencrypt, wr.OperationType)
 	assert.Equal(t, objectstorage.WorkRequestStatusCompleted, wr.Status)

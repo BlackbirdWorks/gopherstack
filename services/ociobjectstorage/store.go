@@ -38,11 +38,11 @@ type InMemoryBackend struct {
 	buckets      map[string]*Bucket
 	workRequests map[string]*WorkRequest
 	Auth         *ociauth.Registry
-	namespace    string
-	nsMeta       nsMetaWire
 	sink         func(ObjectEvent)
-	pending      []ObjectEvent
 	keyState     func(string) (string, bool)
+	nsMeta       nsMetaWire
+	namespace    string
+	pending      []ObjectEvent
 	minPartSize  int64
 }
 

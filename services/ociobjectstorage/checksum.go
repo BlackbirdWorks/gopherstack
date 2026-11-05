@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/binary"
 	"hash/crc32"
 	"net/http"
 	"strconv"
@@ -15,10 +16,11 @@ const (
 	algSHA256 = "SHA256"
 	algSHA384 = "SHA384"
 
-	hdrChecksumAlg = "opc-checksum-algorithm"
+	hdrChecksumAlg = "Opc-Checksum-Algorithm"
+	hdrCRC32C      = "Opc-Content-Crc32c"
+	hdrSHA256      = "Opc-Content-Sha256"
+	hdrSHA384      = "Opc-Content-Sha384"
 )
-
-var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 
 // Checksum is the optional checksum stored next to the default MD5 of an object.
 // Content is the whole-object value (always set for CRC32C, single-part uploads only for SHA);
@@ -69,9 +71,7 @@ func normalizeAlg(s string) (string, error) {
 func digestRaw(alg string, data []byte) []byte {
 	switch alg {
 	case algCRC32C:
-		v := crc32.Checksum(data, crc32cTable)
-
-		return []byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
+		return binary.BigEndian.AppendUint32(nil, crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli)))
 	case algSHA256:
 		s := sha256.Sum256(data)
 
