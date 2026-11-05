@@ -41,6 +41,8 @@ func scpExemptPrincipal(principalArn string) bool {
 // scpVerdict is the outcome of evaluating the SCP chain.
 type scpVerdict struct {
 	policyArn string
+	resource  string
+	rcp       bool
 	match     EvalMatch
 	denied    bool
 	explicit  bool
@@ -110,16 +112,29 @@ func (cfg EnforcementConfig) applySCPs(
 	return v.toDecision(), scpDeniedMessage(condCtx.PrincipalARN, action, v)
 }
 
+// orgPolicyNoun is the policy-type phrase AWS puts in the AccessDenied text.
+func (v scpVerdict) orgPolicyNoun() string {
+	if v.rcp {
+		return "resource control policy"
+	}
+
+	return "service control policy"
+}
+
 // scpDeniedMessage is the AccessDenied text AWS documents for SCP denials
 // (IAM User Guide, "Troubleshoot access denied error messages").
 func scpDeniedMessage(principalArn, action string, v scpVerdict) string {
 	msg := "User: " + principalArn + " is not authorized to perform: " + action
 
-	if !v.explicit {
-		return msg + " because no service control policy allows the " + action + " action"
+	if v.rcp && v.resource != "" && v.resource != "*" {
+		msg += " on resource: " + v.resource
 	}
 
-	msg += " with an explicit deny in a service control policy"
+	if !v.explicit {
+		return msg + " because no " + v.orgPolicyNoun() + " allows the " + action + " action"
+	}
+
+	msg += " with an explicit deny in a " + v.orgPolicyNoun()
 	if v.policyArn != "" {
 		msg += ": " + v.policyArn
 	}
@@ -128,6 +143,10 @@ func scpDeniedMessage(principalArn, action string, v scpVerdict) string {
 }
 
 func (v scpVerdict) toDecision() requestDecision {
+	if v.rcp {
+		return v.rcpDecision()
+	}
+
 	d := requestDecision{
 		reason: reasonServiceControlPolicy, source: sourceSCP, match: v.match, explicit: v.explicit,
 		policy: &iampolicystream.PolicyRef{Type: iampolicystream.PolicySCP, Arn: v.policyArn},

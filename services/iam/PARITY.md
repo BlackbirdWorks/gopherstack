@@ -153,8 +153,9 @@ structural_gaps:
 items_still_open:
   - "AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07)."
   - "SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType (\"Resource Policy\" vs the SDK enum \"resource\") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'."
-  - "Resource control policies (RCPs) are not evaluated in the enforcement path: they constrain resources in member accounts for any principal, and resolving the owning account from S3-style account-less resource ARNs is not derivable. SCPs are enforced (scp.go)."
-  - "The AWS root user of a member account is not SCP-restricted: enforcement skips root principals entirely (resolveSTSUserIdentityPolicies), whereas SCPs apply to member-account root."
+  - "RCP resource-owner resolution: only ARNs carrying an account ID and S3 buckets (bucket creator account) resolve an owner. Non-S3 resource ARNs are built from the default account by extractResourceARN, so RCPs for other member-account resources (e.g. SQS queues created via X-Amz-Account) are not evaluated until their owner is resolvable (ResourceOwnerResolver)."
+  - "Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created."
+  - "RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess, not documented (unverified)."
 ---
 
 ## Notes
@@ -954,6 +955,17 @@ Create{User,Role,Group,Policy,InstanceProfile} validate name pattern and max len
 - Service-linked roles: canonical AWS names for well-known principals (`AWSServiceRoleForElasticLoadBalancing`, `...ForECS`, `...ForAutoScaling`), `Description` and `MaxSessionDuration` persisted, DeleteServiceLinkedRole of a missing role is NoSuchEntity (was a fake task), GetServiceLinkedRoleDeletionStatus rejects ids not issued by DeleteServiceLinkedRole.
 - `GetUserIDByAccessKeyID` added so STS GetCallerIdentity can report the IAM user's AIDA id.
 - Kept lenient: CreateServiceLinkedRole accepts any `*.amazonaws.com` principal (AWS rejects unsupported services; the supported list is not in the SDK).
+
+## 2026-11-05 RCP evaluation and member-account root
+
+Authority: IAM User Guide "Policy evaluation logic" / "How AWS enforcement code logic evaluates requests" (RCP step precedes the SCP step; RCPs apply to resources of the account they are attached under; RCPFullAWSAccess supplies the Allow), Organizations User Guide "Resource control policies (RCPs)", "RCP evaluation", "RCP syntax", "SCP effects on permissions", and IAM "Troubleshoot access denied error messages" (explicit-deny wording `with an explicit deny in a resource control policy[: arn]`, including `on resource:`).
+
+- `rcp.go`: after identity/boundary/resource-policy evaluation allows a request, the RCPs of the resource-owning account (ARN account segment, else `ResourceOwnerResolver`; S3 uses the bucket creator account) must allow it at every level root -> OUs -> account, any Deny denies. Only actions of RCP-supported services (the documented prefix list) are evaluated. Not applied to service-linked roles, management-account-owned resources, or accounts outside the organization. Applies to anonymous requests and to root users of any account.
+- `aws:PrincipalOrgID` is populated for principals of organization accounts (including management) so data-perimeter RCPs work.
+- Member-account root users are now evaluated (allow-all identity, still subject to resource-policy denies, SCPs and RCPs) instead of skipped; the management account stays exempt from SCPs.
+- Policy stream: `reason=resource-control-policy`, `policy.type=resource-control-policy`.
+- Not modelled: simulator `OrganizationsDecisionDetail` (iam@v1.64.4 has no RCP field), so SimulatePrincipalPolicy still ignores SCPs/RCPs. AWS-service-principal calls do not traverse this middleware.
+- Tests: `services/iam/rcp_test.go`, `internal/app/iam_rcp_test.go` (SDK-driven: outside account denied, in-org allowed, management exempt).
 
 ## 2026-10-31 SCP evaluation in IAM enforcement
 

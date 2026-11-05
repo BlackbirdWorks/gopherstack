@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
 const (
@@ -201,4 +202,46 @@ func scpProviderFor(enabled bool, services []service.Registerable) iambackend.SC
 	}
 
 	return nil
+}
+
+type bucketOwnerBackend interface {
+	GetBucketOwnerAccount(ctx context.Context, bucket string) (string, error)
+}
+
+// s3OwnerResolver maps account-less S3 ARNs to the account that created the bucket.
+type s3OwnerResolver struct{ backend bucketOwnerBackend }
+
+func (r s3OwnerResolver) ResourceOwnerAccount(ctx context.Context, resourceARN string) (string, bool) {
+	rest, ok := strings.CutPrefix(resourceARN, "arn:aws:s3:::")
+	if !ok {
+		return "", false
+	}
+
+	bucket, _, _ := strings.Cut(rest, "/")
+	if bucket == "" {
+		return "", false
+	}
+
+	owner, err := r.backend.GetBucketOwnerAccount(ctx, bucket)
+
+	return owner, err == nil && owner != ""
+}
+
+// resourceOwnersFor returns the owner resolvers RCP evaluation needs, or nil when org policy enforcement is off.
+func resourceOwnersFor(enabled bool, services []service.Registerable) []iambackend.ResourceOwnerResolver {
+	if !enabled {
+		return nil
+	}
+
+	var out []iambackend.ResourceOwnerResolver
+
+	for _, svc := range services {
+		if h, ok := svc.(*s3backend.S3Handler); ok {
+			if b, isOwner := h.Backend.(bucketOwnerBackend); isOwner {
+				out = append(out, s3OwnerResolver{backend: b})
+			}
+		}
+	}
+
+	return out
 }

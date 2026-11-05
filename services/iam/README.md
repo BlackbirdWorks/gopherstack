@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 7 (7 ok) |
-| Known gaps | 4 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -18,8 +18,9 @@
 
 - AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07).
 - SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType ("Resource Policy" vs the SDK enum "resource") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'.
-- Resource control policies (RCPs) are not evaluated in the enforcement path: they constrain resources in member accounts for any principal, and resolving the owning account from S3-style account-less resource ARNs is not derivable. SCPs are enforced (scp.go).
-- The AWS root user of a member account is not SCP-restricted: enforcement skips root principals entirely (resolveSTSUserIdentityPolicies), whereas SCPs apply to member-account root.
+- RCP resource-owner resolution: only ARNs carrying an account ID and S3 buckets (bucket creator account) resolve an owner. Non-S3 resource ARNs are built from the default account by extractResourceARN, so RCPs for other member-account resources (e.g. SQS queues created via X-Amz-Account) are not evaluated until their owner is resolvable (ResourceOwnerResolver).
+- Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created.
+- RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess, not documented (unverified).
 
 ### Structural gaps
 
