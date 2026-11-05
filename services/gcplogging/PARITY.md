@@ -55,6 +55,7 @@ families:
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-logging-port / GCP_LOGGING_PORT (default 8131, fails fast if taken); pkgs/gcprest serves the same API as REST/JSON (/v2/...) on that port. Never registered on the shared AWS router; cli.go reserves the port in the shared PortAlloc pool. Go clients use option.WithEndpoint with insecure credentials; terraform uses logging_custom_endpoint = http://localhost:8131/v2/."}
   auth: {status: partial, note: "No request is authenticated or authorised; writer identities receive no permissions."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state. RPC failures are logged at debug; gRPC calls are not fed to the shared telemetry operation metrics."}
+  audit_logs: {status: ok, note: "ObserveEntries lets Eventarc see every entry after it is stored; audit-log entries written by other emulators (pkgs/gcpaudit) are ordinary entries of the cloudaudit.googleapis.com/activity and data_access logs."}
 items_still_open:
   - "Linked datasets (CreateLink, GetLink, ListLinks, DeleteLink) and CopyLogEntries return UNIMPLEMENTED."
   - "Sinks on folders, organizations and billing accounts are stored, but include_children aggregation is not applied: only entries written to that parent's own logs are routed."

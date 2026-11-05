@@ -2,6 +2,7 @@ package gcpeventarc_test
 
 import (
 	"testing"
+	"time"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -112,4 +113,47 @@ func TestReset(t *testing.T) {
 
 	_, err = e.client.GetChannel(t.Context(), &eventarcpb.GetChannelRequest{Name: parent + "/channels/gone-channel"})
 	assert.Equal(t, codes.NotFound, code(err))
+}
+
+func TestSnapshotRestoreAdvanced(t *testing.T) {
+	t.Parallel()
+
+	src := newEnv(t)
+	bus := src.createBus(t, "kept-bus")
+	pl := src.createPipeline(t, "kept-pipe", httpPipeline(src.dest.srv.URL+"/kept", `message.merge({"data": {"k": 1}})`, ""))
+	enr := src.createEnrollment(t, "kept-enr", bus, `message.type == "t"`, pl)
+
+	slow := newEnv(t)
+	slow.handler.Backend.SetOperationDelay(time.Hour)
+	slow.handler.Backend.SetAfterFunc(slow.now.after)
+
+	pending, err := slow.client.CreateMessageBus(t.Context(), &eventarcpb.CreateMessageBusRequest{
+		Parent: parent, MessageBusId: "pending-bus", MessageBus: &eventarcpb.MessageBus{},
+	})
+	require.NoError(t, err)
+
+	dst := newEnv(t)
+	require.NoError(t, dst.handler.Backend.Restore(t.Context(), src.handler.Backend.Snapshot(t.Context())))
+
+	got, err := dst.client.GetEnrollment(t.Context(), &eventarcpb.GetEnrollmentRequest{Name: enr.GetName()})
+	require.NoError(t, err)
+	assert.Equal(t, enr.GetEtag(), got.GetEtag())
+	assert.Equal(t, pl, got.GetDestination())
+
+	gotPl, err := dst.client.GetPipeline(t.Context(), &eventarcpb.GetPipelineRequest{Name: pl})
+	require.NoError(t, err)
+	assert.Contains(t, gotPl.GetMediations()[0].GetTransformation().GetTransformationTemplate(), "merge")
+
+	// Routing works from restored state.
+	require.NoError(t, dst.publishJSON(t, bus, orderEvent("e1", "t")))
+	assert.Equal(t, "/kept", src.dest.next(t).path)
+
+	// An operation that was not done when the snapshot was taken is aborted on restore.
+	rest := newEnv(t)
+	require.NoError(t, rest.handler.Backend.Restore(t.Context(), slow.handler.Backend.Snapshot(t.Context())))
+
+	op, err := rest.client.GetOperation(t.Context(), opRequest(pending.Name()))
+	require.NoError(t, err)
+	assert.True(t, op.GetDone())
+	assert.Equal(t, int32(codes.Aborted), op.GetError().GetCode())
 }

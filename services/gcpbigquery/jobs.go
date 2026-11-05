@@ -89,6 +89,22 @@ func (b *InMemoryBackend) InsertJob(
 	body map[string]any,
 	media []byte,
 ) (map[string]any, error) {
+	out, err := b.insertJob(ctx, project, body, media)
+	if err == nil {
+		id, _ := out["id"].(string)
+		_, jobID, _ := strings.Cut(id, ".")
+		b.auditCall("google.cloud.bigquery.v2.JobService.InsertJob", "projects/"+project+"/jobs/"+jobID, project)
+	}
+
+	return out, err
+}
+
+func (b *InMemoryBackend) insertJob(
+	ctx context.Context,
+	project string,
+	body map[string]any,
+	media []byte,
+) (map[string]any, error) {
 	cfg, _ := body["configuration"].(map[string]any)
 
 	kind := jobKind(cfg)

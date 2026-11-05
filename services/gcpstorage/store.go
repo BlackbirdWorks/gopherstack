@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -36,9 +38,11 @@ type InMemoryBackend struct {
 	clock     atomic.Pointer[clockFn]
 	keys      KeyResolver
 	observers []ObjectObserver
-	pending   []ObjectEvent
-	lastGen   int64
-	iamSeq    uint64
+	// Audit records Cloud Audit Logs entries for bucket and object changes.
+	Audit   gcpaudit.Emitter
+	pending []ObjectEvent
+	lastGen int64
+	iamSeq  uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -149,6 +153,15 @@ func LocationType(loc string) string {
 
 // CreateBucket creates a bucket in project from the request body p.
 func (b *InMemoryBackend) CreateBucket(project string, p Patch) (*Bucket, error) {
+	bk, err := b.createBucket(project, p)
+	if err == nil {
+		b.auditBucket("storage.buckets.create", project, bk)
+	}
+
+	return bk, err
+}
+
+func (b *InMemoryBackend) createBucket(project string, p Patch) (*Bucket, error) {
 	name := p.str("name")
 	if !validBucketName(name) {
 		return nil, errInvalid("Invalid bucket name: '" + name + "'")
@@ -237,6 +250,15 @@ func (b *InMemoryBackend) ListBuckets(project, prefix, token string, limit int) 
 
 // UpdateBucket applies a PATCH (replace=false) or PUT (replace=true) body.
 func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre Preconds) (*Bucket, error) {
+	bk, err := b.updateBucket(name, p, replace, pre)
+	if err == nil {
+		b.auditBucket("storage.buckets.update", bk.Project, bk)
+	}
+
+	return bk, err
+}
+
+func (b *InMemoryBackend) updateBucket(name string, p Patch, replace bool, pre Preconds) (*Bucket, error) {
 	b.mu.Lock("UpdateBucket")
 	defer b.mu.Unlock()
 
@@ -274,6 +296,17 @@ func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre P
 
 // DeleteBucket deletes an empty bucket.
 func (b *InMemoryBackend) DeleteBucket(name string, pre Preconds) error {
+	project, loc := b.bucketOwner(name)
+
+	err := b.deleteBucket(name, pre)
+	if err == nil {
+		b.auditBucket("storage.buckets.delete", project, &Bucket{Name: name, Location: loc})
+	}
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteBucket(name string, pre Preconds) error {
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 

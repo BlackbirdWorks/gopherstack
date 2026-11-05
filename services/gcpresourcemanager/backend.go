@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
+
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
 	"google.golang.org/protobuf/proto"
 
@@ -25,6 +27,7 @@ const (
 // InMemoryBackend holds Resource Manager and Service Usage state under one lock.
 type InMemoryBackend struct {
 	clock     atomic.Pointer[func() time.Time]
+	Audit     gcpaudit.Emitter
 	mu        *lockmetrics.RWMutex
 	org       orgRec
 	projects  map[string]*projectRec

@@ -61,6 +61,7 @@ type InMemoryBackend struct {
 	seeded     map[string]bool
 	filters    map[string]*filter
 	tails      *tailHub
+	observers  []EntryObserver
 	seq        uint64
 }
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
+
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	"google.golang.org/protobuf/proto"
@@ -63,6 +65,7 @@ type secretRec struct {
 // InMemoryBackend holds all secrets, versions and IAM policies under one lock.
 type InMemoryBackend struct {
 	now       func() time.Time
+	Audit     gcpaudit.Emitter
 	mu        *lockmetrics.RWMutex
 	secrets   map[string]*secretRec
 	publisher TopicPublisher

@@ -145,7 +145,9 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	workerCtx := logger.WithWorker(ctx, "gcpresourcemanager", "listener")
 	log := logger.Load(workerCtx)
 
-	srv := grpc.NewServer(grpc.UnaryInterceptor(logUnary(log)))
+	srv := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		logUnary(log), h.Backend.Audit.UnaryInterceptor(auditPolicy(), h.Backend.now),
+	))
 	h.registerServers(srv)
 
 	h.srvMu.Lock("StartWorker")
