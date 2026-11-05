@@ -91,6 +91,29 @@ func (b *InMemoryBackend) deleteNsgCheck(id string) *APIError {
 
 // deleteCheck enforces the documented delete-in-use conflicts; callers hold the write lock.
 func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
+	for _, check := range []func(resource) *APIError{b.deleteNetworkCheck, b.deleteDrgKindCheck, b.deleteStorageCheck} {
+		if aerr := check(r); aerr != nil {
+			return aerr
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) deleteDrgKindCheck(r resource) *APIError {
+	switch v := r.(type) {
+	case *Drg:
+		return b.deleteDrgCheck(v.ID)
+	case *DrgRouteTable:
+		return b.deleteDrgTableCheck(v)
+	case *DrgRouteDistribution:
+		return b.deleteDrgDistCheck(v)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) deleteNetworkCheck(r resource) *APIError {
 	id := r.base().ID
 
 	switch v := r.(type) {
@@ -126,13 +149,54 @@ func (b *InMemoryBackend) deleteCheck(r resource) *APIError {
 		}
 	case *Subnet:
 		return b.deleteSubnetCheck(id)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) deleteStorageCheck(r resource) *APIError {
+	id := r.base().ID
+
+	switch v := r.(type) {
 	case *Volume:
+		if aerr := b.groupMemberBlock("volume", id, v.VolumeGroupID); aerr != nil {
+			return aerr
+		}
+
 		return usedBy("volume", id, firstID(liveOf(b, func(a *VolumeAttachment) bool { return a.VolumeID == id })))
 	case *BootVolume:
+		if aerr := b.groupMemberBlock("boot volume", id, v.VolumeGroupID); aerr != nil {
+			return aerr
+		}
+
 		return usedBy(
 			"boot volume",
 			id,
 			firstID(liveOf(b, func(a *BootVolumeAttachment) bool { return a.BootVolumeID == id })),
+		)
+	case *VolumeBackup:
+		if aerr := b.memberBackupBlock(id, v.VolumeGroupBackupID); aerr != nil {
+			return aerr
+		}
+
+		return b.retentionBlock("volume backup", id, &v.Retention)
+	case *BootVolumeBackup:
+		if aerr := b.memberBackupBlock(id, v.VolumeGroupBackupID); aerr != nil {
+			return aerr
+		}
+
+		return b.retentionBlock("boot volume backup", id, &v.Retention)
+	case *VolumeGroupBackup:
+		return b.deleteGroupBackupCheck(v)
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) groupMemberBlock(what, id, groupID string) *APIError {
+	if g, ok := b.res[groupID].(*VolumeGroup); ok && live(g) {
+		return errConflict(
+			"The " + what + " " + id + " belongs to volume group " + groupID + ": remove it from the group first",
 		)
 	}
 
@@ -181,10 +245,18 @@ func (b *InMemoryBackend) terminate(r resource) {
 				b.markTerminating(d)
 			}
 		}
+	case *Drg:
+		b.terminateDrg(v.ID)
 	case *Volume:
 		b.dropAssignments(v.ID)
+		b.endReplicas(v)
 	case *BootVolume:
 		b.dropAssignments(v.ID)
+	case *VolumeGroup:
+		b.leaveGroup(v)
+		b.dropAssignments(v.ID)
+	case *VolumeGroupBackup:
+		b.terminateGroupBackup(v)
 	case *NatGateway:
 		b.releaseNatIP(v)
 	case *LocalPeeringGateway:
@@ -195,8 +267,12 @@ func (b *InMemoryBackend) terminate(r resource) {
 	}
 
 	vnicID := ""
-	if ip, ok := r.(*PublicIP); ok {
+
+	switch ip := r.(type) {
+	case *PublicIP:
 		vnicID = b.vnicOfPublic(ip)
+	case *Ipv6:
+		vnicID = ip.VnicID
 	}
 
 	b.markTerminating(r)

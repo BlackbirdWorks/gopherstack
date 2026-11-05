@@ -47,6 +47,8 @@ func volumeFilter(q *req) func(resource) bool {
 			return v.AvailabilityDomain
 		case *BootVolume:
 			return v.AvailabilityDomain
+		case *VolumeGroup:
+			return v.AvailabilityDomain
 		}
 
 		return ""
@@ -60,8 +62,35 @@ func backupFilter(q *req) func(resource) bool {
 
 			return b.VolumeID
 		}),
-		queryEq(q, "sourceVolumeBackupId", func(resource) string { return "" }),
+		queryEq(q, "sourceVolumeBackupId", func(r resource) string {
+			b, _ := r.(*VolumeBackup)
+
+			return b.SourceVolumeBackupID
+		}),
 	)
+}
+
+func bootBackupFilter(q *req) func(resource) bool {
+	return and(
+		queryEq(q, "bootVolumeId", func(r resource) string {
+			b, _ := r.(*BootVolumeBackup)
+
+			return b.BootVolumeID
+		}),
+		queryEq(q, "sourceBootVolumeBackupId", func(r resource) string {
+			b, _ := r.(*BootVolumeBackup)
+
+			return b.SourceBootVolumeBackupID
+		}),
+	)
+}
+
+func groupBackupFilter(q *req) func(resource) bool {
+	return queryEq(q, "volumeGroupId", func(r resource) string {
+		b, _ := r.(*VolumeGroupBackup)
+
+		return b.VolumeGroupID
+	})
 }
 
 func volumeAttachmentFilter(q *req) func(resource) bool {
@@ -143,7 +172,18 @@ func vnicAttachmentFilter(q *req) func(resource) bool {
 func idPath(base, id string) string { return base + "/{" + id + "}" }
 
 func computeEntries() []entry {
-	return slices.Concat(instanceEntries(), networkEntries(), storageEntries())
+	return slices.Concat(
+		instanceEntries(),
+		networkEntries(),
+		storageEntries(),
+		drgEntries(),
+		workRequestEntries(),
+		cidrEntries(),
+		ipv6Entries(),
+		kmsEntries(),
+		copyEntries(),
+		replicaEntries(),
+	)
 }
 
 func instanceEntries() []entry {

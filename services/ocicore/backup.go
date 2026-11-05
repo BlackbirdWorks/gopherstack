@@ -14,10 +14,42 @@ const (
 // CreateVolumeBackupIn is the CreateVolumeBackup request body.
 type CreateVolumeBackupIn struct {
 	TagsIn
+	RetentionIn
 	DisplayName string `json:"displayName"`
 	Type        string `json:"type"`
 	VolumeID    string `json:"volumeId"`
 	KmsKeyID    string `json:"kmsKeyId"`
+}
+
+// backupRequest validates the parts of a backup request shared by volumes and boot volumes.
+func backupRequest(name, srcField, srcID, typ string) *APIError {
+	if aerr := validName(name); aerr != nil {
+		return aerr
+	}
+
+	if srcID == "" {
+		return errMissing(srcField + " is required")
+	}
+
+	if typ != "" && typ != backupFull && typ != backupIncremental {
+		return errParam("type must be FULL or INCREMENTAL")
+	}
+
+	return nil
+}
+
+// availableSource returns a live, AVAILABLE volume or boot volume to back up.
+func availableSource[T resource](b *InMemoryBackend, id, what string) (T, *APIError) {
+	src, aerr := getLive[T](b, id)
+	if aerr != nil {
+		return src, aerr
+	}
+
+	if state := src.base().LifecycleState; state != statAvailable {
+		return src, errState("The " + what + " " + id + " is " + state)
+	}
+
+	return src, nil
 }
 
 // CreateVolumeBackup snapshots a volume; the first backup of a volume is always FULL.
@@ -25,55 +57,67 @@ func (b *InMemoryBackend) CreateVolumeBackup(in CreateVolumeBackupIn) (resource,
 	b.mu.Lock("CreateVolumeBackup")
 	defer b.mu.Unlock()
 
-	if aerr := validName(in.DisplayName); aerr != nil {
+	if aerr := backupRequest(in.DisplayName, "volumeId", in.VolumeID, in.Type); aerr != nil {
 		return nil, "", aerr
 	}
 
-	if in.VolumeID == "" {
-		return nil, "", errMissing("volumeId is required")
+	vol, aerr := availableSource[*Volume](b, in.VolumeID, "volume")
+	if aerr == nil {
+		aerr = b.checkKmsKey(in.KmsKeyID)
 	}
 
-	if in.Type != "" && in.Type != backupFull && in.Type != backupIncremental {
-		return nil, "", errParam("type must be FULL or INCREMENTAL")
-	}
-
-	vol, aerr := getLive[*Volume](b, in.VolumeID)
 	if aerr != nil {
 		return nil, "", aerr
 	}
 
-	if vol.LifecycleState != statAvailable {
-		return nil, "", errState("The volume " + vol.ID + " is " + vol.LifecycleState)
+	bk, aerr := b.snapshotVolume(vol, in, vol.CompartmentID)
+	if aerr != nil {
+		return nil, "", aerr
 	}
 
+	return bk.view(), bk.Internal.Etag, nil
+}
+
+// snapshotVolume records a manual backup of a volume; the first backup of a volume is always FULL.
+func (b *InMemoryBackend) snapshotVolume(vol *Volume, in CreateVolumeBackupIn, comp string) (*VolumeBackup, *APIError) {
 	typ := cmpOrStr(in.Type, backupIncremental)
 	if len(liveOf(b, func(x *VolumeBackup) bool { return x.VolumeID == vol.ID })) == 0 {
 		typ = backupFull
 	}
 
 	bk := &VolumeBackup{
-		Base:                b.newBase(kindBackup, vol.CompartmentID, in.DisplayName, in.TagsIn),
-		Type:                typ,
-		VolumeID:            vol.ID,
-		SourceType:          "MANUAL",
-		KmsKeyID:            in.KmsKeyID,
-		SizeInGBs:           vol.SizeInGBs,
-		SizeInMBs:           vol.SizeInMBs,
+		Base: b.newBase(kindBackup, comp, in.DisplayName, in.TagsIn), Type: typ, VolumeID: vol.ID,
+		SourceType: sourceManual, KmsKeyID: in.KmsKeyID, SizeInGBs: vol.SizeInGBs, SizeInMBs: vol.SizeInMBs,
 		TimeRequestReceived: b.nowUTC(),
 	}
 	if in.DisplayName == "" {
 		bk.DisplayName = "backup" + b.nowUTC().Format("20060102-150405")
 	}
 
+	if aerr := bk.apply(in.RetentionIn, bk.TimeCreated); aerr != nil {
+		return nil, aerr
+	}
+
 	b.moveTo(bk, statCreating, statAvailable)
 	b.add(bk)
 
-	return bk.view(), bk.Internal.Etag, nil
+	return bk, nil
 }
 
-// UpdateVolumeBackup changes a backup's name and tags.
-func (b *InMemoryBackend) UpdateVolumeBackup(id, ifMatch string, in UpdateIn) (resource, string, *APIError) {
-	return updateWith(b, id, ifMatch, in, func(*VolumeBackup) *APIError { return nil })
+// UpdateVolumeBackupIn is the UpdateVolumeBackup request body.
+type UpdateVolumeBackupIn struct {
+	RetentionIn
+	UpdateIn
+}
+
+// UpdateVolumeBackup changes a backup's name, tags and retention settings.
+func (b *InMemoryBackend) UpdateVolumeBackup(
+	id, ifMatch string,
+	in UpdateVolumeBackupIn,
+) (resource, string, *APIError) {
+	return updateWith(b, id, ifMatch, in.UpdateIn, func(bk *VolumeBackup) *APIError {
+		return bk.apply(in.RetentionIn, bk.TimeCreated)
+	})
 }
 
 func (b *InMemoryBackend) findPolicy(id string) (*VolumeBackupPolicy, *APIError) {
@@ -201,7 +245,7 @@ func (b *InMemoryBackend) ListVolumeBackupPolicies(
 		}
 
 		custom := liveOf(b, func(p *VolumeBackupPolicy) bool { return p.CompartmentID == compartment })
-		sortRes(custom, ListOpts{Order: "ASC"})
+		sortRes(custom, ListOpts{Order: orderAsc})
 		all = append(all, custom...)
 	}
 
@@ -291,8 +335,15 @@ func (b *InMemoryBackend) CreateVolumeBackupPolicyAssignment(in CreateAssignment
 		}
 
 		comp = v.CompartmentID
+	case kindVolumeGroup:
+		v, aerr := getLive[*VolumeGroup](b, in.AssetID)
+		if aerr != nil {
+			return nil, "", aerr
+		}
+
+		comp = v.CompartmentID
 	default:
-		return nil, "", errParam("assetId must be a volume or boot volume OCID")
+		return nil, "", errParam("assetId must be a volume, boot volume or volume group OCID")
 	}
 
 	if len(liveOf(b, func(x *BackupPolicyAssignment) bool { return x.AssetID == in.AssetID })) > 0 {

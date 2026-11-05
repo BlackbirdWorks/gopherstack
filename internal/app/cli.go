@@ -3870,6 +3870,7 @@ func wireCrossServiceDependencies(
 	wireOCIDNS(byName)
 	wireOCIDatabase(byName)
 	wireOCIFileStorage(byName)
+	wireOCICoreVault(byName)
 }
 
 // wireOCIStreamingVault lets OCI Streaming validate customEncryptionKey references against OCI Vault keys.
