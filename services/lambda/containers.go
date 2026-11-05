@@ -245,6 +245,8 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 		functionARN: buildARN(b.region, b.accountID, fn.FunctionName), accountID: b.accountID,
 	})
 
+	srv.configureTelemetry(fn)
+
 	if startErr := srv.start(ctx); startErr != nil {
 		_ = b.portAlloc.Release(port)
 		rt.startErr = fmt.Errorf(
@@ -260,6 +262,8 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.srv = srv
 	rt.port = port
 	rt.started = true
+
+	srv.tel.initStart(time.Now())
 
 	env, credsExpire := b.buildContainerEnv(ctx, fn, port)
 
@@ -278,6 +282,9 @@ func (b *InMemoryBackend) getOrCreateRuntime(
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
+
+	b.attachContainer(srv, containerID)
+
 	rt.hotFP = hotFP
 	rt.credsExpire = credsExpire
 	rt.hotCheckedAt = time.Now()
@@ -675,8 +682,13 @@ func (b *InMemoryBackend) startContainer(
 
 	ctx, layerDirs = b.withDebugPlan(ctx, fn, layerDirs)
 
-	if srv != nil && layerMount != "" {
-		srv.exts.setExpected(len(listLayerExtensions(layerHostDir(layerMount))))
+	if srv != nil && fn.PackageType == PackageTypeZip {
+		names := []string(nil)
+		if layerMount != "" {
+			names = listLayerExtensions(layerHostDir(layerMount))
+		}
+
+		srv.exts.setExternal(names)
 	}
 
 	if fn.PackageType == PackageTypeZip {
@@ -711,9 +723,24 @@ func (b *InMemoryBackend) startContainer(
 	b.applyDockerFlags(ctx, &spec)
 	spec.OCIRuntime = b.ociRuntime
 
-	containerID, err := b.docker.CreateAndStart(ctx, spec)
+	if srv == nil {
+		containerID, err := b.docker.CreateAndStart(ctx, spec)
 
-	return "", layerDirs, containerID, err
+		return "", layerDirs, containerID, err
+	}
+
+	srv.exts.holdInit()
+
+	containerID, err := b.docker.CreateAndStart(ctx, spec)
+	if err != nil {
+		srv.exts.releaseInit()
+
+		return "", layerDirs, containerID, err
+	}
+
+	b.startImageExtensions(ctx, srv, containerID)
+
+	return "", layerDirs, containerID, nil
 }
 
 // startZipContainer handles container startup for Zip-packaged Lambda functions.

@@ -15,12 +15,13 @@ const (
 	baseImageEntrypoint    = "/lambda-entrypoint.sh"
 	executableBits         = 0o111
 	extensionLauncherShell = `#!/bin/sh
-for f in /opt/extensions/*; do
+` + extensionStartLoop + `exec "$@"
+`
+	extensionStartLoop = `for f in /opt/extensions/*; do
   if [ -f "$f" ] && [ -x "$f" ]; then
-    "$f" &
+    ( "$f" 2>&1 | while IFS= read -r l || [ -n "$l" ]; do printf '\036gopherstack-extension\036%s\n' "$l"; done ) &
   fi
 done
-exec "$@"
 `
 )
 
