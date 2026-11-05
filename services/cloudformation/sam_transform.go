@@ -206,6 +206,9 @@ func (t *samTranslator) translate(res map[string]any) error {
 	if err := extractEmbeddedConnectors(res); err != nil {
 		return err
 	}
+	if err := t.validateIgnoreGlobals(res); err != nil {
+		return err
+	}
 	ids := slices.Sorted(maps.Keys(res))
 	for _, id := range ids {
 		r := asMap(res[id])
@@ -331,8 +334,80 @@ func (t *samTranslator) paramDefault(v any) any {
 	return v
 }
 
+// resolveParamRefs replaces every Ref to a template parameter that has a Default, at any depth.
+func (t *samTranslator) resolveParamRefs(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		if r := t.paramDefault(val); len(val) == 1 && val[samKeyRef] != nil {
+			return r
+		}
+		out := make(map[string]any, len(val))
+		for k, e := range val {
+			out[k] = t.resolveParamRefs(e)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, e := range val {
+			out[i] = t.resolveParamRefs(e)
+		}
+
+		return out
+	}
+
+	return v
+}
+
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
-	return mergeSAMGlobals(t.globals[section], asMap(r[samKeyProps]))
+	return mergeSAMGlobals(t.globalsFor(section, r), asMap(r[samKeyProps]))
+}
+
+// globalsFor is the section's Globals minus what the resource's IgnoreGlobals attribute drops.
+func (t *samTranslator) globalsFor(section string, r map[string]any) map[string]any {
+	g := t.globals[section]
+	switch ig := r["IgnoreGlobals"].(type) {
+	case string:
+		return nil
+	case []any:
+		g = maps.Clone(g)
+		for _, k := range ig {
+			if name, ok := k.(string); ok {
+				delete(g, name)
+			}
+		}
+	}
+
+	return g
+}
+
+// validateIgnoreGlobals rejects an IgnoreGlobals that is neither "*" nor a list of keys present in Globals.
+func (t *samTranslator) validateIgnoreGlobals(res map[string]any) error {
+	for _, id := range slices.Sorted(maps.Keys(res)) {
+		r := asMap(res[id])
+		ig, has := r["IgnoreGlobals"]
+		if !has {
+			continue
+		}
+		section := strings.TrimPrefix(asString(r[samKeyType]), samResPrefix)
+		switch v := ig.(type) {
+		case string:
+			if v != "*" {
+				return samErr(id, "Resource %s has invalid resource attribute 'IgnoreGlobals'.", id)
+			}
+		case []any:
+			for _, k := range v {
+				name, _ := k.(string)
+				if _, ok := t.globals[section][name]; !ok {
+					return samErr(id, "Resource %s has invalid resource attribute 'IgnoreGlobals' on item '%s'.", id, name)
+				}
+			}
+		default:
+			return samErr(id, "Resource %s has invalid resource attribute 'IgnoreGlobals'.", id)
+		}
+	}
+
+	return nil
 }
 
 // mergeSAMGlobals merges Globals under local props: maps recurse, lists
@@ -425,6 +500,13 @@ func rewriteRefValue(v any, refs map[string]string) any {
 				return samRef(to)
 			}
 		}
+		if ga, ok := t[fnGetAtt].([]any); ok && len(t) == 1 && len(ga) == 2 {
+			if name, isStr := ga[0].(string); isStr {
+				if to, hit := refs[name]; hit {
+					return map[string]any{fnGetAtt: []any{to, ga[1]}}
+				}
+			}
+		}
 		out := make(map[string]any, len(t))
 		for k, e := range t {
 			out[k] = rewriteRefValue(e, refs)
@@ -495,7 +577,8 @@ func expandSAMBody(body string) (string, error) {
 func decodeTemplateDoc(body string) (map[string]any, error) {
 	jsonBody := strings.TrimSpace(body)
 	if !strings.HasPrefix(jsonBody, "{") {
-		converted, err := yamlToJSON(jsonBody)
+		// A trailing block scalar keeps its final newline only if the body is not trimmed.
+		converted, err := yamlToJSON(strings.TrimLeft(body, " \t\r\n"))
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse YAML template: %w", err)
 		}

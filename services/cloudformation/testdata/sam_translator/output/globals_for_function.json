@@ -1,0 +1,285 @@
+{
+  "Resources": {
+    "FunctionWithOverrides": {
+      "Properties": {
+        "Architectures": [
+          "x86_64"
+        ],
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip",
+          "SourceKMSKeyArn": "arn:aws:kms:us-west-2:987654321098:key/dec86919-7219-4e8d-8871-7f1609df2c7f"
+        },
+        "DurableConfig": {
+          "ExecutionTimeout": 7200,
+          "RetentionPeriodInDays": 7
+        },
+        "Environment": {
+          "Variables": {
+            "Var1": "value1",
+            "Var2": "value2",
+            "Var3": "value3"
+          }
+        },
+        "EphemeralStorage": {
+          "Size": 1024
+        },
+        "Handler": "index.handler",
+        "Layers": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:MyLayer:1"
+          },
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:MyLayer2:2"
+          }
+        ],
+        "LoggingConfig": {
+          "LogGroup": "myJsonStructuredLogs"
+        },
+        "MemorySize": 512,
+        "RecursiveLoop": "TERMINATE",
+        "ReservedConcurrentExecutions": 100,
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionWithOverridesRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs12.x",
+        "RuntimeManagementConfig": {
+          "UpdateRuntimeOn": "FunctionChange"
+        },
+        "SnapStart": {
+          "ApplyOn": "None"
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          },
+          {
+            "Key": "tag1",
+            "Value": "value1"
+          },
+          {
+            "Key": "newtag1",
+            "Value": "newvalue1"
+          }
+        ],
+        "Timeout": 100,
+        "TracingConfig": {
+          "Mode": "PassThrough"
+        },
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            "sg-edcd9784",
+            "sg-123"
+          ],
+          "SubnetIds": [
+            "sub-id-2"
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithOverridesAliasprod": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "FunctionWithOverrides"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "FunctionWithOverridesVersionb52716e99f",
+            "Version"
+          ]
+        },
+        "Name": "prod"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "FunctionWithOverridesRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy",
+          "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        ],
+        "PermissionsBoundary": "arn:aws:1234:iam:boundary/OverridePermissionsBoundary",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          },
+          {
+            "Key": "tag1",
+            "Value": "value1"
+          },
+          {
+            "Key": "newtag1",
+            "Value": "newvalue1"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "FunctionWithOverridesVersionb52716e99f": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "FunctionWithOverrides"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    },
+    "MinimalFunction": {
+      "Properties": {
+        "Architectures": [
+          "x86_64"
+        ],
+        "Code": {
+          "S3Bucket": "global-bucket",
+          "S3Key": "global.zip",
+          "SourceKMSKeyArn": "arn:aws:kms:us-west-2:123456789012:key/dec86919-7219-4e8d-8871-7f1609df2c7f"
+        },
+        "DurableConfig": {
+          "ExecutionTimeout": 3600,
+          "RetentionPeriodInDays": 30
+        },
+        "Environment": {
+          "Variables": {
+            "Var1": "value1",
+            "Var2": "value2"
+          }
+        },
+        "EphemeralStorage": {
+          "Size": 1024
+        },
+        "Handler": "hello.handler",
+        "Layers": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:layer:MyLayer:1"
+          }
+        ],
+        "LoggingConfig": {
+          "LogGroup": "myJsonStructuredLogs"
+        },
+        "MemorySize": 1024,
+        "RecursiveLoop": "ALLOW",
+        "ReservedConcurrentExecutions": 50,
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "RuntimeManagementConfig": {
+          "UpdateRuntimeOn": "Auto"
+        },
+        "SnapStart": {
+          "ApplyOn": "PublishedVersions"
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          },
+          {
+            "Key": "tag1",
+            "Value": "value1"
+          }
+        ],
+        "Timeout": 30,
+        "TracingConfig": {
+          "Mode": "Active"
+        },
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            "sg-edcd9784"
+          ],
+          "SubnetIds": [
+            "sub-id-2"
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalFunctionAliaslive": {
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        },
+        "FunctionVersion": {
+          "Fn::GetAtt": [
+            "MinimalFunctionVersion5244f38b49",
+            "Version"
+          ]
+        },
+        "Name": "live"
+      },
+      "Type": "AWS::Lambda::Alias"
+    },
+    "MinimalFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy",
+          "arn:aws:iam::aws:policy/AWSXrayWriteOnlyAccess",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        ],
+        "PermissionsBoundary": "arn:aws:1234:iam:boundary/CustomerCreatedPermissionsBoundary",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          },
+          {
+            "Key": "tag1",
+            "Value": "value1"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalFunctionVersion5244f38b49": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "MinimalFunction"
+        }
+      },
+      "Type": "AWS::Lambda::Version"
+    }
+  }
+}

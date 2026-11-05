@@ -70,7 +70,7 @@ func (t *samTranslator) translateLayer(id string, r map[string]any) error {
 	layer := map[string]any{"LayerName": id}
 	for _, k := range []string{"LayerName", samKeyDesc, "CompatibleRuntimes", "CompatibleArchitectures", "LicenseInfo"} {
 		if v, ok := props[k]; ok {
-			layer[k] = v
+			layer[k] = t.paramDefault(v)
 		}
 	}
 	content, err := s3Location(id, "ContentUri", props["ContentUri"], "S3Bucket", "S3Key", "S3ObjectVersion")

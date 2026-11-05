@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	samLambdaDurableExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy"
 	samLambdaBasicExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 	samLambdaVPCExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 	samXRayWrite       = "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
@@ -41,6 +42,9 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 	}
 	t.pass = passAttrs(r)
 	defer func() { t.pass = nil }()
+	if v, ok := props["AutoPublishCodeSha256"]; ok {
+		props["AutoPublishCodeSha256"] = t.paramDefault(v)
+	}
 	if v, ok := props[samKeyAutoPublish]; ok {
 		alias, isStr := t.paramDefault(v).(string)
 		if !isStr || alias == "" {
@@ -137,6 +141,9 @@ func (t *samTranslator) finishFunction(id string, props map[string]any, eicPolic
 // functionManagedPolicies is the fixed set of managed policies SAM attaches before user and event policies.
 func (t *samTranslator) functionManagedPolicies(props map[string]any) []any {
 	managed := []any{samLambdaBasicExec}
+	if dc, has := props["DurableConfig"]; has && dc != nil {
+		managed = []any{samLambdaDurableExec}
+	}
 	if tr, ok := props["Tracing"]; ok && tr != nil && t.paramDefault(tr) != samTracingDisabled {
 		managed = append(managed, samXRayWrite)
 	}
@@ -354,6 +361,9 @@ func s3Location(id, prop string, v any, bucketKey, keyKey, verKey string) (map[s
 		out := map[string]any{bucketKey: u["Bucket"], keyKey: u[samKeyKey]}
 		if u[samKeyVersion] != nil {
 			out[verKey] = u[samKeyVersion]
+		}
+		if mode := u["StorageMode"]; mode != nil && keyKey == "S3Key" {
+			out["S3ObjectStorageMode"] = mode
 		}
 
 		return out, nil
