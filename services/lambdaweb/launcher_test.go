@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -87,15 +88,31 @@ func (r *fakeRuntime) StreamLogs(_ context.Context, _ string, stdout, _ io.Write
 }
 
 type fakeLogs struct {
-	lines map[string][]string
-	mu    sync.Mutex
+	lines   map[string][]string
+	streams map[string][]string
+	mu      sync.Mutex
 }
 
 func (l *fakeLogs) EnsureLogGroupAndStream(context.Context, string, string, string) error { return nil }
 
-func (l *fakeLogs) PutLogLines(_ context.Context, _, group, _ string, lines []string) error {
+func (l *fakeLogs) streamsOf(group string) []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	return append([]string(nil), l.streams[group]...)
+}
+
+func (l *fakeLogs) PutLogLines(_ context.Context, _, group, stream string, lines []string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.streams == nil {
+		l.streams = map[string][]string{}
+	}
+
+	if !slices.Contains(l.streams[group], stream) {
+		l.streams[group] = append(l.streams[group], stream)
+	}
 
 	if l.lines == nil {
 		l.lines = map[string][]string{}
@@ -184,9 +201,21 @@ func newLauncherEnv(t *testing.T, files map[string]string) (*testEnv, *fakeRunti
 func TestDockerLauncher_Launch(t *testing.T) {
 	t.Parallel()
 
-	env, rt, logs, l := newLauncherEnv(t, map[string]string{"index.js": "console.log('hi')", "lib/util.js": "x"})
+	env, rt, _, l := newLauncherEnv(t, map[string]string{"index.js": "console.log('hi')", "lib/util.js": "x"})
 	rt.logLines = "line one\nline two\n"
 	spec := launchSpec(t, env, map[string]string{"AWS_LAMBDA_NODEJS_ENTRYPOINT": "server.js", "FOO": "bar"})
+
+	var out struct {
+		lines []string
+		mu    sync.Mutex
+	}
+
+	spec.Output = func(_ bool, line string) {
+		out.mu.Lock()
+		defer out.mu.Unlock()
+
+		out.lines = append(out.lines, line)
+	}
 
 	e, err := l.Launch(t.Context(), spec)
 	require.NoError(t, err)
@@ -194,7 +223,6 @@ func TestDockerLauncher_Launch(t *testing.T) {
 	host, port := e.Addr()
 	assert.Equal(t, "127.0.0.1", host)
 	assert.NotZero(t, port)
-	assert.Regexp(t, `^\d{4}/\d{2}/\d{2}/\[rev-[0-9a-f]{8}\][0-9a-f]{32}$`, e.LogStream())
 
 	require.Len(t, rt.specs, 1)
 	cs := rt.specs[0]
@@ -220,15 +248,16 @@ func TestDockerLauncher_Launch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "x", string(b), "the package is extracted into the mounted directory")
 
-	group := "/aws/lambda/web/app"
-	assert.Eventually(t, func() bool { return len(logs.snapshot(group)) == 2 }, 3*time.Second, 5*time.Millisecond)
-	assert.Equal(t, []string{"line one", "line two"}, logs.snapshot(group))
-	assert.Equal(
-		t,
-		[]string{"line one", "line two"},
-		logs.snapshot(group+".local"),
-		"logs go to the .local companion too",
-	)
+	assert.Eventually(t, func() bool {
+		out.mu.Lock()
+		defer out.mu.Unlock()
+
+		return len(out.lines) == 2
+	}, 3*time.Second, 5*time.Millisecond)
+
+	out.mu.Lock()
+	assert.Equal(t, []string{"line one", "line two"}, out.lines)
+	out.mu.Unlock()
 
 	e.Close(t.Context())
 	assert.Equal(t, []string{"ctr-1"}, rt.removed)

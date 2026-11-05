@@ -33,6 +33,7 @@ type fakeApp struct {
 	srv      *httptest.Server
 	seen     chan *http.Request
 	hold     chan struct{}
+	closed   *atomic.Int32
 	revision string
 }
 
@@ -45,13 +46,52 @@ func (a *fakeApp) Addr() (string, int) {
 
 func (a *fakeApp) LogStream() string { return "2026/11/01/[" + a.revision + "]abc" }
 
-func (a *fakeApp) Close(context.Context) { a.srv.Close() }
+func (a *fakeApp) Close(context.Context) {
+	a.closed.Add(1)
+	a.srv.Close()
+}
 
 type fakeLauncher struct {
 	err      error
 	hold     chan struct{}
 	apps     sync.Map
+	all      []*fakeApp
+	logs     func(spec lambdaweb.LaunchSpec, line func(stderr bool, msg string))
+	holdRev  string
+	once     sync.Once
+	mu       sync.Mutex
 	launches atomic.Int32
+	closed   atomic.Int32
+}
+
+// release unblocks every held request once.
+func (l *fakeLauncher) release() { l.once.Do(func() { close(l.hold) }) }
+
+func (l *fakeLauncher) setHoldRev(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.holdRev = id
+}
+
+func (l *fakeLauncher) holdRevision() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.holdRev
+}
+
+// seenTotal counts the requests every launched app has received and not yet been read.
+func (l *fakeLauncher) seenTotal() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	n := 0
+	for _, a := range l.all {
+		n += len(a.seen)
+	}
+
+	return n
 }
 
 func (l *fakeLauncher) Launch(_ context.Context, spec lambdaweb.LaunchSpec) (lambdaweb.Environment, error) {
@@ -61,15 +101,30 @@ func (l *fakeLauncher) Launch(_ context.Context, spec lambdaweb.LaunchSpec) (lam
 		return nil, l.err
 	}
 
-	app := &fakeApp{revision: spec.Revision.ID, seen: make(chan *http.Request, 64), hold: l.hold}
+	app := &fakeApp{revision: spec.Revision.ID, seen: make(chan *http.Request, 64), hold: l.hold, closed: &l.closed}
+	if hr := l.holdRevision(); hr != "" && hr != spec.Revision.ID {
+		app.hold = nil
+	}
+
 	app.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case app.seen <- r.Clone(context.Background()):
 		default:
 		}
 
+		if l.logs != nil && spec.Output != nil {
+			l.logs(spec, spec.Output)
+		}
+
 		if app.hold != nil {
 			<-app.hold
+		}
+
+		switch r.URL.Path {
+		case "/boom":
+			w.WriteHeader(http.StatusInternalServerError)
+		case "/missing":
+			w.WriteHeader(http.StatusNotFound)
 		}
 
 		w.Header().Set("X-App-Revision", app.revision)
@@ -77,6 +132,9 @@ func (l *fakeLauncher) Launch(_ context.Context, spec lambdaweb.LaunchSpec) (lam
 		_, _ = io.WriteString(w, "hello from "+app.revision)
 	}))
 	l.apps.Store(spec.Revision.ID, app)
+	l.mu.Lock()
+	l.all = append(l.all, app)
+	l.mu.Unlock()
 
 	return app, nil
 }
@@ -402,11 +460,8 @@ func TestDataPlane_MaxEnvironmentsCapacity(t *testing.T) {
 		})
 	}
 
-	require.Eventually(t, func() bool {
-		app, ok := l.apps.Load(aws.ToString(created.Revision.RevisionId))
-
-		return ok && len(app.(*fakeApp).seen) == 2
-	}, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return l.seenTotal() == 2 }, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, int32(2), l.launches.Load(), "each full environment scales out another")
 
 	resp := d.get(t)
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)

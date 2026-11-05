@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -12,7 +14,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 // lambdaWebCode serves web function deployment packages from versioned S3 buckets.
@@ -82,6 +86,28 @@ func (a lambdaWebCredentials) IssueCredentials(roleARN, sessionName string) (lam
 	}, nil
 }
 
+var errLambdaWebKeyUnusable = errors.New("key is not an enabled symmetric encryption key")
+
+// lambdaWebKeys checks that a revision's KMS key exists, is enabled and is a symmetric encryption key.
+type lambdaWebKeys struct {
+	backend *kmsbackend.InMemoryBackend
+}
+
+func (k lambdaWebKeys) CheckKey(ctx context.Context, region, keyARN string) error {
+	out, err := k.backend.DescribeKey(kmsbackend.WithRegion(ctx, region), &kmsbackend.DescribeKeyInput{KeyID: keyARN})
+	if err != nil {
+		return err
+	}
+
+	meta := out.KeyMetadata
+	if !meta.Enabled || meta.KeyUsage != kmsbackend.KeyUsageEncryptDecrypt ||
+		(meta.KeySpec != "" && meta.KeySpec != "SYMMETRIC_DEFAULT") {
+		return errLambdaWebKeyUnusable
+	}
+
+	return nil
+}
+
 // wireLambdaWeb gives Lambda Web Functions its S3 code store, CloudWatch Logs sink, execution-role
 // credentials, emulator endpoint and the SigV4 secret IamAuth endpoints verify against.
 func wireLambdaWeb(cli *CLI, byName map[string]service.Registerable) {
@@ -106,6 +132,20 @@ func wireLambdaWeb(cli *CLI, byName map[string]service.Registerable) {
 	}
 
 	bk.SetCredentialIssuer(lambdaWebCredentials{inner: &lambdaRoleCredentials{byName: byName}})
+
+	if kmsH, kmsOk := byName["KMS"].(*kmsbackend.Handler); kmsOk {
+		if kmsBk, bkOk := kmsH.Backend.(*kmsbackend.InMemoryBackend); bkOk {
+			bk.SetKeyChecker(lambdaWebKeys{backend: kmsBk})
+		}
+	}
+
+	if stsH, stsOk := byName["STS"].(*stsbackend.Handler); stsOk {
+		if stsBk, bkOk := stsH.Backend.(*stsbackend.InMemoryBackend); bkOk {
+			bk.SetRoleTrust(stsBk)
+		}
+	}
+
+	bk.SetPrincipalResolver(buildPrincipalResolvers(slices.Collect(maps.Values(byName))))
 
 	if cli != nil {
 		bk.SetSigV4Secret(cli.SigV4Secret)

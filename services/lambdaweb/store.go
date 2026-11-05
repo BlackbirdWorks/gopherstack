@@ -10,6 +10,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -58,6 +60,10 @@ type InMemoryBackend struct {
 	codes          CodeStore
 	logs           LogSink
 	creds          CredentialIssuer
+	metrics        cwmetric.Emitter
+	keys           KeyChecker
+	roleTrust      RoleTrust
+	principals     awsmeta.PrincipalResolver
 	endpointURL    string
 	run            *runtimeState
 	accountID      string
@@ -75,6 +81,7 @@ func NewInMemoryBackend(accountID string) *InMemoryBackend {
 	}
 
 	registerAllTables(b)
+	b.run.tick = b.SweepEnvironments
 
 	return b
 }

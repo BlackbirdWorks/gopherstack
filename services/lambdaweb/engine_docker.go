@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
@@ -80,18 +79,15 @@ func NewDockerLauncher(b *InMemoryBackend, cfg DockerConfig) Launcher {
 }
 
 type dockerEnv struct {
-	l         *dockerLauncher
-	cancel    context.CancelFunc
-	host      string
-	codeDir   string
-	logStream string
-	id        string
-	port      int
+	l       *dockerLauncher
+	cancel  context.CancelFunc
+	host    string
+	codeDir string
+	id      string
+	port    int
 }
 
 func (e *dockerEnv) Addr() (string, int) { return e.host, e.port }
-
-func (e *dockerEnv) LogStream() string { return e.logStream }
 
 func (e *dockerEnv) Close(ctx context.Context) {
 	e.cancel()
@@ -104,10 +100,27 @@ func (e *dockerEnv) Close(ctx context.Context) {
 	}
 }
 
+// followLogs delivers the container's stdout and stderr lines to out.
+func (l *dockerLauncher) followLogs(ctx context.Context, out func(stderr bool, line string), id string) {
+	streamer, ok := l.cfg.Runtime.(container.LogStreamer)
+	if !ok || out == nil {
+		return
+	}
+
+	stdout := &lineSplitter{emit: func(line string) { out(false, line) }}
+	stderr := &lineSplitter{emit: func(line string) { out(true, line) }}
+
+	go func() {
+		_ = streamer.StreamLogs(ctx, id, stdout, stderr)
+		stdout.flush()
+		stderr.flush()
+	}()
+}
+
 // Launch implements Launcher.
 func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Environment, error) {
 	rev := spec.Revision
-	codes, logs, creds, endpointURL := l.b.environmentServices()
+	codes, _, creds, endpointURL := l.b.environmentServices()
 
 	if codes == nil {
 		return nil, fmt.Errorf("%w: no S3 backend is wired", ErrCodeUnavailable)
@@ -152,7 +165,7 @@ func (l *dockerLauncher) Launch(ctx context.Context, spec LaunchSpec) (Environme
 		return nil, err
 	}
 
-	de.logStream = l.followLogs(lctx, logs, rev, id)
+	l.followLogs(lctx, spec.Output, id)
 
 	return de, nil
 }
@@ -303,94 +316,4 @@ func extractEntry(dir string, f *zip.File, budget int64) (int64, error) {
 	}
 
 	return n, nil
-}
-
-// followLogs ships the container's output to the revision's log group and its .local companion, and returns the
-// log stream name.
-func (l *dockerLauncher) followLogs(ctx context.Context, sink LogSink, rev *Revision, id string) string {
-	stream := time.Now().UTC().Format("2006/01/02") + "/[" + rev.ID + "]" + awsid.NewN("", 32) //nolint:mnd // hex id
-
-	streamer, ok := l.cfg.Runtime.(container.LogStreamer)
-	if !ok || sink == nil {
-		return stream
-	}
-
-	group := logGroupOf(rev)
-	w := &lineWriter{
-		ctx:    ctx,
-		sink:   sink,
-		region: rev.Region,
-		groups: []string{group, group + ".local"},
-		stream: stream,
-	}
-
-	for _, g := range w.groups {
-		if err := sink.EnsureLogGroupAndStream(ctx, rev.Region, g, stream); err != nil {
-			return stream
-		}
-	}
-
-	go func() {
-		_ = streamer.StreamLogs(ctx, id, w, w)
-		w.flush()
-	}()
-
-	return stream
-}
-
-func logGroupOf(rev *Revision) string {
-	if lg := rev.ServiceConfig.Logging; lg != nil && lg.LogGroup != "" {
-		return lg.LogGroup
-	}
-
-	return "/aws/lambda/web/" + rev.FunctionName
-}
-
-type lineWriter struct {
-	ctx     context.Context
-	sink    LogSink
-	region  string
-	stream  string
-	groups  []string
-	partial []byte
-}
-
-func (w *lineWriter) Write(p []byte) (int, error) {
-	w.partial = append(w.partial, p...)
-
-	var lines []string
-
-	for {
-		i := bytes.IndexByte(w.partial, '\n')
-		if i < 0 {
-			break
-		}
-
-		if line := strings.TrimRight(string(w.partial[:i]), "\r"); line != "" {
-			lines = append(lines, line)
-		}
-
-		w.partial = w.partial[i+1:]
-	}
-
-	w.ship(lines)
-
-	return len(p), nil
-}
-
-func (w *lineWriter) flush() {
-	if len(w.partial) > 0 {
-		w.ship([]string{string(w.partial)})
-		w.partial = nil
-	}
-}
-
-func (w *lineWriter) ship(lines []string) {
-	if len(lines) == 0 {
-		return
-	}
-
-	for _, g := range w.groups {
-		_ = w.sink.PutLogLines(w.ctx, w.region, g, w.stream, lines)
-	}
 }
