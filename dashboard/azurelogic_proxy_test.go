@@ -287,7 +287,12 @@ func TestAzureLogicProxyRejectsOutsideAllowList(t *testing.T) {
 		{"other type", http.MethodGet, logicRoot + logicNS + "/integrationAccounts" + logicAPI, ""},
 		{"subscription list", http.MethodGet, logicRoot + "/subscriptions/" + armSub +
 			"/providers/Microsoft.Logic/workflows" + logicAPI, ""},
-		{"resource group put", http.MethodPut, logicRoot + "/subscriptions/" + armSub + "/resourceGroups/x" + logicAPI, "{}"},
+		{
+			"resource group put",
+			http.MethodPut,
+			logicRoot + "/subscriptions/" + armSub + "/resourceGroups/x" + logicAPI,
+			"{}",
+		},
 		{"traversal", http.MethodGet, logicRoot + armBase + "Microsoft.Logic/workflows/%2e%2e" + logicAPI, ""},
 		{"encoded slash", http.MethodGet, logicRoot + armBase + "Microsoft.Logic/workflows/a%2Fb" + logicAPI, ""},
 		{"empty", http.MethodGet, logicRoot + "/", ""},
@@ -322,8 +327,10 @@ func TestAzureLogicProxyAccessRejectsBadInput(t *testing.T) {
 		{"invoke bad sub", http.MethodPost, logicAccess + "/invoke/a%20b/demo/greeter/manual", "{}"},
 		{"invoke bad trigger", http.MethodPost, logicAccess + "/invoke" + logicIDs + "/a$b", "{}"},
 		{"invoke not json", http.MethodPost, logicAccess + "/invoke" + logicIDs + "/manual", "not json"},
-		{"invoke huge", http.MethodPost, logicAccess + "/invoke" + logicIDs + "/manual",
-			`{"a":"` + strings.Repeat("x", 1<<17) + `"}`},
+		{
+			"invoke huge", http.MethodPost, logicAccess + "/invoke" + logicIDs + "/manual",
+			`{"a":"` + strings.Repeat("x", 1<<17) + `"}`,
+		},
 		{"callback bad wf", http.MethodPost, logicAccess + "/callback/" + armSub + "/demo/a$b/manual", ""},
 		{"content get on callback", http.MethodGet, logicAccess + "/callback" + logicIDs + "/manual", ""},
 		{"invoke get", http.MethodGet, logicAccess + "/invoke" + logicIDs + "/manual", ""},
@@ -334,7 +341,15 @@ func TestAzureLogicProxyAccessRejectsBadInput(t *testing.T) {
 			t.Parallel()
 
 			got := lbDo(t, h, tt.method, tt.path, tt.body)
-			assert.GreaterOrEqual(t, got.Code, http.StatusBadRequest, "%s %s: %s", tt.method, tt.path, got.Body.String())
+			assert.GreaterOrEqual(
+				t,
+				got.Code,
+				http.StatusBadRequest,
+				"%s %s: %s",
+				tt.method,
+				tt.path,
+				got.Body.String(),
+			)
 			assert.NotContains(t, got.Body.String(), "sig=")
 		})
 	}
@@ -356,4 +371,3 @@ func TestAzureLogicProxyUnavailableWithoutService(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, got.Code, "%s %s", p.method, p.path)
 	}
 }
-

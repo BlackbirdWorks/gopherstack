@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -27,9 +28,10 @@ const (
 	logicPxActions         = "actions"
 	logicPxDataPrefix      = "/_logic/workflows/"
 	logicPxRGList          = 7
+	logicPxBasePath        = 9
+	logicPxKeyStatus       = "status"
+	logicPxRunVerb         = "run"
 	logicPxRestItem        = 2
-	logicPxRestTrigger     = 3
-	logicPxRestAction      = 4
 	logicPxMaxInvoke       = 1 << 16
 	logicPxMaxReply        = 256 << 10
 	logicPxMaxContent      = 1 << 20
@@ -76,7 +78,12 @@ func (h *DashboardHandler) registerAzureLogicRoutes() {
 	guard := func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if inner == nil {
-				return azureACIFail(c, http.StatusServiceUnavailable, errServiceUnavailable, "Azure Logic Apps is not enabled")
+				return azureACIFail(
+					c,
+					http.StatusServiceUnavailable,
+					errServiceUnavailable,
+					"Azure Logic Apps is not enabled",
+				)
 			}
 
 			return next(c)
@@ -106,29 +113,27 @@ func logicProxyAllowed(method string, p []string) bool {
 	return logicProxyRest(method, rest)
 }
 
-func logicProxyRest(method string, rest []string) bool {
-	get := method == http.MethodGet
-	post := method == http.MethodPost
-
-	switch len(rest) {
-	case 0:
-		return get
-	case 1:
-		return (get && (rest[0] == logicPxTriggers || rest[0] == logicPxRuns)) ||
-			(post && (rest[0] == "enable" || rest[0] == "disable"))
-	case logicPxRestItem:
-		return get && (rest[0] == logicPxTriggers || rest[0] == logicPxRuns)
-	case logicPxRestTrigger:
-		return (post && rest[0] == logicPxTriggers && rest[2] == "run") ||
-			(post && rest[0] == logicPxRuns && rest[2] == "cancel") ||
-			(get && rest[0] == logicPxRuns && rest[2] == logicPxActions)
-	case logicPxRestAction:
-		return get && rest[0] == logicPxRuns && rest[2] == logicPxActions
-	}
-
-	return false
+// logicProxyShapes are the workflow-relative calls the generic proxy allows; item names are written as *.
+//
+//nolint:gochecknoglobals // immutable allow-list
+var logicProxyShapes = []string{
+	"GET:", "GET:triggers", "GET:runs", "GET:triggers/*", "GET:runs/*", "GET:runs/*/actions",
+	"GET:runs/*/actions/*", "POST:enable", "POST:disable", "POST:triggers/*/run", "POST:runs/*/cancel",
 }
 
+func logicProxyRest(method string, rest []string) bool {
+	parts := make([]string, len(rest))
+
+	for i, seg := range rest {
+		if i%logicPxRestItem == 1 {
+			parts[i] = "*"
+		} else {
+			parts[i] = seg
+		}
+	}
+
+	return slices.Contains(logicProxyShapes, method+":"+strings.Join(parts, "/"))
+}
 
 // logicProxyBody sends the actions that take no input an empty object.
 func logicProxyBody(method string, _ []string, _ []byte) ([]byte, bool) {
@@ -179,10 +184,9 @@ func (a logicAccess) withHost(c *echo.Context) logicAccess {
 type logicIDs struct{ sub, rg, wf string }
 
 func (i logicIDs) armPath(rest ...string) string {
-	parts := []string{
-		"", "subscriptions", url.PathEscape(i.sub), "resourceGroups", url.PathEscape(i.rg), "providers",
-		logicPxARMNamespace, logicPxWorkflows, url.PathEscape(i.wf),
-	}
+	parts := make([]string, 0, logicPxBasePath+len(rest))
+	parts = append(parts, "", armPxSubsSeg, url.PathEscape(i.sub), "resourceGroups", url.PathEscape(i.rg), armPxProvSeg,
+		logicPxARMNamespace, logicPxWorkflows, url.PathEscape(i.wf))
 
 	for _, r := range rest {
 		parts = append(parts, url.PathEscape(r))
@@ -334,16 +338,16 @@ func (a logicAccess) invoke(c *echo.Context) error {
 	logicNoStore(c)
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"status": rec.Code, "contentType": rec.Header().Get("Content-Type"),
+		logicPxKeyStatus: rec.Code, "contentType": rec.Header().Get("Content-Type"),
 		"runId": rec.Header().Get("X-Ms-Workflow-Run-Id"), "body": string(reply),
 	})
 }
 
 // content reads the stored inputs or outputs of a trigger or an action of one run through its signed link.
 func (a logicAccess) content(c *echo.Context) error {
-	names := []string{"run", "kind"}
+	names := []string{logicPxRunVerb, "kind"}
 	if c.Param("action") != "" {
-		names = []string{"run", "action", "kind"}
+		names = []string{logicPxRunVerb, "action", "kind"}
 	}
 
 	ids, extra, ok := logicParams(c, names...)
@@ -398,4 +402,3 @@ func (a logicAccess) content(c *echo.Context) error {
 
 	return c.JSONBlob(http.StatusOK, out)
 }
-

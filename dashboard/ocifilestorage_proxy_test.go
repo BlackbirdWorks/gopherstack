@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	fsComp   = "ocid1.compartment.oc1..fscomp"
-	fsAD     = "Uocm:IAD-AD-1"
-	fsBase   = "/dashboard/api/v1/oci/filestorage"
-	fsAPI    = fsBase + "/api"
+	fsComp = "ocid1.compartment.oc1..fscomp"
+	fsAD   = "Uocm:IAD-AD-1"
+	fsBase = "/dashboard/api/v1/oci/filestorage"
+	fsAPI  = fsBase + "/api"
 )
 
 type fsFixture struct {
@@ -50,7 +50,9 @@ func newFSDashboard(t *testing.T, nfs bool) fsFixture {
 	backend.SetTransition(0)
 
 	core := ocicore.NewInMemoryBackend()
-	vcn, _, aerr := core.CreateVcn(ocicore.CreateVcnIn{CompartmentID: fsComp, DisplayName: "vcn", CidrBlock: "10.0.0.0/16"})
+	vcn, _, aerr := core.CreateVcn(
+		ocicore.CreateVcnIn{CompartmentID: fsComp, DisplayName: "vcn", CidrBlock: "10.0.0.0/16"},
+	)
 	require.Nil(t, aerr)
 
 	sub, _, aerr := core.CreateSubnet(ocicore.CreateSubnetIn{
@@ -182,11 +184,13 @@ func TestOCIFileStorageProxyLifecycle(t *testing.T) {
 	assert.Contains(t, got.Body.String(), `"identitySquash":"ALL"`)
 	assert.NotContains(t, got.Body.String(), "anonymousUid\":0")
 
-	for _, p := range []string{"exportSets?compartmentId=" + fsComp + "&availabilityDomain=" + fsAD,
+	for _, p := range []string{
+		"exportSets?compartmentId=" + fsComp + "&availabilityDomain=" + fsAD,
 		"mountTargets?compartmentId=" + fsComp + "&availabilityDomain=" + fsAD,
 		"filesystemSnapshotPolicies?compartmentId=" + fsComp + "&availabilityDomain=" + fsAD,
 		"replications?compartmentId=" + fsComp + "&availabilityDomain=" + fsAD,
-		"exports?exportSetId=" + setID} {
+		"exports?exportSetId=" + setID,
+	} {
 		r := f.proxy(t, http.MethodGet, fsAPI+"/"+p, "")
 		assert.Equal(t, http.StatusOK, r.Code, "%s: %s", p, r.Body.String())
 	}
@@ -231,27 +235,43 @@ func TestOCIFileStorageProxyRejectsOutsideAllowList(t *testing.T) {
 		{"empty", http.MethodGet, fsAPI + "/", ""},
 		{"deep path", http.MethodGet, fsAPI + "/fileSystems/" + id + "/snapshots", ""},
 		{"fs missing ad", http.MethodPost, fsAPI + "/fileSystems", `{"compartmentId":"` + fsComp + `"}`},
-		{"fs bad source", http.MethodPost, fsAPI + "/fileSystems",
-			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","sourceSnapshotId":"a/b"}`},
-		{"mt bad subnet", http.MethodPost, fsAPI + "/mountTargets",
-			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","subnetId":"a b"}`},
-		{"mt bad hostname", http.MethodPost, fsAPI + "/mountTargets",
+		{
+			"fs bad source", http.MethodPost, fsAPI + "/fileSystems",
+			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","sourceSnapshotId":"a/b"}`,
+		},
+		{
+			"mt bad subnet", http.MethodPost, fsAPI + "/mountTargets",
+			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","subnetId":"a b"}`,
+		},
+		{
+			"mt bad hostname", http.MethodPost, fsAPI + "/mountTargets",
 			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","subnetId":"` + f.subnet +
-				`","hostnameLabel":"-bad"}`},
-		{"mt bad ip", http.MethodPost, fsAPI + "/mountTargets",
+				`","hostnameLabel":"-bad"}`,
+		},
+		{
+			"mt bad ip", http.MethodPost, fsAPI + "/mountTargets",
 			`{"compartmentId":"` + fsComp + `","availabilityDomain":"` + fsAD + `","subnetId":"` + f.subnet +
-				`","ipAddress":"nope"}`},
-		{"export bad path", http.MethodPost, fsAPI + "/exports",
-			`{"exportSetId":"s","fileSystemId":"` + id + `","path":"data"}`},
-		{"export bad source", http.MethodPost, fsAPI + "/exports",
+				`","ipAddress":"nope"}`,
+		},
+		{
+			"export bad path", http.MethodPost, fsAPI + "/exports",
+			`{"exportSetId":"s","fileSystemId":"` + id + `","path":"data"}`,
+		},
+		{
+			"export bad source", http.MethodPost, fsAPI + "/exports",
 			`{"exportSetId":"s","fileSystemId":"` + id + `","path":"/d","exportOptions":[` +
-				`{"source":"everyone","access":"READ_WRITE","identitySquash":"ROOT"}]}`},
-		{"export bad access", http.MethodPost, fsAPI + "/exports",
+				`{"source":"everyone","access":"READ_WRITE","identitySquash":"ROOT"}]}`,
+		},
+		{
+			"export bad access", http.MethodPost, fsAPI + "/exports",
 			`{"exportSetId":"s","fileSystemId":"` + id + `","path":"/d","exportOptions":[` +
-				`{"source":"10.0.0.1","access":"ADMIN","identitySquash":"ROOT"}]}`},
-		{"export bad squash", http.MethodPost, fsAPI + "/exports",
+				`{"source":"10.0.0.1","access":"ADMIN","identitySquash":"ROOT"}]}`,
+		},
+		{
+			"export bad squash", http.MethodPost, fsAPI + "/exports",
 			`{"exportSetId":"s","fileSystemId":"` + id + `","path":"/d","exportOptions":[` +
-				`{"source":"10.0.0.1","access":"READ_WRITE","identitySquash":"WHATEVER"}]}`},
+				`{"source":"10.0.0.1","access":"READ_WRITE","identitySquash":"WHATEVER"}]}`,
+		},
 		{"snapshot bad name", http.MethodPost, fsAPI + "/snapshots", `{"fileSystemId":"` + id + `","name":"a/b"}`},
 		{"snapshot no fs", http.MethodPost, fsAPI + "/snapshots", `{"name":"x"}`},
 		{"malformed", http.MethodPost, fsAPI + "/snapshots", `{`},

@@ -41,6 +41,8 @@ const (
 	ociFSReplicas    = "replications"
 	ociFSAccessRW    = "READ_WRITE"
 	ociFSAccessRO    = "READ_ONLY"
+	ociFSKeySubnet   = "subnetId"
+	ociFSKeyAccess   = "access"
 )
 
 var (
@@ -89,7 +91,7 @@ var ociFSColls = map[string]ociFSColl{
 	},
 	ociFSSnapshots: {
 		create: ociFSSnapshotBody, remove: true,
-		keys:   []string{ociFSKeyFS, ociFSKeyState, ociFSKeyLimit, ociFSKeyPage, ociFSKeySortBy, ociFSKeySortOrd},
+		keys: []string{ociFSKeyFS, ociFSKeyState, ociFSKeyLimit, ociFSKeyPage, ociFSKeySortBy, ociFSKeySortOrd},
 	},
 	ociFSPolicies: {
 		keys: []string{
@@ -132,7 +134,7 @@ func (h *DashboardHandler) registerOCIFileStorageRoutes() {
 
 	h.SubRouter.Add(http.MethodGet, ociFSPrefix+"/nfs", guard(func(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]any{
-			"enabled": ops.Backend.NFSEnabled(), "endpoints": ops.Backend.NFSEndpoints(),
+			ociDNSKeyEnabled: ops.Backend.NFSEnabled(), "endpoints": ops.Backend.NFSEndpoints(),
 		})
 	}))
 
@@ -172,7 +174,7 @@ func (h *DashboardHandler) ociFSPrivateIP(c *echo.Context) error {
 		var ip map[string]any
 		if rec.Code == http.StatusOK && json.Unmarshal(rec.Body.Bytes(), &ip) == nil {
 			out = map[string]any{
-				"ipAddress": ip["ipAddress"], "hostnameLabel": ip["hostnameLabel"], "subnetId": ip["subnetId"],
+				"ipAddress": ip["ipAddress"], "hostnameLabel": ip["hostnameLabel"], ociFSKeySubnet: ip[ociFSKeySubnet],
 			}
 		}
 	}
@@ -286,7 +288,7 @@ func ociFSMountTargetBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	out := map[string]any{ociFSKeyComp: in.Compartment, ociFSKeyAD: in.AD, "subnetId": in.SubnetID}
+	out := map[string]any{ociFSKeyComp: in.Compartment, ociFSKeyAD: in.AD, ociFSKeySubnet: in.SubnetID}
 
 	if in.DisplayName != "" {
 		out[ociFSKeyName] = in.DisplayName
@@ -320,7 +322,7 @@ func (o ociFSOption) build() (map[string]any, bool) {
 		return nil, false
 	}
 
-	out := map[string]any{"source": o.Source, "access": o.Access, "identitySquash": o.Squash}
+	out := map[string]any{"source": o.Source, ociFSKeyAccess: o.Access, "identitySquash": o.Squash}
 
 	if o.Privileged != nil {
 		out["requirePrivilegedSourcePort"] = *o.Privileged
@@ -385,5 +387,11 @@ func ociFSSnapshotBody(c *echo.Context) ([]byte, bool) {
 		return nil, false
 	}
 
-	return ociArtMarshal(map[string]any{ociFSKeyFS: in.FileSystem, "name": in.Name})
+	return ociArtMarshal(map[string]any{ociFSKeyFS: in.FileSystem, netPxNameKey: in.Name})
+}
+
+// registerStorageAndWorkflowRoutes registers the File Storage and Logic Apps pages.
+func (h *DashboardHandler) registerStorageAndWorkflowRoutes() {
+	h.registerOCIFileStorageRoutes()
+	h.registerAzureLogicRoutes()
 }
