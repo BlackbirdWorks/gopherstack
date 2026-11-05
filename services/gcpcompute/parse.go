@@ -160,6 +160,10 @@ func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
 		rt.action = rest[2]
 	}
 
+	if rt.collection == "instances" && rt.name == "bulkInsert" && rt.action == "" {
+		rt.name, rt.action = "", "bulkInsert"
+	}
+
 	if rt.collection == "images" && rt.name == "family" && rt.action != "" {
 		rt.name, rt.action = rt.action, "getFromFamily"
 	}

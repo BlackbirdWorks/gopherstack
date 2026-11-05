@@ -131,13 +131,14 @@ func (h *Handler) Reset() { h.Backend.Reset() }
 
 var readVerbs = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 	verbList: true, verbAggList: true, verbGet: true, "getRouterStatus": true, "getFromFamily": true,
-	"listPeeringRoutes": true, "getRule": true, "serialPort": true, "getGuestAttributes": true,
+	"listPeeringRoutes": true, "getRule": true, "serialPort": true, "getGuestAttributes": true, "referrers": true,
 }
 
 var verbMethods = map[string]string{ //nolint:gochecknoglobals // read-only lookup table
 	verbInsert: http.MethodPost, verbDelete: http.MethodDelete, verbPatch: http.MethodPatch, verbUpdate: http.MethodPut,
 	"updatePeering": http.MethodPatch, "updateShieldedInstanceConfig": http.MethodPatch,
-	"setShieldedInstanceIntegrityPolicy": http.MethodPatch,
+	"setShieldedInstanceIntegrityPolicy": http.MethodPatch, "updateNetworkInterface": http.MethodPatch,
+	"updateDisplayDevice": http.MethodPatch, "updateAccessConfig": http.MethodPost,
 }
 
 func methodFor(verb string) string {

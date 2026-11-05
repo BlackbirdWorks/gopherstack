@@ -58,6 +58,7 @@ func (h *Handler) registerInstanceOps() {
 	}
 
 	h.registerInstanceMutations()
+	h.registerInstanceMoreOps()
 	h.registerInstanceStateOps()
 }
 
@@ -137,6 +138,79 @@ func (h *Handler) registerInstanceMutations() {
 			),
 		)
 	})
+}
+
+func (h *Handler) registerInstanceMoreOps() {
+	z := scopeZone
+	h.reg("instances", z, "setName", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[setNameRequest](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.setInstanceName(rq.rt.project, rq.rt.loc, rq.rt.name, *in))
+	})
+	h.reg("instances", z, "setMachineResources", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.InstancesSetMachineResourcesRequest](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.setInstanceMachineResources(rq.rt.project, rq.rt.loc, rq.rt.name, in.GuestAccelerators))
+	})
+	h.reg("instances", z, "setDiskAutoDelete", func(h *Handler, rq *request) (any, error) {
+		return opResult(h.Backend.setDiskAutoDelete(
+			rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("deviceName"), rq.q.Get("autoDelete")))
+	})
+	h.reg("instances", z, "updateDisplayDevice", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.DisplayDevice](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.updateDisplayDevice(rq.rt.project, rq.rt.loc, rq.rt.name, in))
+	})
+	h.reg("instances", z, "updateAccessConfig", func(h *Handler, rq *request) (any, error) {
+		in, _, err := decode[computeapi.AccessConfig](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.updateAccessConfig(rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in))
+	})
+	h.reg("instances", z, "updateNetworkInterface", func(h *Handler, rq *request) (any, error) {
+		in, raw, err := decode[computeapi.NetworkInterface](rq)
+		if err != nil {
+			return nil, err
+		}
+
+		return opResult(h.Backend.updateNetworkInterface(
+			rq.rt.project, rq.rt.loc, rq.rt.name, rq.q.Get("networkInterface"), in, raw))
+	})
+	h.reg("instances", z, "simulateMaintenanceEvent", func(h *Handler, rq *request) (any, error) {
+		return opResult(h.Backend.simulateMaintenance(rq.rt.project, rq.rt.loc, rq.rt.name))
+	})
+	h.reg("instances", z, "referrers", func(h *Handler, rq *request) (any, error) {
+		entries, err := h.Backend.listReferrers(rq.rt.project, rq.rt.loc, rq.rt.name)
+		if err != nil {
+			return nil, err
+		}
+
+		return listBody(rq, "compute#instanceListReferrers", entries)
+	})
+
+	for _, scope := range []string{scopeZone, scopeRegion} {
+		h.reg("instances", scope, "bulkInsert", func(h *Handler, rq *request) (any, error) {
+			in, raw, err := decode[computeapi.BulkInsertInstanceResource](rq)
+			if err != nil {
+				return nil, err
+			}
+
+			props, _ := raw["instanceProperties"].(map[string]any)
+
+			return opResult(h.Backend.bulkInsert(rq.rt.project, scope, rq.rt.loc, in, props))
+		})
+	}
 }
 
 func (h *Handler) registerInstanceStateOps() {
