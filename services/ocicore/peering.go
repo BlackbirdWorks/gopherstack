@@ -33,6 +33,10 @@ func (b *InMemoryBackend) CreateLocalPeeringGateway(in CreateLpgIn) (resource, s
 
 	v, aerr := b.gatewayVcn(in.CompartmentID, in.VcnID, in.DisplayName, in.RouteTableID)
 	if aerr == nil {
+		aerr = b.vcnWritable(v.ID)
+	}
+
+	if aerr == nil {
 		aerr = gatewayLimit[*LocalPeeringGateway](b, v.ID, "local peering gateways", maxLpgPerVcn)
 	}
 
@@ -58,6 +62,10 @@ type UpdateLpgIn struct {
 // UpdateLocalPeeringGateway changes a local peering gateway.
 func (b *InMemoryBackend) UpdateLocalPeeringGateway(id, ifMatch string, in UpdateLpgIn) (resource, string, *APIError) {
 	return updateWith(b, id, ifMatch, in.UpdateIn, func(g *LocalPeeringGateway) *APIError {
+		if aerr := b.vcnWritable(g.VcnID); aerr != nil {
+			return aerr
+		}
+
 		if in.RouteTableID != nil {
 			if aerr := b.optRouteTable(*in.RouteTableID, g.VcnID); aerr != nil {
 				return aerr

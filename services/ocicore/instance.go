@@ -89,6 +89,10 @@ func (b *InMemoryBackend) launchSource(in LaunchInstanceIn, sh shapeDef) (instan
 		sd = &SourceDetails{SourceType: srcImage, ImageID: in.ImageID}
 	}
 
+	if aerr := b.checkKmsKey(sd.KmsKeyID); aerr != nil {
+		return src, aerr
+	}
+
 	switch sd.SourceType {
 	case srcImage:
 		return b.imageSource(*sd, sh)

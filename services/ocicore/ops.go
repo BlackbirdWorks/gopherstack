@@ -193,6 +193,13 @@ func cruds() []crud {
 			(*InMemoryBackend).CreateBootVolume, (*InMemoryBackend).UpdateBootVolume, volumeFilter),
 		newCrud[*VolumeBackup]("VolumeBackup", "VolumeBackups", "/volumeBackups", "volumeBackupId",
 			(*InMemoryBackend).CreateVolumeBackup, (*InMemoryBackend).UpdateVolumeBackup, backupFilter),
+		newCrud[*BootVolumeBackup]("BootVolumeBackup", "BootVolumeBackups", "/bootVolumeBackups", "bootVolumeBackupId",
+			(*InMemoryBackend).CreateBootVolumeBackup, (*InMemoryBackend).UpdateBootVolumeBackup, bootBackupFilter),
+		newCrud[*VolumeGroup]("VolumeGroup", "VolumeGroups", "/volumeGroups", "volumeGroupId",
+			(*InMemoryBackend).CreateVolumeGroup, (*InMemoryBackend).UpdateVolumeGroup, volumeFilter),
+		newCrud[*VolumeGroupBackup]("VolumeGroupBackup", "VolumeGroupBackups", "/volumeGroupBackups",
+			"volumeGroupBackupId", (*InMemoryBackend).CreateVolumeGroupBackup,
+			(*InMemoryBackend).UpdateVolumeGroupBackup, groupBackupFilter),
 		newCrud[*PublicIP]("PublicIp", "PublicIps", "/publicIps", "publicIpId",
 			(*InMemoryBackend).CreatePublicIP, (*InMemoryBackend).UpdatePublicIP, publicIPFilter),
 	}

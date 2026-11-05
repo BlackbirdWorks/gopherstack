@@ -9,6 +9,9 @@ const (
 	statTerminating  = "TERMINATING"
 	statTerminated   = "TERMINATED"
 	statAssigned     = "ASSIGNED"
+
+	sourceManual = "MANUAL"
+	orderAsc     = "ASC"
 )
 
 // Resource kinds, as they appear in OCIDs (ocid1.<kind>.oc1.iad.<id>).
