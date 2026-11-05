@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 )
 
 // validateMaintenanceWindow validates the AWS MemoryDB maintenance window format ddd:hh24:mi-ddd:hh24:mi.
@@ -353,15 +354,26 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	c := buildCluster(region, clusterARN, aclName, req, d, b.now())
 	b.markCreatingLocked(c)
 
-	if err = b.startEngineLocked(c); err != nil {
-		return nil, err
-	}
+	if b.docker != nil {
+		var seeds [][]byte
+		if restoreSnap != nil {
+			if seeds, err = redisdocker.SeedsFor(restoreSnap.Data, int(c.NumShards)); err != nil {
+				return nil, fmt.Errorf("snapshot %q cannot be restored: %w: %w", req.SnapshotName, ErrValidation, err)
+			}
+		}
 
-	if restoreSnap != nil {
-		if err = c.engine.Restore(restoreSnap.Data); err != nil {
-			stopEngine(c)
-
+		b.launchDockerLocked(region, c, seeds)
+	} else {
+		if err = b.startEngineLocked(c); err != nil {
 			return nil, err
+		}
+
+		if restoreSnap != nil {
+			if err = redisdocker.LoadEmbedded(c.mini(), restoreSnap.Data); err != nil {
+				b.stopEngine(c)
+
+				return nil, err
+			}
 		}
 	}
 
@@ -423,7 +435,7 @@ func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Clus
 		return nil, ErrClusterNotFound
 	}
 
-	stopEngine(c)
+	b.stopEngine(c)
 	b.clustersStore(region).Delete(name)
 	delete(b.arnToResourceStore(region), c.ARN)
 
@@ -469,7 +481,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 			CreatedAt:            time.Now(),
 			ClusterConfiguration: b.snapshotClusterConfigFor(c),
 		}
-		data, err := c.engine.Snapshot()
+		data, err := b.captureDataLocked(c)
 		if err != nil {
 			return nil, err
 		}
@@ -479,7 +491,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 		b.arnToResourceStore(region)[snapshotARN] = resourceRef{Kind: resourceKindSnapshot, Name: snapshotName}
 	}
 
-	stopEngine(c)
+	b.stopEngine(c)
 	b.clustersStore(region).Delete(clusterName)
 	delete(b.arnToResourceStore(region), c.ARN)
 

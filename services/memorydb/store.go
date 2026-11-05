@@ -3,12 +3,14 @@ package memorydb
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -186,6 +188,8 @@ type InMemoryBackend struct {
 	clock                      func() time.Time
 	mu                         *lockmetrics.RWMutex
 	allocator                  *portalloc.Allocator
+	docker                     *redisdocker.Engine
+	dockerWG                   sync.WaitGroup
 	engineMode                 string
 	defaultRegion              string
 	accountID                  string

@@ -230,6 +230,10 @@ func SeedsFor(blob []byte, shards int) ([][]byte, error) {
 
 // LoadEmbedded loads a snapshot blob produced by either engine mode into an embedded server.
 func LoadEmbedded(mr *miniredis.Miniredis, blob []byte) error {
+	if mr == nil && len(blob) > 0 {
+		return fmt.Errorf("%w: engine not running", ErrBadSnapshot)
+	}
+
 	if parts, ok := DecodeBundle(blob); ok {
 		if len(parts) != 1 {
 			return fmt.Errorf("%w: snapshot holds %d shards", ErrShape, len(parts))

@@ -13,7 +13,10 @@ import (
 // ErrNotConverged is returned when a group does not reach its target state before the start timeout.
 var ErrNotConverged = errors.New("redis group did not converge")
 
-const nodeFlagsField = 2
+const (
+	nodeFlagsField = 2
+	nodeSlotsField = 8
+)
 
 var errNoIP = errors.New("container reported no address")
 
@@ -184,13 +187,27 @@ func (g *Group) meetAll(ctx context.Context, first *node) error {
 func (g *Group) assignSlots(ctx context.Context) error {
 	for i, sh := range g.spec.Shards {
 		primary := g.shardNodes(i)[0]
-		args := []any{"CLUSTER", "ADDSLOTSRANGE"}
-
-		for _, r := range sh.Slots {
-			args = append(args, strconv.Itoa(r.Start), strconv.Itoa(r.End))
-		}
 
 		_, err := g.onNode(primary, func(a Admin) (bool, error) {
+			missing := sh.Slots
+
+			if len(sh.Seed) > 0 {
+				// a node that loaded keys already claimed the slots they hash to
+				var perr error
+				if missing, perr = g.unclaimed(ctx, a, sh.Slots); perr != nil {
+					return false, perr
+				}
+			}
+
+			if len(missing) == 0 {
+				return true, nil
+			}
+
+			args := []any{"CLUSTER", "ADDSLOTSRANGE"}
+			for _, r := range missing {
+				args = append(args, strconv.Itoa(r.Start), strconv.Itoa(r.End))
+			}
+
 			_, derr := a.Do(ctx, args...)
 
 			return derr == nil, derr
@@ -201,6 +218,74 @@ func (g *Group) assignSlots(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (g *Group) unclaimed(ctx context.Context, a Admin, want []SlotRange) ([]SlotRange, error) {
+	res, err := a.Do(ctx, "CLUSTER", "NODES")
+	if err != nil {
+		return nil, err
+	}
+
+	return subtractSlots(want, ownedSlots(asString(res)))
+}
+
+// ownedSlots lists the slots the "myself" line of CLUSTER NODES output serves; migrating markers are skipped.
+func ownedSlots(nodes string) []SlotRange {
+	var out []SlotRange
+
+	for _, line := range strings.Split(nodes, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) <= nodeSlotsField || !strings.Contains(fields[nodeFlagsField], "myself") {
+			continue
+		}
+
+		for _, tok := range fields[nodeSlotsField:] {
+			if strings.HasPrefix(tok, "[") {
+				continue
+			}
+
+			if r, err := ParseSlots(tok); err == nil {
+				out = append(out, r...)
+			}
+		}
+	}
+
+	return out
+}
+
+// subtractSlots returns the slots of want not in owned; owned slots outside want are an error.
+func subtractSlots(want, owned []SlotRange) ([]SlotRange, error) {
+	var set [TotalSlots]bool
+
+	for _, r := range want {
+		for s := r.Start; s <= r.End; s++ {
+			set[s] = true
+		}
+	}
+
+	for _, r := range owned {
+		for s := r.Start; s <= r.End; s++ {
+			if !set[s] {
+				return nil, fmt.Errorf("%w: snapshot holds keys for slot %d outside the shard's slots", ErrSlots, s)
+			}
+
+			set[s] = false
+		}
+	}
+
+	var out []SlotRange
+
+	for s := 0; s < TotalSlots; s++ {
+		switch {
+		case !set[s]:
+		case len(out) > 0 && out[len(out)-1].End == s-1:
+			out[len(out)-1].End = s
+		default:
+			out = append(out, SlotRange{Start: s, End: s})
+		}
+	}
+
+	return out, nil
 }
 
 // awaitKnown waits until every node has met every other node.
