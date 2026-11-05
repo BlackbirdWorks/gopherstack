@@ -75,7 +75,7 @@ func (p *SearchProvider) DeleteQueryKey(id ResourceID, key string) error {
 // srchQuota is the documented default services-per-subscription limit by SKU (unverified for
 // tenants with raised quotas).
 var srchQuota = map[string]int{ //nolint:gochecknoglobals // read-only quota table
-	"free": 1, srchSKUBasic: srchDefaultQuota, srchSKUStandard: srchDefaultQuota, "standard2": 16, "standard3": 16,
+	"free": 1, srchSKUBasic: srchDefaultQuota, srchSKUStandard: srchDefaultQuota, "standard2": srchDefaultQuota, "standard3": srchDefaultQuota,
 	"storage_optimized_l1": srchDefaultQuota, "storage_optimized_l2": srchDefaultQuota,
 }
 

@@ -556,7 +556,7 @@ func (p *SearchProvider) CheckName(name string) map[string]any {
 
 	if !srchValidName(name) {
 		return map[string]any{
-			srchFieldAvailable: false, "reason": srchReasonInvalid,
+			srchFieldAvailable: false, acFieldReason: srchReasonInvalid,
 			fieldMessage: "Search service names must only contain lowercase letters, digits or dashes, " +
 				"cannot use dash as the first two or last one characters, cannot contain consecutive dashes, " +
 				"and must be between 2 and 60 characters in length.",
@@ -566,7 +566,7 @@ func (p *SearchProvider) CheckName(name string) map[string]any {
 	for _, r := range p.res {
 		if strings.EqualFold(r.name, name) {
 			return map[string]any{
-				srchFieldAvailable: false, "reason": srchReasonExists,
+				srchFieldAvailable: false, acFieldReason: srchReasonExists,
 				fieldMessage: "A search service with the name '" + name + "' already exists.",
 			}
 		}

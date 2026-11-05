@@ -167,12 +167,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 }
 
 func (h *Handler) schedule(ctx context.Context) {
-	interval := DefaultPollInterval
-	if d, err := time.ParseDuration(h.Settings.PollInterval); err == nil && d > 0 {
-		interval = d
-	}
-
-	t := time.NewTicker(interval)
+	t := time.NewTicker(DefaultPollInterval)
 	defer t.Stop()
 
 	for {

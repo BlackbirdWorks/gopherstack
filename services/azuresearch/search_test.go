@@ -413,8 +413,10 @@ func TestSearchHighlight(t *testing.T) {
 		"highlightPostTag": {"</b>"},
 		"searchFields":     {"Description"},
 	})
-	row = custom.body["value"].([]any)[0].(map[string]any)                     //nolint:forcetypeassert // test fixture shape
-	frags := row["@search.highlights"].(map[string]any)["Description"].([]any) //nolint:forcetypeassert // test fixture shape
+	rows, _ := custom.body["value"].([]any)
+	row, _ = rows[0].(map[string]any)
+	hls, _ := row["@search.highlights"].(map[string]any)
+	frags, _ := hls["Description"].([]any)
 	assert.Contains(t, frags[0], "<b>heart</b>")
 }
 
