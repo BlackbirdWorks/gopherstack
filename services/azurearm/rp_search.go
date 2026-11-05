@@ -20,6 +20,9 @@ import (
 )
 
 const (
+	srchOldAPIVersion        = "2022-09-01"
+	srchPreviewAPIVersion    = "2024-06-01-preview"
+	srchFieldAvailable       = "nameAvailable"
 	namespaceMicrosoftSearch = "Microsoft.Search"
 	srchServicesType         = "searchServices"
 	srchHostInfix            = ".search."
@@ -48,17 +51,25 @@ const (
 	srchFieldEndpoint        = "endpoint"
 	srchFieldStatus          = "status"
 	srchFieldIdentity        = "identity"
+	srchSKUStandard          = "standard"
+	srchBypassNone           = "None"
+	srchFieldPEC             = "privateEndpointConnections"
+	srchReasonInvalid        = "Invalid"
+	srchReasonExists         = "AlreadyExists"
+	srchCodeConflict         = "Conflict"
+	srchCodeBadRequest       = "BadRequest"
+	srchCodeUnavailable      = "ServiceUnavailable"
 )
 
 var srchValidSKUs = []string{ //nolint:gochecknoglobals // read-only SKU list
-	srchSKUFree, srchSKUBasic, "standard", "standard2", srchSKUStandard3,
+	srchSKUFree, srchSKUBasic, srchSKUStandard, "standard2", srchSKUStandard3,
 	"storage_optimized_l1", "storage_optimized_l2",
 }
 
-var srchNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9]([a-z0-9]|-[a-z0-9])*$`) //nolint:gochecknoglobals // compiled once
+var srchNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9]([a-z0-9]|-[a-z0-9])*$`)
 
 func searchAPIVersions() []string {
-	return []string{"2025-05-01", "2024-06-01-preview", "2023-11-01", "2022-09-01"}
+	return []string{"2025-05-01", srchPreviewAPIVersion, "2023-11-01", srchOldAPIVersion}
 }
 
 // SearchEndpointConfig configures the endpoints the provider advertises.
@@ -256,7 +267,12 @@ func (p *SearchProvider) Patch(ctx context.Context, id ResourceID, body map[stri
 	return p.write(ctx, id, body, true)
 }
 
-func (p *SearchProvider) write(ctx context.Context, id ResourceID, body map[string]any, patch bool) (map[string]any, error) {
+func (p *SearchProvider) write(
+	ctx context.Context,
+	id ResourceID,
+	body map[string]any,
+	patch bool,
+) (map[string]any, error) {
 	p.mu.Lock("Put")
 	defer p.mu.Unlock()
 
@@ -296,7 +312,7 @@ func (p *SearchProvider) write(ctx context.Context, id ResourceID, body map[stri
 
 func (p *SearchProvider) buildRecord(id ResourceID, body map[string]any, old *storedSearch) (*storedSearch, error) {
 	rec := &storedSearch{
-		name: id.LeafName(), resourceGroup: id.ResourceGroup, location: DefaultLocation, sku: "standard",
+		name: id.LeafName(), resourceGroup: id.ResourceGroup, location: DefaultLocation, sku: srchSKUStandard,
 		hostingMode: srchHostingDefault, publicAccess: srchAccessEnabled, replicas: 1, partitions: 1,
 		tags: map[string]string{},
 	}
@@ -364,24 +380,8 @@ func (r *storedSearch) applyProps(props map[string]any) error {
 		return badSearchRequest("partitionCount must be an integer")
 	}
 
-	if v, has := props[srchFieldHosting].(string); has {
-		if v != srchHostingDefault && v != srchHostingHighDensity {
-			return badSearchRequest("unsupported hostingMode %q", v)
-		}
-
-		r.hostingMode = v
-	}
-
-	if v, has := props[srchFieldPublicAccess].(string); has {
-		v = strings.ToLower(v)
-		if v != srchAccessEnabled && v != "disabled" && v != "securedbyperimeter" {
-			return badSearchRequest("unsupported publicNetworkAccess %q", v)
-		}
-
-		r.publicAccess = v
-		if v == "securedbyperimeter" {
-			r.publicAccess = "securedByPerimeter"
-		}
+	if err := r.applyModes(props); err != nil {
+		return err
 	}
 
 	if v, has := props[srchFieldDisableLocal].(bool); has {
@@ -424,13 +424,14 @@ func (p *SearchProvider) endpointFor(name, host string) string {
 
 func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 	props := ehMerge(map[string]any{
-		srchFieldDisableLocal: rec.disableLocal, "eTag": "W/\"" + rec.createdAt.UTC().Format("20060102T150405.000Z") + "\"",
-		"networkRuleSet": map[string]any{"ipRules": []any{}, "bypass": "None"},
+		srchFieldDisableLocal: rec.disableLocal,
+		"eTag":                "W/\"" + rec.createdAt.UTC().Format("20060102T150405.000Z") + "\"",
+		"networkRuleSet":      map[string]any{"ipRules": []any{}, "bypass": srchBypassNone},
 	}, rec.extra, map[string]any{
 		srchFieldReplicas: rec.replicas, srchFieldPartitions: rec.partitions, srchFieldHosting: rec.hostingMode,
 		srchFieldPublicAccess: rec.publicAccess, srchFieldStatus: "running", "statusDetails": "",
 		fieldProvisioningState: "succeeded", srchFieldEndpoint: p.endpointFor(rec.name, rec.host),
-		"privateEndpointConnections": []any{}, "sharedPrivateLinkResources": []any{},
+		srchFieldPEC: []any{}, "sharedPrivateLinkResources": []any{},
 	})
 
 	if rec.authOptions != nil {
@@ -555,8 +556,8 @@ func (p *SearchProvider) CheckName(name string) map[string]any {
 
 	if !srchValidName(name) {
 		return map[string]any{
-			"nameAvailable": false, "reason": "Invalid",
-			"message": "Search service names must only contain lowercase letters, digits or dashes, " +
+			srchFieldAvailable: false, "reason": srchReasonInvalid,
+			fieldMessage: "Search service names must only contain lowercase letters, digits or dashes, " +
 				"cannot use dash as the first two or last one characters, cannot contain consecutive dashes, " +
 				"and must be between 2 and 60 characters in length.",
 		}
@@ -565,13 +566,13 @@ func (p *SearchProvider) CheckName(name string) map[string]any {
 	for _, r := range p.res {
 		if strings.EqualFold(r.name, name) {
 			return map[string]any{
-				"nameAvailable": false, "reason": "AlreadyExists",
-				"message": "A search service with the name '" + name + "' already exists.",
+				srchFieldAvailable: false, "reason": srchReasonExists,
+				fieldMessage: "A search service with the name '" + name + "' already exists.",
 			}
 		}
 	}
 
-	return map[string]any{"nameAvailable": true}
+	return map[string]any{srchFieldAvailable: true}
 }
 
 func searchErrorDetails(err error) (errorEntry, bool) {
@@ -581,10 +582,26 @@ func searchErrorDetails(err error) (errorEntry, bool) {
 	}{
 		{ErrSearchServiceNotFound, notFoundEntry("The search service was not found.")},
 		{ErrSearchQueryKeyNotFound, notFoundEntry("The query key was not found.")},
-		{ErrSearchNameTaken, errorEntry{"NameAlreadyExists", "The search service name is already in use.", http.StatusConflict}},
-		{ErrSearchQueryKeyNameTaken, errorEntry{"Conflict", "A query key with this name already exists.", http.StatusConflict}},
-		{ErrSearchSKUImmutable, errorEntry{"BadRequest", "The SKU of an existing search service cannot be changed.", http.StatusBadRequest}},
-		{ErrSearchUnavailable, errorEntry{"ServiceUnavailable", "The search data plane is not available.", http.StatusServiceUnavailable}},
+		{
+			ErrSearchNameTaken,
+			errorEntry{"NameAlreadyExists", "The search service name is already in use.", http.StatusConflict},
+		},
+		{
+			ErrSearchQueryKeyNameTaken,
+			errorEntry{srchCodeConflict, "A query key with this name already exists.", http.StatusConflict},
+		},
+		{
+			ErrSearchSKUImmutable,
+			errorEntry{
+				srchCodeBadRequest,
+				"The SKU of an existing search service cannot be changed.",
+				http.StatusBadRequest,
+			},
+		},
+		{
+			ErrSearchUnavailable,
+			errorEntry{srchCodeUnavailable, "The search data plane is not available.", http.StatusServiceUnavailable},
+		},
 	}
 
 	for _, e := range table {
@@ -594,8 +611,36 @@ func searchErrorDetails(err error) (errorEntry, bool) {
 	}
 
 	if errors.Is(err, ErrSearchInvalidConfig) {
-		return errorEntry{"BadRequest", strings.TrimPrefix(err.Error(), ErrSearchInvalidConfig.Error()+": "), http.StatusBadRequest}, true
+		return errorEntry{
+			"BadRequest",
+			strings.TrimPrefix(err.Error(), ErrSearchInvalidConfig.Error()+": "),
+			http.StatusBadRequest,
+		}, true
 	}
 
 	return errorEntry{}, false
+}
+
+func (r *storedSearch) applyModes(props map[string]any) error {
+	if v, has := props[srchFieldHosting].(string); has {
+		if v != srchHostingDefault && v != srchHostingHighDensity {
+			return badSearchRequest("unsupported hostingMode %q", v)
+		}
+
+		r.hostingMode = v
+	}
+
+	if v, has := props[srchFieldPublicAccess].(string); has {
+		v = strings.ToLower(v)
+		if v != srchAccessEnabled && v != "disabled" && v != "securedbyperimeter" {
+			return badSearchRequest("unsupported publicNetworkAccess %q", v)
+		}
+
+		r.publicAccess = v
+		if v == "securedbyperimeter" {
+			r.publicAccess = "securedByPerimeter"
+		}
+	}
+
+	return nil
 }

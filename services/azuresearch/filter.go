@@ -2,6 +2,7 @@ package azuresearch
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"strconv"
@@ -28,8 +29,8 @@ type ftoken struct {
 }
 
 var (
-	dateLitRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(T[0-9:.]+(Z|[+-]\d{2}:\d{2})?)?`) //nolint:gochecknoglobals // compiled once
-	numLitRE  = regexp.MustCompile(`^-?\d+(\.\d+)?([eE][+-]?\d+)?`)                      //nolint:gochecknoglobals // compiled once
+	dateLitRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}(T[0-9:.]+(Z|[+-]\d{2}:\d{2})?)?`)
+	numLitRE  = regexp.MustCompile(`^-?\d+(\.\d+)?([eE][+-]?\d+)?`)
 )
 
 func tokenizeFilter(s string) ([]ftoken, error) {
@@ -207,7 +208,7 @@ func (p *fparser) parseOr() (pred, error) {
 		return nil, err
 	}
 
-	for p.isWord("or") {
+	for p.isWord(opOr) {
 		p.pos++
 
 		right, rerr := p.parseAnd()
@@ -228,7 +229,7 @@ func (p *fparser) parseAnd() (pred, error) {
 		return nil, err
 	}
 
-	for p.isWord("and") {
+	for p.isWord(opAnd) {
 		p.pos++
 
 		right, rerr := p.parseNot()
@@ -258,7 +259,14 @@ func (p *fparser) parseNot() (pred, error) {
 	return p.parsePrimary()
 }
 
-var cmpOps = map[string]bool{"eq": true, "ne": true, "gt": true, "lt": true, "ge": true, "le": true} //nolint:gochecknoglobals // read-only
+func isCmpOp(s string) bool {
+	switch s {
+	case "eq", "ne", "gt", "lt", "ge", "le":
+		return true
+	}
+
+	return false
+}
 
 func (p *fparser) parsePrimary() (pred, error) {
 	if p.isSym("(") {
@@ -288,7 +296,7 @@ func (p *fparser) parsePrimary() (pred, error) {
 	}
 
 	op := p.peek()
-	if op.kind != tkIdent || !cmpOps[op.text] {
+	if op.kind != tkIdent || !isCmpOp(op.text) {
 		return nil, badf("Invalid expression: expected a comparison operator but found '%s'.", op.text)
 	}
 
@@ -335,13 +343,13 @@ func (p *fparser) tryBoolFunc() (pred, bool, error) {
 		return nil, false, nil
 	}
 
-	return p.boolField(t)
+	return p.boolField()
 }
 
 // boolField handles a bare Edm.Boolean field used as a predicate.
-func (p *fparser) boolField(t ftoken) (pred, bool, error) {
+func (p *fparser) boolField() (pred, bool, error) {
 	nxt := p.toks[p.pos+1]
-	if (nxt.kind == tkIdent && cmpOps[nxt.text]) || (nxt.kind == tkSym && nxt.text == "(") {
+	if (nxt.kind == tkIdent && isCmpOp(nxt.text)) || (nxt.kind == tkSym && nxt.text == "(") {
 		return nil, false, nil
 	}
 
@@ -350,9 +358,11 @@ func (p *fparser) boolField(t ftoken) (pred, bool, error) {
 		return nil, true, err
 	}
 
-	_ = t
+	return func(e *fenv) bool {
+		b, _ := op(e).(bool)
 
-	return func(e *fenv) bool { b, _ := op(e).(bool); return b }, true, nil
+		return b
+	}, true, nil
 }
 
 func (p *fparser) parseOperand() (operand, error) {
@@ -376,6 +386,7 @@ func (p *fparser) parseOperand() (operand, error) {
 		return func(*fenv) any { return d }, nil
 	case tkGeo:
 		return nil, badf("Invalid expression: geography literal is only valid as a geo function argument.")
+	case tkEOF, tkSym:
 	case tkIdent:
 		return p.identOperand(t)
 	}
@@ -391,9 +402,9 @@ func (p *fparser) identOperand(t ftoken) (operand, error) {
 		return func(*fenv) any { return true }, nil
 	case "false":
 		return func(*fenv) any { return false }, nil
-	case "NaN":
+	case litNaN:
 		return func(*fenv) any { return math.NaN() }, nil
-	case "INF":
+	case litINF:
 		return func(*fenv) any { return math.Inf(1) }, nil
 	case "geo.distance":
 		return p.parseGeoDistance()
@@ -459,7 +470,7 @@ func drill(v any, segs []string) any {
 		case map[string]any:
 			v = t[s]
 		case []any:
-			var out []any
+			out := make([]any, 0, len(t))
 			for _, el := range t {
 				out = append(out, drill(el, []string{s}))
 			}
@@ -478,7 +489,7 @@ func (p *fparser) parseLambda() (pred, error) {
 	cut := strings.LastIndex(path, "/")
 	collPath, kind := path[:cut], path[cut+1:]
 
-	if kind != "any" && kind != "all" {
+	if kind != modeAny && kind != modeAll {
 		return nil, badf("Invalid expression: unsupported function '%s'.", path)
 	}
 
@@ -496,7 +507,11 @@ func (p *fparser) parseLambda() (pred, error) {
 			return func(*fenv) bool { return true }, nil
 		}
 
-		return func(e *fenv) bool { arr, _ := coll(e).([]any); return len(arr) > 0 }, nil
+		return func(e *fenv) bool {
+			arr, _ := coll(e).([]any)
+
+			return len(arr) > 0
+		}, nil
 	}
 
 	v := p.next().text
@@ -531,9 +546,7 @@ func lambdaPred(all bool, coll operand, v string, body pred) pred {
 		arr, _ := coll(e).([]any)
 		for _, el := range arr {
 			vars := make(map[string]any, len(e.vars)+1)
-			for k, x := range e.vars {
-				vars[k] = x
-			}
+			maps.Copy(vars, e.vars)
 
 			vars[v] = el
 			ok := body(&fenv{d: e.d, doc: e.doc, vars: vars})
@@ -626,7 +639,7 @@ func (p *fparser) parseSearchIn() (pred, error) {
 	}
 
 	delims := " ,"
-	if len(args) == 3 {
+	if len(args) == searchInArgsMax {
 		delims = args[2].text
 	}
 
@@ -711,7 +724,7 @@ func (p *fparser) geoArg(args []ftoken) (geoPoint, error) {
 	return parsePointLiteral(args[1].text)
 }
 
-var pointRE = regexp.MustCompile(`(?i)^\s*POINT\s*\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s*$`) //nolint:gochecknoglobals // compiled once
+var pointRE = regexp.MustCompile(`(?i)^\s*POINT\s*\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)\s*$`)
 
 func parsePointLiteral(s string) (geoPoint, error) {
 	m := pointRE.FindStringSubmatch(s)
@@ -752,7 +765,7 @@ func (p *fparser) parseIntersects() (pred, error) {
 	}, nil
 }
 
-var polyRE = regexp.MustCompile(`(?i)^\s*POLYGON\s*\(\s*\((.*)\)\s*\)\s*$`) //nolint:gochecknoglobals // compiled once
+var polyRE = regexp.MustCompile(`(?i)^\s*POLYGON\s*\(\s*\((.*)\)\s*\)\s*$`)
 
 func parsePolygon(s string) ([]geoPoint, error) {
 	m := polyRE.FindStringSubmatch(s)
@@ -762,7 +775,7 @@ func parsePolygon(s string) ([]geoPoint, error) {
 
 	var ring []geoPoint
 
-	for _, pair := range strings.Split(m[1], ",") {
+	for pair := range strings.SplitSeq(m[1], ",") {
 		var lon, lat float64
 		if _, err := fmt.Sscanf(strings.TrimSpace(pair), "%f %f", &lon, &lat); err != nil {
 			return nil, badf("Invalid expression: bad polygon coordinate '%s'.", pair)

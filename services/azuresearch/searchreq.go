@@ -51,7 +51,7 @@ type searchRequest struct {
 func splitCSV(s string) []string {
 	var out []string
 
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}
@@ -78,16 +78,8 @@ func (r *searchRequest) finish() error {
 		r.QueryType = querySimple
 	}
 
-	if r.SearchMode != modeAny && r.SearchMode != modeAll {
-		return badf("Invalid value for searchMode: '%s'.", r.SearchMode)
-	}
-
-	switch r.QueryType {
-	case querySimple, queryFull:
-	case "semantic":
-		return badf("Semantic ranking is not supported by this service.")
-	default:
-		return badf("Invalid value for queryType: '%s'.", r.QueryType)
+	if err := r.validateModes(); err != nil {
+		return err
 	}
 
 	if !r.TopSet {
@@ -111,6 +103,21 @@ func (r *searchRequest) finish() error {
 	}
 
 	return nil
+}
+
+func (r *searchRequest) validateModes() error {
+	if r.SearchMode != modeAny && r.SearchMode != modeAll {
+		return badf("Invalid value for searchMode: '%s'.", r.SearchMode)
+	}
+
+	switch r.QueryType {
+	case querySimple, queryFull:
+		return nil
+	case "semantic":
+		return badf("Semantic ranking is not supported by this service.")
+	}
+
+	return badf("Invalid value for queryType: '%s'.", r.QueryType)
 }
 
 // searchFromQuery parses the GET form of a search request.
@@ -160,7 +167,7 @@ func searchFromBody(body []byte) (*searchRequest, error) {
 		SearchFields: splitCSV(strOf(raw, "searchFields")), Select: splitCSV(strOf(raw, "select")),
 		Highlight: splitCSV(strOf(raw, "highlight")), PreTag: strOf(raw, "highlightPreTag"),
 		PostTag: strOf(raw, "highlightPostTag"), VectorFilter: strOf(raw, "vectorFilterMode"),
-		Count: boolOf(raw, "count", false),
+		Count: boolOf(raw, fieldCount, false),
 	}
 
 	for _, f := range listOf(raw, "facets") {

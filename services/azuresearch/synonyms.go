@@ -13,7 +13,7 @@ func parseSolr(text string) *synRules {
 	r := &synRules{alts: map[string][][]string{}}
 	an, _ := builtinAnalyzer(analyzerStandard)
 
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

@@ -7,7 +7,7 @@ import (
 )
 
 func badf(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", ErrBadRequest, fmt.Sprintf(format, args...))
+	return wrapf(ErrBadRequest, "%s", fmt.Sprintf(format, args...))
 }
 
 func boolOf(m map[string]any, key string, def bool) bool {
@@ -175,8 +175,11 @@ func (c *compiler) vectorSearch(def map[string]any) error {
 
 		alg, ok := algs[strOf(p, "algorithm")]
 		if !ok {
-			return badf("The request is invalid. Details: vector search profile '%s' references unknown algorithm '%s'.",
-				strOf(p, "name"), strOf(p, "algorithm"))
+			return badf(
+				"The request is invalid. Details: vector search profile '%s' references unknown algorithm '%s'.",
+				strOf(p, "name"),
+				strOf(p, "algorithm"),
+			)
 		}
 
 		c.comp.vecProfile[strOf(p, "name")] = alg
@@ -248,12 +251,34 @@ func (c *compiler) children(fd *fieldDef, f map[string]any, depth int) error {
 
 // attributes applies defaults and validates attribute combinations, writing the resolved values back into f.
 func (c *compiler) attributes(fd *fieldDef, f map[string]any) error {
+	vector := fd.isVector()
+	fd.applyDefaults(f)
+
+	if err := c.checkAttributes(fd, f); err != nil {
+		return err
+	}
+
+	if err := c.resolveAnalyzers(fd, f); err != nil {
+		return err
+	}
+
+	if vector {
+		if err := c.vectorField(fd, f); err != nil {
+			return err
+		}
+	}
+
+	fd.echo(f)
+
+	return nil
+}
+
+func (fd *fieldDef) applyDefaults(f map[string]any) {
 	primitive := fd.Base != typeComplex
 	vector := fd.isVector()
-	str := fd.Base == typeString
 
-	fd.Key = boolOf(f, "key", false)
-	fd.Searchable = boolOf(f, "searchable", str)
+	fd.Key = boolOf(f, fieldKey, false)
+	fd.Searchable = boolOf(f, "searchable", fd.Base == typeString)
 	fd.Filterable = boolOf(f, "filterable", primitive && !vector)
 	fd.Sortable = boolOf(f, "sortable", primitive && !fd.Collection)
 	fd.Facetable = boolOf(f, "facetable", primitive && !vector && fd.Base != typeGeo)
@@ -263,12 +288,12 @@ func (c *compiler) attributes(fd *fieldDef, f map[string]any) error {
 		fd.Searchable = boolOf(f, "searchable", true)
 		fd.Filterable, fd.Sortable, fd.Facetable = false, false, false
 	}
+}
 
-	if err := c.checkAttributes(fd, f, primitive, str, vector); err != nil {
-		return err
-	}
-
-	fd.Analyzer, fd.SearchAnalyzer, fd.IndexAnalyzer = strOf(f, "analyzer"), strOf(f, "searchAnalyzer"), strOf(f, "indexAnalyzer")
+func (c *compiler) resolveAnalyzers(fd *fieldDef, f map[string]any) error {
+	fd.Analyzer = strOf(f, "analyzer")
+	fd.SearchAnalyzer = strOf(f, "searchAnalyzer")
+	fd.IndexAnalyzer = strOf(f, "indexAnalyzer")
 
 	for _, n := range []string{fd.Analyzer, fd.SearchAnalyzer, fd.IndexAnalyzer} {
 		if n == "" {
@@ -285,13 +310,12 @@ func (c *compiler) attributes(fd *fieldDef, f map[string]any) error {
 		fd.SynonymMaps = append(fd.SynonymMaps, s)
 	}
 
-	if vector {
-		if err := c.vectorField(fd, f); err != nil {
-			return err
-		}
-	}
+	return nil
+}
 
-	f["key"], f["searchable"], f["filterable"], f["sortable"], f["facetable"], f["retrievable"] =
+// echo writes the resolved attributes back so the stored definition shows the service defaults.
+func (fd *fieldDef) echo(f map[string]any) {
+	f[fieldKey], f["searchable"], f["filterable"], f["sortable"], f["facetable"], f["retrievable"] =
 		fd.Key, fd.Searchable, fd.Filterable, fd.Sortable, fd.Facetable, fd.Retrievable
 	f["stored"] = boolOf(f, "stored", true)
 
@@ -308,28 +332,48 @@ func (c *compiler) attributes(fd *fieldDef, f map[string]any) error {
 	if fd.Base != typeComplex {
 		delete(f, "fields")
 	}
+}
+
+func (c *compiler) checkAttributes(fd *fieldDef, f map[string]any) error {
+	if err := checkTypeRules(fd, f); err != nil {
+		return err
+	}
+
+	name := fd.Name
+
+	switch {
+	case (fd.Analyzer != "" || fd.SearchAnalyzer != "" || fd.IndexAnalyzer != "") && !fd.Searchable:
+		return badf("The request is invalid. Details: analyzers can only be set on searchable fields ('%s').", name)
+	case fd.Analyzer != "" && (fd.SearchAnalyzer != "" || fd.IndexAnalyzer != ""):
+		return badf(
+			"The request is invalid. Details: 'analyzer' cannot be combined with searchAnalyzer/indexAnalyzer ('%s').",
+			name,
+		)
+	}
 
 	return nil
 }
 
-func (c *compiler) checkAttributes(fd *fieldDef, f map[string]any, primitive, str, vector bool) error {
+func checkTypeRules(fd *fieldDef, f map[string]any) error {
 	name := fd.Name
 
 	switch {
-	case fd.Searchable && !str && !vector:
-		return badf("The request is invalid. Details: The field '%s' cannot be searchable: only string fields can be.", name)
-	case !primitive && (fd.Filterable || fd.Sortable || fd.Facetable || fd.Key) && hasTrue(f, "filterable", "sortable", "facetable", "key"):
-		return badf("The request is invalid. Details: complex field '%s' cannot set filterable, sortable, facetable or key.", name)
+	case fd.Searchable && fd.Base != typeString && !fd.isVector():
+		return badf(
+			"The request is invalid. Details: The field '%s' cannot be searchable: only string fields can be.",
+			name,
+		)
+	case fd.Base == typeComplex && hasTrue(f, "filterable", "sortable", "facetable", fieldKey):
+		return badf(
+			"The request is invalid. Details: complex field '%s' cannot set filterable, sortable, facetable or key.",
+			name,
+		)
 	case fd.Sortable && fd.Collection:
 		return badf("The request is invalid. Details: The collection field '%s' cannot be sortable.", name)
 	case fd.Facetable && fd.Base == typeGeo:
 		return badf("The request is invalid. Details: The field '%s' cannot be facetable.", name)
 	case fd.Key && (fd.Collection || fd.Base != typeString):
 		return badf("The request is invalid. Details: The key field '%s' must be of type Edm.String.", name)
-	case (fd.Analyzer != "" || fd.SearchAnalyzer != "" || fd.IndexAnalyzer != "") && !fd.Searchable:
-		return badf("The request is invalid. Details: analyzers can only be set on searchable fields ('%s').", name)
-	case fd.Analyzer != "" && (fd.SearchAnalyzer != "" || fd.IndexAnalyzer != ""):
-		return badf("The request is invalid. Details: 'analyzer' cannot be combined with searchAnalyzer/indexAnalyzer ('%s').", name)
 	}
 
 	return nil
@@ -376,8 +420,11 @@ func (c *compiler) suggesters(def map[string]any) error {
 
 			fd, ok := c.comp.byPath[path]
 			if !ok || !fd.isText() || !fd.Searchable {
-				return badf("The request is invalid. Details: suggester '%s' source field '%s' must be a searchable string field.",
-					sg.Name, path)
+				return badf(
+					"The request is invalid. Details: suggester '%s' source field '%s' must be a searchable string field.",
+					sg.Name,
+					path,
+				)
 			}
 
 			sg.SourceFields = append(sg.SourceFields, path)

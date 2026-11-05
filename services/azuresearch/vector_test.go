@@ -1,6 +1,7 @@
 package azuresearch_test
 
 import (
+	"maps"
 	"math"
 	"net/http"
 	"testing"
@@ -15,13 +16,33 @@ func vectorIndex() map[string]any {
 		"fields": []any{
 			map[string]any{"name": "HotelId", "type": "Edm.String", "key": true},
 			map[string]any{"name": "Body", "type": "Edm.String", "searchable": true},
-			map[string]any{"name": "Vec", "type": "Collection(Edm.Single)", "dimensions": 3, "vectorSearchProfile": "cos", "searchable": true, "retrievable": true},
-			map[string]any{"name": "VecE", "type": "Collection(Edm.Single)", "dimensions": 3, "vectorSearchProfile": "euc"},
+			map[string]any{
+				"name":                "Vec",
+				"type":                "Collection(Edm.Single)",
+				"dimensions":          3,
+				"vectorSearchProfile": "cos",
+				"searchable":          true,
+				"retrievable":         true,
+			},
+			map[string]any{
+				"name":                "VecE",
+				"type":                "Collection(Edm.Single)",
+				"dimensions":          3,
+				"vectorSearchProfile": "euc",
+			},
 		},
 		"vectorSearch": map[string]any{
 			"algorithms": []any{
-				map[string]any{"name": "h", "kind": "hnsw", "hnswParameters": map[string]any{"metric": "cosine", "m": 4}},
-				map[string]any{"name": "e", "kind": "exhaustiveKnn", "exhaustiveKnnParameters": map[string]any{"metric": "euclidean"}},
+				map[string]any{
+					"name":           "h",
+					"kind":           "hnsw",
+					"hnswParameters": map[string]any{"metric": "cosine", "m": 4},
+				},
+				map[string]any{
+					"name":                    "e",
+					"kind":                    "exhaustiveKnn",
+					"exhaustiveKnnParameters": map[string]any{"metric": "euclidean"},
+				},
 			},
 			"profiles": []any{
 				map[string]any{"name": "cos", "algorithm": "h"},
@@ -64,9 +85,7 @@ func TestVectorSearch(t *testing.T) {
 
 	vq := func(field string, k int, extra map[string]any) map[string]any {
 		q := map[string]any{"kind": "vector", "vector": []any{1, 0, 0}, "fields": field, "k": k}
-		for key, v := range extra {
-			q[key] = v
-		}
+		maps.Copy(q, extra)
 
 		return q
 	}
@@ -77,14 +96,59 @@ func TestVectorSearch(t *testing.T) {
 		want  []string
 		score float64
 	}{
-		{map[string]any{"vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"}, "cosine knn", []string{"a", "c"}, 1.0},
-		{map[string]any{"vectorQueries": []any{vq("VecE", 3, nil)}, "select": "HotelId"}, "euclidean knn", []string{"a", "c", "b"}, 1.0},
-		{map[string]any{"vectorQueries": []any{vq("Vec", 1, nil)}, "filter": "HotelId ne 'a'", "select": "HotelId"}, "prefilter", []string{"c"}, 0},
-		{map[string]any{"vectorQueries": []any{vq("Vec", 1, nil)}, "filter": "HotelId ne 'a'", "vectorFilterMode": "postFilter", "select": "HotelId"}, "postfilter", nil, 0},
-		{map[string]any{"vectorQueries": []any{vq("Vec", 4, nil)}, "top": 2, "select": "HotelId"}, "top limits", []string{"a", "c"}, 0},
-		{map[string]any{"search": "banana", "vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"}, "hybrid rrf", []string{"b", "a", "c"}, 1.0 / 61},
-		{map[string]any{"search": "apple", "vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"}, "hybrid agreement boosts", []string{"a", "c"}, 2.0 / 61},
-		{map[string]any{"vectorQueries": []any{vq("Vec", 1, nil), vq("VecE", 1, nil)}, "select": "HotelId"}, "multi vector", []string{"a"}, 2.0 / 61},
+		{
+			map[string]any{"vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"},
+			"cosine knn",
+			[]string{"a", "c"},
+			1.0,
+		},
+		{
+			map[string]any{"vectorQueries": []any{vq("VecE", 3, nil)}, "select": "HotelId"},
+			"euclidean knn",
+			[]string{"a", "c", "b"},
+			1.0,
+		},
+		{
+			map[string]any{"vectorQueries": []any{vq("Vec", 1, nil)}, "filter": "HotelId ne 'a'", "select": "HotelId"},
+			"prefilter",
+			[]string{"c"},
+			0,
+		},
+		{
+			map[string]any{
+				"vectorQueries":    []any{vq("Vec", 1, nil)},
+				"filter":           "HotelId ne 'a'",
+				"vectorFilterMode": "postFilter",
+				"select":           "HotelId",
+			},
+			"postfilter",
+			nil,
+			0,
+		},
+		{
+			map[string]any{"vectorQueries": []any{vq("Vec", 4, nil)}, "top": 2, "select": "HotelId"},
+			"top limits",
+			[]string{"a", "c"},
+			0,
+		},
+		{
+			map[string]any{"search": "banana", "vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"},
+			"hybrid rrf",
+			[]string{"b", "a", "c"},
+			1.0 / 61,
+		},
+		{
+			map[string]any{"search": "apple", "vectorQueries": []any{vq("Vec", 2, nil)}, "select": "HotelId"},
+			"hybrid agreement boosts",
+			[]string{"a", "c"},
+			2.0 / 61,
+		},
+		{
+			map[string]any{"vectorQueries": []any{vq("Vec", 1, nil), vq("VecE", 1, nil)}, "select": "HotelId"},
+			"multi vector",
+			[]string{"a"},
+			2.0 / 61,
+		},
 	}
 
 	for _, tc := range cases {
@@ -107,7 +171,7 @@ func idsOf(r resp) []string { return keysByField(r, "HotelId") }
 func keysByField(r resp, field string) []string {
 	rows, _ := r.body["value"].([]any)
 
-	var out []string
+	out := make([]string, 0, len(rows))
 
 	for _, row := range rows {
 		m, _ := row.(map[string]any)
@@ -184,7 +248,9 @@ func TestVectorIndexValidation(t *testing.T) {
 	noProfile["vectorSearch"] = map[string]any{"algorithms": []any{}, "profiles": []any{}}
 
 	badAlg := vectorIndex()
-	badAlg["vectorSearch"].(map[string]any)["algorithms"] = []any{map[string]any{"name": "h", "kind": "ivf"}} //nolint:forcetypeassert // test fixture shape
+	badAlg["vectorSearch"].(map[string]any)["algorithms"] = []any{
+		map[string]any{"name": "h", "kind": "ivf"},
+	} //nolint:forcetypeassert // test fixture shape
 
 	badMetric := vectorIndex()
 	badMetric["vectorSearch"].(map[string]any)["algorithms"] = []any{ //nolint:forcetypeassert // test fixture shape
@@ -192,7 +258,7 @@ func TestVectorIndexValidation(t *testing.T) {
 		map[string]any{"name": "e", "kind": "exhaustiveKnn"},
 	}
 
-	for name, def := range map[string]map[string]any{"missing profile": noProfile, "bad algorithm": badAlg, "bad metric": badMetric} {
+	for name, def := range map[string]map[string]any{"missing profile": noProfile, "bad algorithm": badAlg, "bad metric": badMetric} { //nolint:lll // test fixture
 		r := s.admin2(t, http.MethodPost, "/indexes?"+apiVer, def)
 		assert.Equal(t, http.StatusBadRequest, r.status, name+": "+string(r.raw))
 	}

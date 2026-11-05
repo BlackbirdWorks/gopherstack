@@ -18,8 +18,8 @@ type hit struct {
 type searchResult struct {
 	Facets    map[string][]map[string]any
 	Hits      []hit
-	Count     int
 	Matchers  []matcherSet
+	Count     int
 	Truncated bool
 }
 

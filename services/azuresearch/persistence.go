@@ -20,7 +20,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	return persistence.MarshalSnapshot(ctx, "azuresearch", backendSnapshot{Version: snapshotVersion, Services: b.services})
+	return persistence.MarshalSnapshot(
+		ctx,
+		"azuresearch",
+		backendSnapshot{Version: snapshotVersion, Services: b.services},
+	)
 }
 
 // Restore implements persistence.Persistable.
@@ -83,29 +87,15 @@ func normalizeService(s *Service) error {
 		s.Objects = newObjects()
 	}
 
-	for _, k := range objectKinds {
+	for _, k := range objectKindList() {
 		if s.Objects[k] == nil {
 			s.Objects[k] = map[string]Object{}
 		}
 	}
 
 	for name, ix := range s.Indexes {
-		if ix == nil || ix.Def == nil {
-			return fmt.Errorf("%w: index %q", errNullEntry, name)
-		}
-
-		if ix.Docs == nil {
-			ix.Docs = map[string]*Doc{}
-		}
-
-		for k, d := range ix.Docs {
-			if d == nil {
-				return fmt.Errorf("%w: document %q", errNullEntry, k)
-			}
-		}
-
-		if err := ix.rebuild(); err != nil {
-			return fmt.Errorf("azuresearch: restore index %q: %w", name, err)
+		if err := normalizeIndex(name, ix); err != nil {
+			return err
 		}
 	}
 
@@ -117,6 +107,28 @@ func normalizeService(s *Service) error {
 		if rt.Seen == nil {
 			rt.Seen = map[string]string{}
 		}
+	}
+
+	return nil
+}
+
+func normalizeIndex(name string, ix *Index) error {
+	if ix == nil || ix.Def == nil {
+		return fmt.Errorf("%w: index %q", errNullEntry, name)
+	}
+
+	if ix.Docs == nil {
+		ix.Docs = map[string]*Doc{}
+	}
+
+	for k, d := range ix.Docs {
+		if d == nil {
+			return fmt.Errorf("%w: document %q", errNullEntry, k)
+		}
+	}
+
+	if err := ix.rebuild(); err != nil {
+		return fmt.Errorf("azuresearch: restore index %q: %w", name, err)
 	}
 
 	return nil

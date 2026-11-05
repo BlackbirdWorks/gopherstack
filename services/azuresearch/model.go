@@ -28,24 +28,24 @@ const (
 )
 
 var (
-	indexNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)     //nolint:gochecknoglobals // compiled once
-	fieldNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`) //nolint:gochecknoglobals // compiled once
+	indexNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	fieldNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
 // Index is a search index: its definition, documents and runtime caches.
 type Index struct {
 	Def     map[string]any  `json:"def"`
 	Docs    map[string]*Doc `json:"docs"`
-	NextSeq int64           `json:"nextSeq"`
 	comp    *compiled
 	stats   *termStats
+	NextSeq int64 `json:"nextSeq"`
 }
 
 // Doc is one stored document.
 type Doc struct {
 	Fields map[string]any `json:"fields"`
-	Seq    int64          `json:"seq"`
 	tok    map[string]*fieldTokens
+	Seq    int64 `json:"seq"`
 }
 
 type fieldTokens struct {
@@ -102,9 +102,9 @@ type compiled struct {
 	vecProfile map[string]vectorProfile
 	analyzers  map[string]Analyzer
 	key        *fieldDef
+	defProfile string
 	fields     []*fieldDef
 	searchable []*fieldDef
-	defProfile string
 }
 
 type vectorProfile struct {
@@ -113,7 +113,7 @@ type vectorProfile struct {
 	Algorithm string
 }
 
-func splitType(t string) (base string, collection bool) {
+func splitType(t string) (string, bool) {
 	if inner, ok := strings.CutPrefix(t, collPrefix); ok {
 		return strings.TrimSuffix(inner, ")"), true
 	}

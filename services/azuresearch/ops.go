@@ -52,7 +52,7 @@ func operationOf(method string, segs []seg) string {
 func indexerOp(segs []seg) string {
 	if len(segs) > 1 {
 		switch segs[1].name {
-		case "search.run":
+		case pathRun:
 			return opRunIndexer
 		case "search.reset":
 			return opResetIndexer
@@ -65,35 +65,20 @@ func indexerOp(segs []seg) string {
 }
 
 func indexesOp(method string, segs []seg) string {
-	if len(segs) == 1 && !segs[0].has {
-		if method == http.MethodGet {
-			return opListIndexes
+	if len(segs) == 1 {
+		if !segs[0].has {
+			if method == http.MethodGet {
+				return opListIndexes
+			}
+
+			return opCreateIndex
 		}
 
-		return opCreateIndex
-	}
-
-	if len(segs) == 1 || (len(segs) == 2 && !segs[0].has && !segs[1].has && segs[1].name == "") {
 		return indexItemOp(method)
 	}
 
-	last := segs[len(segs)-1].name
-
-	switch last {
-	case "search.stats":
-		return opIndexStatistics
-	case "search.analyze":
-		return opAnalyzeText
-	case "search.index":
-		return opIndexDocuments
-	case "$count":
-		return opCountDocuments
-	case "search.suggest", "search.post.suggest":
-		return opSuggest
-	case "search.autocomplete", "search.post.autocomplete":
-		return opAutocomplete
-	case "docs", "search.post.search":
-		return opSearch
+	if op, ok := indexSubOp(segs[len(segs)-1].name); ok {
+		return op
 	}
 
 	if segs[len(segs)-1].has {
@@ -101,6 +86,27 @@ func indexesOp(method string, segs []seg) string {
 	}
 
 	return indexItemOp(method)
+}
+
+func indexSubOp(name string) (string, bool) {
+	switch name {
+	case "search.stats":
+		return opIndexStatistics, true
+	case "search.analyze":
+		return opAnalyzeText, true
+	case "search.index":
+		return opIndexDocuments, true
+	case "$count":
+		return opCountDocuments, true
+	case "search.suggest", pathPostSuggest:
+		return opSuggest, true
+	case "search.autocomplete", pathPostAutocomplet:
+		return opAutocomplete, true
+	case "docs", "search.post.search":
+		return opSearch, true
+	}
+
+	return "", false
 }
 
 func indexItemOp(method string) string {

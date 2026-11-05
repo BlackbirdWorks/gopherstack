@@ -1,7 +1,6 @@
 package azuresearch
 
 import (
-	"net/http"
 	"strings"
 )
 
@@ -77,5 +76,3 @@ func (req *request) requireAdmin() error {
 
 	return nil
 }
-
-func isReadMethod(m string) bool { return m == http.MethodGet || m == http.MethodHead }

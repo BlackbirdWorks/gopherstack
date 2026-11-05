@@ -16,8 +16,8 @@ func vecOf(v any) ([]float64, bool) {
 	out := make([]float64, len(arr))
 
 	for i, x := range arr {
-		f, ok := asFloat(x)
-		if !ok {
+		f, isNum := asFloat(x)
+		if !isNum {
 			return nil, false
 		}
 
@@ -43,7 +43,7 @@ func similarity(metric string, a, b []float64) float64 {
 	case "euclidean":
 		return 1 / (1 + math.Sqrt(sq))
 	case "dotProduct":
-		return (1 + dot) / 2
+		return (1 + dot) * half
 	case "hamming":
 		return 1 / (1 + sq)
 	}
@@ -52,7 +52,7 @@ func similarity(metric string, a, b []float64) float64 {
 		return 0
 	}
 
-	return 1 / (2 - dot/math.Sqrt(na*nb))
+	return 1 / (cosineOffset - dot/math.Sqrt(na*nb))
 }
 
 func (pl *searchPlan) vectorField(name string, dims int) (*fieldDef, error) {

@@ -16,8 +16,14 @@ func TestSnapshotRestoreKeepsEverything(t *testing.T) {
 
 	s := newStack(t, "standard")
 	s.seedHotels(t)
-	s.must(t, http.MethodPut, "/synonymmaps('m')?"+apiVer, map[string]any{"name": "m", "synonyms": "a, b"}, http.StatusCreated)
-	s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource("ds"), http.StatusCreated)
+	s.must(
+		t,
+		http.MethodPut,
+		"/synonymmaps('m')?"+apiVer,
+		map[string]any{"name": "m", "synonyms": "a, b"},
+		http.StatusCreated,
+	)
+	s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource(), http.StatusCreated)
 
 	snap := s.b.Snapshot(t.Context())
 
@@ -54,8 +60,14 @@ func TestRestoreRejectsCorruptSnapshots(t *testing.T) {
 	}{
 		{"null service", `{"version":1,"services":{"a":null}}`},
 		{"null index", `{"version":1,"services":{"a":{"indexes":{"i":null}}}}`},
-		{"null document", `{"version":1,"services":{"a":{"indexes":{"i":{"def":{"name":"i","fields":[{"name":"id","type":"Edm.String","key":true}]},"docs":{"k":null}}}}}}`},
-		{"invalid index definition", `{"version":1,"services":{"a":{"indexes":{"i":{"def":{"name":"i","fields":[]},"docs":{}}}}}}`},
+		{
+			"null document",
+			`{"version":1,"services":{"a":{"indexes":{"i":{"def":{"name":"i","fields":[{"name":"id","type":"Edm.String","key":true}]},"docs":{"k":null}}}}}}`, //nolint:lll // test fixture
+		},
+		{
+			"invalid index definition",
+			`{"version":1,"services":{"a":{"indexes":{"i":{"def":{"name":"i","fields":[]},"docs":{}}}}}}`,
+		},
 	}
 
 	for _, tc := range cases {

@@ -2,6 +2,8 @@ package azuresearch
 
 import (
 	"fmt"
+	"maps"
+	"net/http"
 	"reflect"
 	"sort"
 	"strings"
@@ -19,23 +21,25 @@ const (
 	etagKey         = "@odata.etag"
 )
 
-var objectKinds = []string{kindSynonymMaps, kindDataSources, kindIndexers, kindSkillsets} //nolint:gochecknoglobals // fixed set
+func objectKindList() []string {
+	return []string{kindSynonymMaps, kindDataSources, kindIndexers, kindSkillsets}
+}
 
 var indexLimits = map[string]int{ //nolint:gochecknoglobals // documented per-SKU index limits
-	"free": 3, "basic": 15, "standard": 50, "standard2": 200, "standard3": 200,
-	"storage_optimized_l1": 10, "storage_optimized_l2": 10,
+	"free": limitFree, "basic": limitBasic, "standard": limitStandard, "standard2": limitLarge, "standard3": limitLarge,
+	"storage_optimized_l1": limitStorageOpt, "storage_optimized_l2": limitStorageOpt,
 }
 
 func (s *Service) nextETag() string {
 	s.NextETagSeq++
 
-	return fmt.Sprintf("\"0x%X\"", 0x8DC00000000000+s.NextETagSeq)
+	return fmt.Sprintf("\"0x%X\"", etagBase+s.NextETagSeq)
 }
 
 func (s *Service) index(name string) (*Index, error) {
 	ix, ok := s.Indexes[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: No index with the name '%s' was found in the service '%s'.", ErrIndexNotFound, name, s.Name)
+		return nil, wrapf(ErrIndexNotFound, "No index with the name '%s' was found in the service '%s'.", name, s.Name)
 	}
 
 	return ix, nil
@@ -46,11 +50,11 @@ func checkPrecondition(current any, ifMatch, ifNone string) error {
 
 	switch {
 	case ifNone == "*" && exists:
-		return fmt.Errorf("%w: The specified If-None-Match condition was not satisfied.", ErrPrecondition)
+		return wrapf(ErrPrecondition, "The specified If-None-Match condition was not satisfied.")
 	case ifMatch == "*" && !exists:
-		return fmt.Errorf("%w: The specified If-Match condition was not satisfied.", ErrPrecondition)
+		return wrapf(ErrPrecondition, "The specified If-Match condition was not satisfied.")
 	case ifMatch != "" && ifMatch != "*" && ifMatch != cur:
-		return fmt.Errorf("%w: The specified If-Match condition was not satisfied.", ErrPrecondition)
+		return wrapf(ErrPrecondition, "The specified If-Match condition was not satisfied.")
 	}
 
 	return nil
@@ -68,7 +72,12 @@ func (s *Service) createIndex(def map[string]any) (map[string]any, error) {
 	return out, err
 }
 
-func (s *Service) putIndex(name string, def map[string]any, allowDowntime bool, ifMatch, ifNone string) (map[string]any, bool, error) {
+func (s *Service) putIndex(
+	name string,
+	def map[string]any,
+	allowDowntime bool,
+	ifMatch, ifNone string,
+) (map[string]any, bool, error) {
 	if strOf(def, "name") == "" {
 		def["name"] = name
 	}
@@ -89,12 +98,16 @@ func (s *Service) putIndex(name string, def map[string]any, allowDowntime bool, 
 	}
 
 	if !exists && len(s.Indexes) >= indexLimits[s.Config.SKU] && indexLimits[s.Config.SKU] > 0 {
-		return nil, false, fmt.Errorf("%w: You have exceeded the maximum number of indexes (%d) for the %s SKU.",
-			ErrQuota, indexLimits[s.Config.SKU], s.Config.SKU)
+		return nil, false, wrapf(
+			ErrQuota,
+			"You have exceeded the maximum number of indexes (%d) for the %s SKU.",
+			indexLimits[s.Config.SKU],
+			s.Config.SKU,
+		)
 	}
 
 	def = cloneMap(def)
-	delete(def, "@odata.context")
+	delete(def, fieldContext)
 
 	ix := &Index{Def: def, Docs: map[string]*Doc{}}
 	if exists {
@@ -133,7 +146,11 @@ func (s *Service) checkSynonymMaps(ix *Index) error {
 	for _, f := range ix.comp.byPath {
 		for _, m := range f.SynonymMaps {
 			if _, ok := s.Objects[kindSynonymMaps][m]; !ok {
-				return badf("The request is invalid. Details: The synonym map '%s' referenced by field '%s' does not exist.", m, f.Name)
+				return badf(
+					"The request is invalid. Details: The synonym map '%s' referenced by field '%s' does not exist.",
+					m,
+					f.Name,
+				)
 			}
 		}
 	}
@@ -159,8 +176,10 @@ func schemaChanged(old, next *Index) bool {
 
 func schemaChange(old, next *Index, allowDowntime bool) error {
 	if schemaChanged(old, next) && !allowDowntime {
-		return badf("Index update not allowed because it would cause downtime. In order to add new fields to an index " +
-			"without downtime, only additive changes are allowed; set allowIndexDowntime=true to drop the index data.")
+		return badf(
+			"Index update not allowed because it would cause downtime. In order to add new fields to an index " +
+				"without downtime, only additive changes are allowed; set allowIndexDowntime=true to drop the index data.",
+		)
 	}
 
 	return nil
@@ -238,12 +257,16 @@ func (ix *Index) applyAction(a indexAction, version string) actionResult {
 
 	key, _ := a.fields[keyName].(string)
 	if _, isStr := a.fields[keyName].(string); !isStr || key == "" {
-		return actionResult{Code: 400, Err: "Document key cannot be missing or empty."}
+		return actionResult{Code: http.StatusBadRequest, Err: "Document key cannot be missing or empty."}
 	}
 
 	if !validDocKey(key) {
-		return actionResult{Key: key, Code: 400, Err: fmt.Sprintf("Invalid document key: '%s'. Keys can only contain letters, "+
-			"digits, underscore (_), dash (-), or equal sign (=).", key)}
+		return actionResult{
+			Key:  key,
+			Code: http.StatusBadRequest,
+			Err: fmt.Sprintf("Invalid document key: '%s'. Keys can only contain letters, "+
+				"digits, underscore (_), dash (-), or equal sign (=).", key),
+		}
 	}
 
 	old := ix.Docs[key]
@@ -252,31 +275,39 @@ func (ix *Index) applyAction(a indexAction, version string) actionResult {
 	case "delete":
 		ix.removeDoc(key)
 
-		return actionResult{Key: key, OK: true, Code: 200}
-	case "upload", "merge", "mergeOrUpload":
+		return actionResult{Key: key, OK: true, Code: http.StatusOK}
+	case actionUpload, "merge", "mergeOrUpload":
 	default:
-		return actionResult{Key: key, Code: 400, Err: fmt.Sprintf("Invalid @search.action '%s'.", a.action)}
+		return actionResult{
+			Key:  key,
+			Code: http.StatusBadRequest,
+			Err:  fmt.Sprintf("Invalid @search.action '%s'.", a.action),
+		}
 	}
 
 	if a.action == "merge" && old == nil {
-		return actionResult{Key: key, Code: 404, Err: "Document not found."}
+		return actionResult{Key: key, Code: http.StatusNotFound, Err: "Document not found."}
 	}
 
 	norm, err := normalizeDoc(ix.comp, a.fields, version)
 	if err != nil {
-		return actionResult{Key: key, Code: 400, Err: strings.TrimPrefix(err.Error(), ErrBadRequest.Error()+": ")}
+		return actionResult{
+			Key:  key,
+			Code: http.StatusBadRequest,
+			Err:  strings.TrimPrefix(err.Error(), ErrBadRequest.Error()+": "),
+		}
 	}
 
 	merged := norm
-	if old != nil && a.action != "upload" {
+	if old != nil && a.action != actionUpload {
 		merged = mergeFields(old.Fields, norm)
 	}
 
 	ix.putDoc(key, merged, old)
 
-	code := 200
+	code := http.StatusOK
 	if old == nil {
-		code = 201
+		code = http.StatusCreated
 	}
 
 	return actionResult{Key: key, OK: true, Code: code}
@@ -284,13 +315,9 @@ func (ix *Index) applyAction(a indexAction, version string) actionResult {
 
 func mergeFields(old, patch map[string]any) map[string]any {
 	out := make(map[string]any, len(old)+len(patch))
-	for k, v := range old {
-		out[k] = v
-	}
+	maps.Copy(out, old)
 
-	for k, v := range patch {
-		out[k] = v
-	}
+	maps.Copy(out, patch)
 
 	return out
 }
@@ -319,7 +346,9 @@ func (ix *Index) removeDoc(key string) {
 }
 
 // storageSize approximates the index size in bytes from its documents.
-func (ix *Index) storageSize() (total, vector int64) {
+func (ix *Index) storageSize() (int64, int64) {
+	var total, vector int64
+
 	for _, d := range ix.Docs {
 		for _, f := range ix.comp.fields {
 			v := d.Fields[f.Name]

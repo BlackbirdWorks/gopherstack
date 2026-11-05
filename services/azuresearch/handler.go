@@ -139,7 +139,10 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	e.Any("/*", telemetry.WrapEchoHandler("AzureSearch", h.Handler(), h))
 
 	srv := &http.Server{
-		Handler: e, ReadHeaderTimeout: httpReadHeaderTimeout, ReadTimeout: httpReadTimeout, IdleTimeout: httpIdleTimeout,
+		Handler:           e,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		ReadTimeout:       httpReadTimeout,
+		IdleTimeout:       httpIdleTimeout,
 	}
 
 	schedCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))

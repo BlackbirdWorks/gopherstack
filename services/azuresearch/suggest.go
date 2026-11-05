@@ -27,10 +27,19 @@ type suggestRequest struct {
 
 func suggestFromQuery(q url.Values, auto bool) (*suggestRequest, error) {
 	r := &suggestRequest{
-		Search: q.Get("search"), Suggester: q.Get("suggesterName"), Filter: q.Get("$filter"),
-		OrderBy: q.Get("$orderby"), PreTag: q.Get("highlightPreTag"), PostTag: q.Get("highlightPostTag"),
-		Mode: q.Get("autocompleteMode"), SearchFields: splitCSV(q.Get("searchFields")), Select: splitCSV(q.Get("$select")),
-		Fuzzy: strings.EqualFold(q.Get("fuzzy"), "true"), Top: defaultSuggestTop,
+		Search:    q.Get("search"),
+		Suggester: q.Get("suggesterName"),
+		Filter:    q.Get("$filter"),
+		OrderBy:   q.Get("$orderby"),
+		PreTag:    q.Get("highlightPreTag"),
+		PostTag:   q.Get("highlightPostTag"),
+		Mode: q.Get(
+			"autocompleteMode",
+		),
+		SearchFields: splitCSV(q.Get("searchFields")),
+		Select:       splitCSV(q.Get("$select")),
+		Fuzzy:        strings.EqualFold(q.Get("fuzzy"), "true"),
+		Top:          defaultSuggestTop,
 	}
 
 	if v := q.Get("$top"); v != "" {
@@ -98,10 +107,10 @@ func (r *suggestRequest) validate(auto bool) error {
 
 type suggestCtx struct {
 	ix     *Index
-	fields []*fieldDef
-	docs   []*Doc
 	pred   pred
 	req    *suggestRequest
+	fields []*fieldDef
+	docs   []*Doc
 }
 
 func (s *Service) suggestSetup(ix *Index, req *suggestRequest) (*suggestCtx, error) {
@@ -127,7 +136,10 @@ func (s *Service) suggestSetup(ix *Index, req *suggestRequest) (*suggestCtx, err
 	}
 
 	if strings.TrimSpace(req.Filter) != "" {
-		pr, err := compileFilter(req.Filter, &filterCtx{comp: ix.comp, isMatch: func(*fenv, string, string, string, string) bool { return false }})
+		pr, err := compileFilter(
+			req.Filter,
+			&filterCtx{comp: ix.comp, isMatch: func(*fenv, string, string, string, string) bool { return false }},
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -228,6 +240,7 @@ func (s *Service) suggest(ix *Index, req *suggestRequest) (*ordered, error) {
 		for _, fd := range sc.fields {
 			if sc.matchesField(d, fd, q) {
 				hits = append(hits, hit{doc: d, key: keyOf(ix, d), score: 1})
+
 				break
 			}
 		}
@@ -274,7 +287,7 @@ func (sc *suggestCtx) suggestResponse(hits []hit, q []string) *ordered {
 	}
 
 	out := newOrdered()
-	out.set("value", rows)
+	out.set(fieldValue, rows)
 
 	return out
 }
@@ -355,7 +368,7 @@ func (s *Service) autocomplete(ix *Index, req *suggestRequest) (*ordered, error)
 	}
 
 	out := newOrdered()
-	out.set("value", rows)
+	out.set(fieldValue, rows)
 
 	return out, nil
 }

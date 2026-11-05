@@ -50,7 +50,11 @@ func (sc *searchCtx) eval(n qNode, doc *Doc) (bool, float64) {
 	case *qTerm:
 		return sc.evalLeaf(t.field, doc, func(fd *fieldDef, ft *fieldTokens) float64 { return sc.termScore(fd, ft, t) })
 	case *qPhrase:
-		return sc.evalLeaf(t.field, doc, func(fd *fieldDef, ft *fieldTokens) float64 { return sc.phraseScore(fd, ft, t) })
+		return sc.evalLeaf(
+			t.field,
+			doc,
+			func(fd *fieldDef, ft *fieldTokens) float64 { return sc.phraseScore(fd, ft, t) },
+		)
 	case *qRegex:
 		return sc.evalLeaf(t.field, doc, func(_ *fieldDef, ft *fieldTokens) float64 { return regexScore(ft, t) })
 	}
@@ -128,7 +132,7 @@ func (sc *searchCtx) idf(path, term string) float64 {
 	n := float64(sc.ix.stats.docs[path])
 	df := float64(sc.ix.stats.df[path][term])
 
-	return math.Log(1 + (n-df+0.5)/(df+0.5))
+	return math.Log(1 + (n-df+half)/(df+half))
 }
 
 func (sc *searchCtx) bm25(path string, ft *fieldTokens, idf, tf float64) float64 {

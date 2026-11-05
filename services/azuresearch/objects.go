@@ -1,7 +1,6 @@
 package azuresearch
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -44,8 +43,13 @@ func kindLabel(kind string) string {
 func (s *Service) object(kind, name string) (Object, error) {
 	o, ok := s.Objects[kind][name]
 	if !ok {
-		return nil, fmt.Errorf("%w: No %s with the name '%s' was found in service '%s'.",
-			ErrObjectNotFound, kindLabel(kind), name, s.Name)
+		return nil, wrapf(
+			ErrObjectNotFound,
+			"No %s with the name '%s' was found in service '%s'.",
+			kindLabel(kind),
+			name,
+			s.Name,
+		)
 	}
 
 	return o, nil
@@ -107,7 +111,11 @@ func validateSynonymMap(o Object) error {
 func validateDataSource(o Object) error {
 	typ := strOf(o, "type")
 	if !supportedSources[typ] {
-		return badf("The request is invalid. Details: data source type '%s' is not supported; supported types are azureblob and cosmosdb.", typ)
+		return badf(
+			"The request is invalid. Details: data source type '%s' is not supported; "+
+				"supported types are azureblob and cosmosdb.",
+			typ,
+		)
 	}
 
 	cred := objOf(o["credentials"])
@@ -173,7 +181,7 @@ func (s *Service) putObject(kind, name string, o Object, ifMatch, ifNone string)
 	}
 
 	o = cloneMap(o)
-	delete(o, "@odata.context")
+	delete(o, fieldContext)
 
 	if kind == kindDataSources && exists {
 		keepSecret(o, old)

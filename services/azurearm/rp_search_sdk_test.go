@@ -2,7 +2,6 @@ package azurearm_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -27,11 +26,11 @@ import (
 const searchRG = "search-rg"
 
 type fakeSearchPlane struct {
-	mu       sync.Mutex
 	services map[string]azurearm.SearchServiceConfig
 	admin    map[string]azurearm.SearchAdminKeys
 	query    map[string][]azurearm.SearchQueryKey
 	counter  int
+	mu       sync.Mutex
 }
 
 func newFakeSearchPlane() *fakeSearchPlane {
@@ -195,7 +194,11 @@ func TestSearchSDK_ServiceLifecycle(t *testing.T) {
 	svc := basicService(armsearch.SKUNameStandard)
 	svc.Tags = map[string]*string{"env": new("test")}
 	svc.Properties = &armsearch.ServiceProperties{
-		ReplicaCount: new(int32(2)), PartitionCount: new(int32(3)), PublicNetworkAccess: new(armsearch.PublicNetworkAccessEnabled),
+		ReplicaCount: new(
+			int32(2),
+		),
+		PartitionCount:      new(int32(3)),
+		PublicNetworkAccess: new(armsearch.PublicNetworkAccessEnabled),
 		AuthOptions: &armsearch.DataPlaneAuthOptions{AADOrAPIKey: &armsearch.DataPlaneAADOrAPIKeyAuthOption{
 			AADAuthFailureMode: new(armsearch.AADAuthFailureModeHttp403),
 		}},
@@ -277,13 +280,17 @@ func TestSearchSDK_CapacityValidation(t *testing.T) {
 
 			s := newSearchStack(t)
 			svc := basicService(tc.sku)
-			svc.Properties = &armsearch.ServiceProperties{ReplicaCount: new(tc.replicas), PartitionCount: new(tc.partitions)}
+			svc.Properties = &armsearch.ServiceProperties{
+				ReplicaCount:   new(tc.replicas),
+				PartitionCount: new(tc.partitions),
+			}
 
 			if tc.hosting != "" {
 				svc.Properties.HostingMode = new(tc.hosting)
 			}
 
-			poller, err := s.factory.NewServicesClient().BeginCreateOrUpdate(t.Context(), searchRG, fmt.Sprintf("cap-%d", i), svc, nil, nil)
+			poller, err := s.factory.NewServicesClient().
+				BeginCreateOrUpdate(t.Context(), searchRG, fmt.Sprintf("cap-%d", i), svc, nil, nil)
 			if tc.ok {
 				require.NoError(t, err)
 
@@ -407,7 +414,8 @@ func TestSearchSDK_Keys(t *testing.T) {
 	assert.NotEmpty(t, *admin.PrimaryKey)
 	assert.NotEqual(t, *admin.PrimaryKey, *admin.SecondaryKey)
 
-	regen, err := s.factory.NewAdminKeysClient().Regenerate(t.Context(), searchRG, "keys", armsearch.AdminKeyKindPrimary, nil, nil)
+	regen, err := s.factory.NewAdminKeysClient().
+		Regenerate(t.Context(), searchRG, "keys", armsearch.AdminKeyKindPrimary, nil, nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, *admin.PrimaryKey, *regen.PrimaryKey, "the primary key changes")
 	assert.Equal(t, *admin.SecondaryKey, *regen.SecondaryKey, "the secondary key is untouched")
@@ -526,11 +534,16 @@ func TestSearchSDK_UnavailableDataPlane(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = f.NewServicesClient().BeginCreateOrUpdate(t.Context(), searchRG, "nodp", basicService(armsearch.SKUNameBasic), nil, nil)
+	_, err = f.NewServicesClient().
+		BeginCreateOrUpdate(t.Context(), searchRG, "nodp", basicService(armsearch.SKUNameBasic), nil, nil)
 
 	var respErr *azcore.ResponseError
 
 	require.ErrorAs(t, err, &respErr)
-	assert.Equal(t, http.StatusServiceUnavailable, respErr.StatusCode, "without a data plane nothing pretends to be created")
-	assert.True(t, errors.Is(azurearm.ErrSearchUnavailable, azurearm.ErrSearchUnavailable))
+	assert.Equal(
+		t,
+		http.StatusServiceUnavailable,
+		respErr.StatusCode,
+		"without a data plane nothing pretends to be created",
+	)
 }

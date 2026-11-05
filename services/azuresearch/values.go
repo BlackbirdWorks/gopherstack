@@ -26,9 +26,9 @@ func asFloat(v any) (float64, bool) {
 		return f, err == nil
 	case string:
 		switch n {
-		case "NaN":
+		case litNaN:
 			return math.NaN(), true
-		case "INF":
+		case litINF:
 			return math.Inf(1), true
 		case "-INF":
 			return math.Inf(-1), true
@@ -60,7 +60,7 @@ func parseGeoPoint(v any) (geoPoint, bool) {
 	}
 
 	coords, _ := m["coordinates"].([]any)
-	if len(coords) != 2 {
+	if len(coords) != coordPair {
 		return geoPoint{}, false
 	}
 
@@ -71,7 +71,7 @@ func parseGeoPoint(v any) (geoPoint, bool) {
 }
 
 func paramPoint(vals []string) (geoPoint, bool) {
-	if len(vals) != 2 {
+	if len(vals) != coordPair {
 		return geoPoint{}, false
 	}
 
@@ -82,10 +82,10 @@ func paramPoint(vals []string) (geoPoint, bool) {
 }
 
 func haversineKM(a, b geoPoint) float64 {
-	rad := math.Pi / 180
+	rad := degToRad
 	dLat, dLon := (b.Lat-a.Lat)*rad, (b.Lon-a.Lon)*rad
-	h := math.Sin(dLat/2)*math.Sin(dLat/2) +
-		math.Cos(a.Lat*rad)*math.Cos(b.Lat*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	h := math.Sin(dLat*half)*math.Sin(dLat*half) +
+		math.Cos(a.Lat*rad)*math.Cos(b.Lat*rad)*math.Sin(dLon*half)*math.Sin(dLon*half)
 
 	return 2 * earthRadiusKM * math.Asin(math.Min(1, math.Sqrt(h)))
 }
@@ -94,7 +94,7 @@ func haversineKM(a, b geoPoint) float64 {
 func lookupPath(fields map[string]any, path string) any {
 	var cur any = fields
 
-	for _, seg := range strings.Split(path, "/") {
+	for seg := range strings.SplitSeq(path, "/") {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil
@@ -107,7 +107,10 @@ func lookupPath(fields map[string]any, path string) any {
 }
 
 func typeErr(base string) error {
-	return badf("Cannot convert a primitive value to the expected type '%s'. See the inner exception for more information.", base)
+	return badf(
+		"Cannot convert a primitive value to the expected type '%s'. See the inner exception for more information.",
+		base,
+	)
 }
 
 // normalizeDoc validates raw against the schema and returns the document as it is stored.
@@ -179,7 +182,12 @@ func normalizeValue(d *fieldDef, v any, version string) (any, error) {
 
 func normalizeVector(d *fieldDef, arr []any) (any, error) {
 	if len(arr) != d.Dimensions {
-		return nil, badf("A vector field '%s' must have %d dimensions, but %d were provided.", d.Name, d.Dimensions, len(arr))
+		return nil, badf(
+			"A vector field '%s' must have %d dimensions, but %d were provided.",
+			d.Name,
+			d.Dimensions,
+			len(arr),
+		)
 	}
 
 	out := make([]any, len(arr))
@@ -209,44 +217,6 @@ func normalizeVector(d *fieldDef, arr []any) (any, error) {
 
 func normalizeScalar(d *fieldDef, v any, version string) (any, error) {
 	switch d.Base {
-	case typeString:
-		s, ok := v.(string)
-		if !ok {
-			return nil, typeErr(d.Base)
-		}
-
-		return s, nil
-	case typeBool:
-		b, ok := v.(bool)
-		if !ok {
-			return nil, typeErr(d.Base)
-		}
-
-		return b, nil
-	case typeInt32, typeInt64:
-		return normalizeInt(d, v)
-	case typeDouble, typeSingle, typeHalf:
-		f, ok := numberOf(v)
-		if s, isS := v.(string); isS && !ok {
-			f, ok = asFloat(s)
-		}
-
-		if !ok {
-			return nil, typeErr(d.Base)
-		}
-
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return nonFinite(f), nil
-		}
-
-		return f, nil
-	case typeDate:
-		t, ok := parseDate(v)
-		if !ok {
-			return nil, typeErr(d.Base)
-		}
-
-		return t.Format(time.RFC3339Nano), nil
 	case typeGeo:
 		if _, ok := parseGeoPoint(v); !ok {
 			return nil, typeErr(d.Base)
@@ -262,15 +232,55 @@ func normalizeScalar(d *fieldDef, v any, version string) (any, error) {
 		return normalizeObject(d.Children, m, "search.complex."+d.Name, version)
 	}
 
+	return normalizePrimitive(d, v)
+}
+
+func normalizePrimitive(d *fieldDef, v any) (any, error) {
+	switch d.Base {
+	case typeString:
+		if s, ok := v.(string); ok {
+			return s, nil
+		}
+	case typeBool:
+		if b, ok := v.(bool); ok {
+			return b, nil
+		}
+	case typeInt32, typeInt64:
+		return normalizeInt(d, v)
+	case typeDouble, typeSingle, typeHalf:
+		return normalizeFloat(d, v)
+	case typeDate:
+		if t, ok := parseDate(v); ok {
+			return t.Format(time.RFC3339Nano), nil
+		}
+	}
+
 	return nil, typeErr(d.Base)
+}
+
+func normalizeFloat(d *fieldDef, v any) (any, error) {
+	f, ok := numberOf(v)
+	if s, isS := v.(string); isS && !ok {
+		f, ok = asFloat(s)
+	}
+
+	if !ok {
+		return nil, typeErr(d.Base)
+	}
+
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nonFinite(f), nil
+	}
+
+	return f, nil
 }
 
 func nonFinite(f float64) string {
 	switch {
 	case math.IsNaN(f):
-		return "NaN"
+		return litNaN
 	case f > 0:
-		return "INF"
+		return litINF
 	}
 
 	return "-INF"

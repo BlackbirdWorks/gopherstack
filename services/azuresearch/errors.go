@@ -1,6 +1,9 @@
 package azuresearch
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Backend errors.
 var (
@@ -21,3 +24,8 @@ var (
 	ErrKeyKind           = errors.New("azuresearch: key kind must be primary or secondary")
 	errNullEntry         = errors.New("azuresearch: null snapshot entry")
 )
+
+// wrapf wraps sentinel with a service-style message that may start with a capital letter.
+func wrapf(sentinel error, format string, args ...any) error {
+	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, args...))
+}

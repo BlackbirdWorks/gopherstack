@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
@@ -90,12 +92,19 @@ func newSearchE2E(t *testing.T) *searchE2E {
 
 	clock := &struct{ now time.Time }{now: time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)}
 	searchH := azuresearch.NewHandler(
-		azuresearch.NewInMemoryBackend(azuresearch.WithClock(func() time.Time { return clock.now })), azuresearch.DefaultSettings())
+		azuresearch.NewInMemoryBackend(
+			azuresearch.WithClock(func() time.Time { return clock.now }),
+		),
+		azuresearch.DefaultSettings(),
+	)
 	blobs := azureblob.NewInMemoryBackend()
 	cosmos := cosmosdb.NewInMemoryBackend()
 
 	wireAzureSearch(map[string]service.Registerable{
-		"AzureARM": armH, "AzureSearch": searchH, "AzureBlob": azureblob.NewHandler(blobs), "CosmosDB": cosmosdb.NewHandler(cosmos),
+		"AzureARM":    armH,
+		"AzureSearch": searchH,
+		"AzureBlob":   azureblob.NewHandler(blobs),
+		"CosmosDB":    cosmosdb.NewHandler(cosmos),
 	})
 
 	armE := echo.New()
@@ -136,9 +145,9 @@ func (e *searchE2E) call(t *testing.T, method, path, key string, body any) (int,
 	req, err := http.NewRequestWithContext(t.Context(), method, e.data+path, rd)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("api-key", key)
+	req.Header.Set("Api-Key", key)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := testclient.New(t).Do(req)
 	require.NoError(t, err)
 
 	defer res.Body.Close()
@@ -189,7 +198,8 @@ func TestAzureSearchARMKeysUnlockDataPlane(t *testing.T) {
 	status, _ = e.call(t, http.MethodPost, "/indexes?api-version=2024-07-01", *qk.Key, idx)
 	assert.Equal(t, http.StatusForbidden, status, "a query key cannot manage indexes")
 
-	regen, err := e.factory.NewAdminKeysClient().Regenerate(t.Context(), "rg", "e2esearch", armsearch.AdminKeyKindPrimary, nil, nil)
+	regen, err := e.factory.NewAdminKeysClient().
+		Regenerate(t.Context(), "rg", "e2esearch", armsearch.AdminKeyKindPrimary, nil, nil)
 	require.NoError(t, err)
 
 	status, _ = e.call(t, http.MethodGet, "/indexes?api-version=2024-07-01", *keys.PrimaryKey, nil)
@@ -230,33 +240,38 @@ func TestAzureSearchIndexerFromInProcessEmulators(t *testing.T) {
 	require.NoError(t, err)
 	_, err = e.cosmos.CreateContainer("db", cosmosdb.ContainerSpec{ID: "items", PartitionKeyPath: "/pk"})
 	require.NoError(t, err)
-	_, err = e.cosmos.CreateDocument("db", "items", map[string]any{"id": "c1", "pk": "p", "content": "cosmos record"}, false)
+	_, err = e.cosmos.CreateDocument(
+		"db",
+		"items",
+		map[string]any{"id": "c1", "pk": "p", "content": "cosmos record"},
+		false,
+	)
 	require.NoError(t, err)
 
 	for _, step := range []struct {
-		path string
 		body map[string]any
+		path string
 		want int
 	}{
-		{"/indexes", map[string]any{"name": "docs", "fields": []any{
+		{path: "/indexes", body: map[string]any{"name": "docs", "fields": []any{
 			map[string]any{"name": "id", "type": "Edm.String", "key": true},
 			map[string]any{"name": "content", "type": "Edm.String", "searchable": true},
-		}}, http.StatusCreated},
-		{"/datasources", map[string]any{
+		}}, want: http.StatusCreated},
+		{path: "/datasources", body: map[string]any{
 			"name": "blobs", "type": "azureblob", "container": map[string]any{"name": "docs"},
-			"credentials": map[string]any{"connectionString": "DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=a2V5;"},
-		}, http.StatusCreated},
-		{"/datasources", map[string]any{
+			"credentials": map[string]any{"connectionString": "DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=a2V5;"}, //nolint:lll // test fixture
+		}, want: http.StatusCreated},
+		{path: "/datasources", body: map[string]any{
 			"name": "cosmos", "type": "cosmosdb", "container": map[string]any{"name": "items"},
 			"credentials": map[string]any{"connectionString": "AccountEndpoint=https://x;AccountKey=a2V5;Database=db"},
-		}, http.StatusCreated},
-		{"/indexers", map[string]any{
+		}, want: http.StatusCreated},
+		{path: "/indexers", body: map[string]any{
 			"name": "from-blob", "dataSourceName": "blobs", "targetIndexName": "docs",
 			"fieldMappings": []any{map[string]any{
-				"sourceFieldName": "metadata_storage_path", "targetFieldName": "id", "mappingFunction": map[string]any{"name": "base64Encode"},
+				"sourceFieldName": "metadata_storage_path", "targetFieldName": "id", "mappingFunction": map[string]any{"name": "base64Encode"}, //nolint:lll // test fixture
 			}},
-		}, http.StatusCreated},
-		{"/indexers", map[string]any{"name": "from-cosmos", "dataSourceName": "cosmos", "targetIndexName": "docs"}, http.StatusCreated},
+		}, want: http.StatusCreated},
+		{path: "/indexers", body: map[string]any{"name": "from-cosmos", "dataSourceName": "cosmos", "targetIndexName": "docs"}, want: http.StatusCreated}, //nolint:lll // test fixture
 	} {
 		status, body := e.call(t, http.MethodPost, step.path+"?api-version=2024-07-01", key, step.body)
 		require.Equal(t, step.want, status, "%s: %v", step.path, body)
@@ -267,7 +282,13 @@ func TestAzureSearchIndexerFromInProcessEmulators(t *testing.T) {
 		require.Equal(t, http.StatusAccepted, status)
 	}
 
-	status, body := e.call(t, http.MethodGet, "/indexes('docs')/docs?search=*&$count=true&api-version=2024-07-01", key, nil)
+	status, body := e.call(
+		t,
+		http.MethodGet,
+		"/indexes('docs')/docs?search=*&$count=true&api-version=2024-07-01",
+		key,
+		nil,
+	)
 	require.Equal(t, http.StatusOK, status)
 	assert.EqualValues(t, 2, body["@odata.count"], "one document from Blob Storage and one from Cosmos DB")
 

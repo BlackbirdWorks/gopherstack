@@ -1,7 +1,6 @@
 package azuresearch
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 )
@@ -44,7 +43,11 @@ func customFilter(name string, stops map[string]bool) (func([]Token) []Token, bo
 	case "trim":
 		return termFn(strings.TrimSpace), true
 	case "apostrophe":
-		return termFn(func(s string) string { head, _, _ := strings.Cut(strings.ReplaceAll(s, "’", "'"), "'"); return head }), true
+		return termFn(func(s string) string {
+			head, _, _ := strings.Cut(strings.ReplaceAll(s, "’", "'"), "'")
+
+			return head
+		}), true
 	case "porter_stem", "kstem", "snowball":
 		return termFn(stemEnglish), true
 	case "stopwords":
@@ -77,7 +80,7 @@ func customAnalyzer(def map[string]any) (Analyzer, error) {
 		return pipelineAnalyzer(name, def, stops)
 	}
 
-	return nil, fmt.Errorf("%w: analyzer %q has unsupported type %q", ErrBadRequest, name, kind)
+	return nil, wrapf(ErrBadRequest, "analyzer %q has unsupported type %q", name, kind)
 }
 
 func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (Analyzer, error) {
@@ -85,7 +88,7 @@ func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (A
 
 	tok, ok := customTokenizer(tokName)
 	if !ok {
-		return nil, fmt.Errorf("%w: analyzer %q uses unsupported tokenizer %q", ErrBadRequest, name, tokName)
+		return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported tokenizer %q", name, tokName)
 	}
 
 	var filters []func([]Token) []Token
@@ -96,14 +99,14 @@ func pipelineAnalyzer(name string, def map[string]any, stops map[string]bool) (A
 
 		fn, found := customFilter(fname, stops)
 		if !found {
-			return nil, fmt.Errorf("%w: analyzer %q uses unsupported token filter %q", ErrBadRequest, name, fname)
+			return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported token filter %q", name, fname)
 		}
 
 		filters = append(filters, fn)
 	}
 
 	if cf, _ := def["charFilters"].([]any); len(cf) > 0 {
-		return nil, fmt.Errorf("%w: analyzer %q uses unsupported char filters", ErrBadRequest, name)
+		return nil, wrapf(ErrBadRequest, "analyzer %q uses unsupported char filters", name)
 	}
 
 	return func(text string) []Token {

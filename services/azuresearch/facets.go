@@ -39,7 +39,7 @@ func parseFacet(expr string) (facetSpec, error) {
 
 func (fs *facetSpec) set(k, v string) error {
 	switch k {
-	case "count":
+	case fieldCount:
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
 			return badf("Invalid facet count '%s'.", v)
@@ -47,7 +47,7 @@ func (fs *facetSpec) set(k, v string) error {
 
 		fs.count = n
 	case "sort":
-		if !containsStr([]string{"count", "-count", "value", "-value"}, v) {
+		if !containsStr([]string{fieldCount, "-count", fieldValue, "-value"}, v) {
 			return badf("Invalid facet sort '%s'.", v)
 		}
 
@@ -55,7 +55,7 @@ func (fs *facetSpec) set(k, v string) error {
 	case "interval":
 		fs.interval = v
 	case "values":
-		for _, x := range strings.Split(v, "|") {
+		for x := range strings.SplitSeq(v, "|") {
 			f, err := strconv.ParseFloat(x, 64)
 			if err != nil {
 				return badf("Invalid facet values '%s'.", v)
@@ -117,7 +117,7 @@ func facetField(fd *fieldDef, fs facetSpec, hits []hit) []map[string]any {
 	}
 
 	if fs.interval != "" || len(fs.values) > 0 {
-		return rangeFacetResult(buckets, order, fs)
+		return rangeFacetResult(buckets, order)
 	}
 
 	return valueFacetResult(buckets, order, fs)
@@ -186,14 +186,23 @@ func dateBucket(v any, unit string) (string, any, bool) {
 		from = time.Date(t.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
 		to = from.AddDate(1, 0, 0)
 	case "quarter":
-		from = time.Date(t.Year(), time.Month((int(t.Month())-1)/3*3+1), 1, 0, 0, 0, 0, time.UTC)
-		to = from.AddDate(0, 3, 0)
+		from = time.Date(
+			t.Year(),
+			time.Month((int(t.Month())-1)/monthsPerQuarter*monthsPerQuarter+1),
+			1,
+			0,
+			0,
+			0,
+			0,
+			time.UTC,
+		)
+		to = from.AddDate(0, monthsPerQuarter, 0)
 	case "month":
 		from = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
 		to = from.AddDate(0, 1, 0)
 	case "week":
 		from = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -int(t.Weekday()))
-		to = from.AddDate(0, 0, 7)
+		to = from.AddDate(0, 0, daysPerWeek)
 	case "day":
 		from = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 		to = from.AddDate(0, 0, 1)
@@ -213,7 +222,7 @@ func dateBucket(v any, unit string) (string, any, bool) {
 	return from.Format(time.RFC3339), rangeKey{from: from.Format(time.RFC3339), to: to.Format(time.RFC3339)}, true
 }
 
-func rangeFacetResult(buckets map[string]int, rep map[string]any, fs facetSpec) []map[string]any {
+func rangeFacetResult(buckets map[string]int, rep map[string]any) []map[string]any {
 	type item struct {
 		rk    rangeKey
 		sort  float64
@@ -243,7 +252,7 @@ func rangeFacetResult(buckets map[string]int, rep map[string]any, fs facetSpec) 
 	out := make([]map[string]any, 0, len(items))
 
 	for _, it := range items {
-		m := map[string]any{"count": it.count}
+		m := map[string]any{fieldCount: it.count}
 		if it.rk.from != nil {
 			m["from"] = it.rk.from
 		}
@@ -268,11 +277,11 @@ func valueFacetResult(buckets map[string]int, rep map[string]any, fs facetSpec) 
 		a, b := keys[i], keys[j]
 
 		switch fs.sortBy {
-		case "value":
+		case fieldValue:
 			return lessValue(rep[a], rep[b])
 		case "-value":
 			return lessValue(rep[b], rep[a])
-		case "count":
+		case fieldCount:
 			if buckets[a] != buckets[b] {
 				return buckets[a] < buckets[b]
 			}
@@ -291,7 +300,7 @@ func valueFacetResult(buckets map[string]int, rep map[string]any, fs facetSpec) 
 
 	out := make([]map[string]any, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, map[string]any{"count": buckets[k], "value": rep[k]})
+		out = append(out, map[string]any{fieldCount: buckets[k], fieldValue: rep[k]})
 	}
 
 	return out

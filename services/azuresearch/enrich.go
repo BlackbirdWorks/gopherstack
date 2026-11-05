@@ -165,7 +165,10 @@ func runSkillset(set Object, tree enrichTree, warn func(skill, msg string)) erro
 
 		exec, ok := skillExecutors[typ]
 		if !ok {
-			warn(typ, "The skill type "+typ+" is not supported by the emulator and was skipped; its outputs are not populated.")
+			warn(
+				typ,
+				"The skill type "+typ+" is not supported by the emulator and was skipped; its outputs are not populated.",
+			)
 
 			continue
 		}
@@ -185,7 +188,9 @@ func runSkillset(set Object, tree enrichTree, warn func(skill, msg string)) erro
 	return nil
 }
 
-var skillExecutors = map[string]func(sk map[string]any, t enrichTree, ctx, concrete string) error{ //nolint:gochecknoglobals // dispatch table
+type skillExec func(sk map[string]any, t enrichTree, ctx, concrete string) error
+
+var skillExecutors = map[string]skillExec{ //nolint:gochecknoglobals // dispatch table
 	skillSplit:  execSplit,
 	skillMerge:  execMerge,
 	skillShaper: execShaper,
@@ -387,7 +392,7 @@ func mergeAt(runes []rune, items, offs []any, pre, post string) (string, []any) 
 		sb.WriteString(string(runes[prev:off]))
 		sb.WriteString(pre)
 		positions = append(positions, float64(len([]rune(sb.String()))))
-		sb.WriteString(fmt.Sprint(it))
+		fmt.Fprint(&sb, it)
 		sb.WriteString(post)
 
 		prev = off

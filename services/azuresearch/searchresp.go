@@ -28,7 +28,14 @@ func (ix *Index) highlightFields(names []string) ([]*fieldDef, error) {
 }
 
 // searchResponse renders the search result page.
-func (s *Service) searchResponse(ix *Index, req *searchRequest, res *searchResult, base string, post bool, now time.Time) (*ordered, error) {
+func (s *Service) searchResponse(
+	ix *Index,
+	req *searchRequest,
+	res *searchResult,
+	base string,
+	post bool,
+	now time.Time,
+) (*ordered, error) {
 	hf, err := ix.highlightFields(req.Highlight)
 	if err != nil {
 		return nil, err
@@ -40,7 +47,7 @@ func (s *Service) searchResponse(ix *Index, req *searchRequest, res *searchResul
 	}
 
 	out := newOrdered()
-	out.set("@odata.context", contextURL(base, ix.name()))
+	out.set(fieldContext, contextURL(base, ix.name()))
 
 	if req.Count {
 		out.set("@odata.count", res.Count)
@@ -73,12 +80,19 @@ func (s *Service) searchResponse(ix *Index, req *searchRequest, res *searchResul
 		s.nextPage(out, req, base, ix.name(), post)
 	}
 
-	out.set("value", rows)
+	out.set(fieldValue, rows)
 
 	return out, nil
 }
 
-func hitRow(pl *searchPlan, ix *Index, req *searchRequest, h hit, hf []*fieldDef, match func(*fieldDef, string) bool) *ordered {
+func hitRow(
+	pl *searchPlan,
+	ix *Index,
+	req *searchRequest,
+	h hit,
+	hf []*fieldDef,
+	match func(*fieldDef, string) bool,
+) *ordered {
 	row := newOrdered()
 	row.set("@search.score", scoreFloor(h.score))
 
@@ -116,7 +130,7 @@ func (s *Service) nextPage(out *ordered, req *searchRequest, base, index string,
 		}
 
 		if req.Count {
-			np.set("count", true)
+			np.set(fieldCount, true)
 		}
 
 		np.set("skip", next)

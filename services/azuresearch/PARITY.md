@@ -1,7 +1,7 @@
 ---
 service: azuresearch
 sdk_module: none   # no Go data-plane SDK exists (sdk/search/azsearch is not published); tests drive the documented REST shapes over HTTP. Management plane is verified with armsearch v1.4.0 in services/azurearm.
-last_audit_commit: fa1bd62c7
+last_audit_commit: 4900f0e6f
 last_audit_date: 2026-11-05
 overall: B
 ops:

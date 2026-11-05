@@ -43,8 +43,11 @@ func (c *compiler) scoring(def map[string]any) error {
 		for field, w := range objOf(objOf(p["text"])["weights"]) {
 			fd, ok := c.comp.byPath[field]
 			if !ok || !fd.Searchable {
-				return badf("The request is invalid. Details: scoring profile '%s' weights unknown or non-searchable field '%s'.",
-					sp.Name, field)
+				return badf(
+					"The request is invalid. Details: scoring profile '%s' weights unknown or non-searchable field '%s'.",
+					sp.Name,
+					field,
+				)
 			}
 
 			sp.Weights[field], _ = w.(float64)
@@ -84,7 +87,11 @@ func (c *compiler) scoreFunc(profile string, f map[string]any) (scoreFunc, error
 	}
 
 	if _, ok := c.comp.byPath[sf.Field]; !ok {
-		return sf, badf("The request is invalid. Details: scoring profile '%s' function references unknown field '%s'.", profile, sf.Field)
+		return sf, badf(
+			"The request is invalid. Details: scoring profile '%s' function references unknown field '%s'.",
+			profile,
+			sf.Field,
+		)
 	}
 
 	switch sf.Type {
@@ -207,52 +214,64 @@ func (f scoreFunc) position(doc *Doc, params scoreParams, now time.Time) (float6
 
 	switch f.Type {
 	case "magnitude":
-		n, ok := asFloat(val)
-		if !ok || f.RangeEnd == f.RangeStart {
-			return 0, false
-		}
-
-		pos := (n - f.RangeStart) / (f.RangeEnd - f.RangeStart)
-		if (pos < 0 || pos > 1) && !f.ConstBeyond {
-			return 0, false
-		}
-
-		return pos, true
+		return f.magnitudePosition(val)
 	case "freshness":
-		t, ok := parseDate(val)
-		if !ok || f.Duration <= 0 {
-			return 0, false
-		}
-
-		age := now.Sub(t)
-		if age < 0 {
-			age = -age
-		}
-
-		if age > f.Duration {
-			return 0, false
-		}
-
-		return 1 - float64(age)/float64(f.Duration), true
+		return f.freshnessPosition(val, now)
 	case "distance":
-		pt, ok := parseGeoPoint(val)
-		ref, rok := paramPoint(params[f.RefParam])
-
-		if !ok || !rok || f.Distance <= 0 {
-			return 0, false
-		}
-
-		d := haversineKM(pt, ref)
-		if d > f.Distance {
-			return 0, false
-		}
-
-		return 1 - d/f.Distance, true
+		return f.distancePosition(val, params)
 	case "tag":
 		return tagPosition(val, params[f.TagsParam])
 	}
 
 	return 0, false
+}
+
+func (f scoreFunc) magnitudePosition(val any) (float64, bool) {
+	n, ok := asFloat(val)
+	if !ok || f.RangeEnd == f.RangeStart {
+		return 0, false
+	}
+
+	pos := (n - f.RangeStart) / (f.RangeEnd - f.RangeStart)
+	if (pos < 0 || pos > 1) && !f.ConstBeyond {
+		return 0, false
+	}
+
+	return pos, true
+}
+
+func (f scoreFunc) freshnessPosition(val any, now time.Time) (float64, bool) {
+	t, ok := parseDate(val)
+	if !ok || f.Duration <= 0 {
+		return 0, false
+	}
+
+	age := now.Sub(t)
+	if age < 0 {
+		age = -age
+	}
+
+	if age > f.Duration {
+		return 0, false
+	}
+
+	return 1 - float64(age)/float64(f.Duration), true
+}
+
+func (f scoreFunc) distancePosition(val any, params scoreParams) (float64, bool) {
+	pt, ok := parseGeoPoint(val)
+	ref, rok := paramPoint(params[f.RefParam])
+
+	if !ok || !rok || f.Distance <= 0 {
+		return 0, false
+	}
+
+	d := haversineKM(pt, ref)
+	if d > f.Distance {
+		return 0, false
+	}
+
+	return 1 - d/f.Distance, true
 }
 
 func tagPosition(val any, tags []string) (float64, bool) {

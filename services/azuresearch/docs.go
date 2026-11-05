@@ -1,7 +1,6 @@
 package azuresearch
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 )
@@ -24,10 +23,10 @@ func (h *Handler) routeDocs(req *request, index string, t []string) error {
 		return h.searchPost(req, index)
 	case "search.index":
 		return h.indexBatch(req, index)
-	case "search.suggest", "search.post.suggest":
-		return h.suggestOp(req, index, t[0] == "search.post.suggest", false)
-	case "search.autocomplete", "search.post.autocomplete":
-		return h.suggestOp(req, index, t[0] == "search.post.autocomplete", true)
+	case "search.suggest", pathPostSuggest:
+		return h.suggestOp(req, index, t[0] == pathPostSuggest, false)
+	case "search.autocomplete", pathPostAutocomplet:
+		return h.suggestOp(req, index, t[0] == pathPostAutocomplet, true)
 	}
 
 	return h.lookup(req, index, t[0])
@@ -130,7 +129,7 @@ func (h *Handler) lookup(req *request, index, key string) error {
 		}
 
 		out = newOrdered()
-		out.set("@odata.context", contextURL(baseURL(req.host()), index)+"/$entity")
+		out.set(fieldContext, contextURL(baseURL(req.host()), index)+"/$entity")
 
 		proj := project(ix.comp.fields, d.Fields, sel, "")
 		for _, k := range proj.keys {
@@ -146,7 +145,7 @@ func (h *Handler) lookup(req *request, index, key string) error {
 	return h.respond(req, http.StatusOK, out)
 }
 
-func notFoundDoc() error { return fmt.Errorf("%w: Document not found.", ErrDocumentNotFound) }
+func notFoundDoc() error { return wrapf(ErrDocumentNotFound, "Document not found.") }
 
 func (h *Handler) suggestOp(req *request, index string, post, auto bool) error {
 	var (
@@ -196,7 +195,7 @@ func (h *Handler) suggestOp(req *request, index string, post, auto bool) error {
 	}
 
 	body := newOrdered()
-	body.set("@odata.context", ctx)
+	body.set(fieldContext, ctx)
 
 	for _, k := range out.keys {
 		body.set(k, out.vals[k])
@@ -219,13 +218,17 @@ func (h *Handler) indexBatch(req *request, index string) error {
 		return err
 	}
 
-	list := listOf(raw, "value")
+	list := listOf(raw, fieldValue)
 	if len(list) == 0 {
-		return badf("The request is invalid. Details: actions : No indexing actions found in the request. Please include between 1 and %d indexing actions in your request.", maxBatchActions)
+		return badf(
+			"The request is invalid. Details: actions : No indexing actions found in the request. "+
+				"Please include between 1 and %d indexing actions in your request.",
+			maxBatchActions,
+		)
 	}
 
 	if len(list) > maxBatchActions {
-		return fmt.Errorf("%w: The request contains more than %d indexing actions.", ErrTooLarge, maxBatchActions)
+		return wrapf(ErrTooLarge, "The request contains more than %d indexing actions.", maxBatchActions)
 	}
 
 	actions := make([]indexAction, 0, len(list))
@@ -235,7 +238,7 @@ func (h *Handler) indexBatch(req *request, index string) error {
 		act := strOf(m, "@search.action")
 
 		if act == "" {
-			act = "upload"
+			act = actionUpload
 		}
 
 		actions = append(actions, indexAction{action: act, fields: m})
@@ -274,10 +277,18 @@ func (h *Handler) respondBatch(req *request, results []actionResult) error {
 			status = http.StatusMultiStatus
 		}
 
-		rows = append(rows, map[string]any{"key": nilIfEmpty(r.Key), "status": r.OK, "errorMessage": msg, "statusCode": r.Code})
+		rows = append(
+			rows,
+			map[string]any{
+				fieldKey:          nilIfEmpty(r.Key),
+				fieldStatus:       r.OK,
+				fieldErrorMessage: msg,
+				"statusCode":      r.Code,
+			},
+		)
 	}
 
-	return h.respond(req, status, map[string]any{"value": rows})
+	return h.respond(req, status, map[string]any{fieldValue: rows})
 }
 
 func nilIfEmpty(s string) any {

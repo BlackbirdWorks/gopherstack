@@ -3,7 +3,6 @@ package azuresearch
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -14,9 +13,10 @@ import (
 )
 
 const (
-	maxBodyBytes  = 16 << 20
-	headerAPIKey  = "api-key"
-	mediaJSON     = "application/json; odata.metadata=minimal; odata.streaming=true; IEEE754Compatible=false; charset=utf-8"
+	maxBodyBytes = 16 << 20
+	headerAPIKey = "Api-Key"
+	mediaJSON    = "application/json; odata.metadata=minimal; odata.streaming=true; " +
+		"IEEE754Compatible=false; charset=utf-8"
 	searchDomain  = ".search.windows.net"
 	preferRepHdr  = "return=representation"
 	defaultAPIVer = "2024-07-01"
@@ -47,7 +47,7 @@ type request struct {
 func parseSegments(p string) []seg {
 	var out []seg
 
-	for _, raw := range strings.Split(strings.Trim(p, "/"), "/") {
+	for raw := range strings.SplitSeq(strings.Trim(p, "/"), "/") {
 		if raw == "" {
 			continue
 		}
@@ -123,8 +123,8 @@ func mustJSON(v any) []byte {
 }
 
 type apiErr struct {
-	status int
 	msg    string
+	status int
 }
 
 func errorOf(err error) apiErr {
@@ -217,7 +217,7 @@ func (h *Handler) newRequest(c *echo.Context) (*request, error) {
 func (h *Handler) dispatch(req *request) error {
 	toks := req.tokens()
 	if len(toks) == 0 {
-		return h.fail(req.c, notFound("The requested path was not found."))
+		return h.fail(req.c, notFoundPath())
 	}
 
 	var err error
@@ -230,7 +230,7 @@ func (h *Handler) dispatch(req *request) error {
 	case "servicestats":
 		err = h.routeServiceStats(req)
 	default:
-		err = notFound("The requested path was not found.")
+		err = notFoundPath()
 	}
 
 	if err != nil {
@@ -240,6 +240,6 @@ func (h *Handler) dispatch(req *request) error {
 	return nil
 }
 
-func notFound(msg string) error { return fmt.Errorf("%w: %s", ErrObjectNotFound, msg) }
+func notFoundPath() error { return wrapf(ErrObjectNotFound, "The requested path was not found.") }
 
 func methodNotAllowed() error { return badf("The HTTP method is not allowed for this resource.") }

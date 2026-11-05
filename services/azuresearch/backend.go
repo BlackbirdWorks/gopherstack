@@ -134,7 +134,7 @@ func newService(name string, cfg ServiceConfig, now time.Time) *Service {
 
 func newObjects() map[string]map[string]Object {
 	out := map[string]map[string]Object{}
-	for _, k := range objectKinds {
+	for _, k := range objectKindList() {
 		out[k] = map[string]Object{}
 	}
 

@@ -1,6 +1,7 @@
 package azuresearch
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -87,7 +88,10 @@ func orderClauseOf(part string, c *compiled) (orderClause, error) {
 
 	fd, ok := c.byPath[part]
 	if !ok || !fd.Sortable {
-		return orderClause{}, badf("Invalid expression: The field '%s' cannot be used in $orderby because it is not sortable.", part)
+		return orderClause{}, badf(
+			"Invalid expression: The field '%s' cannot be used in $orderby because it is not sortable.",
+			part,
+		)
 	}
 
 	segs := strings.Split(part, "/")
@@ -237,11 +241,5 @@ func selected(sel []string, path string) bool {
 }
 
 func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(list, s)
 }

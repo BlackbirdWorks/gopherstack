@@ -1,6 +1,7 @@
 package azuresearch
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -67,10 +68,8 @@ func leafMatches(pl *searchPlan, n qNode, fd *fieldDef, term string) bool {
 
 func (pl *searchPlan) termIn(fd *fieldDef, text, term string) bool {
 	for _, alt := range pl.ctx.synonymAlts(fd, pl.ctx.searchTerms(fd, text)) {
-		for _, a := range alt {
-			if a == term {
-				return true
-			}
+		if slices.Contains(alt, term) {
+			return true
 		}
 	}
 

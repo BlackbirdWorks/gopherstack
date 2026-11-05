@@ -1,6 +1,7 @@
 package azuresearch_test
 
 import (
+	"maps"
 	"net/http"
 	"testing"
 
@@ -15,7 +16,12 @@ func TestDocumentBatch(t *testing.T) {
 	s.must(t, http.MethodPost, "/indexes?"+apiVer, hotelIndex(), http.StatusCreated)
 
 	batch := func(actions ...any) resp {
-		return s.admin2(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, map[string]any{"value": actions})
+		return s.admin2(
+			t,
+			http.MethodPost,
+			"/indexes('hotels')/docs/search.index?"+apiVer,
+			map[string]any{"value": actions},
+		)
 	}
 
 	statusOf := func(r resp, i int) (float64, any) {
@@ -30,11 +36,11 @@ func TestDocumentBatch(t *testing.T) {
 	require.Equal(t, http.StatusOK, up.status)
 
 	code, _ := statusOf(up, 0)
-	assert.EqualValues(t, 201, code, "new document")
+	assert.Equal(t, 201, int(code), "new document")
 
 	again := batch(map[string]any{"@search.action": "upload", "HotelId": "1", "HotelName": "A2"})
 	code, _ = statusOf(again, 0)
-	assert.EqualValues(t, 200, code, "replace existing")
+	assert.Equal(t, 200, int(code), "replace existing")
 
 	doc := s.must(t, http.MethodGet, "/indexes('hotels')/docs('1')?"+apiVer, nil, http.StatusOK)
 	assert.Equal(t, "A2", doc.body["HotelName"])
@@ -60,14 +66,17 @@ func TestDocumentBatch(t *testing.T) {
 	wantCodes := []float64{404, 201, 400, 400, 400, 400}
 	for i, want := range wantCodes {
 		got, msg := statusOf(partial, i)
-		assert.Equal(t, want, got, "action %d", i)
+		assert.Equal(t, int(want), int(got), "action %d", i)
 
 		if want >= 400 {
 			assert.NotNil(t, msg, "action %d has a message", i)
 		}
 	}
 
-	del := batch(map[string]any{"@search.action": "delete", "HotelId": "2"}, map[string]any{"@search.action": "delete", "HotelId": "ghost"})
+	del := batch(
+		map[string]any{"@search.action": "delete", "HotelId": "2"},
+		map[string]any{"@search.action": "delete", "HotelId": "ghost"},
+	)
 	require.Equal(t, http.StatusOK, del.status)
 
 	count := s.must(t, http.MethodGet, "/indexes('hotels')/docs/$count?"+apiVer, nil, http.StatusOK)
@@ -81,16 +90,34 @@ func TestDocumentBatchLimits(t *testing.T) {
 	s := newStack(t, "standard")
 	s.must(t, http.MethodPost, "/indexes?"+apiVer, hotelIndex(), http.StatusCreated)
 
-	s.must(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, map[string]any{"value": []any{}}, http.StatusBadRequest)
+	s.must(
+		t,
+		http.MethodPost,
+		"/indexes('hotels')/docs/search.index?"+apiVer,
+		map[string]any{"value": []any{}},
+		http.StatusBadRequest,
+	)
 
 	many := make([]any, 1001)
 	for i := range many {
 		many[i] = map[string]any{"@search.action": "upload", "HotelId": "k"}
 	}
 
-	s.must(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, map[string]any{"value": many}, http.StatusRequestEntityTooLarge)
+	s.must(
+		t,
+		http.MethodPost,
+		"/indexes('hotels')/docs/search.index?"+apiVer,
+		map[string]any{"value": many},
+		http.StatusRequestEntityTooLarge,
+	)
 	s.must(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, "{not json", http.StatusBadRequest)
-	s.must(t, http.MethodPost, "/indexes('nope')/docs/search.index?"+apiVer, map[string]any{"value": []any{map[string]any{"HotelId": "1"}}}, http.StatusNotFound)
+	s.must(
+		t,
+		http.MethodPost,
+		"/indexes('nope')/docs/search.index?"+apiVer,
+		map[string]any{"value": []any{map[string]any{"HotelId": "1"}}},
+		http.StatusNotFound,
+	)
 }
 
 func TestDocumentTypes(t *testing.T) {
@@ -121,14 +148,17 @@ func TestDocumentTypes(t *testing.T) {
 			t.Parallel()
 
 			doc := map[string]any{"@search.action": "upload", "HotelId": "t" + string(rune('a'+i))}
-			for k, v := range tc.fields {
-				doc[k] = v
-			}
+			maps.Copy(doc, tc.fields)
 
-			r := s.admin2(t, http.MethodPost, "/indexes('hotels')/docs/search.index?"+apiVer, map[string]any{"value": []any{doc}})
+			r := s.admin2(
+				t,
+				http.MethodPost,
+				"/indexes('hotels')/docs/search.index?"+apiVer,
+				map[string]any{"value": []any{doc}},
+			)
 			rows, _ := r.body["value"].([]any)
 			row, _ := rows[0].(map[string]any)
-			assert.Equal(t, tc.code, row["statusCode"], string(r.raw))
+			assert.InDelta(t, tc.code, row["statusCode"], 0, string(r.raw))
 		})
 	}
 }
@@ -141,9 +171,19 @@ func TestLookupSelectAndRetrievable(t *testing.T) {
 
 	full := s.must(t, http.MethodGet, "/indexes('hotels')/docs('1')?"+apiVer, nil, http.StatusOK)
 	assert.NotContains(t, full.body, "Secret", "non-retrievable fields are hidden")
-	assert.Equal(t, "New York", full.body["Address"].(map[string]any)["City"]) //nolint:forcetypeassert // test fixture shape
+	assert.Equal(
+		t,
+		"New York",
+		full.body["Address"].(map[string]any)["City"],
+	) //nolint:forcetypeassert // test fixture shape
 
-	sel := s.must(t, http.MethodGet, "/indexes('hotels')/docs('1')?$select=HotelName,Address/City&"+apiVer, nil, http.StatusOK)
+	sel := s.must(
+		t,
+		http.MethodGet,
+		"/indexes('hotels')/docs('1')?$select=HotelName,Address/City&"+apiVer,
+		nil,
+		http.StatusOK,
+	)
 	assert.Equal(t, "Secret Point Motel", sel.body["HotelName"])
 	assert.NotContains(t, sel.body, "Rating")
 	assert.Equal(t, map[string]any{"City": "New York"}, sel.body["Address"])

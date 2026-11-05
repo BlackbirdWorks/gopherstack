@@ -50,7 +50,7 @@ func (noCosmos) ListDocuments(string, string) ([]CosmosDoc, error) { return nil,
 
 // connValue extracts key from a "k=v;k=v" connection string.
 func connValue(conn, key string) string {
-	for _, part := range strings.Split(conn, ";") {
+	for part := range strings.SplitSeq(conn, ";") {
 		k, v, ok := strings.Cut(part, "=")
 		if ok && strings.EqualFold(strings.TrimSpace(k), key) {
 			return strings.TrimSpace(v)

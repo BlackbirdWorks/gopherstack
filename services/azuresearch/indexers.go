@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path"
 	"sort"
@@ -61,11 +62,17 @@ var supportedMappingFuncs = map[string]bool{ //nolint:gochecknoglobals // read-o
 
 func (s *Service) validateIndexer(o Object) error {
 	if _, ok := s.Objects[kindDataSources][strOf(o, "dataSourceName")]; !ok {
-		return badf("The request is invalid. Details: dataSourceName: The data source '%s' was not found.", strOf(o, "dataSourceName"))
+		return badf(
+			"The request is invalid. Details: dataSourceName: The data source '%s' was not found.",
+			strOf(o, "dataSourceName"),
+		)
 	}
 
 	if _, ok := s.Indexes[strOf(o, "targetIndexName")]; !ok {
-		return badf("The request is invalid. Details: targetIndexName: The index '%s' was not found.", strOf(o, "targetIndexName"))
+		return badf(
+			"The request is invalid. Details: targetIndexName: The index '%s' was not found.",
+			strOf(o, "targetIndexName"),
+		)
 	}
 
 	if sk := strOf(o, "skillsetName"); sk != "" {
@@ -77,22 +84,29 @@ func (s *Service) validateIndexer(o Object) error {
 	if sch := objOf(o["schedule"]); sch != nil {
 		d, err := iso8601.Parse(strOf(sch, "interval"))
 		if err != nil || d < 5*time.Minute || d > 24*time.Hour {
-			return badf("The request is invalid. Details: schedule: interval must be an ISO 8601 duration between PT5M and P1D.")
+			return badf(
+				"The request is invalid. Details: schedule: interval must be an ISO 8601 duration between PT5M and P1D.",
+			)
 		}
 	}
 
-	for _, key := range []string{"fieldMappings", "outputFieldMappings"} {
+	for _, key := range []string{fieldMappingsKey, fieldOutputMappings} {
 		for _, raw := range listOf(o, key) {
 			fn := objOf(objOf(raw)["mappingFunction"])
 			if fn != nil && !supportedMappingFuncs[strOf(fn, "name")] {
-				return badf("The request is invalid. Details: mapping function '%s' is not supported.", strOf(fn, "name"))
+				return badf(
+					"The request is invalid. Details: mapping function '%s' is not supported.",
+					strOf(fn, "name"),
+				)
 			}
 		}
 	}
 
-	for _, k := range []string{"disabled", "parameters", "fieldMappings", "outputFieldMappings", "skillsetName", "description"} {
+	for _, k := range []string{
+		"disabled", "parameters", fieldMappingsKey, fieldOutputMappings, "skillsetName", "description",
+	} {
 		if _, ok := o[k]; !ok {
-			o[k] = map[string]any{"disabled": false, "fieldMappings": []any{}, "outputFieldMappings": []any{}}[k]
+			o[k] = map[string]any{"disabled": false, fieldMappingsKey: []any{}, "outputFieldMappings": []any{}}[k]
 		}
 	}
 
@@ -118,7 +132,7 @@ func (b *InMemoryBackend) loadSource(ds Object, params map[string]any) ([]source
 		return b.loadCosmos(conn, container, ds)
 	}
 
-	return nil, fmt.Errorf("%w: unsupported data source type", ErrBadRequest)
+	return nil, wrapf(ErrBadRequest, "unsupported data source type")
 }
 
 func deletionMarker(ds Object) (string, string) {
@@ -154,7 +168,11 @@ func (b *InMemoryBackend) loadCosmos(conn, container string, ds Object) ([]sourc
 	return out, nil
 }
 
-func (b *InMemoryBackend) loadBlobs(conn, container, prefix string, params map[string]any, ds Object) ([]sourceDoc, error) {
+func (b *InMemoryBackend) loadBlobs(
+	conn, container, prefix string,
+	params map[string]any,
+	ds Object,
+) ([]sourceDoc, error) {
 	blobs, err := b.blobs.ListBlobs(container)
 	if err != nil {
 		return nil, err
@@ -223,8 +241,10 @@ func extensionAllowed(name string, cfg map[string]any) bool {
 
 func blobMetadata(be BlobEntry, account, container string) map[string]any {
 	m := map[string]any{
-		"metadata_storage_name":          be.Name,
-		"metadata_storage_path":          "https://" + account + ".blob.core.windows.net/" + container + "/" + url.PathEscape(be.Name),
+		"metadata_storage_name": be.Name,
+		"metadata_storage_path": "https://" + account + ".blob.core.windows.net/" + container + "/" + url.PathEscape(
+			be.Name,
+		),
 		"metadata_storage_size":          float64(be.Size),
 		"metadata_storage_content_type":  be.ContentType,
 		"metadata_storage_last_modified": be.LastModified.UTC().Format(time.RFC3339),
@@ -299,7 +319,7 @@ func jsonDocs(data []byte, withMeta func(map[string]any) map[string]any, array b
 func jsonLineDocs(data []byte, withMeta func(map[string]any) map[string]any) []map[string]any {
 	var out []map[string]any
 
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -431,11 +451,24 @@ func (b *InMemoryBackend) execute(s *Service, idxr Object, rt *IndexerRuntime, r
 
 		if err = b.indexOne(s, idxr, ix, sd, rt, res); err != nil {
 			res.ItemsFailed++
-			res.Errors = append(res.Errors, map[string]any{"key": sd.id, "errorMessage": err.Error(), "statusCode": 400, "name": "Enrichment.Index", "details": nil, "documentationLink": nil})
+			res.Errors = append(
+				res.Errors,
+				map[string]any{
+					fieldKey:            sd.id,
+					fieldErrorMessage:   err.Error(),
+					"statusCode":        http.StatusBadRequest,
+					"name":              "Enrichment.Index",
+					"details":           nil,
+					"documentationLink": nil,
+				},
+			)
 
 			if tolerated >= 0 && res.ItemsFailed > tolerated {
 				res.Status = runTransient
-				res.ErrorMessage = fmt.Sprintf("The indexer failed because more than the maximum number of failed items (%d) were found.", tolerated)
+				res.ErrorMessage = fmt.Sprintf(
+					"The indexer failed because more than the maximum number of failed items (%d) were found.",
+					tolerated,
+				)
 
 				return
 			}
@@ -447,12 +480,28 @@ func (b *InMemoryBackend) execute(s *Service, idxr Object, rt *IndexerRuntime, r
 	}
 }
 
-func (b *InMemoryBackend) indexOne(s *Service, idxr Object, ix *Index, sd sourceDoc, rt *IndexerRuntime, res *RunResult) error {
+func (b *InMemoryBackend) indexOne(
+	s *Service,
+	idxr Object,
+	ix *Index,
+	sd sourceDoc,
+	rt *IndexerRuntime,
+	res *RunResult,
+) error {
 	tree := enrichTree{"document": sd.fields}
 
 	if sk := strOf(idxr, "skillsetName"); sk != "" {
 		warn := func(skill, msg string) {
-			res.Warnings = append(res.Warnings, map[string]any{"key": sd.id, "name": skill, "message": msg, "details": nil, "documentationLink": nil})
+			res.Warnings = append(
+				res.Warnings,
+				map[string]any{
+					fieldKey:            sd.id,
+					"name":              skill,
+					"message":           msg,
+					"details":           nil,
+					"documentationLink": nil,
+				},
+			)
 		}
 
 		if err := runSkillset(s.Objects[kindSkillsets][sk], tree, warn); err != nil {
@@ -492,7 +541,7 @@ func resultErr(r actionResult) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: %s", ErrBadRequest, r.Err)
+	return wrapf(ErrBadRequest, "%s", r.Err)
 }
 
 // mapFields builds the target document from field mappings, implicit same-name mappings and output mappings.
@@ -500,7 +549,7 @@ func mapFields(idxr Object, ix *Index, src map[string]any, tree enrichTree) (map
 	target := map[string]any{}
 	explicit := map[string]bool{}
 
-	for _, raw := range listOf(idxr, "fieldMappings") {
+	for _, raw := range listOf(idxr, fieldMappingsKey) {
 		m := objOf(raw)
 		tn := strOf(m, "targetFieldName")
 
@@ -528,7 +577,7 @@ func mapFields(idxr Object, ix *Index, src map[string]any, tree enrichTree) (map
 		}
 	}
 
-	for _, raw := range listOf(idxr, "outputFieldMappings") {
+	for _, raw := range listOf(idxr, fieldOutputMappings) {
 		m := objOf(raw)
 		v, ok := tree.get(strOf(m, "sourceFieldName"))
 
@@ -614,7 +663,7 @@ func base64Encode(s string, urlToken bool) string {
 	}
 
 	enc := base64.RawURLEncoding.EncodeToString([]byte(s))
-	pad := (4 - len(enc)%4) % 4
+	pad := (base64Group - len(enc)%base64Group) % base64Group
 
 	return fmt.Sprintf("%s%d", enc, pad)
 }
@@ -653,7 +702,13 @@ func (b *InMemoryBackend) ResetIndexer(service, name string) error {
 
 	rt := s.runtimeOf(name)
 	rt.Seen = map[string]string{}
-	rt.Last = &RunResult{StartTime: b.now(), EndTime: b.now(), Status: "reset", Errors: []map[string]any{}, Warnings: []map[string]any{}}
+	rt.Last = &RunResult{
+		StartTime: b.now(),
+		EndTime:   b.now(),
+		Status:    "reset",
+		Errors:    []map[string]any{},
+		Warnings:  []map[string]any{},
+	}
 
 	return nil
 }
@@ -721,9 +776,11 @@ func (s *Service) indexerStatus(name string) map[string]any {
 	}
 
 	out := map[string]any{
-		"status": status, "executionHistory": hist,
+		fieldStatus: status, "executionHistory": hist,
 		"limits": map[string]any{
-			"maxRunTime": "P1D", "maxDocumentExtractionSize": 134217728, "maxDocumentContentCharactersToExtract": 4000000,
+			"maxRunTime":                            "P1D",
+			"maxDocumentExtractionSize":             maxExtractionSize,
+			"maxDocumentContentCharactersToExtract": maxExtractChars,
 		},
 	}
 
@@ -743,7 +800,7 @@ func runJSON(r *RunResult) map[string]any {
 	}
 
 	return map[string]any{
-		"status": r.Status, "errorMessage": errMsg, "startTime": r.StartTime.Format(time.RFC3339),
+		fieldStatus: r.Status, fieldErrorMessage: errMsg, "startTime": r.StartTime.Format(time.RFC3339),
 		"endTime": r.EndTime.Format(time.RFC3339), "itemsProcessed": r.ItemsProcessed, "itemsFailed": r.ItemsFailed,
 		"initialTrackingState": nil, "finalTrackingState": nil, "errors": r.Errors, "warnings": r.Warnings,
 		"metrics": nil,

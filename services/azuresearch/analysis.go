@@ -29,7 +29,7 @@ const (
 	analyzerWhite    = "whitespace"
 )
 
-var langAnalyzerRE = regexp.MustCompile( //nolint:gochecknoglobals // compiled once
+var langAnalyzerRE = regexp.MustCompile(
 	`^[a-z]{2,3}(-[a-z]{2,4})?\.(lucene|microsoft)$`)
 
 var stopWords = map[string]map[string]bool{ //nolint:gochecknoglobals // read-only language data
@@ -47,7 +47,7 @@ var stopWords = map[string]map[string]bool{ //nolint:gochecknoglobals // read-on
 
 func wordSet(s string) map[string]bool {
 	out := map[string]bool{}
-	for _, w := range strings.Fields(s) {
+	for w := range strings.FieldsSeq(s) {
 		out[w] = true
 	}
 

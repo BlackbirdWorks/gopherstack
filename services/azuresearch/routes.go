@@ -70,20 +70,33 @@ func (s *Service) stats() map[string]any {
 		vec += v
 	}
 
-	counter := func(n int) map[string]any { return map[string]any{"usage": n, "quota": nil} }
+	counter := func(n int) map[string]any { return map[string]any{fieldUsage: n, fieldQuota: nil} }
 
 	return map[string]any{
-		"@odata.context": "https://" + s.Name + ".search.windows.net/$metadata#Microsoft.Azure.Search.V2024_07_01.ServiceStatistics",
+		fieldContext: "https://" + s.Name + ".search.windows.net/$metadata#" +
+			"Microsoft.Azure.Search.V2024_07_01.ServiceStatistics",
 		"counters": map[string]any{
-			"documentCount": map[string]any{"usage": docs, "quota": nil},
-			"indexesCount":  map[string]any{"usage": len(s.Indexes), "quota": indexLimits[s.Config.SKU]},
-			"indexersCount": counter(len(s.Objects[kindIndexers])), "dataSourcesCount": counter(len(s.Objects[kindDataSources])),
-			"storageSize": map[string]any{"usage": size, "quota": nil}, "synonymMaps": counter(len(s.Objects[kindSynonymMaps])),
-			"skillsetCount": counter(len(s.Objects[kindSkillsets])), "vectorIndexSize": map[string]any{"usage": vec, "quota": nil},
+			"documentCount": map[string]any{fieldUsage: docs, fieldQuota: nil},
+			"indexesCount":  map[string]any{fieldUsage: len(s.Indexes), fieldQuota: indexLimits[s.Config.SKU]},
+			"indexersCount": counter(
+				len(s.Objects[kindIndexers]),
+			),
+			"dataSourcesCount": counter(len(s.Objects[kindDataSources])),
+			"storageSize": map[string]any{
+				fieldUsage: size,
+				fieldQuota: nil,
+			},
+			"synonymMaps": counter(len(s.Objects[kindSynonymMaps])),
+			"skillsetCount": counter(
+				len(s.Objects[kindSkillsets]),
+			),
+			"vectorIndexSize": map[string]any{fieldUsage: vec, fieldQuota: nil},
 		},
 		"limits": map[string]any{
-			"maxFieldsPerIndex": maxFields, "maxFieldNestingDepthPerIndex": maxNesting,
-			"maxComplexCollectionFieldsPerIndex": 40, "maxComplexObjectsInCollectionsPerDocument": 3000,
+			"maxFieldsPerIndex":                         maxFields,
+			"maxFieldNestingDepthPerIndex":              maxNesting,
+			"maxComplexCollectionFieldsPerIndex":        maxComplexFields,
+			"maxComplexObjectsInCollectionsPerDocument": maxComplexObjects,
 		},
 	}
 }
@@ -107,7 +120,7 @@ func (h *Handler) routeIndexes(req *request, t []string) error {
 		return h.indexAnalyze(req, name)
 	}
 
-	return notFound("The requested path was not found.")
+	return notFoundPath()
 }
 
 func (h *Handler) indexCollection(req *request) error {
@@ -119,9 +132,17 @@ func (h *Handler) indexCollection(req *request) error {
 	case http.MethodGet:
 		var list []map[string]any
 
-		_ = h.Backend.read(req.svc, func(s *Service) error { list = s.listIndexes(); return nil })
+		_ = h.Backend.read(req.svc, func(s *Service) error {
+			list = s.listIndexes()
 
-		return h.respond(req, http.StatusOK, map[string]any{"@odata.context": "https://" + req.host() + "/$metadata#indexes", "value": list})
+			return nil
+		})
+
+		return h.respond(
+			req,
+			http.StatusOK,
+			map[string]any{fieldContext: "https://" + req.host() + "/$metadata#indexes", fieldValue: list},
+		)
 	case http.MethodPost:
 		def, err := decodeDefJSON(req.body)
 		if err != nil {
@@ -161,7 +182,7 @@ func (h *Handler) indexItem(req *request, name string) error {
 			ix, gerr := s.index(name)
 			if gerr == nil {
 				out = cloneMap(ix.Def)
-				out["@odata.context"] = "https://" + req.host() + "/$metadata#indexes/$entity"
+				out[fieldContext] = "https://" + req.host() + "/$metadata#indexes/$entity"
 			}
 
 			return gerr
@@ -247,8 +268,8 @@ func (h *Handler) indexStats(req *request, name string) error {
 
 		total, vec := ix.storageSize()
 		out = map[string]any{
-			"@odata.context": "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.IndexStatistics",
-			"documentCount":  len(ix.Docs), "storageSize": total, "vectorIndexSize": vec,
+			fieldContext:    "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.IndexStatistics",
+			"documentCount": len(ix.Docs), "storageSize": total, "vectorIndexSize": vec,
 		}
 
 		return nil
@@ -292,11 +313,15 @@ func (h *Handler) indexAnalyze(req *request, name string) error {
 
 	out := make([]map[string]any, 0, len(toks))
 	for _, t := range toks {
-		out = append(out, map[string]any{"token": t.Term, "startOffset": t.Start, "endOffset": t.End, "position": t.Pos})
+		out = append(
+			out,
+			map[string]any{"token": t.Term, "startOffset": t.Start, "endOffset": t.End, "position": t.Pos},
+		)
 	}
 
 	return h.respond(req, http.StatusOK, map[string]any{
-		"@odata.context": "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.AnalyzeResult", "tokens": out,
+		fieldContext: "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.AnalyzeResult",
+		"tokens":     out,
 	})
 }
 
@@ -352,7 +377,7 @@ func (h *Handler) routeObjects(req *request, kind string, t []string) error {
 			return h.indexerAction(req, name, t[1])
 		}
 
-		return notFound("The requested path was not found.")
+		return notFoundPath()
 	}
 
 	switch req.r.Method {
@@ -417,13 +442,21 @@ func (h *Handler) objectCollection(req *request, kind string) error {
 	case http.MethodGet:
 		var list []Object
 
-		_ = h.Backend.read(req.svc, func(s *Service) error { list = s.listObjects(kind); return nil })
+		_ = h.Backend.read(req.svc, func(s *Service) error {
+			list = s.listObjects(kind)
+
+			return nil
+		})
 
 		if sel := splitCSV(req.q.Get("$select")); len(sel) > 0 {
 			list = selectKeys(list, sel)
 		}
 
-		return h.respond(req, http.StatusOK, map[string]any{"@odata.context": "https://" + req.host() + "/$metadata#" + kind, "value": list})
+		return h.respond(
+			req,
+			http.StatusOK,
+			map[string]any{fieldContext: "https://" + req.host() + "/$metadata#" + kind, fieldValue: list},
+		)
 	case http.MethodPost:
 		def, err := decodeDefJSON(req.body)
 		if err != nil {
@@ -475,13 +508,13 @@ func selectKeys(list []Object, sel []string) []Object {
 
 func (h *Handler) indexerAction(req *request, name, action string) error {
 	switch action {
-	case "search.run", "search.reset":
+	case pathRun, "search.reset":
 		if req.r.Method != http.MethodPost {
 			return methodNotAllowed()
 		}
 
 		var err error
-		if action == "search.run" {
+		if action == pathRun {
 			err = h.Backend.RunIndexer(req.svc, name)
 		} else {
 			err = h.Backend.ResetIndexer(req.svc, name)
@@ -492,7 +525,7 @@ func (h *Handler) indexerAction(req *request, name, action string) error {
 		}
 
 		status := http.StatusNoContent
-		if action == "search.run" {
+		if action == pathRun {
 			status = http.StatusAccepted
 		}
 
@@ -513,12 +546,12 @@ func (h *Handler) indexerAction(req *request, name, action string) error {
 			return err
 		}
 
-		out["@odata.context"] = "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.IndexerExecutionInfo"
+		out[fieldContext] = "https://" + req.host() + "/$metadata#Microsoft.Azure.Search.V2024_07_01.IndexerExecutionInfo"
 
 		return h.respond(req, http.StatusOK, out)
 	}
 
-	return notFound("The requested path was not found.")
+	return notFoundPath()
 }
 
 func objectErr(err error) error { return err }

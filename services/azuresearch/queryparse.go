@@ -42,8 +42,8 @@ type qPhrase struct {
 }
 
 type qRegex struct {
-	field string
 	re    *regexp.Regexp
+	field string
 	boost float64
 }
 
@@ -56,14 +56,12 @@ func (*qRegex) isNode()  {}
 func (*qAll) isNode()    {}
 
 type parser struct {
-	src       []rune
-	pos       int
-	full      bool
-	allMode   bool
-	validate  func(field string) error
-	maxDepth  int
-	curDepth  int
-	fieldHint string
+	validate func(field string) error
+	src      []rune
+	pos      int
+	curDepth int
+	full     bool
+	allMode  bool
 }
 
 const maxQueryDepth = 32
@@ -106,7 +104,7 @@ func (p *parser) peekWord() string {
 	return string(p.src[p.pos:end])
 }
 
-// operator consumes a binary operator when one is next, returning "and", "or" or "".
+// operator consumes a binary operator when one is next, returning opAnd, opOr or "".
 func (p *parser) operator() string {
 	w := p.peekWord()
 
@@ -114,11 +112,11 @@ func (p *parser) operator() string {
 	case p.full && (w == "AND" || w == "&&"), !p.full && w == "+":
 		p.pos += len([]rune(w))
 
-		return "and"
+		return opAnd
 	case p.full && (w == "OR" || w == "||"), !p.full && w == "|":
 		p.pos += len([]rune(w))
 
-		return "or"
+		return opOr
 	}
 
 	return ""
@@ -164,14 +162,11 @@ func (p *parser) parseExpr(field string) (qNode, error) {
 }
 
 func (b *qBool) add(node qNode, occ occur, op string, allMode bool) {
-	if occ == occShould {
-		switch {
-		case op == "and" || (op == "" && allMode):
-			occ = occMust
-		}
+	if occ == occShould && (op == opAnd || (op == "" && allMode)) {
+		occ = occMust
 	}
 
-	if op == "and" && len(b.clauses) > 0 {
+	if op == opAnd && len(b.clauses) > 0 {
 		last := &b.clauses[len(b.clauses)-1]
 		if last.occ == occShould {
 			last.occ = occMust
@@ -316,7 +311,7 @@ func defaultFuzz(slop bool) float64 {
 		return 0
 	}
 
-	return 2
+	return maxFuzz
 }
 
 func (p *parser) parseRegex(field string) (qNode, error) {
@@ -342,6 +337,36 @@ func (p *parser) parseRegex(field string) (qNode, error) {
 }
 
 func (p *parser) parseWord(field string) (qNode, error) {
+	text, fieldName, isField := p.readWord(field)
+	if isField {
+		return p.fieldQuery(fieldName)
+	}
+
+	if text == "" {
+		p.pos++
+
+		return nil, nil //nolint:nilnil // stray punctuation is ignored
+	}
+
+	n := &qTerm{field: field, text: text, boost: 1, fuzzy: -1}
+	fuzz := 0
+
+	if p.pos < len(p.src) && p.src[p.pos] == '~' {
+		n.fuzzy = maxFuzz
+		p.suffixes(&fuzz, &n.boost, false)
+
+		if fuzz < maxFuzz {
+			n.fuzzy = fuzz
+		}
+	} else {
+		p.suffixes(&fuzz, &n.boost, false)
+	}
+
+	return n, nil
+}
+
+// readWord scans one term; when it meets "field:" in full syntax it returns the field name instead.
+func (p *parser) readWord(field string) (string, string, bool) {
 	var sb strings.Builder
 
 	for p.pos < len(p.src) {
@@ -355,34 +380,14 @@ func (p *parser) parseWord(field string) (qNode, error) {
 			p.pos++
 			c = p.src[p.pos]
 		} else if c == ':' && p.full && field == "" {
-			return p.fieldQuery(sb.String())
+			return "", sb.String(), true
 		}
 
 		sb.WriteRune(c)
 		p.pos++
 	}
 
-	if sb.Len() == 0 {
-		p.pos++
-
-		return nil, nil //nolint:nilnil // stray punctuation is ignored
-	}
-
-	n := &qTerm{field: field, text: sb.String(), boost: 1, fuzzy: -1}
-	fuzz := 0
-
-	if p.pos < len(p.src) && p.src[p.pos] == '~' {
-		n.fuzzy = 2
-		p.suffixes(&fuzz, &n.boost, false)
-
-		if fuzz < 2 {
-			n.fuzzy = fuzz
-		}
-	} else {
-		p.suffixes(&fuzz, &n.boost, false)
-	}
-
-	return n, nil
+	return sb.String(), "", false
 }
 
 func (p *parser) fieldQuery(field string) (qNode, error) {

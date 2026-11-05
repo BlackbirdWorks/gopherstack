@@ -15,6 +15,7 @@ const (
 	srchActDeleteQuery = "deleteQueryKey"
 	srchActCheckName   = "checkNameAvailability"
 	srchActUsages      = "usages"
+	srchProvidersIdx   = 2
 	srchServiceLen     = 8
 	srchActionIdx      = 8
 	srchSubLen         = 5
@@ -27,7 +28,8 @@ const (
 )
 
 func isSearchSub(segs []string, n int) bool {
-	return len(segs) == n && isSubscriptionScoped(segs) && segAt(segs, providerNamespaceActionIdx-2, providersSegment) &&
+	return len(segs) == n && isSubscriptionScoped(segs) &&
+		segAt(segs, srchProvidersIdx, providersSegment) &&
 		segAt(segs, srchNsIdx, namespaceMicrosoftSearch)
 }
 
@@ -58,8 +60,10 @@ var searchRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
-			return r.Method == http.MethodGet && (isSearchSub(segs, srchUsagesLen) || isSearchSub(segs, srchUsagesLen+1)) &&
-				segAt(segs, srchLocationIdx-1, "locations") && segAt(segs, srchUsagesLen-1, srchActUsages)
+			return r.Method == http.MethodGet &&
+				(isSearchSub(segs, srchUsagesLen) || isSearchSub(segs, srchUsagesLen+1)) &&
+				segAt(segs, srchLocationIdx-1, "locations") &&
+				segAt(segs, srchUsagesLen-1, srchActUsages)
 		},
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleSearchUsages(c, segs) },
 	},
@@ -202,7 +206,7 @@ func (h *Handler) handleSearchAdminKeys(c *echo.Context, segs []string, kind str
 		return h.writeAPIError(c, err)
 	}
 
-	return h.writeJSON(c, http.StatusOK, map[string]any{"primaryKey": keys.Primary, "secondaryKey": keys.Secondary})
+	return h.writeJSON(c, http.StatusOK, map[string]any{srchKeyPrimary: keys.Primary, srchKeySecondary: keys.Secondary})
 }
 
 func (h *Handler) handleSearchCreateQueryKey(c *echo.Context, segs []string) error {
@@ -216,7 +220,7 @@ func (h *Handler) handleSearchCreateQueryKey(c *echo.Context, segs []string) err
 		return h.writeAPIError(c, err)
 	}
 
-	return h.writeJSON(c, http.StatusOK, map[string]any{fieldName: key.Name, "key": key.Key})
+	return h.writeJSON(c, http.StatusOK, map[string]any{fieldName: key.Name, srchFieldKey: key.Key})
 }
 
 func (h *Handler) handleSearchListQueryKeys(c *echo.Context, segs []string) error {
@@ -232,7 +236,7 @@ func (h *Handler) handleSearchListQueryKeys(c *echo.Context, segs []string) erro
 
 	out := make([]map[string]any, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, map[string]any{fieldName: k.Name, "key": k.Key})
+		out = append(out, map[string]any{fieldName: k.Name, srchFieldKey: k.Key})
 	}
 
 	return h.writeJSON(c, http.StatusOK, map[string]any{fieldValue: out})
@@ -250,3 +254,9 @@ func (h *Handler) handleSearchDeleteQueryKey(c *echo.Context, segs []string) err
 
 	return c.NoContent(http.StatusOK)
 }
+
+const (
+	srchKeyPrimary   = "primaryKey"
+	srchKeySecondary = "secondaryKey"
+	srchFieldKey     = "key"
+)

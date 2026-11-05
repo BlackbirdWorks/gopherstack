@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,15 +54,79 @@ func TestIndexValidation(t *testing.T) {
 	}{
 		{map[string]any{"name": "Bad_Name", "fields": []any{keyF}}, "uppercase name", "invalid"},
 		{map[string]any{"name": "x", "fields": []any{}}, "no fields", "at least one field"},
-		{map[string]any{"name": "x", "fields": []any{field(map[string]any{"name": "a", "type": "Edm.String"})}}, "no key", "exactly one key"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "k2", "type": "Edm.String", "key": true})}}, "two keys", "exactly one key"},
-		{map[string]any{"name": "x", "fields": []any{field(map[string]any{"name": "id", "type": "Edm.Int32", "key": true})}}, "int key", "Edm.String"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "n", "type": "Edm.Int32", "searchable": true})}}, "searchable int", "searchable"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "t", "type": "Collection(Edm.String)", "sortable": true})}}, "sortable collection", "sortable"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "t", "type": "Edm.Wat"})}}, "bad type", "unsupported type"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "v", "type": "Collection(Edm.Single)"})}}, "vector without dims", "dimensions"},
-		{map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "s", "type": "Edm.String", "searchable": true, "analyzer": "nope"})}}, "unknown analyzer", "not found"},
-		{map[string]any{"name": "x", "fields": []any{keyF}, "suggesters": []any{map[string]any{"name": "sg", "sourceFields": []any{"id", "zzz"}}}}, "bad suggester", "source field"},
+		{
+			map[string]any{"name": "x", "fields": []any{field(map[string]any{"name": "a", "type": "Edm.String"})}},
+			"no key",
+			"exactly one key",
+		},
+		{
+			map[string]any{
+				"name":   "x",
+				"fields": []any{keyF, field(map[string]any{"name": "k2", "type": "Edm.String", "key": true})},
+			},
+			"two keys",
+			"exactly one key",
+		},
+		{
+			map[string]any{
+				"name":   "x",
+				"fields": []any{field(map[string]any{"name": "id", "type": "Edm.Int32", "key": true})},
+			},
+			"int key",
+			"Edm.String",
+		},
+		{
+			map[string]any{
+				"name":   "x",
+				"fields": []any{keyF, field(map[string]any{"name": "n", "type": "Edm.Int32", "searchable": true})},
+			},
+			"searchable int",
+			"searchable",
+		},
+		{
+			map[string]any{
+				"name": "x",
+				"fields": []any{
+					keyF,
+					field(map[string]any{"name": "t", "type": "Collection(Edm.String)", "sortable": true}),
+				},
+			},
+			"sortable collection",
+			"sortable",
+		},
+		{
+			map[string]any{"name": "x", "fields": []any{keyF, field(map[string]any{"name": "t", "type": "Edm.Wat"})}},
+			"bad type",
+			"unsupported type",
+		},
+		{
+			map[string]any{
+				"name":   "x",
+				"fields": []any{keyF, field(map[string]any{"name": "v", "type": "Collection(Edm.Single)"})},
+			},
+			"vector without dims",
+			"dimensions",
+		},
+		{
+			map[string]any{
+				"name": "x",
+				"fields": []any{
+					keyF,
+					field(map[string]any{"name": "s", "type": "Edm.String", "searchable": true, "analyzer": "nope"}),
+				},
+			},
+			"unknown analyzer",
+			"not found",
+		},
+		{
+			map[string]any{
+				"name":       "x",
+				"fields":     []any{keyF},
+				"suggesters": []any{map[string]any{"name": "sg", "sourceFields": []any{"id", "zzz"}}},
+			},
+			"bad suggester",
+			"source field",
+		},
 	}
 
 	for _, tc := range cases {
@@ -96,17 +162,25 @@ func TestIndexUpdate(t *testing.T) {
 		def   map[string]any
 		query string
 		name  string
-		want  int
 		docs  string
+		want  int
 	}{
-		{base, "", "same schema", http.StatusNoContent, "4"},
-		{additive, "", "additive field", http.StatusNoContent, "4"},
-		{changed, "", "changed type rejected", http.StatusBadRequest, "4"},
-		{changed, "&allowIndexDowntime=true", "downtime drops documents", http.StatusNoContent, "0"},
+		{def: base, query: "", name: "same schema", want: http.StatusNoContent, docs: "4"},
+		{def: additive, query: "", name: "additive field", want: http.StatusNoContent, docs: "4"},
+		{def: changed, query: "", name: "changed type rejected", want: http.StatusBadRequest, docs: "4"},
+		{
+			def:   changed,
+			query: "&allowIndexDowntime=true",
+			name:  "downtime drops documents",
+			want:  http.StatusNoContent,
+			docs:  "0",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
 			s2 := newStack(t, "standard")
 			s2.seedHotels(t)
 
@@ -131,7 +205,7 @@ func TestIndexPreconditions(t *testing.T) {
 
 		raw, _ := jsonBody(hotelIndex())
 		req.Body = raw
-		req.Header.Set("api-key", s.admin)
+		req.Header.Set("Api-Key", s.admin)
 		req.Header.Set("Content-Type", "application/json")
 
 		if ifMatch != "" {
@@ -142,7 +216,7 @@ func TestIndexPreconditions(t *testing.T) {
 			req.Header.Set("If-None-Match", ifNone)
 		}
 
-		res, err := http.DefaultClient.Do(req)
+		res, err := testclient.New(t).Do(req)
 		require.NoError(t, err)
 		res.Body.Close()
 
@@ -160,7 +234,10 @@ func TestIndexQuota(t *testing.T) {
 	s := newStack(t, "free")
 
 	for _, n := range []string{"a", "b", "c"} {
-		def := map[string]any{"name": n, "fields": []any{map[string]any{"name": "id", "type": "Edm.String", "key": true}}}
+		def := map[string]any{
+			"name":   n,
+			"fields": []any{map[string]any{"name": "id", "type": "Edm.String", "key": true}},
+		}
 		s.must(t, http.MethodPost, "/indexes?"+apiVer, def, http.StatusCreated)
 	}
 
@@ -196,10 +273,18 @@ func TestAnalyze(t *testing.T) {
 		name string
 		want []string
 	}{
-		{map[string]any{"text": "The Quick-Brown fox", "analyzer": "standard.lucene"}, "standard", []string{"quick", "brown", "fox"}},
+		{
+			map[string]any{"text": "The Quick-Brown fox", "analyzer": "standard.lucene"},
+			"standard",
+			[]string{"quick", "brown", "fox"},
+		},
 		{map[string]any{"text": "The Quick fox", "analyzer": "keyword"}, "keyword", []string{"The Quick fox"}},
 		{map[string]any{"text": "Running dogs", "analyzer": "en.lucene"}, "english stemming", []string{"run", "dog"}},
-		{map[string]any{"text": "A B", "tokenizer": "whitespace", "tokenFilters": []any{"lowercase"}}, "tokenizer filters", []string{"a", "b"}},
+		{
+			map[string]any{"text": "A B", "tokenizer": "whitespace", "tokenFilters": []any{"lowercase"}},
+			"tokenizer filters",
+			[]string{"a", "b"},
+		},
 	}
 
 	for _, tc := range cases {

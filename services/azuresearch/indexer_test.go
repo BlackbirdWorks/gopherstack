@@ -1,10 +1,11 @@
 package azuresearch_test
 
 import (
-	"crypto/md5" //nolint:gosec // test fixture mirrors the storage Content-MD5 field
+	"crypto/md5"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
+)
+
+var (
+	errNoContainer = errors.New("container not found")
+	errNoDoc       = errors.New("not found")
+	errOffline     = errors.New("storage offline")
 )
 
 type fakeBlobs struct {
@@ -47,17 +54,24 @@ func (f *fakeBlobs) ListBlobs(container string) ([]azuresearch.BlobEntry, error)
 	}
 
 	if container != "docs" {
-		return nil, errors.New("container not found")
+		return nil, errNoContainer
 	}
 
 	var out []azuresearch.BlobEntry
 
 	for name, file := range f.files {
-		sum := md5.Sum([]byte(file.data)) //nolint:gosec // fixture
+		sum := md5.Sum([]byte(file.data))
 
 		out = append(out, azuresearch.BlobEntry{
-			Name: name, ContentType: "text/plain", ETag: fmt.Sprintf("etag-%d", file.etag), Size: int64(len(file.data)),
-			MD5: base64.StdEncoding.EncodeToString(sum[:]), LastModified: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), Metadata: file.meta,
+			Name:        name,
+			ContentType: "text/plain",
+			ETag:        fmt.Sprintf("etag-%d", file.etag),
+			Size:        int64(len(file.data)),
+			MD5: base64.StdEncoding.EncodeToString(
+				sum[:],
+			),
+			LastModified: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC),
+			Metadata:     file.meta,
 		})
 	}
 
@@ -70,7 +84,7 @@ type fakeCosmos struct{ docs []azuresearch.CosmosDoc }
 
 func (f *fakeCosmos) ListDocuments(db, container string) ([]azuresearch.CosmosDoc, error) {
 	if db != "db" || container != "items" {
-		return nil, errors.New("not found")
+		return nil, errNoDoc
 	}
 
 	return f.docs, nil
@@ -91,17 +105,19 @@ func docsIndex() map[string]any {
 func blobIndexer(extra map[string]any) map[string]any {
 	idx := map[string]any{
 		"name": "ix", "dataSourceName": "ds", "targetIndexName": "docs",
-		"schedule": map[string]any{"interval": "PT5M"},
+		"schedule":   map[string]any{"interval": "PT5M"},
 		"parameters": map[string]any{"configuration": map[string]any{"excludedFileNameExtensions": ".png"}},
 		"fieldMappings": []any{
-			map[string]any{"sourceFieldName": "metadata_storage_path", "targetFieldName": "id", "mappingFunction": map[string]any{"name": "base64Encode"}},
+			map[string]any{
+				"sourceFieldName": "metadata_storage_path",
+				"targetFieldName": "id",
+				"mappingFunction": map[string]any{"name": "base64Encode"},
+			},
 			map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "name"},
 			map[string]any{"sourceFieldName": "metadata_storage_size", "targetFieldName": "size"},
 		},
 	}
-	for k, v := range extra {
-		idx[k] = v
-	}
+	maps.Copy(idx, extra)
 
 	return idx
 }
@@ -117,7 +133,7 @@ func newIndexerStack(t *testing.T) (*stack, *fakeBlobs) {
 	s.b.SetBlobSource(blobs)
 
 	s.must(t, http.MethodPost, "/indexes?"+apiVer, docsIndex(), http.StatusCreated)
-	s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource("ds"), http.StatusCreated)
+	s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource(), http.StatusCreated)
 
 	return s, blobs
 }
@@ -131,7 +147,12 @@ func (s *stack) status(t *testing.T, name string) map[string]any {
 func (s *stack) searchIDs(t *testing.T, term string) []string {
 	t.Helper()
 
-	r := s.admin2(t, http.MethodGet, "/indexes('docs')/docs?"+apiVer+"&search="+url.QueryEscape(term)+"&$select=name", nil)
+	r := s.admin2(
+		t,
+		http.MethodGet,
+		"/indexes('docs')/docs?"+apiVer+"&search="+url.QueryEscape(term)+"&$select=name",
+		nil,
+	)
 	require.Equal(t, http.StatusOK, r.status, string(r.raw))
 
 	return keysByField(r, "name")
@@ -163,7 +184,12 @@ func TestIndexerBlobOnDemand(t *testing.T) {
 	doc := s.must(t, http.MethodGet, "/indexes('docs')/docs/$count?"+apiVer, nil, http.StatusOK)
 	assert.Equal(t, "2", string(doc.raw))
 
-	size := s.admin2(t, http.MethodGet, "/indexes('docs')/docs?"+apiVer+"&$filter="+url.QueryEscape("size eq 11")+"&$select=name", nil)
+	size := s.admin2(
+		t,
+		http.MethodGet,
+		"/indexes('docs')/docs?"+apiVer+"&$filter="+url.QueryEscape("size eq 11")+"&$select=name",
+		nil,
+	)
 	assert.Equal(t, []string{"a.txt"}, keysByField(size, "name"), "metadata_storage_size maps onto an Edm.Int64 field")
 }
 
@@ -181,7 +207,12 @@ func TestIndexerKeyEncoding(t *testing.T) {
 	enc := strings.TrimRight(base64.RawURLEncoding.EncodeToString([]byte(path)), "=")
 	pad := (4 - len(enc)%4) % 4
 
-	assert.Equal(t, []string{fmt.Sprintf("%s%d", enc, pad)}, keysByField(r, "id"), "base64Encode uses URL-token encoding with a padding digit")
+	assert.Equal(
+		t,
+		[]string{fmt.Sprintf("%s%d", enc, pad)},
+		keysByField(r, "id"),
+		"base64Encode uses URL-token encoding with a padding digit",
+	)
 }
 
 func TestIndexerScheduleOnFakeClock(t *testing.T) {
@@ -242,7 +273,7 @@ func TestIndexerFailures(t *testing.T) {
 		t.Parallel()
 
 		s, blobs := newIndexerStack(t)
-		blobs.err = errors.New("storage offline")
+		blobs.err = errOffline
 		s.must(t, http.MethodPost, "/indexers?"+apiVer, blobIndexer(nil), http.StatusCreated)
 		s.must(t, http.MethodPost, "/indexers('ix')/search.run?"+apiVer, nil, http.StatusAccepted)
 
@@ -256,7 +287,13 @@ func TestIndexerFailures(t *testing.T) {
 
 		s, _ := newIndexerStack(t)
 		mapping := []any{map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "id"}}
-		s.must(t, http.MethodPost, "/indexers?"+apiVer, blobIndexer(map[string]any{"fieldMappings": mapping}), http.StatusCreated)
+		s.must(
+			t,
+			http.MethodPost,
+			"/indexers?"+apiVer,
+			blobIndexer(map[string]any{"fieldMappings": mapping}),
+			http.StatusCreated,
+		)
 		s.must(t, http.MethodPost, "/indexers('ix')/search.run?"+apiVer, nil, http.StatusAccepted)
 
 		last, _ := s.status(t, "ix")["lastResult"].(map[string]any)
@@ -268,7 +305,9 @@ func TestIndexerFailures(t *testing.T) {
 
 		s, _ := newIndexerStack(t)
 		ix := blobIndexer(map[string]any{
-			"fieldMappings": []any{map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "name"}},
+			"fieldMappings": []any{
+				map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "name"},
+			},
 			"parameters": map[string]any{
 				"maxFailedItems": -1, "configuration": map[string]any{"excludedFileNameExtensions": ".png"},
 			},
@@ -287,7 +326,9 @@ func TestIndexerFailures(t *testing.T) {
 
 		s, _ := newIndexerStack(t)
 		ix := blobIndexer(map[string]any{
-			"fieldMappings": []any{map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "name"}},
+			"fieldMappings": []any{
+				map[string]any{"sourceFieldName": "metadata_storage_name", "targetFieldName": "name"},
+			},
 		})
 		s.must(t, http.MethodPost, "/indexers?"+apiVer, ix, http.StatusCreated)
 		s.must(t, http.MethodPost, "/indexers('ix')/search.run?"+apiVer, nil, http.StatusAccepted)
@@ -308,11 +349,41 @@ func TestIndexerParsingModes(t *testing.T) {
 		term  string
 		want  int
 	}{
-		{map[string]string{"a.json": `{"content":"jsonbody","name":"j"}`}, map[string]any{"parsingMode": "json"}, "json", "jsonbody", 1},
-		{map[string]string{"a.json": `[{"content":"one"},{"content":"two"}]`}, map[string]any{"parsingMode": "jsonArray"}, "jsonArray", "two", 1},
-		{map[string]string{"a.jsonl": "{\"content\":\"l1\"}\n{\"content\":\"l2\"}\n"}, map[string]any{"parsingMode": "jsonLines"}, "jsonLines", "l2", 1},
-		{map[string]string{"a.csv": "content,name\nrow1,n1\nrow2,n2\n"}, map[string]any{"parsingMode": "delimitedText"}, "csv", "row2", 1},
-		{map[string]string{"a.txt": "plain text"}, map[string]any{"dataToExtract": "storageMetadata"}, "metadata only", "plain", 0},
+		{
+			map[string]string{"a.json": `{"content":"jsonbody","name":"j"}`},
+			map[string]any{"parsingMode": "json"},
+			"json",
+			"jsonbody",
+			1,
+		},
+		{
+			map[string]string{"a.json": `[{"content":"one"},{"content":"two"}]`},
+			map[string]any{"parsingMode": "jsonArray"},
+			"jsonArray",
+			"two",
+			1,
+		},
+		{
+			map[string]string{"a.jsonl": "{\"content\":\"l1\"}\n{\"content\":\"l2\"}\n"},
+			map[string]any{"parsingMode": "jsonLines"},
+			"jsonLines",
+			"l2",
+			1,
+		},
+		{
+			map[string]string{"a.csv": "content,name\nrow1,n1\nrow2,n2\n"},
+			map[string]any{"parsingMode": "delimitedText"},
+			"csv",
+			"row2",
+			1,
+		},
+		{
+			map[string]string{"a.txt": "plain text"},
+			map[string]any{"dataToExtract": "storageMetadata"},
+			"metadata only",
+			"plain",
+			0,
+		},
 	}
 
 	for _, tc := range cases {
@@ -328,12 +399,16 @@ func TestIndexerParsingModes(t *testing.T) {
 
 			s.b.SetBlobSource(blobs)
 			s.must(t, http.MethodPost, "/indexes?"+apiVer, docsIndex(), http.StatusCreated)
-			s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource("ds"), http.StatusCreated)
+			s.must(t, http.MethodPut, "/datasources('ds')?"+apiVer, blobSource(), http.StatusCreated)
 
 			ix := blobIndexer(map[string]any{
 				"parameters": map[string]any{"configuration": tc.conf, "maxFailedItems": -1},
 				"fieldMappings": []any{
-					map[string]any{"sourceFieldName": "metadata_storage_path", "targetFieldName": "id", "mappingFunction": map[string]any{"name": "base64Encode"}},
+					map[string]any{
+						"sourceFieldName": "metadata_storage_path",
+						"targetFieldName": "id",
+						"mappingFunction": map[string]any{"name": "base64Encode"},
+					},
 				},
 			})
 			delete(ix, "schedule")
@@ -354,7 +429,7 @@ func TestIndexerSoftDeleteDetection(t *testing.T) {
 	blobs.files["a.txt"].meta = map[string]string{"IsDeleted": "false"}
 	blobs.files["b.txt"].meta = map[string]string{"IsDeleted": "false"}
 
-	ds := blobSource("ds")
+	ds := blobSource()
 	ds["dataDeletionDetectionPolicy"] = map[string]any{
 		"@odata.type":          "#Microsoft.Azure.Search.SoftDeleteColumnDeletionDetectionPolicy",
 		"softDeleteColumnName": "IsDeleted", "softDeleteMarkerValue": "true",
@@ -384,11 +459,20 @@ func TestIndexerCosmosSource(t *testing.T) {
 
 	s.must(t, http.MethodPost, "/indexes?"+apiVer, docsIndex(), http.StatusCreated)
 	s.must(t, http.MethodPut, "/datasources('cs')?"+apiVer, map[string]any{
-		"name": "cs", "type": "cosmosdb",
-		"credentials": map[string]any{"connectionString": "AccountEndpoint=https://x.documents.azure.com;AccountKey=eA==;Database=db"},
-		"container":   map[string]any{"name": "items"},
+		"name": "cs",
+		"type": "cosmosdb",
+		"credentials": map[string]any{
+			"connectionString": "AccountEndpoint=https://x.documents.azure.com;AccountKey=eA==;Database=db",
+		},
+		"container": map[string]any{"name": "items"},
 	}, http.StatusCreated)
-	s.must(t, http.MethodPost, "/indexers?"+apiVer, map[string]any{"name": "cx", "dataSourceName": "cs", "targetIndexName": "docs"}, http.StatusCreated)
+	s.must(
+		t,
+		http.MethodPost,
+		"/indexers?"+apiVer,
+		map[string]any{"name": "cx", "dataSourceName": "cs", "targetIndexName": "docs"},
+		http.StatusCreated,
+	)
 	s.must(t, http.MethodPost, "/indexers('cx')/search.run?"+apiVer, nil, http.StatusAccepted)
 
 	assert.Equal(t, []string{"first"}, s.searchIDs(t, "alpha"))
