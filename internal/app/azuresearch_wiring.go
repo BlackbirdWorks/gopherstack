@@ -20,7 +20,7 @@ func wireAzureSearch(byName map[string]service.Registerable) {
 	}
 
 	if armH, armOk := byName["AzureARM"].(*azurearm.Handler); armOk {
-		armH.Registry.SetSearch(&azureSearchAdapter{b: searchH.Backend})
+		armH.Registry.SetSearch(&azureSearchAdapter{b: searchH.Backend, port: searchH.Port})
 	}
 
 	if blobH, blobOk := byName["AzureBlob"].(*azureblob.Handler); blobOk {
@@ -94,8 +94,11 @@ func (s azureSearchCosmos) ListDocuments(database, container string) ([]azuresea
 
 // azureSearchAdapter adapts services/azuresearch's backend to services/azurearm.SearchPlane.
 type azureSearchAdapter struct {
-	b *azuresearch.InMemoryBackend
+	b    *azuresearch.InMemoryBackend
+	port int
 }
+
+func (a *azureSearchAdapter) Port() int { return a.port }
 
 var _ azurearm.SearchPlane = (*azureSearchAdapter)(nil)
 

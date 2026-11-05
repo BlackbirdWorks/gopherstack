@@ -67,7 +67,6 @@ func TestAzureSearchDefaultPortsAgree(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, azuresearch.DefaultPort, azurearm.DefaultSearchPort)
-	assert.Equal(t, azuresearch.DefaultPort, azurearm.DefaultSettings().SearchPort)
 }
 
 type searchE2E struct {

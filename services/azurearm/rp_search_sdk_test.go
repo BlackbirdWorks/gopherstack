@@ -40,6 +40,8 @@ func newFakeSearchPlane() *fakeSearchPlane {
 	}
 }
 
+func (f *fakeSearchPlane) Port() int { return 0 }
+
 func (f *fakeSearchPlane) key() string {
 	f.counter++
 

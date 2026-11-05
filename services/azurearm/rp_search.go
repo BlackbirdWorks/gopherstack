@@ -416,7 +416,12 @@ func (p *SearchProvider) endpointFor(name, host string) string {
 			host = srchDefaultHost
 		}
 
-		hostAndPort = "search." + net.JoinHostPort(host, strconv.Itoa(p.cfg.Port))
+		port := p.cfg.Port
+		if pp := p.dataPlane.Port(); pp > 0 {
+			port = pp
+		}
+
+		hostAndPort = "search." + net.JoinHostPort(host, strconv.Itoa(port))
 	}
 
 	return "https://" + name + "." + hostAndPort

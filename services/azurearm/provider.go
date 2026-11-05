@@ -304,7 +304,6 @@ func registerLocalProviders(
 ) *identityService {
 	registry.Register(NewSearchProvider(SearchEndpointConfig{
 		Override: settings.AdvertiseSearch,
-		Port:     settings.SearchPort,
 	}, nil))
 
 	msi := NewManagedIdentityProvider(settings.TenantID)

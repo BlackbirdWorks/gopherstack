@@ -29,11 +29,6 @@ const (
 	httpIdleTimeout       = 120 * time.Second
 )
 
-var (
-	errTLSKeyMissing  = errors.New("azuresearch: --azure-search-tls-cert set without --azure-search-tls-key")
-	errTLSCertMissing = errors.New("azuresearch: --azure-search-tls-key set without --azure-search-tls-cert")
-)
-
 // Handler owns the HTTPS listener and the indexer scheduler.
 type Handler struct {
 	Backend  *InMemoryBackend
@@ -93,23 +88,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 // ExtractResource implements service.Service.
 func (h *Handler) ExtractResource(c *echo.Context) string { return c.Request().URL.Path }
 
-func (h *Handler) loadOrGenerateCert() (tls.Certificate, error) {
-	certFile, keyFile := h.Settings.TLSCertFile, h.Settings.TLSKeyFile
-
-	switch {
-	case certFile != "" && keyFile == "":
-		return tls.Certificate{}, errTLSKeyMissing
-	case certFile == "" && keyFile != "":
-		return tls.Certificate{}, errTLSCertMissing
-	case certFile != "":
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			return tls.Certificate{}, fmt.Errorf("azuresearch: load TLS certificate: %w", err)
-		}
-
-		return cert, nil
-	}
-
+func (h *Handler) generateCert() (tls.Certificate, error) {
 	cert, err := devtls.GenerateSelfSignedCert()
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("azuresearch: generate self-signed certificate: %w", err)
@@ -127,7 +106,7 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return fmt.Errorf("azuresearch: bind port %d: %w", h.Port, err)
 	}
 
-	cert, err := h.loadOrGenerateCert()
+	cert, err := h.generateCert()
 	if err != nil {
 		_ = ln.Close()
 
