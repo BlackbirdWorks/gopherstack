@@ -445,11 +445,16 @@ func (rc *ResourceCreator) createRoute53RecordSetGroup(
 		return logicalID + "-stub", nil
 	}
 
-	hostedZoneID := strProp(props, "HostedZoneId", params, physicalIDs)
+	hostedZoneID, err := rc.route53ZoneID(props, params, physicalIDs)
+	if err != nil {
+		return "", fmt.Errorf("create Route53 RecordSetGroup %s: %w", logicalID, err)
+	}
 
 	rawSets, _ := props["RecordSets"].([]any)
 
 	changes := make([]route53backend.Change, 0, len(rawSets))
+	var physID strings.Builder
+	physID.WriteString(logicalID + "|" + hostedZoneID)
 
 	for _, rs := range rawSets {
 		m, ok := rs.(map[string]any)
@@ -457,49 +462,21 @@ func (rc *ResourceCreator) createRoute53RecordSetGroup(
 			continue
 		}
 
-		changes = append(changes, route53RecordSetGroupChange(m, params, physicalIDs))
+		set := route53RecordSet(m, params, physicalIDs)
+		changes = append(changes, route53backend.Change{
+			Action:            route53backend.ChangeActionCreate,
+			ResourceRecordSet: set,
+		})
+		physID.WriteString("|" + route53RecordRef(set))
 	}
 
 	if len(changes) > 0 {
-		if _, err := rc.backends.Route53.Backend.ChangeResourceRecordSets(hostedZoneID, changes); err != nil {
+		if _, err = rc.backends.Route53.Backend.ChangeResourceRecordSets(hostedZoneID, changes); err != nil {
 			return "", fmt.Errorf("create Route53 RecordSetGroup %s: %w", logicalID, err)
 		}
 	}
 
-	return logicalID, nil
-}
-
-// route53RecordSetGroupChange converts one RecordSetGroup.RecordSets entry
-// into a real Route53 Change (split out of createRoute53RecordSetGroup to
-// keep its cognitive complexity down).
-func route53RecordSetGroupChange(m map[string]any, params, physicalIDs map[string]string) route53backend.Change {
-	var ttl int64
-	if v, ttlOK := m["TTL"].(float64); ttlOK {
-		ttl = int64(v)
-	} else if s := strProp(m, "TTL", params, physicalIDs); s != "" {
-		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-			ttl = n
-		}
-	}
-
-	var records []route53backend.ResourceRecord
-	if rawRecords, recOK := m["ResourceRecords"].([]any); recOK {
-		for _, r := range rawRecords {
-			if val := resolve(r, params, physicalIDs); val != "" {
-				records = append(records, route53backend.ResourceRecord{Value: val})
-			}
-		}
-	}
-
-	return route53backend.Change{
-		Action: route53backend.ChangeActionCreate,
-		ResourceRecordSet: route53backend.ResourceRecordSet{
-			Name:    strProp(m, "Name", params, physicalIDs),
-			Type:    strProp(m, "Type", params, physicalIDs),
-			TTL:     ttl,
-			Records: records,
-		},
-	}
+	return physID.String(), nil
 }
 
 // ---- SQS QueueInlinePolicy / SNS TopicInlinePolicy ----

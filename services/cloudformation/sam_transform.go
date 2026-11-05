@@ -1,8 +1,6 @@
 package cloudformation
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +53,17 @@ const (
 	samAuthHeader    = "Authorization"
 	samKeyVersion    = "Version"
 	samKeyEffect     = "Effect"
+	samTypeAPIKey    = "apiKey"
+	samKeyHTTPMethod = "httpMethod"
+	samKeyURI        = "uri"
+	samKeyStageVars  = "StageVariables"
+	samCreatedBy     = "SAM"
+	samKeyDomainName = "DomainName"
+	samKeyCorsProp   = "Cors"
+	samKeyDelPolicy  = "DeletionPolicy"
+	samKeyUpdPolicy  = "UpdateReplacePolicy"
+	samLocPath       = "path"
+	samKeyOrigins    = "AllowOrigins"
 )
 
 // ErrSAMTransform is returned when a SAM template cannot be expanded.
@@ -70,6 +79,8 @@ type samTranslator struct {
 	httpAPIs  map[string]*samHTTPAPI
 	s3Configs map[string][]any
 	refs      map[string]string
+	pass      map[string]any
+	params    map[string]any
 }
 
 func samErr(id, format string, args ...any) error {
@@ -80,13 +91,6 @@ func samRef(id string) map[string]any { return map[string]any{samKeyRef: id} }
 
 func samGetAtt(id, attr string) map[string]any {
 	return map[string]any{fnGetAtt: []any{id, attr}}
-}
-
-func samHash(v any) string {
-	raw, _ := json.Marshal(v)
-	sum := sha256.Sum256(raw)
-
-	return hex.EncodeToString(sum[:])[:samHashLen]
 }
 
 func asMap(v any) map[string]any {
@@ -112,7 +116,13 @@ func isSAMTransform(doc map[string]any) bool {
 
 // expandSAMDocument expands a decoded SAM template in place of Resources and
 // drops Globals; Transform is left for the caller to keep or strip.
-func expandSAMDocument(doc map[string]any) error {
+func expandSAMDocument(doc map[string]any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%w. Unexpected template shape: %v", ErrSAMTransform, r)
+		}
+	}()
+
 	t := &samTranslator{
 		out:       map[string]any{},
 		globals:   map[string]map[string]any{},
@@ -120,14 +130,20 @@ func expandSAMDocument(doc map[string]any) error {
 		httpAPIs:  map[string]*samHTTPAPI{},
 		s3Configs: map[string][]any{},
 		refs:      map[string]string{},
+		params:    map[string]any{},
 	}
-	if err := t.readGlobals(asMap(doc["Globals"])); err != nil {
+	for name, p := range asMap(doc["Parameters"]) {
+		if def, ok := asMap(p)["Default"]; ok {
+			t.params[name] = def
+		}
+	}
+	if err = t.readGlobals(asMap(doc["Globals"])); err != nil {
 		return err
 	}
 	delete(doc, "Globals")
 
 	res := asMap(doc["Resources"])
-	if err := t.translate(res); err != nil {
+	if err = t.translate(res); err != nil {
 		return err
 	}
 	doc["Resources"] = rewriteSAMRefs(t.out, t.refs)
@@ -213,19 +229,52 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 	if _, exists := t.out[id]; exists {
 		return samErr(id, "Resource with this logical ID already exists in the template")
 	}
+	for k, v := range t.pass {
+		if _, has := r[k]; !has {
+			r[k] = v
+		}
+	}
 	t.out[id] = r
 
 	return nil
 }
 
+// passAttrs are the resource attributes SAM copies onto every resource it generates from r.
+func passAttrs(r map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, k := range []string{samKeyCondition, samKeyDelPolicy, samKeyUpdPolicy} {
+		if v, ok := r[k]; ok {
+			out[k] = v
+		}
+	}
+
+	return out
+}
+
 // carryAttrs copies resource-level attributes (DependsOn, Condition, ...) from
 // a SAM resource onto its generated base resource.
 func carryAttrs(from, to map[string]any) {
-	for _, k := range []string{samKeyDependsOn, samKeyCondition, "DeletionPolicy", "UpdateReplacePolicy", "Metadata"} {
+	for _, k := range []string{samKeyDependsOn, samKeyCondition, samKeyDelPolicy, samKeyUpdPolicy, "Metadata"} {
 		if v, ok := from[k]; ok {
 			to[k] = v
 		}
 	}
+}
+
+// paramDefault resolves a Ref to a template Parameter to its Default, for the few SAM
+// properties that pick a structure rather than carry a value (the stack's own parameter
+// values are not visible to the transform); anything else is returned unchanged.
+func (t *samTranslator) paramDefault(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 1 {
+		return v
+	}
+	name, _ := m[samKeyRef].(string)
+	if def, has := t.params[name]; has {
+		return def
+	}
+
+	return v
 }
 
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
@@ -297,7 +346,7 @@ func samTags(tags map[string]any) []any {
 		rest = append(rest, map[string]any{"Key": k, "Value": tags[k]})
 	}
 
-	return slices.Concat([]any{map[string]any{"Key": "lambda:createdBy", "Value": "SAM"}}, rest)
+	return slices.Concat([]any{map[string]any{"Key": "lambda:createdBy", "Value": samCreatedBy}}, rest)
 }
 
 // rewriteSAMRefs applies referenceable-property rewrites (Ref Fn.Alias etc.).
@@ -341,9 +390,9 @@ func rewriteRefValue(v any, refs map[string]string) any {
 	}
 }
 
-// processedTemplateBody returns the template as CloudFormation reports it for
+// ProcessedTemplateBody returns the template as CloudFormation reports it for
 // GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed.
-func processedTemplateBody(body string) (string, error) {
+func ProcessedTemplateBody(body string) (string, error) {
 	if !strings.Contains(body, samTransformName) {
 		return body, nil
 	}

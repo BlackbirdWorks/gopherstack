@@ -1,6 +1,9 @@
 package cloudformation
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"maps"
+)
 
 func samTableAllowed() map[string]bool {
 	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, "Tags", "SSESpecification",
@@ -80,12 +83,12 @@ func (t *samTranslator) translateLayer(id string, r map[string]any) error {
 		return err
 	}
 	layer["Content"] = content
-	layerID := id + samHash(layer)
+	layerID := samLogicalID(id, map[string]any{id: layerHashBody(r)})
 	t.refs[id] = layerID
 	base := map[string]any{samKeyType: samTypeLayer, samKeyProps: layer}
 	carryAttrs(r, base)
-	if props["RetentionPolicy"] == "Retain" || props["RetentionPolicy"] == nil {
-		base["DeletionPolicy"] = "Retain"
+	if props["RetentionPolicy"] == deletionPolicyRetain || props["RetentionPolicy"] == nil {
+		base[samKeyDelPolicy] = deletionPolicyRetain
 	}
 
 	return t.put(layerID, base)
@@ -170,4 +173,15 @@ func (t *samTranslator) putSMRole(id string, props map[string]any) error {
 	}
 
 	return t.put(id+"Role", map[string]any{samKeyType: resTypeIAMRole, samKeyProps: role})
+}
+
+// layerHashBody is the SAM resource as written, minus passthrough attributes
+// that SAM excludes from the layer's hash.
+func layerHashBody(r map[string]any) map[string]any {
+	body := maps.Clone(r)
+	for _, k := range []string{samKeyDelPolicy, samKeyUpdPolicy, "Metadata"} {
+		delete(body, k)
+	}
+
+	return body
 }

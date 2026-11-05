@@ -255,7 +255,6 @@ func verifyFunctionAPIEvent(t *testing.T, b *cloudformation.ServiceBackends, cli
 		"ServerlessRestApi":                "AWS::ApiGateway::RestApi",
 		"ServerlessRestApiProdStage":       "AWS::ApiGateway::Stage",
 		"HelloFunctionHelloPermissionProd": "AWS::Lambda::Permission",
-		"HelloFunctionHelloPermissionTest": "AWS::Lambda::Permission",
 	} {
 		assert.Equal(t, typ, ids[id], id)
 	}

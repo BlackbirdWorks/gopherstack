@@ -86,7 +86,7 @@ func samAuthorizer(apiID, name string, v any) (map[string]any, map[string]any, e
 
 func samAuthDef(header string, ext map[string]any, authType string) map[string]any {
 	return map[string]any{
-		samKeyTypeLower: "apiKey", samKeyNameLower: header, "in": samLocHeader,
+		samKeyTypeLower: samTypeAPIKey, samKeyNameLower: header, "in": samLocHeader,
 		"x-amazon-apigateway-authtype": authType, "x-amazon-apigateway-authorizer": ext,
 	}
 }
@@ -189,7 +189,7 @@ func samRequestIdentity(id string, identity, ext map[string]any) error {
 	err := rejectUnknown(
 		id,
 		identity,
-		keySet("Headers", "QueryStrings", "StageVariables", "Context", "ReauthorizeEvery"),
+		keySet("Headers", "QueryStrings", samKeyStageVars, "Context", "ReauthorizeEvery"),
 	)
 	if err != nil {
 		return err
@@ -207,7 +207,7 @@ func identitySources(identity map[string]any) []string {
 	var out []string
 	for _, p := range []struct{ key, prefix string }{
 		{"Headers", samHeaderParam}, {"QueryStrings", "method.request.querystring."},
-		{"StageVariables", "stageVariables."}, {"Context", "context."},
+		{samKeyStageVars, "stageVariables."}, {"Context", "context."},
 	} {
 		for _, v := range asList(identity[p.key]) {
 			if s, ok := v.(string); ok {

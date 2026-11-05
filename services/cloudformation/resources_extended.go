@@ -981,42 +981,22 @@ func (rc *ResourceCreator) createRoute53RecordSet(
 		return logicalID + "-stub", nil
 	}
 
-	hostedZoneID := strProp(props, "HostedZoneId", params, physicalIDs)
-	name := strProp(props, "Name", params, physicalIDs)
-	rrType := strProp(props, "Type", params, physicalIDs)
-
-	var ttl int64
-	if v, ok := props["TTL"].(float64); ok {
-		ttl = int64(v)
+	hostedZoneID, err := rc.route53ZoneID(props, params, physicalIDs)
+	if err != nil {
+		return "", fmt.Errorf("create Route53 record set %s: %w", logicalID, err)
 	}
 
-	var records []route53backend.ResourceRecord
-	if rawRecords, ok := props["ResourceRecords"].([]any); ok {
-		for _, r := range rawRecords {
-			if val := resolve(r, params, physicalIDs); val != "" {
-				records = append(records, route53backend.ResourceRecord{Value: val})
-			}
-		}
-	}
+	rs := route53RecordSet(props, params, physicalIDs)
+	change := route53backend.Change{Action: route53backend.ChangeActionCreate, ResourceRecordSet: rs}
 
-	change := route53backend.Change{
-		Action: route53backend.ChangeActionCreate,
-		ResourceRecordSet: route53backend.ResourceRecordSet{
-			Name:    name,
-			Type:    rrType,
-			TTL:     ttl,
-			Records: records,
-		},
-	}
-
-	if _, err := rc.backends.Route53.Backend.ChangeResourceRecordSets(
+	if _, err = rc.backends.Route53.Backend.ChangeResourceRecordSets(
 		hostedZoneID,
 		[]route53backend.Change{change},
 	); err != nil {
-		return "", fmt.Errorf("create Route53 record set %s: %w", name, err)
+		return "", fmt.Errorf("create Route53 record set %s: %w", rs.Name, err)
 	}
 
-	return hostedZoneID + ":" + name + ":" + rrType, nil
+	return hostedZoneID + ":" + rs.Name + ":" + rs.Type, nil // name carries no ":"
 }
 
 // ---- ElastiCache ----

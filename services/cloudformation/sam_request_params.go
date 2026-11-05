@@ -23,7 +23,7 @@ type samReqParam struct {
 }
 
 func samParamLocations() map[string]string {
-	return map[string]string{"header": samLocHeader, "querystring": "query", "path": "path"}
+	return map[string]string{"header": samLocHeader, "querystring": "query", "path": samLocPath}
 }
 
 // parseRequestParameters reads a list of "method.request.<loc>.<name>" strings

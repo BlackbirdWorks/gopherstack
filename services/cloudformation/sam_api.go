@@ -12,6 +12,7 @@ const (
 	samImplicitStage  = "Prod"
 	samAnyMethodKey   = "x-amazon-apigateway-any-method"
 	samDeploymentStub = "Stage"
+	samDomainKey      = "Domain"
 )
 
 func samAPIPassthrough() map[string]bool {
@@ -20,10 +21,11 @@ func samAPIPassthrough() map[string]bool {
 }
 
 func samAPIHandled() map[string]bool {
-	return keySet(samKeyStageName, "DefinitionBody", "DefinitionUri", "OpenApiVersion", "Cors", samAuthKey)
+	return keySet(samKeyStageName, "DefinitionBody", "DefinitionUri", "OpenApiVersion", samKeyCorsProp, samAuthKey)
 }
 
 type samRoute struct {
+	target                         string
 	timeout                        any
 	apiKey                         *bool
 	fnID, path, method, authorizer string
@@ -37,12 +39,23 @@ type samRoute struct {
 // ServerlessRestApi) until every Api event has been seen.
 type samAPI struct {
 	auth      *samAuth
+	raw       map[string]any
 	props     map[string]any
 	id        string
 	stageName string
 	routes    []samRoute
 	explicit  bool
 }
+
+func (rt samRoute) invokeRef() string {
+	if rt.target != "" {
+		return rt.target
+	}
+
+	return rt.fnID + ".Arn"
+}
+
+func (a *samAPI) permSuffix() string { return a.stageName }
 
 func (a *samAPI) addRoute(rt samRoute) {
 	a.routes = append(a.routes, rt)
@@ -57,10 +70,10 @@ func (t *samTranslator) registerAPI(id string, r map[string]any) error {
 	if stage == "" {
 		return samErr(id, "Missing required property 'StageName'.")
 	}
-	if props["DefinitionUri"] != nil && props["Cors"] != nil {
+	if props["DefinitionUri"] != nil && props[samKeyCorsProp] != nil {
 		return samErr(id, "Cors requires an inline DefinitionBody, not DefinitionUri.")
 	}
-	t.apis[id] = &samAPI{id: id, stageName: stage, props: props, explicit: true}
+	t.apis[id] = &samAPI{id: id, stageName: stage, props: props, explicit: true, raw: r}
 
 	return nil
 }
@@ -97,6 +110,8 @@ func (t *samTranslator) finalizeAPIs() error {
 }
 
 func (t *samTranslator) emitAPI(a *samAPI) error {
+	t.pass = passAttrs(a.raw)
+	defer func() { t.pass = nil }()
 	if err := t.prepareAuth(a); err != nil {
 		return err
 	}
@@ -114,13 +129,18 @@ func (t *samTranslator) emitAPI(a *samAPI) error {
 	} else {
 		rest["Body"] = body
 	}
-	if err = t.put(a.id, map[string]any{samKeyType: samTypeRestAPI, samKeyProps: rest}); err != nil {
+	restAPI := map[string]any{samKeyType: samTypeRestAPI, samKeyProps: rest}
+	if a.raw != nil {
+		carryAttrs(a.raw, restAPI)
+	}
+	if err = t.put(a.id, restAPI); err != nil {
 		return err
 	}
-	depID := a.id + "Deployment" + samHash(body)
+	hashed := a.deploymentHashInput(body)
+	depID := samLogicalID(a.id+"Deployment", hashed)
 	if err = t.put(depID, map[string]any{samKeyType: samTypeDeploy, samKeyProps: map[string]any{
 		"RestApiId":     samRef(a.id),
-		samKeyDesc:      "RestApi deployment id: " + strings.TrimPrefix(depID, a.id+"Deployment"),
+		samKeyDesc:      "RestApi deployment id: " + samDigest(hashed),
 		samKeyStageName: samDeploymentStub,
 	}}); err != nil {
 		return err
@@ -205,7 +225,7 @@ func (a *samAPI) body() (map[string]any, error) {
 	}
 	a.addRoutePaths(paths)
 	doc["paths"] = paths
-	if cors, ok := a.props["Cors"]; ok {
+	if cors, ok := a.props[samKeyCorsProp]; ok {
 		preflightAuth := ""
 		if a.auth != nil && a.auth.corsPreflight {
 			preflightAuth = a.auth.defaultAuth
@@ -223,7 +243,7 @@ func (a *samAPI) body() (map[string]any, error) {
 		defs[samAPIKeyScheme] = map[string]any{
 			"in":            samLocHeader,
 			samKeyNameLower: samAPIKeyHeader,
-			samKeyTypeLower: "apiKey",
+			samKeyTypeLower: samTypeAPIKey,
 		}
 		doc["securityDefinitions"] = defs
 	}
@@ -287,10 +307,9 @@ func routeOperation(rt samRoute) map[string]any {
 		}
 	}
 	integ := map[string]any{
-		"httpMethod":    samHTTPPost,
-		samKeyTypeLower: "aws_proxy",
-		"uri": map[string]any{samKeyFnSub: "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/" +
-			"2015-03-31/functions/${" + rt.fnID + ".Arn}/invocations"},
+		samKeyHTTPMethod: samHTTPPost,
+		samKeyTypeLower:  "aws_proxy",
+		samKeyURI:        lambdaInvokeURI(rt.invokeRef()),
 	}
 	op := map[string]any{samKeyResponses: map[string]any{}, samIntegrationKey: integ}
 	if rt.timeout != nil {
@@ -338,4 +357,17 @@ func (a *samAPI) routeSecurity(rt samRoute) []any {
 
 func (a *samAPI) needsAPIKeyScheme() bool {
 	return slices.ContainsFunc(a.routes, a.apiKeyRequired)
+}
+
+// deploymentHashInput is the string SAM hashes for the Deployment id: the
+// swagger plus the custom domain, "||"-joined. SAM stringifies the swagger with
+// Python's dict repr (insertion-ordered); this uses canonical sorted JSON, so
+// the hash differs from SAM's while keeping the same sensitivity to changes.
+func (a *samAPI) deploymentHashInput(body map[string]any) string {
+	in := pyJSON(samPartitionLiteral(body))
+	if d := a.props[samDomainKey]; d != nil {
+		in += "||" + pyJSON(d)
+	}
+
+	return in
 }

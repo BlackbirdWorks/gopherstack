@@ -38,40 +38,77 @@ func samStreamExtra() []string {
 type samEventCtx struct {
 	managed *[]any
 	id      string
+	alias   string
+}
+
+// target is the logical id events invoke: the AutoPublishAlias alias when the function has one.
+func (ev *samEventCtx) target() string {
+	if ev.alias != "" {
+		return ev.alias
+	}
+
+	return ev.id
+}
+
+func (ev *samEventCtx) fnRef() map[string]any { return samRef(ev.target()) }
+
+func (ev *samEventCtx) fnArn() map[string]any {
+	if ev.alias != "" {
+		return samRef(ev.alias)
+	}
+
+	return samGetAtt(ev.id, attrNameArn)
+}
+
+// invokeRef is the Fn::Sub token for the Lambda invoke ARN of the event target.
+func (ev *samEventCtx) invokeRef() string {
+	if ev.alias != "" {
+		return ev.alias
+	}
+
+	return ev.id + ".Arn"
+}
+
+type samEventHandler func(t *samTranslator, ev *samEventCtx, name string, props map[string]any) error
+
+func samEventHandlers() map[string]samEventHandler {
+	pull := func(srcKey, policy string, extra []string) samEventHandler {
+		return func(t *samTranslator, ev *samEventCtx, name string, props map[string]any) error {
+			return t.mappingEvent(ev, name, props, srcKey, policy, extra)
+		}
+	}
+
+	return map[string]samEventHandler{
+		samEventAPI:        (*samTranslator).apiEvent,
+		samEventHTTPAPI:    (*samTranslator).httpAPIEvent,
+		samEventS3:         (*samTranslator).s3Event,
+		samEventScheduleV2: (*samTranslator).scheduleV2Event,
+		samEventSQS:        pull("Queue", samSQSExecRole, nil),
+		samEventKinesis:    pull("Stream", samKinesisExec, samStreamExtra()),
+		samEventDynamoDB:   pull("Stream", samDynamoDBExec, samStreamExtra()),
+		samEventSNS:        (*samTranslator).snsEvent,
+		samEventSchedule:   (*samTranslator).scheduleEvent,
+		samEventRule:       (*samTranslator).ruleEvent,
+		samEventCWEvent:    (*samTranslator).ruleEvent,
+	}
 }
 
 func (t *samTranslator) translateEvents(ev *samEventCtx, events map[string]any) error {
+	handlers := samEventHandlers()
 	for _, name := range slices.Sorted(maps.Keys(events)) {
 		e := asMap(events[name])
 		typ, _ := e[samKeyType].(string)
-		props := asMap(e[samKeyProps])
-		var err error
-		switch typ {
-		case samEventAPI:
-			err = t.apiEvent(ev, name, props)
-		case samEventHTTPAPI:
-			err = t.httpAPIEvent(ev, name, props)
-		case samEventS3:
-			err = t.s3Event(ev, name, props)
-		case samEventScheduleV2:
-			err = t.scheduleV2Event(ev, name, props)
-		case samEventSQS:
-			err = t.mappingEvent(ev, name, props, "Queue", samSQSExecRole, nil)
-		case samEventKinesis:
-			err = t.mappingEvent(ev, name, props, "Stream", samKinesisExec, samStreamExtra())
-		case samEventDynamoDB:
-			err = t.mappingEvent(ev, name, props, "Stream", samDynamoDBExec, samStreamExtra())
-		case samEventSNS:
-			err = t.snsEvent(ev, name, props)
-		case samEventSchedule:
-			err = t.scheduleEvent(ev, name, props)
-		case samEventRule, samEventCWEvent:
-			err = t.ruleEvent(ev, name, props)
-		default:
-			err = samErr(ev.id, "Event type '%s' (event [%s]) is not supported by this emulator's SAM transform",
+		if raw, has := e[samKeyProps]; has && raw != nil {
+			if _, isMap := raw.(map[string]any); !isMap {
+				return samErr(ev.id, "Event with id [%s] is invalid. Properties should be a map.", name)
+			}
+		}
+		handle, ok := handlers[typ]
+		if !ok {
+			return samErr(ev.id, "Event type '%s' (event [%s]) is not supported by this emulator's SAM transform",
 				typ, name)
 		}
-		if err != nil {
+		if err := handle(t, ev, name, asMap(e[samKeyProps])); err != nil {
 			return err
 		}
 	}
@@ -102,7 +139,7 @@ func (t *samTranslator) mappingEvent(
 	if props[srcKey] == nil {
 		return samErr(ev.id, "Event [%s] is missing required property '%s'.", name, srcKey)
 	}
-	m := map[string]any{samKeyFnName: samRef(ev.id), "EventSourceArn": props[srcKey]}
+	m := map[string]any{samKeyFnName: ev.fnRef(), "EventSourceArn": props[srcKey]}
 	for k, v := range props {
 		if k != srcKey {
 			m[k] = v
@@ -120,7 +157,7 @@ func (t *samTranslator) snsEvent(ev *samEventCtx, name string, props map[string]
 	sub := map[string]any{
 		"Protocol":     "lambda",
 		samKeyTopicArn: props["Topic"],
-		"Endpoint":     samGetAtt(ev.id, attrNameArn),
+		"Endpoint":     ev.fnArn(),
 	}
 	if props["FilterPolicy"] != nil {
 		sub["FilterPolicy"] = props["FilterPolicy"]
@@ -132,7 +169,7 @@ func (t *samTranslator) snsEvent(ev *samEventCtx, name string, props map[string]
 		return err
 	}
 
-	return t.put(ev.id+name+"Permission", lambdaPermission(ev.id, "sns.amazonaws.com", props["Topic"]))
+	return t.put(ev.id+name+"Permission", lambdaPermission(ev.target(), "sns.amazonaws.com", props["Topic"]))
 }
 
 func (t *samTranslator) scheduleEvent(ev *samEventCtx, name string, props map[string]any) error {
@@ -175,7 +212,7 @@ func ruleState(props map[string]any) any {
 }
 
 func (t *samTranslator) putRule(ev *samEventCtx, name string, rule map[string]any, input, inputPath any) error {
-	target := map[string]any{attrNameArn: samGetAtt(ev.id, attrNameArn), "Id": name + "LambdaTarget"}
+	target := map[string]any{attrNameArn: ev.fnArn(), "Id": name + "LambdaTarget"}
 	if input != nil {
 		target["Input"] = input
 	}
@@ -188,7 +225,7 @@ func (t *samTranslator) putRule(ev *samEventCtx, name string, rule map[string]an
 		return err
 	}
 
-	return t.put(ruleID+"Permission", lambdaPermission(ev.id, samEventsPrincipl, samGetAtt(ruleID, attrNameArn)))
+	return t.put(ruleID+"Permission", lambdaPermission(ev.target(), samEventsPrincipl, samGetAtt(ruleID, attrNameArn)))
 }
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
@@ -217,26 +254,55 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
-	api.addRoute(samRoute{fnID: ev.id, path: path, method: method, authorizer: authorizer, apiKey: apiKey,
-		params: params, timeout: timeout})
-	for _, stage := range []string{api.stageName, "Test"} {
-		src := map[string]any{samKeyFnSub: "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${" +
-			api.id + "}/" + stageSegment(stage) + "/" + permissionMethod(method) + permissionPath(path)}
-		perm := lambdaPermission(ev.id, "apigateway.amazonaws.com", src)
-		if err = t.put(ev.id+name+"Permission"+stage, perm); err != nil {
-			return err
+	api.addRoute(
+		samRoute{
+			fnID:       ev.id,
+			target:     ev.invokeRef(),
+			path:       path,
+			method:     method,
+			authorizer: authorizer,
+			apiKey:     apiKey,
+			params:     params,
+			timeout:    timeout,
+		},
+	)
+	suffix := api.permSuffix()
+	perm := lambdaPermission(
+		ev.target(),
+		"apigateway.amazonaws.com",
+		executeAPISourceArn(api.id, "*", permissionMethod(method),
+			permissionPath(path)),
+	)
+
+	return t.put(samPermissionID(ev.id+name, suffix), perm)
+}
+
+// samPermissionID is SAM's PushEventSource permission id: <prefix>Permission<suffix>; a non-alphanumeric
+// suffix is hashed.
+func samPermissionID(prefix, suffix string) string {
+	if suffix != "" && isAlnum(suffix) {
+		return prefix + "Permission" + suffix
+	}
+
+	return samLogicalID(prefix+"Permission", suffix)
+}
+
+func isAlnum(s string) bool {
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
 		}
 	}
 
-	return nil
+	return true
 }
 
-func stageSegment(stage string) string {
-	if stage == "Test" {
-		return "*"
-	}
-
-	return stage
+// executeAPISourceArn is SAM's Fn::Sub list form with __ApiId__/__Stage__ placeholders.
+func executeAPISourceArn(apiID, stage, method, path string) map[string]any {
+	return map[string]any{samKeyFnSub: []any{
+		"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/" + method + path,
+		map[string]any{"__ApiId__": samRef(apiID), "__Stage__": stage},
+	}}
 }
 
 func permissionMethod(m string) string {
@@ -247,9 +313,13 @@ func permissionMethod(m string) string {
 	return strings.ToUpper(m)
 }
 
-var samPathParam = regexp.MustCompile(`\{[^}]+\}`)
+var samPathParam = regexp.MustCompile(`\{([a-zA-Z0-9._-]+|[a-zA-Z0-9._-]+\+|proxy\+)\}`)
 
 func permissionPath(p string) string {
+	if len(p) > 1 {
+		p = strings.TrimSuffix(p, "/")
+	}
+
 	return samPathParam.ReplaceAllString(p, "*")
 }
 

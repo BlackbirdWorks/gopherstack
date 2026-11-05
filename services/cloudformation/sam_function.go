@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ func samFnPassthrough() map[string]bool {
 func samFnHandled() map[string]bool {
 	return keySet("CodeUri", "InlineCode", "ImageUri", "Environment", "Tags", "Role", "Policies",
 		"Events", "AutoPublishAlias", "Tracing", "DeadLetterQueue", "PermissionsBoundary",
-		"VersionDescription", samKeyAssumeRole, "FunctionUrlConfig", "EventInvokeConfig")
+		"VersionDescription", "VersionDeletionPolicy", samKeyAssumeRole, "FunctionUrlConfig", "EventInvokeConfig")
 }
 
 func (t *samTranslator) translateFunction(id string, r map[string]any) error {
@@ -29,6 +30,8 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 	if err := rejectUnknown(id, props, samFnPassthrough(), samFnHandled()); err != nil {
 		return err
 	}
+	t.pass = passAttrs(r)
+	defer func() { t.pass = nil }()
 	fn, err := buildLambdaProps(id, props)
 	if err != nil {
 		return err
@@ -51,7 +54,7 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 	if err = t.put(id, base); err != nil {
 		return err
 	}
-	ev := &samEventCtx{id: id, managed: &managed}
+	ev := &samEventCtx{id: id, managed: &managed, alias: samAliasID(id, props)}
 	if err = t.translateEvents(ev, asMap(props["Events"])); err != nil {
 		return err
 	}
@@ -221,15 +224,22 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 		return nil
 	}
 	fnProps := asMap(asMap(t.out[id])[samKeyProps])
-	verID := id + samKeyVersion + samHash(fnProps)
+	verID := samVersionID(id, props, fnProps)
 	verProps := map[string]any{samKeyFnName: samRef(id)}
 	if d := props["VersionDescription"]; d != nil {
 		verProps[samKeyDesc] = d
 	}
-	if err := t.put(verID, map[string]any{samKeyType: samTypeVersion, samKeyProps: verProps}); err != nil {
+	version := map[string]any{samKeyType: samTypeVersion, samKeyProps: verProps}
+	if _, has := t.pass[samKeyDelPolicy]; !has {
+		version[samKeyDelPolicy] = deletionPolicyRetain
+		if p, hasPolicy := props["VersionDeletionPolicy"]; hasPolicy {
+			version[samKeyDelPolicy] = p
+		}
+	}
+	if err := t.put(verID, version); err != nil {
 		return err
 	}
-	aliasID := id + "Alias" + alias
+	aliasID := samAliasID(id, props)
 	t.refs[id+".Alias"] = aliasID
 	t.refs[id+".Version"] = verID
 
@@ -238,4 +248,44 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 		"FunctionVersion": samGetAtt(verID, samKeyVersion),
 		attrNameName:      alias,
 	}})
+}
+
+// samVersionID mirrors SAM's Lambda version id: the hash covers the function
+// code, environment, memory and active SnapStart (or every property with
+// AutoPublishAliasAllProperties); AutoPublishCodeSha256 replaces the hash.
+func samVersionID(id string, props, fnProps map[string]any) string {
+	prefix := id + samKeyVersion
+	if sha, ok := props["AutoPublishCodeSha256"].(string); ok && sha != "" {
+		return prefix + sha[:min(len(sha), samHashLen)]
+	}
+	if props["AutoPublishAliasAllProperties"] == true {
+		return samLogicalID(prefix, samPartitionLiteral(fnProps))
+	}
+	data := maps.Clone(asMap(fnProps["Code"]))
+	if data == nil {
+		data = map[string]any{}
+	}
+	if env := asMap(fnProps["Environment"]); env != nil {
+		maps.Copy(data, env)
+	}
+	if mem, ok := fnProps["MemorySize"]; ok && mem != nil && mem != 0.0 {
+		data["MemorySize"] = mem
+	}
+	if ss := asMap(fnProps["SnapStart"]); ss != nil {
+		if apply, _ := ss["ApplyOn"].(string); apply != "" && apply != "None" {
+			data["SnapStart"] = ss
+		}
+	}
+
+	return samLogicalID(prefix, data)
+}
+
+// samAliasID is SAM's alias logical id: <Function>Alias<name> with "-" and "_" spelled out as D and U.
+func samAliasID(id string, props map[string]any) string {
+	alias, ok := props["AutoPublishAlias"].(string)
+	if !ok || alias == "" {
+		return ""
+	}
+
+	return id + "Alias" + strings.NewReplacer("-", "D", "_", "U").Replace(alias)
 }

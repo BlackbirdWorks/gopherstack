@@ -32,13 +32,13 @@ func (t *samTranslator) s3Event(ev *samEventCtx, name string, props map[string]a
 		return samErr(ev.id, "Event [%s] of type S3 is missing required property 'Events'.", name)
 	}
 	for _, e := range events {
-		cfg := map[string]any{"Event": e, samKeyFunction: samGetAtt(ev.id, attrNameArn)}
+		cfg := map[string]any{"Event": e, samKeyFunction: ev.fnArn()}
 		if props["Filter"] != nil {
 			cfg["Filter"] = props["Filter"]
 		}
 		t.s3Configs[bucket] = append(t.s3Configs[bucket], cfg)
 	}
-	perm := lambdaPermission(ev.id, "s3.amazonaws.com", samGetAtt(bucket, attrNameArn))
+	perm := lambdaPermission(ev.target(), "s3.amazonaws.com", samGetAtt(bucket, attrNameArn))
 	asMap(perm[samKeyProps])["SourceAccount"] = samRef("AWS::AccountId")
 
 	return t.put(ev.id+name+"Permission", perm)
@@ -94,7 +94,7 @@ func (t *samTranslator) scheduleV2Event(ev *samEventCtx, name string, props map[
 	if props["ScheduleExpression"] == nil {
 		return samErr(ev.id, "Event [%s] of type ScheduleV2 is missing required property 'ScheduleExpression'.", name)
 	}
-	target := map[string]any{attrNameArn: samGetAtt(ev.id, attrNameArn)}
+	target := map[string]any{attrNameArn: ev.fnArn()}
 	for _, k := range []string{samKeyInput, "RetryPolicy"} {
 		if v, ok := props[k]; ok {
 			target[k] = v

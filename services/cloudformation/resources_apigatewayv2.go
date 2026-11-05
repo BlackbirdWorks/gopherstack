@@ -3,11 +3,18 @@ package cloudformation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
+
+var errAPIImportWarnings = errors.New("warnings found during OpenAPI import")
 
 // physID for apigwv2 children encodes "<apiID>|<childID>".
 const apigwv2PhysIDSep = "|"
@@ -155,12 +162,78 @@ func (rc *ResourceCreator) createAPIGatewayV2API(
 	}
 	name := in.Name
 
+	body, err := rc.apiGatewayV2Body(ctx, props, params, physicalIDs)
+	if err != nil {
+		return "", fmt.Errorf("API Gateway V2 API %s body: %w", name, err)
+	}
+	if body != "" && props["FailOnWarnings"] == true {
+		warnings, wErr := apigatewayv2backend.OpenAPIImportWarnings(body)
+		if wErr != nil {
+			return "", fmt.Errorf("API Gateway V2 API %s body: %w", name, wErr)
+		}
+		if len(warnings) > 0 {
+			return "", fmt.Errorf("%w: API Gateway V2 API %s: %s", errAPIImportWarnings, name,
+				strings.Join(warnings, "; "))
+		}
+	}
+
 	api, err := rc.backends.APIGatewayV2.Backend.CreateAPI(ctx, in)
 	if err != nil {
 		return "", fmt.Errorf("create API Gateway V2 API %s: %w", name, err)
 	}
+	if body == "" {
+		return api.APIID, nil
+	}
+	basepath := strProp(props, "Basepath", params, physicalIDs)
+	if err = apigatewayv2backend.ApplyOpenAPI(rc.backends.APIGatewayV2.Backend, api.APIID, body, basepath); err != nil {
+		_ = rc.backends.APIGatewayV2.Backend.DeleteAPI(api.APIID)
+
+		return "", fmt.Errorf("import OpenAPI body into API Gateway V2 API %s: %w", name, err)
+	}
 
 	return api.APIID, nil
+}
+
+// apiGatewayV2Body returns the OpenAPI document of an HTTP API's Body or BodyS3Location ("" when neither is set).
+func (rc *ResourceCreator) apiGatewayV2Body(
+	ctx context.Context, props map[string]any, params, physicalIDs map[string]string,
+) (string, error) {
+	if body, ok := props["Body"]; ok && body != nil {
+		resolved := resolveDeep(body, params, physicalIDs)
+		if s, isStr := resolved.(string); isStr {
+			return s, nil
+		}
+		raw, err := json.Marshal(resolved)
+		if err != nil {
+			return "", fmt.Errorf("encode Body: %w", err)
+		}
+
+		return string(raw), nil
+	}
+	loc, ok := props["BodyS3Location"].(map[string]any)
+	if !ok {
+		return "", nil
+	}
+	if rc.backends.S3 == nil {
+		return "", fmt.Errorf("%w: no S3 backend to read BodyS3Location", errS3Fetch)
+	}
+	bucket := strProp(loc, "Bucket", params, physicalIDs)
+	key := strProp(loc, "Key", params, physicalIDs)
+	in := &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)}
+	if v := strProp(loc, "Version", params, physicalIDs); v != "" {
+		in.VersionId = aws.String(v)
+	}
+	out, err := rc.backends.S3.Backend.GetObject(ctx, in)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errS3Fetch, err)
+	}
+	defer out.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(out.Body, maxS3FetchBytes+1))
+	if err != nil || len(data) > maxS3FetchBytes {
+		return "", fmt.Errorf("%w: reading s3://%s/%s", errS3Fetch, bucket, key)
+	}
+
+	return string(data), nil
 }
 
 func (rc *ResourceCreator) deleteAPIGatewayV2API(apiID string) error {
@@ -379,11 +452,16 @@ func (rc *ResourceCreator) createAPIGatewayV2ApiMapping(
 		return logicalID + "-stub", nil
 	}
 	domainName := strProp(props, "DomainName", params, physicalIDs)
+	// Ref of an AWS::ApiGatewayV2::Stage is the stage name; this emulator's physical id is "<apiId>/<stage>".
+	_, stage, _ := strings.Cut(strProp(props, "Stage", params, physicalIDs), "/")
+	if stage == "" {
+		stage = strProp(props, "Stage", params, physicalIDs)
+	}
 	m, err := rc.backends.APIGatewayV2.Backend.CreateAPIMapping(
 		domainName,
 		apigatewayv2backend.CreateAPIMappingInput{
 			APIID:         strProp(props, "ApiId", params, physicalIDs),
-			Stage:         strProp(props, "Stage", params, physicalIDs),
+			Stage:         stage,
 			APIMappingKey: strProp(props, "ApiMappingKey", params, physicalIDs),
 		},
 	)

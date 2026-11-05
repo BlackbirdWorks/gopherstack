@@ -1838,7 +1838,7 @@ func (rc *ResourceCreator) deleteRoute53Resource(resourceType, physicalID string
 	case resTypeRoute53HostedZone:
 		return rc.deleteRoute53HostedZone(physicalID)
 	case resTypeRoute53RecordSet, resTypeRoute53RecordSetGroup:
-		return nil // record sets are deleted with the hosted zone
+		return rc.deleteRoute53Records(physicalID)
 	default:
 		return rc.deleteRoute53HealthCheck(physicalID)
 	}

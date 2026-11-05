@@ -111,7 +111,7 @@ func (t *samTranslator) putFunctionURL(id string, props map[string]any) error {
 	if cfg == nil {
 		return nil
 	}
-	if err := rejectUnknown(id, cfg, keySet(samKeyAuthType, "Cors", "InvokeMode")); err != nil {
+	if err := rejectUnknown(id, cfg, keySet(samKeyAuthType, samKeyCorsProp, "InvokeMode")); err != nil {
 		return err
 	}
 	auth, _ := cfg[samKeyAuthType].(string)
@@ -124,7 +124,7 @@ func (t *samTranslator) putFunctionURL(id string, props map[string]any) error {
 		out[samKeyQualifier] = alias
 		res[samKeyDependsOn] = []any{t.refs[id+".Alias"]}
 	}
-	for _, k := range []string{"Cors", "InvokeMode"} {
+	for _, k := range []string{samKeyCorsProp, "InvokeMode"} {
 		if cfg[k] != nil {
 			out[k] = cfg[k]
 		}

@@ -314,8 +314,8 @@ func smIntegration(rt samRoute) map[string]any {
 	}
 
 	return map[string]any{
-		"credentials": samGetAtt(rt.roleID, attrNameArn),
-		"httpMethod":  samHTTPPost,
+		"credentials":    samGetAtt(rt.roleID, attrNameArn),
+		samKeyHTTPMethod: samHTTPPost,
 		"requestTemplates": map[string]any{
 			samJSONMime: map[string]any{samKeyFnSub: fmt.Sprintf(tmpl, rt.fnID)},
 		},
@@ -324,6 +324,6 @@ func smIntegration(rt samRoute) map[string]any {
 			"400": map[string]any{samKeyStatusCd: "400"},
 		},
 		samKeyTypeLower: "aws",
-		"uri":           map[string]any{samKeyFnSub: smStartExecutionURI},
+		samKeyURI:       map[string]any{samKeyFnSub: smStartExecutionURI},
 	}
 }
