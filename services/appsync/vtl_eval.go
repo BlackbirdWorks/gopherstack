@@ -798,7 +798,12 @@ func smallInt(f float64) (int, bool) {
 		return 0, false
 	}
 
-	return int(f), true
+	i := int64(f)
+	if i > math.MaxInt32 || i < math.MinInt32 {
+		return 0, false
+	}
+
+	return int(i), true
 }
 
 func vrender(v any) string {

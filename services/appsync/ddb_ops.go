@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
@@ -230,16 +231,28 @@ func checkFailedErr(req map[string]any, err error) error {
 	return err
 }
 
+func clampInt32(i int64) int {
+	if i > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if i < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int(i)
+}
+
 func intOf(v any) int {
 	switch n := v.(type) {
 	case float64:
-		return int(n)
+		return clampInt32(int64(n))
 	case int:
-		return n
+		return clampInt32(int64(n))
 	case jsonx.Number:
-		i, _ := n.Int()
+		i, _ := n.Int64()
 
-		return i
+		return clampInt32(i)
 	default:
 		return 0
 	}
@@ -252,8 +265,8 @@ func ddbQueryScan(
 	q.Index, _ = req["index"].(string)
 	q.Consistent, _ = req["consistentRead"].(bool)
 
-	if n := intOf(req["limit"]); n > 0 {
-		q.Limit = int32(n) //nolint:gosec // bounded by request
+	if n := intOf(req["limit"]); n > 0 && n <= math.MaxInt32 {
+		q.Limit = int32(n)
 	}
 
 	if fwd, ok := req["scanIndexForward"].(bool); ok {
