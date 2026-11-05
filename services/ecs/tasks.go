@@ -167,21 +167,23 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 	async := b.startTasksOutsideLock(work)
 
 	// Snapshot before launching so async tasks are reported PROVISIONING, as AWS does.
-	tasks := func() []Task {
-		b.mu.RLock("RunTask-response")
-		defer b.mu.RUnlock()
-
-		out := make([]Task, 0, len(work))
-		for _, w := range work {
-			out = append(out, b.taskWithLiveTagsLocked(w.task))
-		}
-
-		return out
-	}()
+	tasks := b.snapshotTasks(work)
 
 	b.launchAll(async)
 
 	return tasks, failures, nil
+}
+
+func (b *InMemoryBackend) snapshotTasks(work []taskWork) []Task {
+	b.mu.RLock("RunTask-response")
+	defer b.mu.RUnlock()
+
+	out := make([]Task, 0, len(work))
+	for _, w := range work {
+		out = append(out, b.taskWithLiveTagsLocked(w.task))
+	}
+
+	return out
 }
 
 // startTasksOutsideLock finishes runner-less tasks inline and returns the real-runner tasks for launchAll.
