@@ -1697,6 +1697,30 @@
    "policyId": "ANPAJNCQGXC42545SKXIK"
   },
   {
+   "name": "AWSLambdaBasicDurableExecutionRolePolicy",
+   "path": "/service-role/",
+   "defaultVersionId": "v3",
+   "createDate": "2025-12-02T15:04:00Z",
+   "updateDate": "2026-02-12T18:01:00Z",
+   "approximate": false,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents",
+       "lambda:CheckpointDurableExecution",
+       "lambda:GetDurableExecutionState"
+      ],
+      "Resource": "*"
+     }
+    ]
+   }
+  },
+  {
    "name": "AWSLambdaVPCAccessExecutionRole",
    "path": "/service-role/",
    "defaultVersionId": "v1",
