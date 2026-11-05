@@ -130,6 +130,7 @@ type InMemoryBackend struct {
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
 	slLifecycleDelay        time.Duration
+	slClock                 func() time.Time
 	reconcileInterval       time.Duration
 	reconcileMu             sync.Mutex
 	reconcileOn             bool
