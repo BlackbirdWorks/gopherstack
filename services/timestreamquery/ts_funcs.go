@@ -148,6 +148,7 @@ func toUnit(per func(time.Time) int64) func(*sqlitedriver.FunctionContext, []dri
 
 func registerTimestreamFuncs() {
 	registerFuncsOnce.Do(func() {
+		registerUnnestModule()
 		reg := sqlitedriver.MustRegisterDeterministicScalarFunction
 		reg("ts_bin", argsTwo, udfBin)
 		reg("ts_ago", argsTwo, udfAgo)

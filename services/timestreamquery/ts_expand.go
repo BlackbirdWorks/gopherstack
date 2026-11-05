@@ -21,11 +21,7 @@ func translateTimestream(q string, set loadedSet) (string, error) {
 			return "", argErr
 		}
 
-		mod, modErr := unnestModuleFor(u.cols)
-		if modErr != nil {
-			return "", modErr
-		}
-
+		mod := unnestModuleFor(u.cols)
 		out = strings.ReplaceAll(out, `"main".`+quoteIdent(unnestPlaceholder(i)), mod+"("+arg+")")
 	}
 

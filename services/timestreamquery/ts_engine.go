@@ -23,7 +23,7 @@ const (
 var (
 	reNoColumn   = regexp.MustCompile(`no such column: (\S+)`)
 	reNoFunction = regexp.MustCompile(`no such function: (\S+)`)
-	reUnnestMod  = regexp.MustCompile(`\bts_unnest_\d+\b`)
+	reUnnestMod  = regexp.MustCompile(`\bts_unnest_[0-9a-f]+\b`)
 	reSQLiteTag  = regexp.MustCompile(`^SQL logic error: |\s\(\d+\)$`)
 )
 
@@ -118,6 +118,7 @@ func loadSourceTables(
 			}
 		}
 
+		recs = slices.Clone(recs)
 		sort.SliceStable(recs, func(i, j int) bool { return recs[i].Time.Before(recs[j].Time) })
 
 		for _, r := range recs {
@@ -205,8 +206,8 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	}
 
 	for _, mod := range reUnnestMod.FindAllString(q, -1) {
-		//nolint:gosec // mod matches ^ts_unnest_\d+$
-		ddl := "CREATE VIRTUAL TABLE IF NOT EXISTS temp." + mod + " USING " + mod
+		//nolint:gosec // mod matches ^ts_unnest_[0-9a-f]+$
+		ddl := "CREATE VIRTUAL TABLE IF NOT EXISTS temp." + mod + " USING " + unnestModuleName
 		if _, err = conn.ExecContext(ctx, ddl); err != nil {
 			return nil, fmt.Errorf("timestreamquery: unnest module: %w", err)
 		}
