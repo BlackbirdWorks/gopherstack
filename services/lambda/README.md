@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 11 (11 ok) |
-| Known gaps | 6 |
+| Known gaps | 5 |
 | Structural gaps (can't be emulated) | 11 |
 | Deferred items | 0 |
 | Resource leaks | ok |
@@ -16,8 +16,7 @@
 ### Known gaps
 
 - CONTAINER_RUNTIME=kubernetes (Pod executor, gopherstack-49qct.87): EFS file systems, hot reload, layer extensions, LAMBDA_DOCKER_FLAGS and host DNS/CA injection are not supported on Pods; those functions fail to start or skip the feature. Tracked in gopherstack-49qct.88.
-- Extensions API: the Telemetry/Logs API (/2022-07-01/telemetry, /2020-08-15/logs) is not served; extensions that subscribe get 404.
-- Extensions API: container-image functions do not start /opt/extensions executables (no image entrypoint inspection; only Zip functions with layers are wrapped by the extension launcher), and internal extensions registering for SHUTDOWN are not rejected (internal vs external is not distinguishable at register time).
+- Telemetry/Logs API (gopherstack-49qct.91): not emitted -- platform.restoreStart/RuntimeDone/Report (SnapStart), platform.fault (Logs API), spans on init events, and runtimeOverhead span; platform.runtimeDone fires when the response is posted, not at the runtime's next call. Function/extension lines come from container stdout/stderr (extension lines are tagged by the launcher), so extensions of image functions without /bin/sh are not started and unclassified internal/external. Error-type strings and status codes for unknown/late subscribers, internal-extension SHUTDOWN rejection (400 Extension.InvalidEventType) and the TCP URI form (tcp://host:port) are unverified: the AWS docs list only status codes.
 - Extensions API: the error-type strings in register 4xx bodies (Extension.InvalidExtensionName, Extension.TooManyExtensions, Extension.RegistrationClosed, Extension.AlreadyRegistered, Extension.InvalidEventType) are unverified recall; the AWS docs list only the status codes. SHUTDOWN waits until each extension took the event (up to 2s), not until the process exits.
 - GET /_aws/lambda/runtimes returns {"Runtimes": [...]}; LocalStack's docs name the endpoint and filter=deprecated|all but do not document the response shape, so the shape is unverified. LOCALSTACK_INIT_LOG_LEVEL and LOCALSTACK_USER are not applicable (no LocalStack init binary); pass them through LAMBDA_DOCKER_FLAGS -e if an image needs them.
 - --lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7).

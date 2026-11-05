@@ -45,6 +45,16 @@ func sub(t *testing.T, h *extHarness, api, id, body string) (int, map[string]str
 	return status, out
 }
 
+func withDest(schema, typ, dest string) string {
+	return `{"schemaVersion":"` + schema + `","types":["` + typ + `"],"destination":` + dest + `}`
+}
+
+func withBuffering(buf string) string {
+	return `{"schemaVersion":"2022-07-01","types":["platform"],"buffering":` + buf + `,"destination":` + goodDest + `}`
+}
+
+const noPortDest = `{"protocol":"HTTP","URI":"http://sandbox.localdomain"}`
+
 const goodDest = `{"protocol":"HTTP","URI":"http://sandbox.localdomain:8080/x"}`
 
 func TestTelemetrySubscribeValidation(t *testing.T) {
@@ -71,7 +81,7 @@ func TestTelemetrySubscribeValidation(t *testing.T) {
 		},
 		{
 			"telemetry tcp", apiTelemetry,
-			`{"schemaVersion":"2022-12-13","types":["function"],"destination":{"protocol":"TCP","URI":"tcp://sandbox.localdomain:7000"}}`,
+			withDest("2022-12-13", "function", `{"protocol":"TCP","URI":"tcp://sandbox.localdomain:7000"}`),
 			"", "", http.StatusOK,
 		},
 		{
@@ -92,27 +102,27 @@ func TestTelemetrySubscribeValidation(t *testing.T) {
 		},
 		{
 			"no port", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":[],"destination":{"protocol":"HTTP","URI":"http://sandbox.localdomain"}}`,
+			`{"schemaVersion":"2022-07-01","types":[],"destination":` + noPortDest + `}`,
 			"ValidationError", "URI port is not provided; types should not be empty", http.StatusBadRequest,
 		},
 		{
 			"https", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"destination":{"protocol":"HTTP","URI":"https://sandbox.localdomain:8080"}}`,
+			withDest("2022-07-01", "platform", `{"protocol":"HTTP","URI":"https://sandbox.localdomain:8080"}`),
 			"ValidationError", "scheme must be http", http.StatusBadRequest,
 		},
 		{
 			"reserved port", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"destination":{"protocol":"HTTP","URI":"http://sandbox.localdomain:9001"}}`,
+			withDest("2022-07-01", "platform", `{"protocol":"HTTP","URI":"http://sandbox.localdomain:9001"}`),
 			"ValidationError", "9001 is reserved", http.StatusBadRequest,
 		},
 		{
 			"remote host", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"destination":{"protocol":"HTTP","URI":"http://example.com:80"}}`,
+			withDest("2022-07-01", "platform", `{"protocol":"HTTP","URI":"http://example.com:80"}`),
 			"ValidationError", "inside the execution environment", http.StatusBadRequest,
 		},
 		{
 			"bad protocol", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"destination":{"protocol":"UDP","URI":"udp://sandbox.localdomain:80"}}`,
+			withDest("2022-07-01", "platform", `{"protocol":"UDP","URI":"udp://sandbox.localdomain:80"}`),
 			"ValidationError", "must be HTTP or TCP", http.StatusBadRequest,
 		},
 		{
@@ -121,22 +131,22 @@ func TestTelemetrySubscribeValidation(t *testing.T) {
 		},
 		{
 			"maxItems low", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"buffering":{"maxItems":999},"destination":` + goodDest + `}`,
+			withBuffering(`{"maxItems":999}`),
 			"ValidationError", "buffering.maxItems must be between 1000 and 10000", http.StatusBadRequest,
 		},
 		{
 			"maxBytes high", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"buffering":{"maxBytes":1048577},"destination":` + goodDest + `}`,
+			withBuffering(`{"maxBytes":1048577}`),
 			"ValidationError", "buffering.maxBytes must be between 262144 and 1048576", http.StatusBadRequest,
 		},
 		{
 			"timeout low", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"buffering":{"timeoutMs":24},"destination":` + goodDest + `}`,
+			withBuffering(`{"timeoutMs":24}`),
 			"ValidationError", "buffering.timeoutMs must be between 25 and 30000", http.StatusBadRequest,
 		},
 		{
 			"timeout high", apiTelemetry,
-			`{"schemaVersion":"2022-07-01","types":["platform"],"buffering":{"timeoutMs":30001},"destination":` + goodDest + `}`,
+			withBuffering(`{"timeoutMs":30001}`),
 			"ValidationError", "buffering.timeoutMs must be between", http.StatusBadRequest,
 		},
 		{"malformed", apiTelemetry, `{`, "ValidationError", "malformed", http.StatusBadRequest},
@@ -257,7 +267,13 @@ func TestInternalExtensionShutdownRejected(t *testing.T) {
 		events     []string
 		wantStatus int
 	}{
-		{"internal with shutdown", "internal", []string{"ext-bin"}, []string{"INVOKE", "SHUTDOWN"}, http.StatusBadRequest},
+		{
+			"internal with shutdown",
+			"internal",
+			[]string{"ext-bin"},
+			[]string{"INVOKE", "SHUTDOWN"},
+			http.StatusBadRequest,
+		},
 		{"internal invoke only", "internal", []string{"ext-bin"}, []string{"INVOKE"}, http.StatusOK},
 		{"external with shutdown", "ext-bin", []string{"ext-bin"}, []string{"INVOKE", "SHUTDOWN"}, http.StatusOK},
 		{"no external files", "anything", nil, []string{"SHUTDOWN"}, http.StatusBadRequest},
@@ -291,15 +307,15 @@ func TestTelemetryBatching(t *testing.T) {
 		name        string
 		buffering   string
 		publish     []hubEvent
-		wait        time.Duration
 		wantBatches []int
+		wait        time.Duration
 	}{
-		{"timeout flush", `{"timeoutMs":100}`, []hubEvent{line(1), line(1), line(1)}, 100 * time.Millisecond, []int{3}},
-		{"before timeout", `{"timeoutMs":100}`, []hubEvent{line(1)}, 99 * time.Millisecond, nil},
-		{"max items", `{"maxItems":1000,"timeoutMs":30000}`, repeat(line(1), 1000), 0, []int{1000}},
-		{"below max items", `{"maxItems":1000,"timeoutMs":30000}`, repeat(line(1), 999), 0, nil},
-		{"max bytes", `{"maxBytes":262144,"timeoutMs":30000}`, repeat(line(10000), 27), 0, []int{27}},
-		{"below max bytes", `{"maxBytes":262144,"timeoutMs":30000}`, repeat(line(10000), 20), 0, nil},
+		{"timeout flush", `{"timeoutMs":100}`, []hubEvent{line(1), line(1), line(1)}, []int{3}, 100 * time.Millisecond},
+		{"before timeout", `{"timeoutMs":100}`, []hubEvent{line(1)}, nil, 99 * time.Millisecond},
+		{"max items", `{"maxItems":1000,"timeoutMs":30000}`, repeat(line(1), 1000), []int{1000}, 0},
+		{"below max items", `{"maxItems":1000,"timeoutMs":30000}`, repeat(line(1), 999), nil, 0},
+		{"max bytes", `{"maxBytes":262144,"timeoutMs":30000}`, repeat(line(10000), 27), []int{27}, 0},
+		{"below max bytes", `{"maxBytes":262144,"timeoutMs":30000}`, repeat(line(10000), 20), nil, 0},
 	}
 
 	for _, tt := range tests {
@@ -392,8 +408,9 @@ func TestTelemetryEventSchemas(t *testing.T) {
 		}, "initRuntimeDone", "platform.initRuntimeDone", `{"initializationType":"on-demand","status":"success",
 			"spans":[{"name":"someTimeSpan","start":"2022-06-02T12:02:33.913Z","durationMs":70.5}]}`},
 		{recInitReport{
-			InitializationType: "on-demand", Status: "success", Phase: "init", Metrics: recInitMetrics{DurationMs: 125.33},
-			Spans: []telSpan{{Name: "someTimeSpan", Start: "2022-06-02T12:02:33.913Z", DurationMs: 90.1}},
+			InitializationType: "on-demand", Status: "success", Phase: "init",
+			Metrics: recInitMetrics{DurationMs: 125.33},
+			Spans:   []telSpan{{Name: "someTimeSpan", Start: "2022-06-02T12:02:33.913Z", DurationMs: 90.1}},
 		}, "initReport", "platform.initReport", `{"initializationType":"on-demand","status":"success","phase":"init",
 			"metrics":{"durationMs":125.33},
 			"spans":[{"name":"someTimeSpan","start":"2022-06-02T12:02:33.913Z","durationMs":90.1}]}`},
@@ -424,15 +441,23 @@ func TestTelemetryEventSchemas(t *testing.T) {
 			`{"events":["INVOKE","SHUTDOWN"],"name":"my-telemetry-extension","state":"Ready"}`,
 		},
 		{
-			recSubscription{Name: "my-telemetry-extension", State: "Subscribed", Types: []string{"platform", "function"}},
+			recSubscription{
+				Name:  "my-telemetry-extension",
+				State: "Subscribed",
+				Types: []string{"platform", "function"},
+			},
 			"telemetrySubscription", "platform.telemetrySubscription",
 			`{"name":"my-telemetry-extension","state":"Subscribed","types":["platform","function"]}`,
 		},
 		{
-			recLogsDropped{Reason: "Some logs were dropped because the downstream consumer is slower than the logs production rate", DroppedRecords: 123, DroppedBytes: 12345},
+			recLogsDropped{
+				Reason:         dropReason,
+				DroppedRecords: 123,
+				DroppedBytes:   12345,
+			},
 			"logsDropped", "platform.logsDropped",
 			`{"droppedBytes":12345,"droppedRecords":123,
-			"reason":"Some logs were dropped because the downstream consumer is slower than the logs production rate"}`,
+			"reason":"` + dropReason + `"}`,
 		},
 		{
 			recRequestID{RequestID: "6f7f0961f83442118a7af6fe80b88d56"},
@@ -445,7 +470,8 @@ func TestTelemetryEventSchemas(t *testing.T) {
 			"platform.runtimeDone", `{"requestId":"6f7f0961f83442118a7af6fe80b88","status":"failure"}`,
 		},
 		{logsReport{RequestID: "6f7f0961f83442118a7af6fe80b88d56", Metrics: recReportMetrics{
-			DurationMs: 101.51, BilledDuration: 300, MemorySizeMB: 512, MaxMemoryUsedMB: 33, InitDurationMs: ptrF(116.67),
+			DurationMs: 101.51, BilledDuration: 300, MemorySizeMB: 512, MaxMemoryUsedMB: 33,
+			InitDurationMs: new(116.67),
 		}}, "logs report", "platform.report", `{"requestId":"6f7f0961f83442118a7af6fe80b88d56",
 			"metrics":{"durationMs":101.51,"billedDurationMs":300,"memorySizeMB":512,"maxMemoryUsedMB":33,
 			"initDurationMs":116.67}}`},
@@ -465,8 +491,6 @@ func TestTelemetryEventSchemas(t *testing.T) {
 		})
 	}
 }
-
-func ptrF(v float64) *float64 { return &v }
 
 func TestTelemetryLogRecords(t *testing.T) {
 	t.Parallel()
@@ -509,9 +533,9 @@ func TestTelemetryLogRecords(t *testing.T) {
 
 // listener collects what the emulator delivers to an extension's local listener.
 type listener struct {
-	mu     sync.Mutex
-	events []wireEvent
 	addr   string
+	events []wireEvent
+	mu     sync.Mutex
 }
 
 func (l *listener) add(evs []wireEvent) {
@@ -549,7 +573,7 @@ func newHTTPListener(t *testing.T) *listener {
 	t.Helper()
 
 	l := &listener{}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		var evs []wireEvent
 
 		raw, _ := io.ReadAll(r.Body)
@@ -605,35 +629,45 @@ func TestTelemetryDeliveryLifecycle(t *testing.T) {
 		proto     string
 		schema    string
 		types     string
-		jsonLogs  bool
 		wantOrder []string
+		jsonLogs  bool
 	}{
 		{
-			"telemetry http", apiTelemetry, protoHTTP, schemaTelemetry20221213, `["platform","function","extension"]`, true,
+			"telemetry http", apiTelemetry, protoHTTP, schemaTelemetry20221213, `["platform","function","extension"]`,
 			[]string{
 				"platform.initStart", "platform.telemetrySubscription", "platform.extension",
 				"platform.initRuntimeDone", "platform.initReport", "platform.start", "function", "extension",
 				"platform.runtimeDone", "platform.report",
 			},
+			true,
 		},
 		{
-			"telemetry tcp", apiTelemetry, protoTCP, schemaTelemetry20220701, `["platform","function"]`, false,
+			"telemetry tcp", apiTelemetry, protoTCP, schemaTelemetry20220701, `["platform","function"]`,
 			[]string{
 				"platform.initStart", "platform.telemetrySubscription", "platform.extension",
 				"platform.initRuntimeDone", "platform.initReport", "platform.start", "function",
 				"platform.runtimeDone", "platform.report",
 			},
+			false,
 		},
 		{
-			"logs http", apiLogs, protoHTTP, schemaLogs20210318, `["platform","function","extension"]`, false,
+			"logs http", apiLogs, protoHTTP, schemaLogs20210318, `["platform","function","extension"]`,
 			[]string{
 				"platform.logsSubscription", "platform.extension", "platform.start", "function", "extension",
 				"platform.runtimeDone", "platform.end", "platform.report",
 			},
+			false,
 		},
 		{
-			"logs http old schema", apiLogs, protoHTTP, schemaLogs20200815, `["platform"]`, false,
-			[]string{"platform.logsSubscription", "platform.extension", "platform.start", "platform.end", "platform.report"},
+			"logs http old schema", apiLogs, protoHTTP, schemaLogs20200815, `["platform"]`,
+			[]string{
+				"platform.logsSubscription",
+				"platform.extension",
+				"platform.start",
+				"platform.end",
+				"platform.report",
+			},
+			false,
 		},
 	}
 
@@ -768,7 +802,11 @@ func TestLineSplitter(t *testing.T) {
 		{"whole lines", []string{"a\nb\n"}, []string{"function:a", "function:b"}},
 		{"split across writes", []string{"he", "llo\nwor", "ld\n"}, []string{"function:hello", "function:world"}},
 		{"crlf", []string{"a\r\n"}, []string{"function:a"}},
-		{"extension marker", []string{extensionLogMarker + "from ext\nfrom fn\n"}, []string{"extension:from ext", "function:from fn"}},
+		{
+			"extension marker",
+			[]string{extensionLogMarker + "from ext\nfrom fn\n"},
+			[]string{"extension:from ext", "function:from fn"},
+		},
 	}
 
 	for _, tt := range tests {

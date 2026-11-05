@@ -48,13 +48,13 @@ type invocationTrack struct {
 
 // phaseTracker records init and per-invocation timing so platform events carry real durations.
 type phaseTracker struct {
+	initAt      time.Time
 	mu          *lockmetrics.RWMutex
 	invs        map[string]*invocationTrack
-	reportQueue []string
 	memProbe    func(ctx context.Context) (int64, bool)
-	id          hubIdentity
-	initAt      time.Time
 	initMs      *float64
+	id          hubIdentity
+	reportQueue []string
 	initDone    bool
 	coldStart   bool
 }
@@ -193,7 +193,13 @@ func functionErrorType(header string, body []byte) string {
 }
 
 // runtimeDone publishes platform.runtimeDone for a response or error the runtime posted.
-func (h *telemetryHub) runtimeDone(reqID string, isErr bool, errType string, produced int, readStart, readEnd time.Time) {
+func (h *telemetryHub) runtimeDone(
+	reqID string,
+	isErr bool,
+	errType string,
+	produced int,
+	readStart, readEnd time.Time,
+) {
 	status := statusSuccess
 	if isErr {
 		status = statusError
@@ -263,9 +269,9 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 	memMB := h.ph.id.memoryMB
 
 	type item struct {
+		cold *float64
 		tr   invocationTrack
 		id   string
-		cold *float64
 	}
 
 	items := make([]item, 0, len(queue))
@@ -324,8 +330,8 @@ func (h *telemetryHub) invokePhaseEnded(ctx context.Context, now time.Time) {
 
 // logsReport is the Logs API platform.report record, which has no status or spans.
 type logsReport struct {
-	Metrics   recReportMetrics `json:"metrics"`
 	RequestID string           `json:"requestId"`
+	Metrics   recReportMetrics `json:"metrics"`
 }
 
 // extensionReady publishes platform.extension when an extension finished its init.

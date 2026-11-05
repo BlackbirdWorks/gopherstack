@@ -19,12 +19,11 @@ import (
 
 type execRuntime struct {
 	container.Runtime
-
 	listErr  error
-	mu       sync.Mutex
-	cmds     []string
 	listOut  string
+	cmds     []string
 	listExit int
+	mu       sync.Mutex
 }
 
 func (e *execRuntime) Exec(_ context.Context, _ string, cmd []string) (container.ExecResult, error) {
@@ -120,7 +119,10 @@ func TestExtensionStartLoopTagsExtensionOutput(t *testing.T) {
 
 	dir := t.TempDir()
 	ext := filepath.Join(dir, "ext")
-	require.NoError(t, os.WriteFile(ext, []byte("#!/bin/sh\necho out-line\necho err-line >&2\nprintf partial\n"), 0o600))
+	require.NoError(
+		t,
+		os.WriteFile(ext, []byte("#!/bin/sh\necho out-line\necho err-line >&2\nprintf partial\n"), 0o600),
+	)
 	require.NoError(t, os.Chmod(ext, 0o755)) // #nosec G302
 
 	script := strings.ReplaceAll(extensionStartLoop, "/opt/extensions", dir) + "wait\n"

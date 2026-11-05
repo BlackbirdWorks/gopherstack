@@ -140,7 +140,8 @@ func buildExtensionImage(t *testing.T, bin []byte) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(telemetryDockerfile), 0o600))
 
 	tag := "gopherstack-telemetry-ext-test:" + strings.ToLower(filepath.Base(dir))
-	if out, err := exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, dir).CombinedOutput(); err != nil {
+	build := exec.CommandContext(t.Context(), "docker", "build", "-q", "-t", tag, dir)
+	if out, err := build.CombinedOutput(); err != nil {
 		t.Skipf("cannot build image: %v: %s", err, out)
 	}
 
@@ -166,37 +167,45 @@ func TestLambdaTelemetryAPIDocker(t *testing.T) {
 	imageTag := buildExtensionImage(t, bin)
 
 	tests := []struct {
-		name  string
 		setup func(t *testing.T, bk *lambdabackend.InMemoryBackend, fn *lambdabackend.FunctionConfiguration)
+		name  string
 	}{
-		{"zip with layer", func(t *testing.T, bk *lambdabackend.InMemoryBackend, fn *lambdabackend.FunctionConfiguration) {
-			t.Helper()
+		{
+			name: "zip with layer",
+			setup: func(t *testing.T, bk *lambdabackend.InMemoryBackend, fn *lambdabackend.FunctionConfiguration) {
+				t.Helper()
 
-			layer, err := bk.PublishLayerVersion(&lambdabackend.PublishLayerVersionInput{
-				LayerName: "telemetry-layer",
-				Content:   &lambdabackend.LayerVersionContentInput{ZipFile: extensionLayerZip(t, bin)},
-			})
-			require.NoError(t, err)
+				layer, err := bk.PublishLayerVersion(&lambdabackend.PublishLayerVersionInput{
+					LayerName: "telemetry-layer",
+					Content:   &lambdabackend.LayerVersionContentInput{ZipFile: extensionLayerZip(t, bin)},
+				})
+				require.NoError(t, err)
 
-			fn.PackageType = lambdabackend.PackageTypeZip
-			fn.Runtime = "python3.12"
-			fn.Handler = "tel_handler.handler"
-			fn.ZipData = zipOf(t, "tel_handler.py", telemetryHandler)
-			fn.Layers = []*lambdabackend.FunctionLayer{{Arn: layer.LayerVersionArn}}
-		}},
-		{"container image", func(t *testing.T, _ *lambdabackend.InMemoryBackend, fn *lambdabackend.FunctionConfiguration) {
-			t.Helper()
+				fn.PackageType = lambdabackend.PackageTypeZip
+				fn.Runtime = "python3.12"
+				fn.Handler = "tel_handler.handler"
+				fn.ZipData = zipOf(t, "tel_handler.py", telemetryHandler)
+				fn.Layers = []*lambdabackend.FunctionLayer{{Arn: layer.LayerVersionArn}}
+			},
+		},
+		{
+			name: "container image",
+			setup: func(t *testing.T, _ *lambdabackend.InMemoryBackend, fn *lambdabackend.FunctionConfiguration) {
+				t.Helper()
 
-			fn.PackageType = lambdabackend.PackageTypeImage
-			fn.ImageURI = imageTag
-		}},
+				fn.PackageType = lambdabackend.PackageTypeImage
+				fn.ImageURI = imageTag
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rt, err := container.NewRuntime(container.Config{Logger: slog.Default(), PoolSize: 2, IdleTimeout: time.Minute})
+			rt, err := container.NewRuntime(
+				container.Config{Logger: slog.Default(), PoolSize: 2, IdleTimeout: time.Minute},
+			)
 			if err != nil {
 				t.Skipf("container runtime unavailable: %v", err)
 			}
@@ -219,7 +228,12 @@ func TestLambdaTelemetryAPIDocker(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 			defer cancel()
 
-			out, status, invokeErr := bk.InvokeFunction(ctx, "tel-fn", lambdabackend.InvocationTypeRequestResponse, []byte(`{}`))
+			out, status, invokeErr := bk.InvokeFunction(
+				ctx,
+				"tel-fn",
+				lambdabackend.InvocationTypeRequestResponse,
+				[]byte(`{}`),
+			)
 			require.NoError(t, invokeErr)
 			require.Equal(t, 200, status)
 			assert.Contains(t, string(out), "true")

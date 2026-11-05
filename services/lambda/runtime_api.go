@@ -344,7 +344,7 @@ func (s *runtimeServer) handleInvocationResult(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	s.tel.runtimeDone(requestID, action == "error",
+	s.tel.runtimeDone(requestID, action == statusError,
 		functionErrorType(r.Header.Get("Lambda-Runtime-Function-Error-Type"), body), len(body), readStart, readEnd)
 
 	inv.result <- invocationResult{

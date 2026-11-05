@@ -13,6 +13,7 @@ const (
 	extensionLauncherPath  = "/opt/" + extensionLauncherName
 	extensionLauncherMode  = 0o755
 	baseImageEntrypoint    = "/lambda-entrypoint.sh"
+	shellPath              = "/bin/sh"
 	executableBits         = 0o111
 	extensionLauncherShell = `#!/bin/sh
 ` + extensionStartLoop + `exec "$@"
@@ -69,5 +70,5 @@ func wrapWithExtensionLauncher(spec *container.Spec, layerMount string) {
 		inner = []string{baseImageEntrypoint}
 	}
 
-	spec.Entrypoint = append([]string{"/bin/sh", extensionLauncherPath}, inner...)
+	spec.Entrypoint = append([]string{shellPath, extensionLauncherPath}, inner...)
 }

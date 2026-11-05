@@ -21,10 +21,11 @@ done`
 // function (image and layers merged), then tells the registry which names are external extensions.
 // Images without /bin/sh cannot be probed; the registry then treats every extension as unclassified.
 func (b *InMemoryBackend) startImageExtensions(ctx context.Context, srv *runtimeServer, containerID string) {
-	res, err := b.docker.Exec(ctx, containerID, []string{"/bin/sh", "-c", imageExtensionListScript})
+	res, err := b.docker.Exec(ctx, containerID, []string{shellPath, "-c", imageExtensionListScript})
 	if err != nil || res.ExitCode != 0 {
-		logger.Load(ctx).WarnContext(ctx, "lambda: cannot list /opt/extensions in the image; extensions are not started",
-			"error", err, "exitCode", res.ExitCode)
+		logger.Load(ctx).
+			WarnContext(ctx, "lambda: cannot list /opt/extensions in the image; extensions are not started",
+				"error", err, "exitCode", res.ExitCode)
 		srv.exts.releaseInit()
 
 		return
@@ -37,7 +38,7 @@ func (b *InMemoryBackend) startImageExtensions(ctx context.Context, srv *runtime
 		return
 	}
 
-	start, startErr := b.docker.Exec(ctx, containerID, []string{"/bin/sh", "-c", imageExtensionStartScript})
+	start, startErr := b.docker.Exec(ctx, containerID, []string{shellPath, "-c", imageExtensionStartScript})
 	if startErr != nil || start.ExitCode != 0 {
 		logger.Load(ctx).WarnContext(ctx, "lambda: starting image extensions failed",
 			"error", startErr, "exitCode", start.ExitCode, "stderr", start.Stderr)

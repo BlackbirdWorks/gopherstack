@@ -161,7 +161,7 @@ func (b *InMemoryBackend) attachContainer(srv *runtimeServer, containerID string
 
 	srv.tel.ph.setMemoryProbe(func(ctx context.Context) (int64, bool) {
 		res, err := docker.Exec(ctx, containerID, []string{
-			"/bin/sh", "-c",
+			shellPath, "-c",
 			"cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes",
 		})
 		if err != nil || res.ExitCode != 0 {

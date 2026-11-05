@@ -80,7 +80,7 @@ type invokeWait struct {
 
 // extensionRegistry is the per-function state machine behind the Extensions API.
 type extensionRegistry struct {
-	mu              *lockmetrics.RWMutex
+	holdCh          chan struct{}
 	exts            map[string]*extension
 	names           map[string]struct{}
 	waits           map[string]*invokeWait
@@ -88,15 +88,15 @@ type extensionRegistry struct {
 	closing         chan struct{}
 	hub             *telemetryHub
 	externalNames   map[string]struct{}
+	mu              *lockmetrics.RWMutex
 	meta            extensionMeta
-	expected        int
 	shutdownTimeout time.Duration
 	initTimeout     time.Duration
+	expected        int
 	closeOnce       sync.Once
 	initDone        bool
 	shutdownSent    bool
 	initFailed      bool
-	holdCh          chan struct{}
 	holding         bool
 	externalKnown   bool
 }
@@ -331,7 +331,10 @@ func (r *extensionRegistry) register(
 	if shutdown && r.externalKnown {
 		if _, external := r.externalNames[name]; !external {
 			return registerResponse{}, "", http.StatusBadRequest,
-				&extensionError{"Extension.InvalidEventType", "internal extensions cannot register for the SHUTDOWN event"}
+				&extensionError{
+					"Extension.InvalidEventType",
+					"internal extensions cannot register for the SHUTDOWN event",
+				}
 		}
 	}
 

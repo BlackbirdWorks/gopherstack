@@ -45,10 +45,16 @@ const (
 	bytesPerMB                                   = 1 << 20
 	telemetryValidationErrorType                 = "ValidationError"
 	logsValidationErrorType                      = "Logs.ValidationError"
-	dropReason                                   = "Some logs were dropped because the downstream consumer is slower than the logs production rate"
-	logsDropReason                               = "Consumer seems to have fallen behind as it has not acknowledged receipt of logs."
+	recordFrameBytes                             = 32
 	sandboxHost                                  = "sandbox.localdomain"
 	maxSubscribeBodyBytes                        = 1 << 20
+)
+
+const (
+	dropReason = "Some logs were dropped because the downstream consumer is slower than " +
+		"the logs production rate"
+	logsDropReason = "Consumer seems to have fallen behind as it has not acknowledged " +
+		"receipt of logs."
 )
 
 type bufferingRequest struct {
@@ -113,6 +119,11 @@ func validationErrorType(api string) string {
 }
 
 // validateSubscription checks req against the documented bounds; problems are joined with "; ".
+// validationError is the errorMessage of a rejected Subscribe request.
+type validationError string
+
+func (e validationError) Error() string { return string(e) }
+
 func validateSubscription(api string, req *subscribeRequest) (subscription, error) {
 	sub := subscription{api: api, types: map[string]bool{}}
 
@@ -138,7 +149,7 @@ func validateSubscription(api string, req *subscribeRequest) (subscription, erro
 	problems = append(problems, validateBuffering(req.Buffering, &sub.buf)...)
 
 	if len(problems) > 0 {
-		return subscription{}, fmt.Errorf("%s", strings.Join(problems, "; ")) //nolint:err113 // message is the response body
+		return subscription{}, validationError(strings.Join(problems, "; "))
 	}
 
 	return sub, nil
@@ -226,7 +237,11 @@ func validateDestination(req *destinationRequest, out *destination) []string {
 		return []string{"destination.URI is required"}
 	}
 
-	u, err := url.Parse(req.URI)
+	return validateDestinationURI(req.URI, out)
+}
+
+func validateDestinationURI(uri string, out *destination) []string {
+	u, err := url.Parse(uri)
 	if err != nil || u.Host == "" {
 		return []string{"destination.URI is not a valid URI"}
 	}
@@ -245,15 +260,13 @@ func validateDestination(req *destinationRequest, out *destination) []string {
 	}
 
 	port, convErr := strconv.Atoi(u.Port())
-	if convErr != nil || port < 1 || port > maxPort {
+
+	switch {
+	case convErr != nil || port < 1 || port > maxPort:
 		return []string{"URI port is invalid"}
-	}
-
-	if port == reservedTelemetryPort {
+	case port == reservedTelemetryPort:
 		return []string{"URI port 9001 is reserved"}
-	}
-
-	if !isSandboxHost(u.Hostname()) {
+	case !isSandboxHost(u.Hostname()):
 		return []string{"URI host must be " + sandboxHost + " (destinations must be inside the execution environment)"}
 	}
 
@@ -277,9 +290,30 @@ func (d destination) target(containerHost string) string {
 
 // wireEvent is one telemetry/log event as delivered to a subscriber.
 type wireEvent struct {
+	Record any    `json:"record"`
 	Time   string `json:"time"`
 	Type   string `json:"type"`
-	Record any    `json:"record"`
+}
+
+// MarshalJSON writes the fields in the documented order: time, type, record.
+func (e wireEvent) MarshalJSON() ([]byte, error) {
+	rec, err := json.Marshal(e.Record)
+	if err != nil {
+		return nil, err
+	}
+
+	t, _ := json.Marshal(e.Time)
+	typ, _ := json.Marshal(e.Type)
+
+	out := make([]byte, 0, len(rec)+len(t)+len(typ)+recordFrameBytes)
+	out = append(out, `{"time":`...)
+	out = append(out, t...)
+	out = append(out, `,"type":`...)
+	out = append(out, typ...)
+	out = append(out, `,"record":`...)
+	out = append(out, rec...)
+
+	return append(out, '}'), nil
 }
 
 func eventTime(t time.Time) string { return t.UTC().Format(eventTimeLayout) }
@@ -326,8 +360,8 @@ type recInitReport struct {
 	Status             string         `json:"status"`
 	Phase              string         `json:"phase"`
 	ErrorType          string         `json:"errorType,omitempty"`
-	Metrics            recInitMetrics `json:"metrics"`
 	Spans              []telSpan      `json:"spans,omitempty"`
+	Metrics            recInitMetrics `json:"metrics"`
 }
 
 type recStart struct {
@@ -360,11 +394,11 @@ type recReportMetrics struct {
 
 type recReport struct {
 	Tracing   *telTracing      `json:"tracing,omitempty"`
-	Metrics   recReportMetrics `json:"metrics"`
 	RequestID string           `json:"requestId"`
 	Status    string           `json:"status"`
 	ErrorType string           `json:"errorType,omitempty"`
 	Spans     []telSpan        `json:"spans,omitempty"`
+	Metrics   recReportMetrics `json:"metrics"`
 }
 
 type recExtension struct {
@@ -392,10 +426,4 @@ type recRequestID struct {
 type recLogsRuntimeDone struct {
 	RequestID string `json:"requestId"`
 	Status    string `json:"status"`
-}
-
-func marshalEvents(evs []wireEvent) []byte {
-	b, _ := json.Marshal(evs)
-
-	return b
 }

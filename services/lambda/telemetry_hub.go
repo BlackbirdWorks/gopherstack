@@ -25,6 +25,8 @@ const (
 	finalDeliveryBudget    = 750 * time.Millisecond
 	hubCloseWait           = 3 * time.Second
 	jsonObjectPrefix       = "{"
+	backoffFactor          = 2
+	bodyFrameBytes         = 2
 )
 
 var (
@@ -75,19 +77,19 @@ func (e hubEvent) render(s *subscriber) (wireEvent, bool) {
 
 // subscriber buffers and delivers events to one extension's listener.
 type subscriber struct {
+	conn     net.Conn
 	hub      *telemetryHub
 	in       chan []byte
 	stop     chan struct{}
 	flushReq chan chan struct{}
 	done     chan struct{}
-	extName  string
 	target   string
+	extName  string
 	sub      subscription
 	droppedN atomic.Int64
 	droppedB atomic.Int64
-	jsonLogs bool
 	stopOnce sync.Once
-	conn     net.Conn
+	jsonLogs bool
 }
 
 // lineRecord renders a log line: a string, or the parsed object for JSON-format logs on schema 2022-12-13+.
@@ -264,7 +266,7 @@ func (s *subscriber) deliver(batch [][]byte, final bool) {
 			}
 		}
 
-		backoff = min(backoff*2, deliveryMaxBackoff)
+		backoff = min(backoff*backoffFactor, deliveryMaxBackoff)
 	}
 }
 
@@ -277,7 +279,7 @@ func (s *subscriber) send(batch [][]byte) error {
 		return s.sendTCP(batch)
 	}
 
-	body := make([]byte, 0, 2+len(batch))
+	body := make([]byte, 0, bodyFrameBytes+len(batch))
 	body = append(body, '[')
 
 	for i, b := range batch {
@@ -309,7 +311,7 @@ func (s *subscriber) send(batch [][]byte) error {
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode/100 != 2 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("%w: status %d", errDelivery, resp.StatusCode)
 	}
 
@@ -352,9 +354,9 @@ type telemetryHub struct {
 	client    *http.Client
 	subs      map[string]*subscriber
 	ph        *phaseTracker
-	history   []hubEvent
 	sink      func(batch [][]byte) error
 	startLogs func()
+	history   []hubEvent
 	jsonLogs  bool
 	logsOn    bool
 	closed    bool
