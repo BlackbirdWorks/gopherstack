@@ -15,6 +15,9 @@ type vaultWire struct {
 	ManagementEndpoint string                    `json:"managementEndpoint"`
 	VaultType          string                    `json:"vaultType"`
 	WrappingKeyID      string                    `json:"wrappingkeyId"`
+	RestoredFromVault  string                    `json:"restoredFromVaultId,omitempty"`
+	ReplicaDetails     *replicationRef           `json:"replicaDetails,omitempty"`
+	IsVaultReplicable  bool                      `json:"isVaultReplicable"`
 	IsPrimary          bool                      `json:"isPrimary"`
 }
 
@@ -29,7 +32,8 @@ func vaultView(v *Vault, hostPort, state string) vaultWire {
 		CryptoEndpoint:     "http://" + v.Prefix + "-crypto.localhost" + hostPort,
 		ManagementEndpoint: "http://" + v.Prefix + "-management.localhost" + hostPort,
 		DisplayName:        v.DisplayName, ID: v.ID, LifecycleState: state, VaultType: v.VaultType,
-		WrappingKeyID: v.WrappingKeyID, IsPrimary: true,
+		WrappingKeyID: v.WrappingKeyID, IsPrimary: true, RestoredFromVault: v.RestoredFrom,
+		ReplicaDetails: refOf(v.ReplicationID), IsVaultReplicable: v.VaultType == "VIRTUAL_PRIVATE",
 	}
 }
 
@@ -70,6 +74,8 @@ type keyWire struct {
 	ID                     string                    `json:"id"`
 	LifecycleState         string                    `json:"lifecycleState"`
 	ProtectionMode         string                    `json:"protectionMode"`
+	RestoredFromKey        string                    `json:"restoredFromKeyId,omitempty"`
+	ReplicaDetails         *replicationRef           `json:"replicaDetails,omitempty"`
 	VaultID                string                    `json:"vaultId"`
 	KeyShape               KeyShape                  `json:"keyShape"`
 	IsPrimary              bool                      `json:"isPrimary"`
@@ -86,7 +92,8 @@ func keyView(k *Key, state string) keyWire {
 		FreeformTags: k.FreeformTags, DefinedTags: k.DefinedTags, CompartmentID: k.CompartmentID,
 		CurrentKeyVersion: k.CurrentVersion, DisplayName: k.DisplayName, ID: k.ID, LifecycleState: state,
 		ProtectionMode: k.ProtectionMode, VaultID: k.VaultID, KeyShape: k.Shape, IsPrimary: true,
-		IsAutoRotationEnabled: k.AutoRotation,
+		IsAutoRotationEnabled: k.AutoRotation, RestoredFromKey: k.RestoredFrom,
+		ReplicaDetails: refOf(k.ReplicationID),
 	}
 }
 
@@ -165,4 +172,12 @@ func keyVersionSummary(k *Key, kv *KeyVersion) keyVersionSummaryWire {
 		TimeCreated: kv.TimeCreated, TimeOfDeletion: kv.TimeOfDeletion, CompartmentID: k.CompartmentID, ID: kv.ID,
 		KeyID: k.ID, Origin: kv.Origin, VaultID: k.VaultID, LifecycleState: kv.State, IsAutoRotated: kv.AutoRotated,
 	}
+}
+
+func refOf(id string) *replicationRef {
+	if id == "" {
+		return nil
+	}
+
+	return &replicationRef{ReplicationID: id}
 }

@@ -70,29 +70,12 @@ type expiryRule struct {
 	Interval  string     `json:"secretVersionExpiryInterval"`
 }
 
-func unsupported(raw json.RawMessage, auto *bool, what string) *APIError {
-	if len(bytes.TrimSpace(raw)) > 0 && string(bytes.TrimSpace(raw)) != "null" || auto != nil && *auto {
-		return errParam(what + " is not supported by this emulator")
+func rejectReplication(repl json.RawMessage) *APIError {
+	if t := bytes.TrimSpace(repl); len(t) > 0 && string(t) != "null" {
+		return errParam("replicationConfig is not supported by this emulator")
 	}
 
 	return nil
-}
-
-func rejectUnsupported(repl, rot, gen json.RawMessage, auto *bool) *APIError {
-	for _, c := range []struct {
-		what string
-		raw  json.RawMessage
-	}{
-		{what: "replicationConfig", raw: repl},
-		{what: "rotationConfig", raw: rot},
-		{what: "secretGenerationContext", raw: gen},
-	} {
-		if aerr := unsupported(c.raw, nil, c.what); aerr != nil {
-			return aerr
-		}
-	}
-
-	return unsupported(nil, auto, "enableAutoGeneration")
 }
 
 func validateRules(rules []json.RawMessage) *APIError {
@@ -300,12 +283,7 @@ func validateCreateSecret(in *CreateSecretIn) *APIError {
 		return errParam("secretName must be 1-255 characters of letters, digits, hyphens, underscores and periods")
 	}
 
-	if aerr := rejectUnsupported(
-		in.ReplicationConfig,
-		in.RotationConfig,
-		in.SecretGenerationContext,
-		in.EnableAutoGeneration,
-	); aerr != nil {
+	if aerr := rejectReplication(in.ReplicationConfig); aerr != nil {
 		return aerr
 	}
 
@@ -316,6 +294,31 @@ func validateCreateSecret(in *CreateSecretIn) *APIError {
 func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, error) {
 	if aerr := validateCreateSecret(&in); aerr != nil {
 		return secretWire{}, "", aerr
+	}
+
+	rot, aerr := parseRotation(in.RotationConfig)
+	if aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
+	gen, aerr := parseGeneration(in.SecretGenerationContext)
+	if aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
+	auto := in.EnableAutoGeneration != nil && *in.EnableAutoGeneration
+	if auto && (gen == nil || in.SecretContent != nil) {
+		return secretWire{}, "", errParam(
+			"enableAutoGeneration requires secretGenerationContext and no secretContent")
+	}
+
+	if auto {
+		c, gerr := generatedContent(gen)
+		if gerr != nil {
+			return secretWire{}, "", gerr
+		}
+
+		in.SecretContent = c
 	}
 
 	b.mu.Lock("CreateSecret")
@@ -335,10 +338,13 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 
 	s := &Secret{
 		ID: newOCID("vaultsecret", ""), VaultID: in.VaultID, CompartmentID: in.CompartmentID, Name: in.SecretName,
-		KeyID: in.KeyID, Description: in.Description, State: stateActive, TimeCreated: b.nowUTC(),
+		KeyID: in.KeyID, Description: in.Description, TimeCreated: b.nowUTC(),
 		FreeformTags: in.FreeformTags, DefinedTags: in.DefinedTags, Metadata: in.Metadata, Rules: in.SecretRules,
 		Etag: newEtag(), Seq: b.nextSeq(),
 	}
+
+	s.GenContext, s.AutoGen = gen, auto
+	b.setRotation(s, rot)
 
 	if in.SecretContent != nil {
 		if aerr := b.addSecretVersion(s, in.SecretContent); aerr != nil {
@@ -346,9 +352,10 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 		}
 	}
 
+	b.begin(&s.State, &s.transition, stateCreating, stateActive)
 	b.secrets[s.ID] = s
 
-	return secretView(s, stateCreating), s.Etag, nil
+	return secretView(s, ""), s.Etag, nil
 }
 
 func (b *InMemoryBackend) secretByID(id string) (*Secret, *APIError) {
@@ -425,16 +432,21 @@ func (b *InMemoryBackend) ListSecrets(f SecretFilter, o ListOpts) (page.Page[sec
 
 // UpdateSecret edits metadata, adds a version on content change, or promotes a version.
 func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (secretWire, string, error) {
-	if aerr := rejectUnsupported(
-		in.ReplicationConfig,
-		in.RotationConfig,
-		in.SecretGenerationContext,
-		in.EnableAutoGeneration,
-	); aerr != nil {
+	if aerr := rejectReplication(in.ReplicationConfig); aerr != nil {
 		return secretWire{}, "", aerr
 	}
 
 	if aerr := validateRules(in.SecretRules); aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
+	rot, aerr := parseRotation(in.RotationConfig)
+	if aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
+	gen, aerr := parseGeneration(in.SecretGenerationContext)
+	if aerr != nil {
 		return secretWire{}, "", aerr
 	}
 
@@ -445,6 +457,12 @@ func (b *InMemoryBackend) UpdateSecret(id, ifMatch string, in UpdateSecretIn) (s
 	if aerr != nil {
 		return secretWire{}, "", aerr
 	}
+
+	if aerr = b.setGeneration(s, gen, in.EnableAutoGeneration); aerr != nil {
+		return secretWire{}, "", aerr
+	}
+
+	b.setRotation(s, rot)
 
 	if aerr = b.applySecretUpdate(s, in); aerr != nil {
 		return secretWire{}, "", aerr
@@ -513,7 +531,8 @@ func (b *InMemoryBackend) ScheduleSecretDeletion(id, ifMatch string, at *time.Ti
 		return aerr
 	}
 
-	s.State, s.TimeOfDeletion, s.Etag = statePendingDeletion, &t, newEtag()
+	s.TimeOfDeletion, s.Etag = &t, newEtag()
+	b.begin(&s.State, &s.transition, stateSchedulingDelete, statePendingDeletion)
 
 	return nil
 }
@@ -536,7 +555,8 @@ func (b *InMemoryBackend) CancelSecretDeletion(id, ifMatch string) error {
 		return aerr
 	}
 
-	s.State, s.TimeOfDeletion, s.Etag = stateActive, nil, newEtag()
+	s.TimeOfDeletion, s.Etag = nil, newEtag()
+	b.begin(&s.State, &s.transition, stateCancellingDelete, stateActive)
 
 	return nil
 }

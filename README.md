@@ -1009,7 +1009,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [OCI Object Storage](services/ociobjectstorage/README.md) | B | 52 | 10 gaps |
 | [OCI Queue](services/ociqueue/README.md) | B | 19 | 9 gaps |
 | [OCI Streaming](services/ocistreaming/README.md) | B | 30 | 9 gaps |
-| [OCI Vault](services/ocivault/README.md) | B | 45 | 11 gaps |
+| [OCI Vault](services/ocivault/README.md) | B | 57 | 12 gaps |
 
 ### Other
 

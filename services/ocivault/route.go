@@ -54,6 +54,18 @@ const (
 	opGetSecretBundle    = "GetSecretBundle"
 	opGetBundleByName    = "GetSecretBundleByName"
 	opListBundleVersions = "ListSecretBundleVersions"
+	opRotateSecret       = "RotateSecret"
+	opCancelRotation     = "CancelSecretRotation"
+	opCreateReplica      = "CreateVaultReplica"
+	opDeleteReplica      = "DeleteVaultReplica"
+	opListReplicas       = "ListVaultReplicas"
+	opReplicationStatus  = "GetReplicationStatus"
+	opBackupVault        = "BackupVault"
+	opBackupKey          = "BackupKey"
+	opRestoreVaultFile   = "RestoreVaultFromFile"
+	opRestoreVaultStore  = "RestoreVaultFromObjectStore"
+	opRestoreKeyFile     = "RestoreKeyFromFile"
+	opRestoreKeyStore    = "RestoreKeyFromObjectStore"
 	opAdminKeys          = "ManageAPIKeys"
 	opUnknown            = "Unknown"
 )
@@ -106,6 +118,16 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/scheduleDeletion", Op: opScheduleVaultDel},
 	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/cancelDeletion", Op: opCancelVaultDel},
 	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/changeCompartment", Op: opChangeVaultComp},
+	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/createReplica", Op: opCreateReplica},
+	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/deleteReplica", Op: opDeleteReplica},
+	{Method: http.MethodGet, Path: kmsBase + "/vaults/{vaultId}/actions/listReplicas", Op: opListReplicas},
+	{Method: http.MethodGet, Path: kmsBase + "/replicaOperations/{replicationId}/status", Op: opReplicationStatus},
+	{Method: http.MethodPost, Path: kmsBase + "/vaults/{vaultId}/actions/backup", Op: opBackupVault},
+	{Method: http.MethodPost, Path: kmsBase + "/vaults/actions/restoreFromFile", Op: opRestoreVaultFile},
+	{Method: http.MethodPost, Path: kmsBase + "/vaults/actions/restoreFromObjectStore", Op: opRestoreVaultStore},
+	{Method: http.MethodPost, Path: kmsBase + "/keys/{keyId}/actions/backup", Op: opBackupKey},
+	{Method: http.MethodPost, Path: kmsBase + "/keys/actions/restoreFromFile", Op: opRestoreKeyFile},
+	{Method: http.MethodPost, Path: kmsBase + "/keys/actions/restoreFromObjectStore", Op: opRestoreKeyStore},
 	{Method: http.MethodPost, Path: kmsBase + "/secrets", Op: opCreateSecret},
 	{Method: http.MethodGet, Path: kmsBase + "/secrets", Op: opListSecrets},
 	{Method: http.MethodGet, Path: kmsBase + "/secrets/{secretId}", Op: opGetSecret},
@@ -113,6 +135,8 @@ var router = restroute.New([]restroute.Route{
 	{Method: http.MethodPost, Path: kmsBase + "/secrets/{secretId}/actions/scheduleDeletion", Op: opScheduleSecretDel},
 	{Method: http.MethodPost, Path: kmsBase + "/secrets/{secretId}/actions/cancelDeletion", Op: opCancelSecretDel},
 	{Method: http.MethodPost, Path: kmsBase + "/secrets/{secretId}/actions/changeCompartment", Op: opChangeSecretComp},
+	{Method: http.MethodPost, Path: kmsBase + "/secrets/{secretId}/actions/rotate", Op: opRotateSecret},
+	{Method: http.MethodPost, Path: kmsBase + "/secrets/{secretId}/actions/cancelRotation", Op: opCancelRotation},
 	{Method: http.MethodGet, Path: kmsBase + "/secrets/{secretId}/versions", Op: opListSecretVersions},
 	{Method: http.MethodGet, Path: kmsBase + "/secrets/{secretId}/version/{versionNumber}", Op: opGetSecretVersion},
 	{

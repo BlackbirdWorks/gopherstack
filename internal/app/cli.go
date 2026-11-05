@@ -3877,6 +3877,22 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 
 	if osH, ook := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); ook && vok {
 		osH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+		vaultH.Backend.SetBlobStore(osH.Backend)
+	}
+
+	if fnH, fok := byName["OCIFunctions"].(*ocifunctionsbackend.Handler); fok && vok {
+		vaultH.Backend.SetFunctionInvoker(func(ctx context.Context, fnID string, body []byte) error {
+			out, err := fnH.Backend.Invoke(ctx, fnID, ocifunctionsbackend.InvokeIn{Body: body})
+			if err != nil {
+				return err
+			}
+
+			if out.Status >= http.StatusMultipleChoices {
+				return fmt.Errorf("rotation function returned status %d", out.Status)
+			}
+
+			return nil
+		})
 	}
 }
 

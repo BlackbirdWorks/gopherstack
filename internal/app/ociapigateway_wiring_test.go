@@ -75,6 +75,7 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 	clock := time.Now().UTC()
 	vaultB := ocivaultbackend.NewInMemoryBackend()
 	vaultB.SetClock(func() time.Time { return clock })
+	vaultB.SetTransitionDelay(0)
 
 	vault, _, err := vaultB.CreateVault(ocivaultbackend.CreateVaultIn{
 		CompartmentID: "ocid1.compartment.oc1..c", DisplayName: "v", VaultType: "DEFAULT",

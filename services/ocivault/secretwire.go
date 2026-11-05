@@ -6,6 +6,12 @@ import (
 )
 
 type secretWire struct {
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
+	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
+	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 	TimeCreated      time.Time                 `json:"timeCreated"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
@@ -24,6 +30,12 @@ type secretWire struct {
 }
 
 type secretSummaryWire struct {
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
+	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
+	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 	TimeCreated      time.Time                 `json:"timeCreated"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
@@ -166,15 +178,44 @@ func secretView(s *Secret, state string) secretWire {
 		w.CurrentVersion = &cur
 	}
 
+	w.rotationFields(s)
+
 	return w
 }
 
+func (w *secretWire) rotationFields(s *Secret) {
+	w.RotationConfig, w.GenerationCtx, w.AutoGeneration = s.rotationConfig(), s.GenContext, s.AutoGen
+	w.LastRotation, w.NextRotation, w.RotationStatus = s.rotationTimes()
+}
+
+func (s *Secret) rotationConfig() *RotationConfig {
+	if s.Rotation == nil {
+		return nil
+	}
+
+	c := s.Rotation.Config
+
+	return &c
+}
+
+func (s *Secret) rotationTimes() (last, next *time.Time, status string) {
+	if s.Rotation == nil {
+		return nil, nil, ""
+	}
+
+	return s.Rotation.LastRotation, s.Rotation.NextRotation, s.Rotation.Status
+}
+
 func secretSummary(s *Secret) secretSummaryWire {
-	return secretSummaryWire{
+	w := secretSummaryWire{
 		TimeCreated: s.TimeCreated, TimeOfDeletion: s.TimeOfDeletion, TimeOfCurrentExp: s.currentExpiry(),
 		FreeformTags: s.FreeformTags, DefinedTags: s.DefinedTags, CompartmentID: s.CompartmentID, ID: s.ID,
 		LifecycleState: s.State, SecretName: s.Name, VaultID: s.VaultID, KeyID: s.KeyID, Description: s.Description,
+		RotationConfig: s.rotationConfig(), GenerationCtx: s.GenContext, AutoGeneration: s.AutoGen,
 	}
+	w.LastRotation, w.NextRotation, w.RotationStatus = s.rotationTimes()
+
+	return w
 }
 
 func secretVersionView(s *Secret, v *SecretVersion) secretVersionWire {

@@ -13,12 +13,14 @@ import (
 const snapshotVersion = 1
 
 type backendSnapshot struct {
-	Vaults  map[string]*Vault   `json:"vaults"`
-	Keys    map[string]*Key     `json:"keys"`
-	Secrets map[string]*Secret  `json:"secrets"`
-	Auth    []ociauth.KeyRecord `json:"authKeys"`
-	Version int                 `json:"version"`
-	Seq     int64               `json:"seq"`
+	Vaults    map[string]*Vault   `json:"vaults"`
+	Keys      map[string]*Key     `json:"keys"`
+	Secrets   map[string]*Secret  `json:"secrets"`
+	Auth      []ociauth.KeyRecord `json:"authKeys"`
+	BackupKey []byte              `json:"backupKey,omitempty"`
+	Repl      map[string]*replOp  `json:"replication,omitempty"`
+	Version   int                 `json:"version"`
+	Seq       int64               `json:"seq"`
 }
 
 // Snapshot serialises the backend state, including registered API keys.
@@ -29,7 +31,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocivault", backendSnapshot{
-		Version: snapshotVersion, Vaults: b.vaults, Keys: b.keys, Secrets: b.secrets, Auth: keys, Seq: b.seq,
+		Version: snapshotVersion, Vaults: b.vaults, Keys: b.keys, Secrets: b.secrets, Auth: keys, Seq: b.seq, BackupKey: b.backupKey, Repl: b.repl,
 	})
 }
 
@@ -57,6 +59,15 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	defer b.mu.Unlock()
 
 	b.vaults, b.keys, b.secrets, b.seq = snap.Vaults, snap.Keys, snap.Secrets, snap.Seq
+	if len(snap.BackupKey) == backupKeyBytes {
+		b.backupKey = snap.BackupKey
+	}
+
+	b.repl = snap.Repl
+	if b.repl == nil {
+		b.repl = map[string]*replOp{}
+	}
+
 	b.Auth.Load(snap.Auth)
 
 	return nil

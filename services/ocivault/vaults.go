@@ -53,7 +53,7 @@ func validateDisplayName(name string) *APIError {
 	return nil
 }
 
-// CreateVault creates an ACTIVE vault; the response reports CREATING like OCI.
+// CreateVault creates a vault that is CREATING until the transition delay elapses.
 func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultWire, string, error) {
 	if in.CompartmentID == "" {
 		return vaultWire{}, "", errMissing("compartmentId is required")
@@ -73,13 +73,14 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 	prefix := b.newPrefix()
 	v := &Vault{
 		ID: newOCID("vault", prefix), Prefix: prefix, CompartmentID: in.CompartmentID, DisplayName: in.DisplayName,
-		VaultType: in.VaultType, State: stateActive, WrappingKeyID: newOCID("key", prefix),
+		VaultType: in.VaultType, WrappingKeyID: newOCID("key", prefix),
 		TimeCreated: b.nowUTC(), FreeformTags: in.FreeformTags, DefinedTags: in.DefinedTags,
 		Etag: newEtag(), Seq: b.nextSeq(),
 	}
+	b.begin(&v.State, &v.transition, stateCreating, stateActive)
 	b.vaults[v.ID] = v
 
-	return vaultView(v, hostPort, stateCreating), v.Etag, nil
+	return vaultView(v, hostPort, ""), v.Etag, nil
 }
 
 // GetVault returns one vault.
@@ -175,14 +176,19 @@ func (b *InMemoryBackend) ScheduleVaultDeletion(
 		return vaultWire{}, "", aerr
 	}
 
+	if v.hasReplicas() {
+		return vaultWire{}, "", errState("Vault " + id + " has replicas; delete them before scheduling deletion")
+	}
+
 	t, aerr := b.deletionTime(at, kmsMinDeletion)
 	if aerr != nil {
 		return vaultWire{}, "", aerr
 	}
 
-	v.State, v.TimeOfDeletion, v.Etag = statePendingDeletion, &t, newEtag()
+	v.TimeOfDeletion, v.Etag = &t, newEtag()
+	b.begin(&v.State, &v.transition, stateSchedulingDelete, statePendingDeletion)
 
-	return vaultView(v, hostPort, stateSchedulingDelete), v.Etag, nil
+	return vaultView(v, hostPort, ""), v.Etag, nil
 }
 
 // CancelVaultDeletion returns a PENDING_DELETION vault to ACTIVE.
@@ -203,9 +209,10 @@ func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort string) (vau
 		return vaultWire{}, "", aerr
 	}
 
-	v.State, v.TimeOfDeletion, v.Etag = stateActive, nil, newEtag()
+	v.TimeOfDeletion, v.Etag = nil, newEtag()
+	b.begin(&v.State, &v.transition, stateCancellingDelete, stateActive)
 
-	return vaultView(v, hostPort, stateCancellingDelete), v.Etag, nil
+	return vaultView(v, hostPort, ""), v.Etag, nil
 }
 
 // ChangeVaultCompartment moves a vault; its keys and secrets follow.

@@ -17,10 +17,13 @@ const (
 	stateSchedulingDelete = "SCHEDULING_DELETION"
 	stateCancellingDelete = "CANCELLING_DELETION"
 	stateDeleted          = "DELETED"
+	stateBackupInProgress = "BACKUP_IN_PROGRESS"
+	stateRestoring        = "RESTORING"
 )
 
 // Vault is a KMS vault.
 type Vault struct {
+	transition
 	TimeCreated        time.Time                 `json:"timeCreated"`
 	TimeOfDeletion     *time.Time                `json:"timeOfDeletion,omitempty"`
 	WrappingKeyCreated *time.Time                `json:"wrappingKeyCreated,omitempty"`
@@ -33,6 +36,9 @@ type Vault struct {
 	VaultType          string                    `json:"vaultType"`
 	State              string                    `json:"state"`
 	WrappingKeyID      string                    `json:"wrappingKeyId"`
+	RestoredFrom       string                    `json:"restoredFrom,omitempty"`
+	ReplicationID      string                    `json:"replicationId,omitempty"`
+	Replicas           []*VaultReplica           `json:"replicas,omitempty"`
 	Etag               string                    `json:"etag"`
 	WrappingKeyDER     []byte                    `json:"wrappingKeyDer,omitempty"`
 	Seq                int64                     `json:"seq"`
@@ -61,6 +67,7 @@ type KeyVersion struct {
 
 // Key is a master encryption key.
 type Key struct {
+	transition
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeOfDeletion *time.Time                `json:"timeOfDeletion,omitempty"`
 	Rotation       *RotationDetails          `json:"rotation,omitempty"`
@@ -74,6 +81,8 @@ type Key struct {
 	ProtectionMode string                    `json:"protectionMode"`
 	CurrentVersion string                    `json:"currentVersion"`
 	PrevState      string                    `json:"prevState,omitempty"`
+	RestoredFrom   string                    `json:"restoredFrom,omitempty"`
+	ReplicationID  string                    `json:"replicationId,omitempty"`
 	Etag           string                    `json:"etag"`
 	Shape          KeyShape                  `json:"shape"`
 	Versions       []*KeyVersion             `json:"versions"`
@@ -93,6 +102,7 @@ type SecretVersion struct {
 
 // Secret is a vault secret.
 type Secret struct {
+	transition
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeOfDeletion *time.Time                `json:"timeOfDeletion,omitempty"`
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
@@ -112,4 +122,7 @@ type Secret struct {
 	Current        int64                     `json:"current"`
 	Previous       int64                     `json:"previous"`
 	Pending        int64                     `json:"pending"`
+	Rotation       *SecretRotation           `json:"rotation,omitempty"`
+	GenContext     *GenerationContext        `json:"genContext,omitempty"`
+	AutoGen        bool                      `json:"autoGen,omitempty"`
 }
