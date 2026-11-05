@@ -104,6 +104,7 @@ import (
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
+	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
@@ -727,6 +728,7 @@ type CLI struct {
 	GCPCompute                    gcpcomputebackend.Settings          `embed:"" prefix:"gcp-compute-"`
 	GCPContainer                  gcpcontainerbackend.Settings        `embed:"" prefix:"gcp-container-"`
 	GCPAPIGateway                 gcpapigatewaybackend.Settings       `embed:"" prefix:"gcp-apigateway-"`
+	AzureSearch                   azuresearchbackend.Settings         `embed:"" prefix:"azure-search-"`
 	PortRangeStart                int                                 `                                       name:"port-range-start"        env:"PORT_RANGE_START"                    default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
 	PortRangeEnd                  int                                 `                                       name:"port-range-end"          env:"PORT_RANGE_END"                      default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
 	EC2DockerSSHPortMin           int                                 `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN"             default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
@@ -1043,6 +1045,9 @@ func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
 	return c.AzureAppConfig
 }
+
+// GetAzureSearchSettings returns Azure AI Search settings (azuresearch.ConfigProvider).
+func (c *CLI) GetAzureSearchSettings() azuresearchbackend.Settings { return c.AzureSearch }
 
 // GetAzureRedisSettings returns Azure Cache for Redis settings (azureredis.ConfigProvider).
 func (c *CLI) GetAzureRedisSettings() azureredisbackend.Settings { return c.AzureRedis }
@@ -2813,6 +2818,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
+		{"AzureSearch", "azuresearch", cli.AzureSearch.Port},
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
@@ -5479,6 +5485,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&lightsailbackend.Provider{},
 		&oambackend.Provider{},
 		&servicequotasbackend.Provider{},
+		&azuresearchbackend.Provider{},
 	}...)
 }
 

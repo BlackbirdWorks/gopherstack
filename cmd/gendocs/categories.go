@@ -33,6 +33,7 @@ const (
 	slugAzureFunctions  = "azurefunctions"
 	slugCosmosDB        = "cosmosdb"
 	slugAzureRedis      = "azureredis"
+	slugAzureSearch     = "azuresearch"
 	slugAzureSQL        = "azuresql"
 	slugGCPStorage      = "gcpstorage"
 	slugOCIObjectStore  = "ociobjectstorage"
@@ -173,22 +174,9 @@ func categoryGroups() []categoryGroup {
 		{
 			"Azure",
 			[]string{
-				slugAzureBlob,
-				slugAzureKeyVault,
-				slugAzureQueue,
-				slugAzureFile,
-				slugAzureMonitor,
-				slugAzureGraph,
-				slugAzureTable,
-				slugAzureServiceBus,
-				slugAzureEventHubs,
-				slugAzureEventGrid,
-				slugAzureAppConfig,
-				slugAzureACR,
-				slugAzureFunctions,
-				slugCosmosDB,
-				slugAzureRedis,
-				slugAzureSQL,
+				slugAzureBlob, slugAzureKeyVault, slugAzureQueue, slugAzureFile, slugAzureMonitor, slugAzureGraph,
+				slugAzureTable, slugAzureServiceBus, slugAzureEventHubs, slugAzureEventGrid, slugAzureAppConfig,
+				slugAzureACR, slugAzureFunctions, slugCosmosDB, slugAzureRedis, slugAzureSearch, slugAzureSQL,
 			},
 		},
 		{"GCP", []string{
@@ -280,6 +268,7 @@ func displayNamesA() map[string]string {
 		slugAzureACR:              "Azure Container Registry",
 		slugAzureFunctions:        "Azure Functions",
 		slugAzureRedis:            "Azure Cache for Redis",
+		slugAzureSearch:           "Azure AI Search",
 		slugAzureSQL:              "Azure SQL Database",
 		"backup":                  "Backup",
 		"batch":                   "Batch",

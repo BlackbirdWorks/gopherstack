@@ -46,6 +46,7 @@ type armSnapshot struct {
 	APIManagement       *apimSnapshot              `json:"apiManagement,omitempty"`
 	Authorization       *authorizationSnapshot     `json:"authorization,omitempty"`
 	Logic               *logicSnapshot             `json:"logic,omitempty"`
+	Search              *searchSnapshot            `json:"search,omitempty"`
 	Version             int                        `json:"version"`
 }
 
@@ -224,6 +225,10 @@ func (h *Handler) Snapshot(ctx context.Context) []byte {
 		st.ContainerInstance = p.snapshot()
 	}
 
+	if p, ok := h.searchProvider(); ok {
+		st.Search = p.snapshot()
+	}
+
 	h.snapshotInfra(&st)
 
 	return persistence.MarshalSnapshot(ctx, "azurearm", st)
@@ -282,6 +287,10 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 
 	if p, ok := h.containerInstanceProvider(); ok {
 		p.restore(snap.ContainerInstance)
+	}
+
+	if p, ok := h.searchProvider(); ok {
+		p.restore(snap.Search)
 	}
 
 	h.restoreInfra(snap)

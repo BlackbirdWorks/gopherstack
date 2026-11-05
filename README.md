@@ -934,6 +934,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
+| [Azure AI Search](services/azuresearch/README.md) | B | 19 | 9 gaps |
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
@@ -1018,7 +1019,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amp](services/amp/README.md) | B | 44 | 9 gaps; 2 structural gaps |
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | 5 structural gaps |
 | [Appintegrations](services/appintegrations/README.md) | B | 23 | 3 gaps; 1 structural gap |
-| [Azurearm](services/azurearm/README.md) | B | 20 | 73 gaps; 3 deferred |
+| [Azurearm](services/azurearm/README.md) | B | 21 | 74 gaps; 3 deferred |
 | [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 deferred |
 | [Bcmdataexports](services/bcmdataexports/README.md) | B | 12 | 6 gaps |
 | [Bedrockagentcore](services/bedrockagentcore/README.md) | B | 30 | 11 gaps; 2 structural gaps |

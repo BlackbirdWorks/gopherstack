@@ -167,6 +167,19 @@ func (r *Registry) SetAppConfig(a AppConfig) {
 	}
 }
 
+// SetSearch gives the registered Microsoft.Search provider (if any) a real data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetSearch(s SearchPlane) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftSearch)
+	if !ok {
+		return
+	}
+
+	if sp, spOk := p.(*SearchProvider); spOk {
+		sp.dataPlane = s
+	}
+}
+
 // SetContainerRegistries gives the registered Microsoft.ContainerRegistry provider (if any) a real data-plane
 // adapter, replacing its no-op default.
 func (r *Registry) SetContainerRegistries(c ContainerRegistries) {

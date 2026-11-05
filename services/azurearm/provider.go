@@ -302,6 +302,10 @@ func registerLocalProviders(
 	backend *InMemoryBackend,
 	settings Settings,
 ) *identityService {
+	registry.Register(NewSearchProvider(SearchEndpointConfig{
+		Override: settings.AdvertiseSearch,
+	}, nil))
+
 	msi := NewManagedIdentityProvider(settings.TenantID)
 	ids := newIdentityService(msi, settings.TenantID)
 	network := NewNetworkProvider(backend)
