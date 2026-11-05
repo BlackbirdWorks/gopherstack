@@ -2,6 +2,7 @@ package lambdaweb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -27,6 +28,9 @@ const (
 	errRequestTimeout         = "Runtime.RequestTimeout"
 	errUnreachable            = "Runtime.Unreachable"
 	errTimeoutListen          = "Application.TimeoutListenError"
+	errAccountVCPUThrottle    = "Platform.AccountActiveVCPUArm64Throttle"
+	errCannotAssumeRoleType   = "Platform.CannotAssumeRole"
+	errKMSDecryptionType      = "Platform.KMSDecryptionError"
 
 	hdrRequestID    = "Lambda-Web-Request-Id"
 	hdrEndpointName = "Lambda-Web-Endpoint-Name"
@@ -127,40 +131,32 @@ func (b *InMemoryBackend) ServeEndpoint(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 
-	if !b.authorize(w, r, ep) {
+	b.sweepIfDue()
+
+	cw := &captureWriter{ResponseWriter: w}
+	rm := &requestMetrics{start: b.run.now(), cw: cw}
+	defer b.recordRequest(ep, cw, rm)
+
+	if !b.authorize(cw, r, ep) {
 		return true
-	}
-
-	b.mu.RLock("now")
-	now := b.now()
-	b.mu.RUnlock()
-
-	var capacity *int32
-
-	if ep.MaxEnvironments != nil {
-		rev, found := b.runtimeRevision(ep)
-		if found {
-			c := *ep.MaxEnvironments * rev.ServiceConfig.MaxConcurrencyPerEnvironment
-			capacity = &c
-		}
 	}
 
 	key := endpointKey(ep.Region, ep.FunctionName, ep.Name)
 
-	rejected, release := b.run.admit(key, ep.RateLimit, capacity, now)
-	if rejected != "" {
+	if rejected := b.run.admitRate(key, ep.RateLimit, b.run.now()); rejected != "" {
 		code := http.StatusTooManyRequests
 		if rejected == errEndpointDisabled {
 			code = http.StatusServiceUnavailable
+		} else {
+			rm.throttle = "EndpointRequestThrottles"
 		}
 
-		platformError(w, code, rejected, "")
+		platformError(cw, code, rejected, "")
 
 		return true
 	}
-	defer release()
 
-	b.proxy(w, r, ep, reqID)
+	b.proxy(cw, r, ep, reqID, rm)
 
 	return true
 }
@@ -225,22 +221,6 @@ func (b *InMemoryBackend) activeEndpoint(domain string) (*Endpoint, int, string)
 	return b.endpointView(e), 0, ""
 }
 
-func (b *InMemoryBackend) runtimeRevision(ep *Endpoint) (*Revision, bool) {
-	if len(ep.Weights) == 0 {
-		return nil, false
-	}
-
-	b.mu.RLock("runtimeRevision")
-	defer b.mu.RUnlock()
-
-	rev, ok := b.revisions.Get(revisionKey(ep.Region, ep.FunctionName, ep.Weights[0].RevisionID))
-	if !ok {
-		return nil, false
-	}
-
-	return rev.clone(), true
-}
-
 // SetSigV4Secret sets the secret IamAuth endpoints verify signatures against; empty means "test".
 func (b *InMemoryBackend) SetSigV4Secret(secret string) {
 	b.mu.Lock("SetSigV4Secret")
@@ -254,7 +234,7 @@ func (b *InMemoryBackend) authorize(w http.ResponseWriter, r *http.Request, ep *
 	auth := r.Header.Get("Authorization")
 
 	if ep.AuthType == authIam {
-		if !b.validSignature(r, ep, auth) {
+		if !b.validSignature(r, ep, auth) || !b.policyAllowsInvoke(r, ep, auth) {
 			w.Header().Set("X-Amzn-Errortype", "AccessDeniedException")
 			http.Error(w, `{"Message":"Forbidden"}`, http.StatusForbidden)
 
@@ -316,11 +296,17 @@ func platformError(w http.ResponseWriter, status int, errType, msg string) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_, _ = io.WriteString(w, `{"message":`+strconv.Quote(msg)+`}`)
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": msg})
 }
 
-// proxy picks a revision by weight and forwards the request to its execution environment.
-func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, ep *Endpoint, reqID string) {
+// proxy picks a revision by weight and forwards the request to one of its execution environments.
+func (b *InMemoryBackend) proxy(
+	w http.ResponseWriter,
+	r *http.Request,
+	ep *Endpoint,
+	reqID string,
+	rm *requestMetrics,
+) {
 	revID, ok := b.run.pick(ep.Weights)
 	if !ok {
 		platformError(w, http.StatusConflict, errRevisionNotActive, "")
@@ -347,14 +333,28 @@ func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, ep *Endp
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	env, err := b.run.environment(ctx, cp)
+	rm.scope = scopeOf(ep)
+
+	lease, th, err := b.run.acquire(ctx, cp, b.capacityFor(ep, cp, reqID))
+	if th != throttleNone {
+		rm.throttle = th.metric()
+		platformError(w, http.StatusTooManyRequests, th.errType(), "")
+
+		return
+	}
+
 	if err != nil {
 		b.environmentFailed(ctx, w, cp, err)
 
 		return
 	}
 
+	rm.lease = lease
+	defer func() { lease.done(rm.cw.bytes) }()
+
+	env := lease.inst.env
 	host, port := env.Addr()
+
 	out, err := b.outbound(ctx, r, ep, reqID, net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		platformError(w, http.StatusBadGateway, errTimeoutListen, "")
@@ -370,13 +370,40 @@ func (b *InMemoryBackend) proxy(w http.ResponseWriter, r *http.Request, ep *Endp
 	}
 	defer resp.Body.Close()
 
-	copyResponse(w, resp, reqID, env.LogStream())
+	copyResponse(w, resp, reqID, lease.inst.stream)
+}
+
+func scopeOf(ep *Endpoint) []string {
+	out := make([]string, 0, len(ep.Weights))
+	for _, w := range ep.Weights {
+		out = append(out, envKey(ep.Region, ep.FunctionName, w.RevisionID))
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) capacityFor(ep *Endpoint, rev *Revision, reqID string) capacity {
+	_, logs, _, _ := b.environmentServices()
+
+	perEnv := rev.ServiceConfig.MaxConcurrencyPerEnvironment
+	if perEnv < 1 {
+		perEnv = defaultConcurrency
+	}
+
+	return capacity{
+		logs: logs, metrics: b.metricEmitter(), preflight: b.preflight, maxEnv: ep.MaxEnvironments,
+		scope: scopeOf(ep), reqID: reqID, endpoint: ep.Name, perEnv: perEnv, regionMax: maxTotalArmVCpus / vcpusPerEnv,
+	}
 }
 
 func (b *InMemoryBackend) environmentFailed(ctx context.Context, w http.ResponseWriter, rev *Revision, err error) {
 	switch {
 	case errors.Is(err, errEngineUnavailable):
 		platformError(w, http.StatusServiceUnavailable, "", err.Error())
+	case errors.Is(err, errCannotAssumeRole):
+		platformError(w, http.StatusBadGateway, errCannotAssumeRoleType, err.Error())
+	case errors.Is(err, errKMSDecryption):
+		platformError(w, http.StatusBadGateway, errKMSDecryptionType, err.Error())
 	case errors.Is(err, ErrCodeUnavailable):
 		b.failRevision(rev.Region, rev.FunctionName, rev.ID, "The deployment package could not be read.")
 		platformError(w, http.StatusConflict, errRevisionNotActive, "")

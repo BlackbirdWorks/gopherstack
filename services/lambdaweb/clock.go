@@ -8,6 +8,12 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	defer b.mu.Unlock()
 
 	b.clock = now
+
+	if now == nil {
+		b.run.clock.Store(nil)
+	} else {
+		b.run.clock.Store(&now)
+	}
 }
 
 // SetLifecycleDelay overrides every Pending/Deleting window; 0 keeps the built-in values.

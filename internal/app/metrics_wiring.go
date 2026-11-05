@@ -16,6 +16,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -88,6 +89,12 @@ func wireServiceMetrics(ctx context.Context, byName map[string]service.Registera
 
 	if h, hok := byName["ECS"].(*ecsbackend.Handler); hok {
 		h.SetMetricEmitter(e)
+	}
+
+	if h, hok := byName["LambdaWeb"].(*lambdawebbackend.Handler); hok {
+		if bk, bok := h.Backend.(*lambdawebbackend.InMemoryBackend); bok {
+			bk.SetMetricEmitter(e)
+		}
 	}
 
 	wireMessagingMetrics(e, byName)

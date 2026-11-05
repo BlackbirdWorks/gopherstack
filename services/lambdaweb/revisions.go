@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateWebFunctionRevision(
 		return nil, err
 	}
 
+	if err = b.checkKey(ctx, r, in.KmsKeyArn); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWebFunctionRevision")
 	defer b.mu.Unlock()
 

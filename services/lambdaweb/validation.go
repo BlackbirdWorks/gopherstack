@@ -31,9 +31,11 @@ const (
 
 var roleARNRe = regexp.MustCompile(`^arn:aws[a-zA-Z-]*:iam::\d{12}:role/.+$`)
 
-func appLogLevels() []string { return []string{"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"} }
+func appLogLevels() []string {
+	return []string{"TRACE", levelDebug, levelInfo, levelWarn, levelError, "FATAL"}
+}
 
-func systemLogLevels() []string { return []string{"DEBUG", "INFO", "WARN"} }
+func systemLogLevels() []string { return []string{levelDebug, levelInfo, levelWarn} }
 
 func validateTags(tags map[string]string) error {
 	if len(tags) > maxTagsPerResource {

@@ -26,6 +26,10 @@ func (b *InMemoryBackend) CreateWebFunction(
 		if err := b.pinCode(ctx, &in.Revision.S3); err != nil {
 			return nil, err
 		}
+
+		if err := b.checkKey(ctx, region, in.Revision.KmsKeyArn); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateWebFunction")
