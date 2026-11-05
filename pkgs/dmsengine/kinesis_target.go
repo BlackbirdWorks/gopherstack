@@ -3,12 +3,15 @@ package dmsengine
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errNoStreamARN = errors.New("KinesisSettings.StreamArn is required")
@@ -36,7 +39,7 @@ func newKinesisTarget(ep EndpointConfig, store StreamStore) (Target, error) {
 
 	var o kinesisOptions
 	if ep.KinesisSettings != "" {
-		if err := json.Unmarshal([]byte(ep.KinesisSettings), &o); err != nil {
+		if err := json.Unmarshal([]byte(ep.KinesisSettings), &o, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("invalid KinesisSettings: %w", err)
 		}
 	}
@@ -85,7 +88,7 @@ func (t *kinesisTarget) value(v any, k Kind) any {
 
 	if isNumeric(k) {
 		if _, err := strconv.ParseFloat(x, 64); err == nil {
-			return json.Number(x)
+			return jsonx.Number(x)
 		}
 	}
 
@@ -163,14 +166,14 @@ type recordOut struct {
 func (t *kinesisTarget) encode(data, meta map[string]any) ([]byte, error) {
 	var buf bytes.Buffer
 
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-
+	opts := []jsontext.Options{jsonx.V1(), jsontext.EscapeForHTML(false)}
 	if !strings.EqualFold(t.opts.MessageFormat, "json-unformatted") {
-		enc.SetIndent("", "  ")
+		opts = append(opts, jsontext.Multiline(true), jsontext.WithIndent("  "))
 	}
 
-	if err := enc.Encode(recordOut{Data: data, Metadata: meta}); err != nil {
+	enc := jsontext.NewEncoder(&buf, opts...)
+
+	if err := json.MarshalEncode(enc, recordOut{Data: data, Metadata: meta}); err != nil {
 		return nil, err
 	}
 

@@ -2,7 +2,7 @@ package sqs_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -73,7 +74,7 @@ func TestSQSHandler_Reset(t *testing.T) {
 				QueueURLs []string `json:"QueueUrls"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Empty(t, resp.QueueURLs, tt.name)
 		})
 	}
@@ -156,7 +157,7 @@ func doRequest(t *testing.T, h *sqs.Handler, action string, body any) *httptest.
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -189,7 +190,7 @@ func doCreateQueue(t *testing.T, h *sqs.Handler, name string) string {
 		QueueURL string `json:"QueueUrl"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp.QueueURL
 }

@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"maps"
@@ -108,9 +108,9 @@ const statusActive = "ACTIVE"
 const statusDeleted = "DELETED"
 
 // normalizeSpec returns a non-nil JSON object if spec is nil or empty.
-func normalizeSpec(spec json.RawMessage) json.RawMessage {
+func normalizeSpec(spec jsontext.Value) jsontext.Value {
 	if len(spec) == 0 {
-		return json.RawMessage(`{}`)
+		return jsontext.Value(`{}`)
 	}
 
 	return spec

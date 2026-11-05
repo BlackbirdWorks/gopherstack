@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -46,14 +46,14 @@ var (
 // StoppingCondition/BaselineConfig blocks, so Describe echoes back exactly
 // what Create received.
 type JobDefinition struct {
-	CreationTime      time.Time                  `json:"CreationTime"`
-	Tags              map[string]string          `json:"Tags,omitempty"`
-	Config            map[string]json.RawMessage `json:"Config,omitempty"`
-	JobDefinitionName string                     `json:"JobDefinitionName"`
-	JobDefinitionArn  string                     `json:"JobDefinitionArn"`
-	JobDefinitionType string                     `json:"JobDefinitionType"`
-	RoleArn           string                     `json:"RoleArn,omitempty"`
-	EndpointName      string                     `json:"EndpointName,omitempty"`
+	CreationTime      time.Time                 `json:"CreationTime"`
+	Tags              map[string]string         `json:"Tags,omitempty"`
+	Config            map[string]jsontext.Value `json:"Config,omitempty"`
+	JobDefinitionName string                    `json:"JobDefinitionName"`
+	JobDefinitionArn  string                    `json:"JobDefinitionArn"`
+	JobDefinitionType string                    `json:"JobDefinitionType"`
+	RoleArn           string                    `json:"RoleArn,omitempty"`
+	EndpointName      string                    `json:"EndpointName,omitempty"`
 }
 
 func cloneJobDefinition(j *JobDefinition) *JobDefinition {
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) createJobDefinition(
 	ctx context.Context,
 	storeFn func(string) *store.Table[JobDefinition],
 	defType, name, roleArn, endpointName string,
-	config map[string]json.RawMessage,
+	config map[string]jsontext.Value,
 	tags map[string]string,
 	resourceType string,
 	alreadyExists error,
@@ -227,7 +227,7 @@ func (b *InMemoryBackend) listJobDefinitions(
 func (b *InMemoryBackend) CreateDataQualityJobDefinition(
 	ctx context.Context,
 	name, roleArn, endpointName string,
-	config map[string]json.RawMessage,
+	config map[string]jsontext.Value,
 	tags map[string]string,
 ) (*JobDefinition, error) {
 	return b.createJobDefinition(
@@ -266,7 +266,7 @@ func (b *InMemoryBackend) ListDataQualityJobDefinitions(
 func (b *InMemoryBackend) CreateModelBiasJobDefinition(
 	ctx context.Context,
 	name, roleArn, endpointName string,
-	config map[string]json.RawMessage,
+	config map[string]jsontext.Value,
 	tags map[string]string,
 ) (*JobDefinition, error) {
 	return b.createJobDefinition(
@@ -305,7 +305,7 @@ func (b *InMemoryBackend) ListModelBiasJobDefinitions(
 func (b *InMemoryBackend) CreateModelQualityJobDefinition(
 	ctx context.Context,
 	name, roleArn, endpointName string,
-	config map[string]json.RawMessage,
+	config map[string]jsontext.Value,
 	tags map[string]string,
 ) (*JobDefinition, error) {
 	return b.createJobDefinition(
@@ -344,7 +344,7 @@ func (b *InMemoryBackend) ListModelQualityJobDefinitions(
 func (b *InMemoryBackend) CreateModelExplainabilityJobDefinition(
 	ctx context.Context,
 	name, roleArn, endpointName string,
-	config map[string]json.RawMessage,
+	config map[string]jsontext.Value,
 	tags map[string]string,
 ) (*JobDefinition, error) {
 	return b.createJobDefinition(

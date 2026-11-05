@@ -3,8 +3,11 @@ package apigateway
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // SdkType describes a code-generation target supported by GetSdk. AWS
@@ -87,7 +90,7 @@ func (b *InMemoryBackend) GetSdk(
 	ctx := exportContext{b: b, restAPIID: restAPIID, apiName: api.Name, opts: ExportOptions{Integrations: true}}
 	spec := buildOAS30Export(ctx, stageName)
 
-	specJSON, err := json.MarshalIndent(spec, "", "  ")
+	specJSON, err := json.Marshal(spec, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal OpenAPI spec: %w", err)
 	}

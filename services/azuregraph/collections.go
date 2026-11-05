@@ -1,10 +1,13 @@
 package azuregraph
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // collection adapts one directory object type to the generic CRUD routes.
@@ -12,8 +15,8 @@ type collection struct {
 	fields   map[string]bool
 	list     func(*Backend) []map[string]any
 	get      func(*Backend, Ref) (map[string]any, error)
-	create   func(*Backend, map[string]json.RawMessage) (map[string]any, error)
-	patch    func(*Backend, Ref, map[string]json.RawMessage) error
+	create   func(*Backend, map[string]jsontext.Value) (map[string]any, error)
+	patch    func(*Backend, Ref, map[string]jsontext.Value) error
 	del      func(*Backend, Ref) error
 	name     string
 	resource string
@@ -33,13 +36,13 @@ func splitKey(seg string) (string, Ref) {
 
 // toMap renders an entity as its generic JSON object.
 func toMap(v any) map[string]any {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return map[string]any{}
 	}
 
 	out := map[string]any{}
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	if t := reflect.TypeOf(v); t.Kind() == reflect.Struct {
 		for name := range jsonFields(t) {
@@ -84,15 +87,15 @@ func newCollection[T any](
 	name, resource, kind string,
 	list func(*Backend) []T,
 	get func(*Backend, Ref) (T, error),
-	create func(*Backend, map[string]json.RawMessage) (T, error),
-	patch func(*Backend, Ref, map[string]json.RawMessage) error,
+	create func(*Backend, map[string]jsontext.Value) (T, error),
+	patch func(*Backend, Ref, map[string]jsontext.Value) error,
 	del func(*Backend, Ref) error,
 ) *collection {
 	return &collection{
 		name: name, resource: resource, kind: kind, fields: fieldsOf[T](), patch: patch, del: del,
 		list:   func(b *Backend) []map[string]any { return mapAll(list(b)) },
 		get:    func(b *Backend, r Ref) (map[string]any, error) { return one(get(b, r)) },
-		create: func(b *Backend, m map[string]json.RawMessage) (map[string]any, error) { return one(create(b, m)) },
+		create: func(b *Backend, m map[string]jsontext.Value) (map[string]any, error) { return one(create(b, m)) },
 	}
 }
 

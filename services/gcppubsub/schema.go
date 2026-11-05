@@ -2,7 +2,8 @@ package gcppubsub
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -110,9 +112,10 @@ func validateData(typ pubsubpb.Schema_Type, def string, enc pubsubpb.Encoding, d
 		}
 
 		var v any
-		dec := json.NewDecoder(bytes.NewReader(data))
+		dec := jsontext.NewDecoder(bytes.NewReader(data), jsonx.V1())
 
-		return dec.Decode(&v) == nil && !dec.More() && t.validJSON(v)
+		return json.UnmarshalDecode(dec, &v, jsonx.V1()) == nil && !moreJSON(data, dec.InputOffset()) &&
+			t.validJSON(v)
 	case pubsubpb.Schema_PROTOCOL_BUFFER:
 		if enc == pubsubpb.Encoding_BINARY {
 			return validWire(data)
@@ -120,7 +123,7 @@ func validateData(typ pubsubpb.Schema_Type, def string, enc pubsubpb.Encoding, d
 
 		var v map[string]any
 
-		return json.Unmarshal(data, &v) == nil
+		return json.Unmarshal(data, &v, jsonx.V1()) == nil
 	case pubsubpb.Schema_TYPE_UNSPECIFIED:
 		return false
 	default:
@@ -479,4 +482,12 @@ func (b *InMemoryBackend) ValidateMessage(req *pubsubpb.ValidateMessageRequest) 
 	}
 
 	return nil
+}
+
+// moreJSON mirrors encoding/json Decoder.More: data remains after offset and
+// does not start with a closing bracket.
+func moreJSON(data []byte, offset int64) bool {
+	rest := bytes.TrimLeft(data[offset:], " \t\r\n")
+
+	return len(rest) > 0 && rest[0] != ']' && rest[0] != '}'
 }

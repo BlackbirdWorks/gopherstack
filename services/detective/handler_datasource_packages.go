@@ -1,13 +1,14 @@
 package detective
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ingestHistoryToJSON encodes a MembershipDatasources.IngestHistory map to
@@ -45,7 +46,7 @@ func (h *Handler) handleBatchGetGraphMemberDatasources(c *echo.Context) error {
 		AccountIds []string `json:"AccountIds"` //nolint:revive // existing issue.
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -83,7 +84,7 @@ func (h *Handler) handleBatchGetMembershipDatasources(c *echo.Context) error {
 		GraphArns []string `json:"GraphArns"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -127,7 +128,7 @@ func (h *Handler) handleListDatasourcePackages(c *echo.Context) error {
 		MaxResults int32  `json:"MaxResults"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -169,7 +170,7 @@ func (h *Handler) handleUpdateDatasourcePackages(c *echo.Context) error {
 		DatasourcePackages []string `json:"DatasourcePackages"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

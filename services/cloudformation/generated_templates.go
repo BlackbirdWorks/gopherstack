@@ -1,7 +1,7 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -79,7 +80,7 @@ func marshalGeneratedTemplate(resources map[string]cfnResource) string {
 		AWSTemplateFormatVersion: "2010-09-09",
 		Description:              "Generated template",
 		Resources:                resources,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{}}`
 	}

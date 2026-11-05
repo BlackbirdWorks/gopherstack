@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -82,7 +83,7 @@ func (h *extHarness) do(
 func (h *extHarness) register(t *testing.T, name string, events ...string) string {
 	t.Helper()
 
-	b, err := json.Marshal(map[string]any{"events": events})
+	b, err := json.Marshal(map[string]any{"events": events}, jsonx.V1())
 	require.NoError(t, err)
 
 	status, hdr, body := h.do(t, http.MethodPost, "/2020-01-01/extension/register",
@@ -177,7 +178,7 @@ func TestExtensionRegister(t *testing.T) {
 			if tt.wantStatus != http.StatusOK {
 				var e extensionError
 
-				require.NoError(t, json.Unmarshal([]byte(body), &e))
+				require.NoError(t, json.Unmarshal([]byte(body), &e, jsonx.V1()))
 				assert.Equal(t, tt.wantType, e.Type)
 
 				return
@@ -187,7 +188,7 @@ func TestExtensionRegister(t *testing.T) {
 
 			var resp map[string]string
 
-			require.NoError(t, json.Unmarshal([]byte(body), &resp))
+			require.NoError(t, json.Unmarshal([]byte(body), &resp, jsonx.V1()))
 			assert.Equal(t, "ext-fn", resp["functionName"])
 			assert.Equal(t, "$LATEST", resp["functionVersion"])
 			assert.Equal(t, "index.handler", resp["handler"])
@@ -250,7 +251,7 @@ func TestExtensionInvokeFanout(t *testing.T) {
 
 			var ev map[string]any
 
-			require.NoError(t, json.Unmarshal([]byte(<-otherEv), &ev))
+			require.NoError(t, json.Unmarshal([]byte(<-otherEv), &ev, jsonx.V1()))
 			assert.Equal(t, "INVOKE", ev["eventType"])
 			assert.Equal(t, reqID, ev["requestId"])
 			assert.Equal(t, extTestFnARN, ev["invokedFunctionArn"])
@@ -337,7 +338,7 @@ func TestExtensionShutdown(t *testing.T) {
 
 			var got map[string]any
 
-			require.NoError(t, json.Unmarshal([]byte(<-ev), &got))
+			require.NoError(t, json.Unmarshal([]byte(<-ev), &got, jsonx.V1()))
 			assert.Equal(t, "SHUTDOWN", got["eventType"])
 			assert.Equal(t, tt.wantReason, got["shutdownReason"])
 			assert.Positive(t, got["deadlineMs"])

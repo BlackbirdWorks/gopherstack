@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -207,7 +208,7 @@ func TestHandler_GetNamespace(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 				opID := createResp["OperationId"].(string)
 
@@ -215,7 +216,7 @@ func TestHandler_GetNamespace(t *testing.T) {
 				require.Equal(t, http.StatusOK, opRec.Code)
 
 				var opResp map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 
 				operation := opResp["Operation"].(map[string]any)
 				targets := operation["Targets"].(map[string]any)
@@ -277,14 +278,14 @@ func TestHandler_DeleteNamespace(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				opID := createResp["OperationId"].(string)
 
 				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 				require.Equal(t, http.StatusOK, opRec.Code)
 
 				var opResp map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 				operation := opResp["Operation"].(map[string]any)
 				targets := operation["Targets"].(map[string]any)
 				nsID := targets["NAMESPACE"].(string)
@@ -336,13 +337,13 @@ func TestHandler_NamespaceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	opID := createResp["OperationId"].(string)
 	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	nsID := opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	// GetNamespace has CreateDate but never a Tags field.
@@ -350,7 +351,7 @@ func TestHandler_NamespaceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	ns := getResp["Namespace"].(map[string]any)
 	assert.NotZero(t, ns["CreateDate"], "CreateDate must be present in GetNamespace response")
@@ -361,7 +362,7 @@ func TestHandler_NamespaceTagsViaListTagsForResource(t *testing.T) {
 	require.Equal(t, 200, tagsRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 	tags := tagsResp["Tags"].([]any)
 	assert.Len(t, tags, 2, "expected 2 tags")
@@ -386,7 +387,7 @@ func TestHandler_ListNamespacesOmitsTags(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	nsList := resp["Namespaces"].([]any)
 	require.Len(t, nsList, 1)
@@ -431,13 +432,13 @@ func TestNamespace_ServiceCount(t *testing.T) {
 			createNsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-parity"})
 			require.Equal(t, http.StatusOK, createNsRec.Code)
 			var nsOp map[string]string
-			require.NoError(t, json.Unmarshal(createNsRec.Body.Bytes(), &nsOp))
+			require.NoError(t, json.Unmarshal(createNsRec.Body.Bytes(), &nsOp, jsonx.V1()))
 			opID := nsOp["OperationId"]
 
 			opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 			require.Equal(t, http.StatusOK, opRec.Code)
 			var opOut map[string]any
-			require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut))
+			require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut, jsonx.V1()))
 			nsID := opOut["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 			for i := range tt.servicesBefore {
@@ -452,7 +453,7 @@ func TestNamespace_ServiceCount(t *testing.T) {
 			getRec := doSDRequest(t, h, "GetNamespace", map[string]any{"Id": nsID})
 			require.Equal(t, http.StatusOK, getRec.Code)
 			var getOut map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 			ns := getOut["Namespace"].(map[string]any)
 			assert.Equal(t, tt.wantCount, int(ns["ServiceCount"].(float64)), "GetNamespace ServiceCount")
 
@@ -460,7 +461,7 @@ func TestNamespace_ServiceCount(t *testing.T) {
 			listRec := doSDRequest(t, h, "ListNamespaces", map[string]any{})
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listOut map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 			nsList := listOut["Namespaces"].([]any)
 			require.Len(t, nsList, 1)
 			gotListCount := int(nsList[0].(map[string]any)["ServiceCount"].(float64))
@@ -512,7 +513,7 @@ func TestListNamespaces_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			nsList := out["Namespaces"].([]any)
 			assert.Len(t, nsList, tt.wantLen)
 			if tt.wantNextToken {
@@ -559,7 +560,7 @@ func TestListNamespaces_TypeFilter(t *testing.T) {
 			rec := doSDRequest(t, h, "ListNamespaces", req)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			nsList := out["Namespaces"].([]any)
 			assert.Len(t, nsList, tt.wantLen, "filterType=%s", tt.filterType)
 		})
@@ -600,7 +601,7 @@ func TestListNamespaces_HTTPNameFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out["Namespaces"].([]any), tt.wantLen)
 		})
 	}
@@ -638,7 +639,7 @@ func TestListNamespaces_ResourceOwnerFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out["Namespaces"].([]any), tt.wantLen)
 		})
 	}
@@ -663,7 +664,7 @@ func TestListNamespaces_NameBeginsWithFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out["Namespaces"].([]any), 2)
 }
 
@@ -694,11 +695,11 @@ func TestHandler_UpdateHttpNamespace(t *testing.T) {
 				createRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "http-ns"})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var nsOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &nsOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &nsOut, jsonx.V1()))
 				opID := nsOut["OperationId"].(string)
 				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 				var opOut map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut, jsonx.V1()))
 				nsID := opOut["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 				rec := doSDRequest(t, h, "UpdateHttpNamespace", map[string]any{
@@ -726,11 +727,11 @@ func TestHandler_UpdateHttpNamespace(t *testing.T) {
 				createRec := doSDRequest(t, h, "CreatePrivateDnsNamespace", map[string]any{"Name": "private-ns"})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var nsOut map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &nsOut))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &nsOut, jsonx.V1()))
 				opID := nsOut["OperationId"].(string)
 				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 				var opOut map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut, jsonx.V1()))
 				privateNsID := opOut["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 				rec := doSDRequest(t, h, "UpdateHttpNamespace", map[string]any{
@@ -771,11 +772,11 @@ func TestHandler_UpdatePrivateDnsNamespace(t *testing.T) {
 			case "success":
 				createRec := doSDRequest(t, h, "CreatePrivateDnsNamespace", map[string]any{"Name": "private-ns"})
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				opID := out["OperationId"].(string)
 				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 				var opOut map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut, jsonx.V1()))
 				nsID := opOut["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 				rec := doSDRequest(t, h, "UpdatePrivateDnsNamespace", map[string]any{
 					"Id":        nsID,
@@ -825,11 +826,11 @@ func TestHandler_UpdatePublicDnsNamespace(t *testing.T) {
 			case "success":
 				createRec := doSDRequest(t, h, "CreatePublicDnsNamespace", map[string]any{"Name": "public-ns"})
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				opID := out["OperationId"].(string)
 				opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 				var opOut map[string]any
-				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut))
+				require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opOut, jsonx.V1()))
 				nsID := opOut["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 				rec := doSDRequest(t, h, "UpdatePublicDnsNamespace", map[string]any{
 					"Id":        nsID,

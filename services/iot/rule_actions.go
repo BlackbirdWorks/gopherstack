@@ -3,7 +3,8 @@ package iot
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -30,7 +32,7 @@ const (
 	opDelete        = "DELETE"
 )
 
-type actionRunner func(h *ruleHook, rule *TopicRule, msg *ruleMessage, raw json.RawMessage) error
+type actionRunner func(h *ruleHook, rule *TopicRule, msg *ruleMessage, raw jsontext.Value) error
 
 type otherRunner struct {
 	run  actionRunner
@@ -83,8 +85,8 @@ func (h *ruleHook) allow(roleARN, resource string, actions ...string) error {
 	return nil
 }
 
-func decodeAction(raw json.RawMessage, dst any) error {
-	if err := json.Unmarshal(raw, dst); err != nil {
+func decodeAction(raw jsontext.Value, dst any) error {
+	if err := json.Unmarshal(raw, dst, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode action: %w", err)
 	}
 
@@ -132,7 +134,7 @@ type kinesisWire struct {
 	PartitionKey string `json:"partitionKey"`
 }
 
-func (h *ruleHook) runKinesis(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runKinesis(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w kinesisWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -166,7 +168,7 @@ type firehoseWire struct {
 	BatchMode          bool   `json:"batchMode"`
 }
 
-func (h *ruleHook) runFirehose(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runFirehose(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w firehoseWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -214,8 +216,8 @@ func (m *ruleMessage) batchElements(batch bool) ([][]byte, error) {
 		return [][]byte{m.payload}, nil
 	}
 
-	var elems []json.RawMessage
-	if err := json.Unmarshal(m.payload, &elems); err != nil {
+	var elems []jsontext.Value
+	if err := json.Unmarshal(m.payload, &elems, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: payload is not a valid JSON array", errTemplate)
 	}
 
@@ -226,7 +228,7 @@ func (m *ruleMessage) batchElements(batch bool) ([][]byte, error) {
 	out := make([][]byte, len(elems))
 	for i, e := range elems {
 		var s string
-		if json.Unmarshal(e, &s) == nil {
+		if json.Unmarshal(e, &s, jsonx.V1()) == nil {
 			out[i] = []byte(s)
 
 			continue
@@ -251,7 +253,7 @@ type dynamoDBWire struct {
 	Operation     string `json:"operation"`
 }
 
-func (h *ruleHook) runDynamoDB(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runDynamoDB(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w dynamoDBWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -324,10 +326,9 @@ func keyAttribute(keyType, value string) map[string]any {
 func payloadAttribute(payload []byte) map[string]any {
 	var obj map[string]any
 
-	dec := json.NewDecoder(bytes.NewReader(payload))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(payload))
 
-	if err := dec.Decode(&obj); err == nil && obj != nil {
+	if err := json.UnmarshalDecode(dec, &obj, jsonx.V1(), jsonx.UseNumber()); err == nil && obj != nil {
 		return jsonToAttribute(obj)
 	}
 
@@ -350,7 +351,7 @@ func jsonToAttribute(v any) map[string]any {
 		}
 
 		return map[string]any{"L": l}
-	case json.Number:
+	case jsonx.Number:
 		return map[string]any{"N": t.String()}
 	case string:
 		return map[string]any{"S": t}
@@ -368,7 +369,7 @@ type dynamoDBv2Wire struct {
 	} `json:"putItem"`
 }
 
-func (h *ruleHook) runDynamoDBv2(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runDynamoDBv2(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w dynamoDBv2Wire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -405,7 +406,7 @@ type s3Wire struct {
 	CannedACL  string `json:"cannedAcl"`
 }
 
-func (h *ruleHook) runS3(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runS3(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w s3Wire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -436,7 +437,7 @@ type cloudwatchMetricWire struct {
 	MetricTimestamp string `json:"metricTimestamp"`
 }
 
-func (h *ruleHook) runCloudwatchMetric(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runCloudwatchMetric(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w cloudwatchMetricWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -481,7 +482,7 @@ type cloudwatchAlarmWire struct {
 	StateValue  string `json:"stateValue"`
 }
 
-func (h *ruleHook) runCloudwatchAlarm(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runCloudwatchAlarm(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w cloudwatchAlarmWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -515,7 +516,7 @@ type batchedLogEvent struct {
 	Message   *string `json:"message"`
 }
 
-func (h *ruleHook) runCloudwatchLogs(rule *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runCloudwatchLogs(rule *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w cloudwatchLogsWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -552,7 +553,7 @@ func (m *ruleMessage) logEvents(batch bool) ([]LogEvent, error) {
 	}
 
 	var elems []batchedLogEvent
-	if err := json.Unmarshal(m.payload, &elems); err != nil {
+	if err := json.Unmarshal(m.payload, &elems, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: batchMode needs an array of {timestamp,message}", errTemplate)
 	}
 
@@ -579,7 +580,7 @@ type stepFunctionsWire struct {
 	ExecutionNamePrefix string `json:"executionNamePrefix"`
 }
 
-func (h *ruleHook) runStepFunctions(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runStepFunctions(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w stepFunctionsWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err
@@ -611,7 +612,7 @@ type iotAnalyticsWire struct {
 	BatchMode   bool   `json:"batchMode"`
 }
 
-func (h *ruleHook) runIoTAnalytics(_ *TopicRule, msg *ruleMessage, raw json.RawMessage) error {
+func (h *ruleHook) runIoTAnalytics(_ *TopicRule, msg *ruleMessage, raw jsontext.Value) error {
 	var w iotAnalyticsWire
 	if err := decodeAction(raw, &w); err != nil {
 		return err

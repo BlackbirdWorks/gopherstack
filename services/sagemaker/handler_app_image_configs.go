@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -13,17 +16,17 @@ import (
 // createAppImageConfigInput mirrors CreateAppImageConfigInput
 // (api_op_CreateAppImageConfig.go:28-52).
 type createAppImageConfigInput struct {
-	AppImageConfigName       string          `json:"AppImageConfigName"`
-	KernelGatewayImageConfig json.RawMessage `json:"KernelGatewayImageConfig"`
-	JupyterLabAppImageConfig json.RawMessage `json:"JupyterLabAppImageConfig"`
-	CodeEditorAppImageConfig json.RawMessage `json:"CodeEditorAppImageConfig"`
-	Tags                     []tagObject     `json:"Tags"`
+	AppImageConfigName       string         `json:"AppImageConfigName"`
+	KernelGatewayImageConfig jsontext.Value `json:"KernelGatewayImageConfig"`
+	JupyterLabAppImageConfig jsontext.Value `json:"JupyterLabAppImageConfig"`
+	CodeEditorAppImageConfig jsontext.Value `json:"CodeEditorAppImageConfig"`
+	Tags                     []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAppImageConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -42,7 +45,7 @@ func (h *Handler) handleCreateAppImageConfig(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyAppImageConfigArn: result.AppImageConfigArn})
+	return json.Marshal(map[string]any{keyAppImageConfigArn: result.AppImageConfigArn}, jsonx.V1())
 }
 
 // describeAppImageConfigInput mirrors DescribeAppImageConfigInput
@@ -54,7 +57,7 @@ type describeAppImageConfigInput struct {
 func (h *Handler) handleDescribeAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAppImageConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -67,7 +70,7 @@ func (h *Handler) handleDescribeAppImageConfig(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteAppImageConfigInput mirrors DeleteAppImageConfigInput
@@ -79,7 +82,7 @@ type deleteAppImageConfigInput struct {
 func (h *Handler) handleDeleteAppImageConfig(ctx context.Context, body []byte) error {
 	var req deleteAppImageConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -93,16 +96,16 @@ func (h *Handler) handleDeleteAppImageConfig(ctx context.Context, body []byte) e
 // updateAppImageConfigInput mirrors UpdateAppImageConfigInput
 // (api_op_UpdateAppImageConfig.go:28-45).
 type updateAppImageConfigInput struct {
-	AppImageConfigName       string          `json:"AppImageConfigName"`
-	KernelGatewayImageConfig json.RawMessage `json:"KernelGatewayImageConfig"`
-	JupyterLabAppImageConfig json.RawMessage `json:"JupyterLabAppImageConfig"`
-	CodeEditorAppImageConfig json.RawMessage `json:"CodeEditorAppImageConfig"`
+	AppImageConfigName       string         `json:"AppImageConfigName"`
+	KernelGatewayImageConfig jsontext.Value `json:"KernelGatewayImageConfig"`
+	JupyterLabAppImageConfig jsontext.Value `json:"JupyterLabAppImageConfig"`
+	CodeEditorAppImageConfig jsontext.Value `json:"CodeEditorAppImageConfig"`
 }
 
 func (h *Handler) handleUpdateAppImageConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateAppImageConfigInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -119,7 +122,7 @@ func (h *Handler) handleUpdateAppImageConfig(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyAppImageConfigArn: result.AppImageConfigArn})
+	return json.Marshal(map[string]any{keyAppImageConfigArn: result.AppImageConfigArn}, jsonx.V1())
 }
 
 // listAppImageConfigsInput mirrors ListAppImageConfigsInput
@@ -139,7 +142,7 @@ type listAppImageConfigsInput struct {
 func (h *Handler) handleListAppImageConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAppImageConfigsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

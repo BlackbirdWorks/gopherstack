@@ -1,13 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -43,7 +45,7 @@ func TestServerless_CreateCollection(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	detail, ok := out["createCollectionDetail"].(map[string]any)
 	require.True(t, ok, "createCollectionDetail missing")
@@ -67,7 +69,7 @@ func TestServerless_CreateCollection_DefaultType(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["createCollectionDetail"].(map[string]any)
 	assert.Equal(t, "SEARCH", detail["type"])
 }
@@ -92,7 +94,7 @@ func TestServerless_BatchGetCollections(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	details, ok := out["collectionDetails"].([]any)
 	require.True(t, ok)
@@ -116,7 +118,7 @@ func TestServerless_ListCollections(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	summaries, ok := out["collectionSummaries"].([]any)
 	require.True(t, ok)
@@ -132,7 +134,7 @@ func TestServerless_DeleteCollection(t *testing.T) {
 	createResp := doRequest(t, h, http.MethodPost, "/2021-11-01/opensearch/serverless/collection",
 		map[string]any{"name": "to-delete"})
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	id := createOut["createCollectionDetail"].(map[string]any)["id"].(string)
@@ -144,7 +146,7 @@ func TestServerless_DeleteCollection(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delResp.StatusCode)
 
 	var delOut map[string]any
-	require.NoError(t, json.NewDecoder(delResp.Body).Decode(&delOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(delResp.Body), &delOut, jsonx.V1()))
 	detail := delOut["deleteCollectionDetail"].(map[string]any)
 	assert.Equal(t, "DELETED", detail["status"])
 
@@ -152,7 +154,7 @@ func TestServerless_DeleteCollection(t *testing.T) {
 	listResp := doRequest(t, h, http.MethodGet, "/2021-11-01/opensearch/serverless/collections", nil)
 	defer listResp.Body.Close()
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 	summaries := listOut["collectionSummaries"].([]any)
 	assert.Empty(t, summaries)
 }
@@ -190,7 +192,7 @@ func TestServerless_CreateAccessPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	detail, ok := out["accessPolicyDetail"].(map[string]any)
 	require.True(t, ok)
@@ -221,7 +223,7 @@ func TestServerless_GetAccessPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["accessPolicyDetail"].(map[string]any)
 	assert.Equal(t, "get-test", detail["name"])
 }
@@ -244,7 +246,7 @@ func TestServerless_ListAccessPolicies(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	summaries := out["accessPolicySummaries"].([]any)
 	assert.Len(t, summaries, 2)
 }
@@ -259,7 +261,7 @@ func TestServerless_UpdateAccessPolicy(t *testing.T) {
 		map[string]any{"name": "update-ap", "type": "data", "policy": `[{"old":true}]`})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(r.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &createOut, jsonx.V1()))
 	r.Body.Close()
 	version := createOut["accessPolicyDetail"].(map[string]any)["policyVersion"].(string)
 
@@ -276,7 +278,7 @@ func TestServerless_UpdateAccessPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["accessPolicyDetail"].(map[string]any)
 	assert.Equal(t, "updated", detail["description"])
 }
@@ -300,7 +302,7 @@ func TestServerless_DeleteAccessPolicy(t *testing.T) {
 		"/2021-11-01/opensearch/serverless/accesspolicies?type=data", nil)
 	defer listResp.Body.Close()
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut["accessPolicySummaries"].([]any))
 }
 
@@ -339,7 +341,7 @@ func TestServerless_CreateSecurityConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	detail, ok := out["securityConfigDetail"].(map[string]any)
 	require.True(t, ok)
@@ -357,7 +359,7 @@ func TestServerless_GetSecurityConfig(t *testing.T) {
 		map[string]any{"type": "saml"})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 	id := createOut["securityConfigDetail"].(map[string]any)["id"].(string)
 
@@ -368,7 +370,7 @@ func TestServerless_GetSecurityConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	assert.Equal(t, id, out["securityConfigDetail"].(map[string]any)["id"])
 }
 
@@ -390,7 +392,7 @@ func TestServerless_ListSecurityConfigs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	summaries := out["securityConfigSummaries"].([]any)
 	assert.Len(t, summaries, 3)
 }
@@ -404,7 +406,7 @@ func TestServerless_UpdateSecurityConfig(t *testing.T) {
 		map[string]any{"type": "saml", "description": "old"})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	id := createOut["securityConfigDetail"].(map[string]any)["id"].(string)
@@ -421,7 +423,7 @@ func TestServerless_UpdateSecurityConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["securityConfigDetail"].(map[string]any)
 	assert.Equal(t, "updated desc", detail["description"])
 }
@@ -435,7 +437,7 @@ func TestServerless_DeleteSecurityConfig(t *testing.T) {
 		map[string]any{"type": "saml"})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	id := createOut["securityConfigDetail"].(map[string]any)["id"].(string)
@@ -472,7 +474,7 @@ func TestServerless_CreateEncryptionPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["encryptionPolicyDetail"].(map[string]any)
 	assert.Equal(t, "enc-policy", detail["name"])
 	assert.NotEmpty(t, detail["policyVersion"])
@@ -495,7 +497,7 @@ func TestServerless_ListEncryptionPolicies(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	summaries := out["encryptionPolicySummaries"].([]any)
 	assert.Len(t, summaries, 2)
 }
@@ -515,7 +517,7 @@ func TestServerless_GetEncryptionPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	assert.Equal(t, "get-ep", out["encryptionPolicyDetail"].(map[string]any)["name"])
 }
 
@@ -528,7 +530,7 @@ func TestServerless_UpdateEncryptionPolicy(t *testing.T) {
 		map[string]any{"name": "upd-ep", "type": "encryption", "policy": `{"old":true}`})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(r.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(r.Body), &createOut, jsonx.V1()))
 	r.Body.Close()
 	version := createOut["encryptionPolicyDetail"].(map[string]any)["policyVersion"].(string)
 
@@ -543,7 +545,7 @@ func TestServerless_UpdateEncryptionPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	assert.Equal(t, "updated", out["encryptionPolicyDetail"].(map[string]any)["description"])
 }
 
@@ -587,7 +589,7 @@ func TestServerless_CreateNetworkPolicy(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	detail := out["networkPolicyDetail"].(map[string]any)
 	assert.Equal(t, "net-policy", detail["name"])
 }
@@ -609,7 +611,7 @@ func TestServerless_ListNetworkPolicies(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	summaries := out["networkPolicySummaries"].([]any)
 	assert.Len(t, summaries, 3)
 }
@@ -655,7 +657,7 @@ func TestDomain_OffPeakWindowOptions_Create(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	st := out["DomainStatus"].(map[string]any)
 
 	opw, ok := st["OffPeakWindowOptions"].(map[string]any)
@@ -691,7 +693,7 @@ func TestDomain_OffPeakWindowOptions_UpdateConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, upResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(upResp.Body), &out, jsonx.V1()))
 	cfg := out["DomainConfig"].(map[string]any)
 	opwCfg := cfg["OffPeakWindowOptions"].(map[string]any)
 	opwOpts := opwCfg["Options"].(map[string]any)
@@ -721,7 +723,7 @@ func TestDomain_IdentityCenterOptions_Create(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	st := out["DomainStatus"].(map[string]any)
 
 	idcOpts, ok := st["IdentityCenterOptions"].(map[string]any)
@@ -752,7 +754,7 @@ func TestDomain_IdentityCenterOptions_UpdateConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, upResp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(upResp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(upResp.Body), &out, jsonx.V1()))
 	cfg := out["DomainConfig"].(map[string]any)
 	idcCfg := cfg["IdentityCenterOptions"].(map[string]any)
 	idcOpts := idcCfg["Options"].(map[string]any)
@@ -779,7 +781,7 @@ func TestDomain_EnableSoftwareUpdateOptions_Create(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	st := out["DomainStatus"].(map[string]any)
 
 	swOpts, ok := st["SoftwareUpdateOptions"].(map[string]any)
@@ -809,7 +811,7 @@ func TestDomain_ClusterConfigOmitsBlueGreenDeploymentOptions(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	cc := out["DomainStatus"].(map[string]any)["ClusterConfig"].(map[string]any)
 	assert.NotContains(t, cc, "BlueGreenDeploymentOptions")
 	assert.NotContains(t, cc, "ColdStorageEnabled")
@@ -838,7 +840,7 @@ func TestPackage_CreateWithSource(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	pkg := out["PackageDetails"].(map[string]any)
 	assert.Equal(t, "my-dictionary", pkg["PackageName"])
@@ -869,7 +871,7 @@ func TestPackage_CreateWithEncryptionOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 
 	pkg := out["PackageDetails"].(map[string]any)
 	encOpts, ok := pkg["PackageEncryptionOptions"].(map[string]any)
@@ -889,7 +891,7 @@ func TestPackage_AvailablePackageVersion(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	pkg := out["PackageDetails"].(map[string]any)
 	assert.Equal(t, "1", pkg["AvailablePackageVersion"])
 }
@@ -908,7 +910,7 @@ func TestServerless_Persistence_CollectionsRoundTrip(t *testing.T) {
 		map[string]any{"name": "persist-coll", "type": "TIMESERIES"})
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createResp.Body), &createOut, jsonx.V1()))
 	createResp.Body.Close()
 
 	origID := createOut["createCollectionDetail"].(map[string]any)["id"].(string)
@@ -924,7 +926,7 @@ func TestServerless_Persistence_CollectionsRoundTrip(t *testing.T) {
 	defer listResp.Body.Close()
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 	summaries := listOut["collectionSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, origID, summaries[0].(map[string]any)["id"])
@@ -947,7 +949,7 @@ func TestServerless_Persistence_AccessPoliciesRoundTrip(t *testing.T) {
 	defer listResp.Body.Close()
 
 	var listOut map[string]any
-	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listResp.Body), &listOut, jsonx.V1()))
 	summaries := listOut["accessPolicySummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "persist-ap", summaries[0].(map[string]any)["name"])

@@ -8,12 +8,14 @@ import (
 	sqssdk "github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 	ssmsdk "github.com/blackbirdworks/gopherstack/internal/awswire/ssm"
 	"github.com/blackbirdworks/gopherstack/internal/routegates"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/internal/cliconfig"
 
 	"context"
 	"crypto/tls"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1391,7 +1393,7 @@ func (c *CLI) SaveConfig() error {
 		StepFunctions:  c.StepFunctions,
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.Marshal(cfg, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
@@ -1415,7 +1417,7 @@ func (c *CLI) LoadConfig() error {
 	}
 
 	var cfg cliconfig.PersistableConfig
-	if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(data, &cfg, jsonx.V1()); unmarshalErr != nil {
 		return fmt.Errorf("failed to unmarshal config: %w", unmarshalErr)
 	}
 
@@ -3287,7 +3289,7 @@ func buildResetHandler(services []service.Registerable) echo.HandlerFunc {
 // payload stays human-readable without an extra base64 layer.
 type snapshotBundle struct {
 	// Services maps each registered service name to its raw JSON snapshot.
-	Services map[string]json.RawMessage `json:"services"`
+	Services map[string]jsontext.Value `json:"services"`
 	// Format is a fixed version tag; currently "gopherstack-snapshot/v1".
 	Format string `json:"format"`
 }
@@ -3326,9 +3328,9 @@ func buildSnapshotHandler(m *persistence.Manager) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		raw := m.ExportAll()
 
-		services := make(map[string]json.RawMessage, len(raw))
+		services := make(map[string]jsontext.Value, len(raw))
 		for name, data := range raw {
-			services[name] = json.RawMessage(data)
+			services[name] = jsontext.Value(data)
 		}
 
 		resp := snapshotResponse{
@@ -3352,7 +3354,7 @@ func buildLoadHandler(m *persistence.Manager) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		var bundle snapshotBundle
 
-		if err := json.NewDecoder(c.Request().Body).Decode(&bundle); err != nil {
+		if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &bundle, jsonx.V1()); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest,
 				fmt.Sprintf("invalid snapshot bundle: %s", err.Error()))
 		}
@@ -5969,7 +5971,7 @@ func buildECSRunInput(
 ) ecsbackend.RunTaskInput {
 	var input map[string]any
 	if len(payload) > 0 {
-		_ = json.Unmarshal(payload, &input)
+		_ = json.Unmarshal(payload, &input, jsonx.V1())
 	}
 
 	runInput := ecsbackend.RunTaskInput{
@@ -6605,7 +6607,7 @@ func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
 	functionARN string,
 	event map[string]any,
 ) (map[string]any, error) {
-	payload, err := json.Marshal(event)
+	payload, err := json.Marshal(event, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
@@ -6618,7 +6620,7 @@ func (a *cognitoLambdaTriggerAdapter) InvokeTrigger(
 	}
 
 	var resp map[string]any
-	if err = json.Unmarshal(result, &resp); err != nil {
+	if err = json.Unmarshal(result, &resp, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -14614,7 +14616,7 @@ func (a *iotAnalyticsThingShadowAdapter) GetThingShadow(thingName string) (map[s
 	}
 
 	var data map[string]any
-	if unmarshalErr := json.Unmarshal(doc, &data); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(doc, &data, jsonx.V1()); unmarshalErr != nil {
 		return nil, fmt.Errorf("iotanalytics: unmarshal thing shadow document: %w", unmarshalErr)
 	}
 
@@ -14697,7 +14699,7 @@ func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 	ctx, streamName := kinesisRefContext(context.Background(), streamARN)
 
 	partitionKey := tableName
-	if keys, err := json.Marshal(record.Keys); err == nil {
+	if keys, err := json.Marshal(record.Keys, jsonx.V1()); err == nil {
 		partitionKey = string(keys)
 	}
 
@@ -14717,7 +14719,7 @@ func (a *ddbKinesisEmitterAdapter) EmitDynamoDBStreamRecord(
 				ApproximateCreationDateTime: record.ApproximateCreationDateTime,
 				SizeBytes:                   record.SizeBytes,
 			},
-		})
+		}, jsonx.V1())
 		if err != nil {
 			return
 		}

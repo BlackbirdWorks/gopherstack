@@ -1,7 +1,7 @@
 package ssm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -69,19 +70,19 @@ func TestResourcePolicies_FullCRUD(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"ResourceArn": tt.resourceArn,
 				"Policy":      tt.policy,
-			})
+			}, jsonx.V1())
 			rec := doRequest(t, h, "PutResourcePolicy", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 			policyID := putResp["PolicyId"].(string)
 			policyHash := putResp["PolicyHash"].(string)
 			assert.NotEmpty(t, policyID)
 			assert.NotEmpty(t, policyHash)
 
 			// Get policies.
-			body, _ = json.Marshal(map[string]any{"ResourceArn": tt.resourceArn})
+			body, _ = json.Marshal(map[string]any{"ResourceArn": tt.resourceArn}, jsonx.V1())
 			rec = doRequest(t, h, "GetResourcePolicies", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), policyID)
@@ -91,12 +92,12 @@ func TestResourcePolicies_FullCRUD(t *testing.T) {
 				"ResourceArn": tt.resourceArn,
 				"PolicyId":    policyID,
 				"PolicyHash":  policyHash,
-			})
+			}, jsonx.V1())
 			rec = doRequest(t, h, "DeleteResourcePolicy", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Get policies — should be empty.
-			body, _ = json.Marshal(map[string]any{"ResourceArn": tt.resourceArn})
+			body, _ = json.Marshal(map[string]any{"ResourceArn": tt.resourceArn}, jsonx.V1())
 			rec = doRequest(t, h, "GetResourcePolicies", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), `"Policies":[]`)

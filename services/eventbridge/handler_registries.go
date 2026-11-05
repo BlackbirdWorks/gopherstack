@@ -2,14 +2,16 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) registryActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input CreateRegistryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -19,7 +21,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -29,7 +31,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 			var input struct {
 				RegistryName string `json:"RegistryName"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -41,7 +43,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 				NextToken  string `json:"NextToken"`
 				Limit      int32  `json:"Limit"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			regs, next, err := h.Backend.ListRegistries(ctx, input.NamePrefix, input.NextToken, int(input.Limit))
@@ -56,7 +58,7 @@ func (h *Handler) registryActions() map[string]actionFn {
 		},
 		opUpdateRegistry: func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateRegistryInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

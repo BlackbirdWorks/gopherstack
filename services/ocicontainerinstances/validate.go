@@ -3,13 +3,15 @@ package ocicontainerinstances
 import (
 	"cmp"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/netip"
 	"path"
 	"slices"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -152,7 +154,7 @@ func (b *InMemoryBackend) buildVnics(inst *Instance, vnics []createVnicIn) *APIE
 	return nil
 }
 
-func checkSecurity(raw json.RawMessage) *APIError {
+func checkSecurity(raw jsontext.Value) *APIError {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
 	}
@@ -161,7 +163,7 @@ func checkSecurity(raw json.RawMessage) *APIError {
 		Type string `json:"securityContextType"`
 	}
 
-	if err := json.Unmarshal(raw, &sc); err != nil || sc.Type != "LINUX" {
+	if err := json.Unmarshal(raw, &sc, jsonx.V1()); err != nil || sc.Type != "LINUX" {
 		return errParam("securityContext.securityContextType must be LINUX")
 	}
 

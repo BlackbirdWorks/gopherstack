@@ -2,11 +2,13 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dynamicRefPattern matches CloudFormation dynamic reference strings:
@@ -186,7 +188,7 @@ func ResolveDynamicRefsInTemplate(ctx context.Context, tmpl *Template, resolver 
 // If parsing fails or the key is absent, an error is returned.
 func resolveJSONKey(secretValue, key string) (string, error) {
 	var obj map[string]any
-	if err := json.Unmarshal([]byte(secretValue), &obj); err != nil {
+	if err := json.Unmarshal([]byte(secretValue), &obj, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("secret is not valid JSON: %w", err)
 	}
 

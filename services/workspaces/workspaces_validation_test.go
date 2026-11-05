@@ -1,7 +1,7 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ func TestCreateWorkspaces_MaxAllowed_Returns200(t *testing.T) {
 	)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	pending := resp["PendingRequests"].([]any)
 	assert.Len(t, pending, 25)
 }
@@ -145,7 +147,7 @@ func TestCreateWorkspaces_WithProperties_Stored(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	pending := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
@@ -172,7 +174,7 @@ func TestCreateWorkspaces_WithProperties_Stored(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 
@@ -210,7 +212,7 @@ func TestCreateWorkspaces_DefaultsRunningModeToAlwaysOn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	pending := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
 	ws := pending[0].(map[string]any)
@@ -226,7 +228,7 @@ func TestCreateWorkspaces_DefaultsRunningModeToAlwaysOn(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 
@@ -259,7 +261,7 @@ func TestCreateWorkspaces_ExplicitRunningMode_NotOverwritten(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	pending := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
 	ws := pending[0].(map[string]any)
@@ -273,7 +275,7 @@ func TestCreateWorkspaces_ExplicitRunningMode_NotOverwritten(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 	assert.Equal(t, "AUTO_STOP", wsList[0].(map[string]any)["WorkspaceProperties"].(map[string]any)["RunningMode"],
@@ -320,7 +322,7 @@ func TestCreateWorkspaces_InvalidRunningMode_FailsPerItem(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "batch op must return 200 even with a failed item")
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			pending, _ := resp["PendingRequests"].([]any)
 			assert.Empty(t, pending, "the invalid item must not be created")
@@ -358,7 +360,7 @@ func TestCreateWorkspaces_SubnetId_Propagated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	pending := createResp["PendingRequests"].([]any)
 	require.Len(t, pending, 1)
@@ -372,7 +374,7 @@ func TestCreateWorkspaces_SubnetId_Propagated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 	wsList := descResp["Workspaces"].([]any)
 	require.Len(t, wsList, 1)
 	assert.Equal(t, "subnet-12345678", wsList[0].(map[string]any)["SubnetId"])
@@ -528,7 +530,7 @@ func TestModifyWorkspaceProperties_InvalidComputeType_MessageIsDescriptive(t *te
 
 	var resp map[string]string
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["message"], "NOT_A_REAL_TYPE",
 		"message should describe the actual invalid value, not just the error code")
 	assert.NotContains(t, resp["message"], "%!(EXTRA")

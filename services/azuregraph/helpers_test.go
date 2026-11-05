@@ -2,7 +2,7 @@ package azuregraph_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuregraph"
 )
 
@@ -98,7 +99,7 @@ func (e *env) req(t *testing.T, method, path string, body any, hdr ...string) re
 	case string:
 		rdr = strings.NewReader(b)
 	default:
-		raw, err := json.Marshal(b)
+		raw, err := json.Marshal(b, jsonx.V1())
 		require.NoError(t, err)
 
 		rdr = bytes.NewReader(raw)
@@ -126,7 +127,7 @@ func (e *env) req(t *testing.T, method, path string, body any, hdr ...string) re
 	require.NoError(t, err)
 
 	out := resp{status: res.StatusCode, header: res.Header, raw: string(raw)}
-	_ = json.Unmarshal(raw, &out.body)
+	_ = json.Unmarshal(raw, &out.body, jsonx.V1())
 
 	return out
 }

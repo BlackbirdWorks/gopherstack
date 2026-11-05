@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"maps"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
@@ -33,7 +34,7 @@ func doFirehoseRequest(t *testing.T, h *firehose.Handler, action string, body an
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	} else {
 		bodyBytes = []byte("{}")
@@ -90,7 +91,7 @@ func auditCreateStream(t *testing.T, h *firehose.Handler, name string, extra map
 	var out struct {
 		DeliveryStreamARN string `json:"DeliveryStreamARN"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out.DeliveryStreamARN
 }
@@ -104,7 +105,7 @@ func auditDescribe(t *testing.T, h *firehose.Handler, name string) map[string]an
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["DeliveryStreamDescription"].(map[string]any)
 }
@@ -423,7 +424,7 @@ func TestErrorResponse_ResourceInUseException_HasType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceInUseException", body["__type"],
 		"duplicate-stream error must carry __type=ResourceInUseException")
 }
@@ -475,7 +476,7 @@ func TestErrorResponse_InvalidArgumentException_HasType(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "InvalidArgumentException", body["__type"],
 				"validation error must carry __type=InvalidArgumentException; got: %v", body)
 		})
@@ -491,7 +492,7 @@ func TestErrorResponse_ResourceNotFoundException_HasType(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", body["__type"],
 		"not-found error must carry __type=ResourceNotFoundException")
 }
@@ -504,7 +505,7 @@ func TestErrorResponse_UnknownOperation_HasType(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "UnknownOperationException", body["__type"],
 		"unknown operation must carry __type=UnknownOperationException")
 }

@@ -3,7 +3,7 @@ package firehose_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
@@ -498,7 +499,7 @@ func TestHTTPEndpoint_DeliveryFormat_ViaHandler(t *testing.T) {
 		} `json:"records"`
 		Timestamp int64 `json:"timestamp"`
 	}
-	require.NoError(t, json.Unmarshal(requests[0].body, &payload))
+	require.NoError(t, json.Unmarshal(requests[0].body, &payload, jsonx.V1()))
 
 	assert.NotEmpty(t, payload.RequestID)
 	assert.Positive(t, payload.Timestamp)
@@ -541,7 +542,7 @@ func TestOpenSearch_BulkNDJSON_ViaHandler(t *testing.T) {
 	require.GreaterOrEqual(t, len(lines), 2, "NDJSON must have at least action+document lines")
 
 	var action map[string]any
-	require.NoError(t, json.Unmarshal([]byte(lines[0]), &action))
+	require.NoError(t, json.Unmarshal([]byte(lines[0]), &action, jsonx.V1()))
 	_, hasIndex := action["index"]
 	assert.True(t, hasIndex, "first NDJSON line must be an index action")
 }
@@ -603,7 +604,7 @@ func TestSplunk_Modes_ViaHandler(t *testing.T) {
 				assert.Contains(t, string(requests[0].body), "splunk-raw-data")
 			} else {
 				var evtBody map[string]any
-				require.NoError(t, json.Unmarshal(requests[0].body, &evtBody))
+				require.NoError(t, json.Unmarshal(requests[0].body, &evtBody, jsonx.V1()))
 				_, hasEvent := evtBody["event"]
 				assert.True(t, hasEvent, "Event mode must wrap data in {event:...}")
 			}
@@ -629,7 +630,7 @@ func okLambdaResponse(records ...struct{ id, data string }) []byte {
 			Data:     base64.StdEncoding.EncodeToString([]byte(r.data)),
 		})
 	}
-	b, _ := json.Marshal(out)
+	b, _ := json.Marshal(out, jsonx.V1())
 
 	return b
 }
@@ -689,7 +690,7 @@ func TestLambdaTransform_AllDestinations(t *testing.T) {
 					Data string `json:"data"`
 				} `json:"records"`
 			}
-			require.NoError(t, json.Unmarshal(srv.captured()[0].body, &payload))
+			require.NoError(t, json.Unmarshal(srv.captured()[0].body, &payload, jsonx.V1()))
 			require.Len(t, payload.Records, 1)
 			decoded, decErr := base64.StdEncoding.DecodeString(payload.Records[0].Data)
 			require.NoError(t, decErr)

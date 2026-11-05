@@ -1,12 +1,13 @@
 package arczonalshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 
 	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	asgbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
@@ -162,7 +163,7 @@ func clusterZonalShiftEnabled(c *eksbackend.Cluster) bool {
 		Enabled bool `json:"enabled"`
 	}
 
-	return json.Unmarshal(raw, &cfg) == nil && cfg.Enabled
+	return json.Unmarshal(raw, &cfg, jsonx.V1()) == nil && cfg.Enabled
 }
 
 func (b *InMemoryBackend) managedCluster(arn string, p awsarn.ARN) (managedResource, error) {

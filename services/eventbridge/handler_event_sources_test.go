@@ -1,7 +1,8 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -55,16 +57,16 @@ func TestDescribeEventSourceAndListEventSources_TimestampsAreEpochFloat(t *testi
 			rec := auditMakeRequest(t, h, e, tt.action, input)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var creationRaw json.RawMessage
+			var creationRaw jsontext.Value
 			if tt.action == "DescribeEventSource" {
-				var raw map[string]json.RawMessage
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+				var raw map[string]jsontext.Value
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 				creationRaw = raw["CreationTime"]
 			} else {
 				var raw struct {
-					EventSources []map[string]json.RawMessage `json:"EventSources"`
+					EventSources []map[string]jsontext.Value `json:"EventSources"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 				require.Len(t, raw.EventSources, 1)
 				creationRaw = raw.EventSources[0]["CreationTime"]
 			}
@@ -72,7 +74,7 @@ func TestDescribeEventSourceAndListEventSources_TimestampsAreEpochFloat(t *testi
 			require.NotNil(t, creationRaw, "CreationTime must be present")
 
 			var f float64
-			err := json.Unmarshal(creationRaw, &f)
+			err := json.Unmarshal(creationRaw, &f, jsonx.V1())
 			require.NoError(t, err, "CreationTime must be a JSON number (epoch seconds), got: %s", string(creationRaw))
 			assert.Greater(t, f, float64(0))
 		})

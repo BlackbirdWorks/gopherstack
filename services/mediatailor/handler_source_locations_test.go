@@ -1,13 +1,14 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -32,7 +33,7 @@ func TestSourceLocation_CreateAndDescribe(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "my-location", resp["SourceLocationName"])
 				assert.Contains(t, resp["Arn"], "arn:aws:mediatailor:us-east-1:000000000000:sourceLocation/my-location")
 				httpCfg, _ := resp["HttpConfiguration"].(map[string]any)
@@ -76,7 +77,7 @@ func TestSourceLocation_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/sourceLocation/test-sl", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-sl", descResp["SourceLocationName"])
 
 	// Update
@@ -85,7 +86,7 @@ func TestSourceLocation_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	httpCfg, _ := updateResp["HttpConfiguration"].(map[string]any)
 	assert.Equal(t, "https://updated.example.com", httpCfg["BaseUrl"])
 
@@ -93,7 +94,7 @@ func TestSourceLocation_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/sourceLocations", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Items"], 1)
 
 	// Delete
@@ -152,7 +153,7 @@ func TestSourceLocation_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Items"])
 }
 
@@ -172,7 +173,7 @@ func TestListSourceLocations_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -267,7 +268,7 @@ func TestCreateSourceLocation_TagsSurviveDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tags, _ := resp["tags"].(map[string]any)
 	assert.Equal(t, "video", tags["team"], "tags set at creation must survive to DescribeSourceLocation")
 }
@@ -285,7 +286,7 @@ func TestSourceLocation_Timestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	require.NotNil(t, created["CreationTime"], "CreationTime must be populated")
 	require.NotNil(t, created["LastModifiedTime"], "LastModifiedTime must be populated")
 
@@ -295,7 +296,7 @@ func TestSourceLocation_Timestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, created["CreationTime"], updated["CreationTime"], "CreationTime must not change on update")
 	require.NotNil(t, updated["LastModifiedTime"])
 }

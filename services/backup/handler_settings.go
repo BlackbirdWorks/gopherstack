@@ -1,10 +1,12 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchSettingsOps handles the account-level global/region settings and
@@ -26,7 +28,7 @@ func (h *Handler) dispatchSettingsOps(
 		var reqGSBody struct {
 			GlobalSettings map[string]string `json:"GlobalSettings"`
 		}
-		if err := json.Unmarshal(body, &reqGSBody); err == nil &&
+		if err := json.Unmarshal(body, &reqGSBody, jsonx.V1()); err == nil &&
 			reqGSBody.GlobalSettings != nil {
 			h.Backend.UpdateGlobalSettings(reqGSBody.GlobalSettings)
 		}
@@ -44,7 +46,7 @@ func (h *Handler) dispatchSettingsOps(
 			ResourceTypeManagementPreference map[string]bool `json:"ResourceTypeManagementPreference"`
 			ResourceTypeOptInPreference      map[string]bool `json:"ResourceTypeOptInPreference"`
 		}
-		if err := json.Unmarshal(body, &reqRSBody); err == nil {
+		if err := json.Unmarshal(body, &reqRSBody, jsonx.V1()); err == nil {
 			h.Backend.UpdateRegionSettings(
 				reqRSBody.ResourceTypeManagementPreference,
 				reqRSBody.ResourceTypeOptInPreference,

@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -179,7 +180,7 @@ func TestIncorrectKeyExceptionWireType(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"CiphertextBlob": encOut.CiphertextBlob,
 		"KeyId":          otherKey.KeyMetadata.KeyID,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
@@ -194,6 +195,6 @@ func TestIncorrectKeyExceptionWireType(t *testing.T) {
 		Type    string `json:"__type"`
 		Message string `json:"message"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "IncorrectKeyException", resp.Type)
 }

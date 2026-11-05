@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Position(t *testing.T) {
@@ -19,7 +21,7 @@ func TestHandler_Position(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	pos, ok := getResp["Position"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, pos)
@@ -39,7 +41,7 @@ func TestHandler_Position(t *testing.T) {
 	// coordinates, not a fabricated empty response.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/positions/resource-123", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	pos, ok = getResp["Position"].([]any)
 	require.True(t, ok)
 	assert.Equal(t, []any{47.6, -122.3, 100.0}, pos)
@@ -57,7 +59,7 @@ func TestHandler_Position(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getCfgResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp, jsonx.V1()))
 	assert.NotContains(t, getCfgResp, "Destination")
 
 	// Put position configuration with a real ResourceType and Destination.
@@ -69,7 +71,7 @@ func TestHandler_Position(t *testing.T) {
 	// Get position configuration must now reflect the stored destination.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/position-configurations/resource-123", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCfgResp, jsonx.V1()))
 	assert.Equal(t, "my-position-dest", getCfgResp["Destination"])
 	solvers, ok := getCfgResp["Solvers"].(map[string]any)
 	require.True(t, ok)
@@ -91,7 +93,7 @@ func TestHandler_Position(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok := listResp["PositionConfigurationList"].([]any)
 	require.True(t, ok)
 	require.Len(t, configs, 1)
@@ -106,7 +108,7 @@ func TestHandler_Position(t *testing.T) {
 		"",
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	configs, ok = listResp["PositionConfigurationList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, configs)
@@ -228,7 +230,7 @@ func TestHandler_PositionConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, ok := resp[tt.wantKey]
 			assert.True(t, ok, "expected key %q in position config response", tt.wantKey)
 
@@ -237,7 +239,7 @@ func TestHandler_PositionConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			cfgs, ok := listResp["PositionConfigurationList"].([]any)
 			require.True(t, ok)
 			require.Len(t, cfgs, 1)

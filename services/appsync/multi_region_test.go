@@ -2,7 +2,8 @@ package appsync_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -39,7 +41,7 @@ func regionDo(t *testing.T, h *appsync.Handler, region, method, path, body strin
 
 	out := map[string]any{}
 	if rec.Body.Len() > 0 {
-		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		_ = json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1())
 	}
 
 	return rec.Code, out
@@ -158,9 +160,9 @@ func TestHandler_MultiRegionPersistence(t *testing.T) {
 
 			snap := src.Snapshot(t.Context())
 
-			var doc map[string]json.RawMessage
+			var doc map[string]jsontext.Value
 
-			require.NoError(t, json.Unmarshal(snap, &doc))
+			require.NoError(t, json.Unmarshal(snap, &doc, jsonx.V1()))
 
 			_, hasRegions := doc["regions"]
 			assert.Equal(t, tc.wantRegions, hasRegions)

@@ -2,7 +2,7 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
@@ -67,7 +68,7 @@ func makeSMBody(name, def, smType string) string {
 		input["type"] = smType
 	}
 
-	b, err := json.Marshal(input)
+	b, err := json.Marshal(input, jsonx.V1())
 	if err != nil {
 		panic(err)
 	}
@@ -83,7 +84,7 @@ func createSM(ctx context.Context, t *testing.T, h *stepfunctions.Handler, e *ec
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["stateMachineArn"].(string)
 }
@@ -102,7 +103,7 @@ func startExec(
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["executionArn"].(string)
 }
@@ -148,7 +149,7 @@ func TestHandler_Routing(t *testing.T) {
 				t.Helper()
 
 				var ops []string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 				assert.Contains(t, ops, "CreateStateMachine")
 			},
 		},
@@ -252,14 +253,14 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 			var smResp struct {
 				StateMachineArn string `json:"stateMachineArn"`
 			}
-			require.NoError(t, json.Unmarshal(smRec.Body.Bytes(), &smResp))
+			require.NoError(t, json.Unmarshal(smRec.Body.Bytes(), &smResp, jsonx.V1()))
 
 			// Start an execution.
 			execBody, err := json.Marshal(map[string]string{
 				"stateMachineArn": smResp.StateMachineArn,
 				"name":            "exec-1",
 				"input":           "{}",
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			execRec := sfnPost(ctx, t, h, e, "StartExecution", string(execBody))
@@ -268,7 +269,7 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 			var execResp struct {
 				ExecutionArn string `json:"executionArn"`
 			}
-			require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+			require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp, jsonx.V1()))
 
 			// Shutdown should cancel the long-running Wait execution and return promptly.
 			h.Shutdown(t.Context())
@@ -276,7 +277,10 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 			// After Shutdown, the cancelled execution goroutine should eventually
 			// transition the execution out of RUNNING (to FAILED due to cancellation).
 			require.Eventuallyf(t, func() bool {
-				descBody, marshalErr := json.Marshal(map[string]string{"executionArn": execResp.ExecutionArn})
+				descBody, marshalErr := json.Marshal(
+					map[string]string{"executionArn": execResp.ExecutionArn},
+					jsonx.V1(),
+				)
 				if marshalErr != nil {
 					return false
 				}
@@ -290,7 +294,8 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 					Status string `json:"status"`
 				}
 
-				return json.Unmarshal(descRec.Body.Bytes(), &descResp) == nil && descResp.Status != "RUNNING"
+				return json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()) == nil &&
+					descResp.Status != "RUNNING"
 			}, 5*time.Second, 50*time.Millisecond,
 				"[%s] execution should leave RUNNING state after Shutdown", tt.name)
 		})
@@ -331,7 +336,7 @@ func TestClassifyError_InvalidExecutionInput(t *testing.T) {
 			body, err := json.Marshal(map[string]string{
 				"stateMachineArn": smARN,
 				"input":           tt.input,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "StartExecution", string(body))
@@ -339,7 +344,7 @@ func TestClassifyError_InvalidExecutionInput(t *testing.T) {
 			if tt.wantErr {
 				assert.Equal(t, tt.wantCode, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidExecutionInput", resp["__type"])
 			} else {
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -384,7 +389,7 @@ func TestClassifyError_InvalidArn(t *testing.T) {
 				"name":       "arn-check-sm-" + tt.name,
 				"definition": sfnPassDefinition,
 				"roleArn":    tt.roleArn,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := sfnPost(ctx, t, h, e, "CreateStateMachine", string(body))
@@ -392,7 +397,7 @@ func TestClassifyError_InvalidArn(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidArn", resp["__type"])
 			}
 		})
@@ -438,7 +443,7 @@ func TestHTTP_StateMachineAlreadyExists_Returns409(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "StateMachineAlreadyExists", out["__type"])
 }
 
@@ -453,7 +458,7 @@ func TestHTTP_InvalidDefinition_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "InvalidDefinition", out["__type"])
 }
 

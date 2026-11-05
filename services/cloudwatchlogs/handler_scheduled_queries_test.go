@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -31,7 +32,7 @@ func TestHandler_ScheduledQuery_Create(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	queryARN, ok := out["scheduledQueryArn"].(string)
 	require.True(t, ok)
 	assert.Contains(t, queryARN, "scheduled-query")
@@ -60,7 +61,7 @@ func TestHandler_GetScheduledQuery_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	queryARN, ok := createOut["scheduledQueryArn"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, queryARN)
@@ -69,7 +70,7 @@ func TestHandler_GetScheduledQuery_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var sq map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sq))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sq, jsonx.V1()))
 
 	assert.Equal(t, queryARN, sq["scheduledQueryArn"], "wire key must be scheduledQueryArn, not arn")
 	_, hasOldKey := sq["arn"]
@@ -129,7 +130,7 @@ func TestHandler_ScheduledQuery_DestinationConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createOut map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 			queryARN, arnOK := createOut["scheduledQueryArn"].(string)
 			require.True(t, arnOK)
 
@@ -137,7 +138,7 @@ func TestHandler_ScheduledQuery_DestinationConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var sq map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sq))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sq, jsonx.V1()))
 
 			destRaw, hasDest := sq["destinationConfiguration"]
 			if !tt.wantS3 && !tt.wantLookup {
@@ -282,7 +283,7 @@ func TestHandler_CreateScheduledQueryOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -290,7 +291,7 @@ func TestHandler_CreateScheduledQueryOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {
@@ -321,7 +322,7 @@ func TestHandler_GetScheduledQueryHistory_RequiresTimeRange(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	arn, _ := created["scheduledQueryArn"].(string)
 	require.NotEmpty(t, arn)
 

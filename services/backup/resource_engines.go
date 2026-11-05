@@ -3,7 +3,8 @@ package backup
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 
@@ -13,6 +14,7 @@ import (
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -24,8 +26,8 @@ const (
 // resourceEngine snapshots a live resource at backup time and recreates it from that snapshot on restore.
 type resourceEngine interface {
 	// capture returns nil data when the resource does not exist.
-	capture(ctx context.Context, resourceArn string) (json.RawMessage, error)
-	restore(ctx context.Context, data json.RawMessage, metadata map[string]string) (string, error)
+	capture(ctx context.Context, resourceArn string) (jsontext.Value, error)
+	restore(ctx context.Context, data jsontext.Value, metadata map[string]string) (string, error)
 }
 
 // DynamoDBBackend is the DynamoDB surface used to snapshot and restore tables.
@@ -94,10 +96,10 @@ type ddbSnapshot struct {
 	Attributes  []ddbtypes.AttributeDefinition  `json:"attributes"`
 	GSIs        []ddbtypes.GlobalSecondaryIndex `json:"gsis,omitempty"`
 	LSIs        []ddbtypes.LocalSecondaryIndex  `json:"lsis,omitempty"`
-	Items       []map[string]json.RawMessage    `json:"items"`
+	Items       []map[string]jsontext.Value     `json:"items"`
 }
 
-func (e *ddbEngine) capture(ctx context.Context, resourceArn string) (json.RawMessage, error) {
+func (e *ddbEngine) capture(ctx context.Context, resourceArn string) (jsontext.Value, error) {
 	name := resourceNameFromARN(resourceArn)
 
 	desc, err := e.ddb.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: aws.String(name)})
@@ -139,12 +141,12 @@ func (e *ddbEngine) capture(ctx context.Context, resourceArn string) (json.RawMe
 		return nil, err
 	}
 
-	return json.Marshal(snap)
+	return json.Marshal(snap, jsonx.V1())
 }
 
-func (e *ddbEngine) scanAll(ctx context.Context, table string) ([]map[string]json.RawMessage, error) {
+func (e *ddbEngine) scanAll(ctx context.Context, table string) ([]map[string]jsontext.Value, error) {
 	var (
-		items []map[string]json.RawMessage
+		items []map[string]jsontext.Value
 		start map[string]ddbtypes.AttributeValue
 	)
 
@@ -169,9 +171,9 @@ func (e *ddbEngine) scanAll(ctx context.Context, table string) ([]map[string]jso
 	}
 }
 
-func (e *ddbEngine) restore(ctx context.Context, data json.RawMessage, md map[string]string) (string, error) {
+func (e *ddbEngine) restore(ctx context.Context, data jsontext.Value, md map[string]string) (string, error) {
 	var snap ddbSnapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := json.Unmarshal(data, &snap, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("decode DynamoDB snapshot: %w", err)
 	}
 
@@ -215,7 +217,7 @@ type s3SnapObject struct {
 	Body        []byte `json:"body"`
 }
 
-func (e *s3Engine) capture(ctx context.Context, resourceArn string) (json.RawMessage, error) {
+func (e *s3Engine) capture(ctx context.Context, resourceArn string) (jsontext.Value, error) {
 	bucket, ok := s3BucketFromARN(resourceArn)
 	if !ok {
 		return nil, nil
@@ -249,7 +251,7 @@ func (e *s3Engine) capture(ctx context.Context, resourceArn string) (json.RawMes
 		token = page.NextContinuationToken
 	}
 
-	return json.Marshal(snap)
+	return json.Marshal(snap, jsonx.V1())
 }
 
 func (e *s3Engine) readObject(ctx context.Context, bucket, key string) (s3SnapObject, error) {
@@ -267,9 +269,9 @@ func (e *s3Engine) readObject(ctx context.Context, bucket, key string) (s3SnapOb
 	return s3SnapObject{Key: key, ContentType: aws.ToString(out.ContentType), Body: body}, nil
 }
 
-func (e *s3Engine) restore(ctx context.Context, data json.RawMessage, md map[string]string) (string, error) {
+func (e *s3Engine) restore(ctx context.Context, data jsontext.Value, md map[string]string) (string, error) {
 	var snap s3Snapshot
-	if err := json.Unmarshal(data, &snap); err != nil {
+	if err := json.Unmarshal(data, &snap, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("decode S3 snapshot: %w", err)
 	}
 
@@ -303,18 +305,18 @@ type ebsEngine struct {
 	accountID string
 }
 
-func (e *ebsEngine) capture(_ context.Context, resourceArn string) (json.RawMessage, error) {
+func (e *ebsEngine) capture(_ context.Context, resourceArn string) (jsontext.Value, error) {
 	info, ok := e.vols.DescribeVolume(resourceNameFromARN(resourceArn))
 	if !ok {
 		return nil, nil
 	}
 
-	return json.Marshal(info)
+	return json.Marshal(info, jsonx.V1())
 }
 
-func (e *ebsEngine) restore(_ context.Context, data json.RawMessage, md map[string]string) (string, error) {
+func (e *ebsEngine) restore(_ context.Context, data jsontext.Value, md map[string]string) (string, error) {
 	var info VolumeInfo
-	if err := json.Unmarshal(data, &info); err != nil {
+	if err := json.Unmarshal(data, &info, jsonx.V1()); err != nil {
 		return "", fmt.Errorf("decode EBS snapshot: %w", err)
 	}
 	if v := md["availabilityZone"]; v != "" {

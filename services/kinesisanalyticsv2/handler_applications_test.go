@@ -1,7 +1,7 @@
 package kinesisanalyticsv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
@@ -16,7 +17,7 @@ func assertErrorType(t *testing.T, body []byte, wantType string) {
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 	assert.Equal(t, wantType, resp["__type"])
 }
 
@@ -24,7 +25,7 @@ func assertAppStatus(t *testing.T, body []byte, wantStatus string) {
 	t.Helper()
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	detail, ok := resp["ApplicationDetail"].(map[string]any)
 	require.True(t, ok, "response missing ApplicationDetail")
@@ -76,7 +77,7 @@ func TestKAV2_CreateApplication(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				detail, ok := out["ApplicationDetail"].(map[string]any)
 				require.True(t, ok)
@@ -184,7 +185,7 @@ func TestKAV2_CreateApplication_InlineConfiguration(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	detail := out["ApplicationDetail"].(map[string]any)
 
 	// Inline config must not bump the version past 1 -- real AWS keeps a
@@ -222,7 +223,7 @@ func TestKAV2_NonNilSlices_InDetailOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	detail := out["ApplicationDetail"].(map[string]any)
 	// Tags should be present (may be empty but not nil)
@@ -292,7 +293,7 @@ func TestKAV2_ListApplications(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, ok := out["ApplicationSummaries"].([]any)
 	require.True(t, ok)
@@ -341,7 +342,7 @@ func TestKAV2_StartStopApplication(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	detail := out["ApplicationDetail"].(map[string]any)
 	assert.Equal(t, "RUNNING", detail["ApplicationStatus"])
 
@@ -369,14 +370,14 @@ func TestKAV2_StartStopUpdate_ReturnOperationId(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut["OperationId"])
 
 	stopRec := doKAV2Request(t, h, "StopApplication", map[string]any{"ApplicationName": "opid-app"})
 	require.Equal(t, http.StatusOK, stopRec.Code)
 
 	var stopOut map[string]any
-	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut))
+	require.NoError(t, json.Unmarshal(stopRec.Body.Bytes(), &stopOut, jsonx.V1()))
 	assert.NotEmpty(t, stopOut["OperationId"])
 
 	updateRec := doKAV2Request(t, h, "UpdateApplication", map[string]any{
@@ -387,7 +388,7 @@ func TestKAV2_StartStopUpdate_ReturnOperationId(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut, jsonx.V1()))
 	assert.NotEmpty(t, updateOut["OperationId"])
 }
 
@@ -466,7 +467,7 @@ func TestKAV2_UpdateApplication(t *testing.T) {
 
 			if tt.wantRole != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				detail := out["ApplicationDetail"].(map[string]any)
 				assert.Equal(t, tt.wantRole, detail["ServiceExecutionRole"])
 			}

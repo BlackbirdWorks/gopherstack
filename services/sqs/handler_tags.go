@@ -2,9 +2,10 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -30,7 +31,7 @@ func (h *Handler) handleTagQueue(
 	body []byte,
 ) (any, error) {
 	var req jsonTagQueueReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -51,7 +52,7 @@ func (h *Handler) handleUntagQueue(
 	body []byte,
 ) (any, error) {
 	var req jsonUntagQueueReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) handleListQueueTags(
 	body []byte,
 ) (any, error) {
 	var req jsonQueueURLReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

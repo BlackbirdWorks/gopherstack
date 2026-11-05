@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -34,7 +35,7 @@ func TestAppStream_DirectoryConfigs(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				dc := resp["DirectoryConfig"].(map[string]any)
 				assert.Equal(t, "corp.example.com", dc["DirectoryName"])
 			},
@@ -51,7 +52,7 @@ func TestAppStream_DirectoryConfigs(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				dcs := resp["DirectoryConfigs"].([]any)
 				assert.Len(t, dcs, 1)
 			},
@@ -122,7 +123,7 @@ func TestAppStream_DirectoryConfigRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &resp, jsonx.V1()))
 	configs := resp["DirectoryConfigs"].([]any)
 	require.Len(t, configs, 1)
 	dc := configs[0].(map[string]any)
@@ -154,7 +155,7 @@ func TestAppStream_DirectoryConfigServiceAccountCredentials(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	dc := createResp["DirectoryConfig"].(map[string]any)
 
 	cred := dc["ServiceAccountCredentials"].(map[string]any)
@@ -174,7 +175,7 @@ func TestAppStream_DirectoryConfigServiceAccountCredentials(t *testing.T) {
 	require.Equal(t, http.StatusOK, recUpd.Code)
 
 	var updResp map[string]any
-	require.NoError(t, json.Unmarshal(recUpd.Body.Bytes(), &updResp))
+	require.NoError(t, json.Unmarshal(recUpd.Body.Bytes(), &updResp, jsonx.V1()))
 	updDC := updResp["DirectoryConfig"].(map[string]any)
 	updCred := updDC["ServiceAccountCredentials"].(map[string]any)
 	assert.Equal(t, "svc-account-2", updCred["AccountName"])

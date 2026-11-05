@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -23,7 +24,7 @@ func TestHandler_ConfigurationProfile_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// Create profile.
 	profileBody := []byte(`{"name":"my-config","locationUri":"hosted","type":"AWS.Freeform"}`)
@@ -37,7 +38,7 @@ func TestHandler_ConfigurationProfile_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 	assert.Equal(t, "my-config", profile.Name)
 
 	// Get profile.
@@ -70,7 +71,7 @@ func TestHandler_ListConfigurationProfiles_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	// Create two profiles.
 	for _, name := range []string{"prof-1", "prof-2"} {
@@ -99,7 +100,7 @@ func TestHandler_UpdateConfigurationProfile_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	profileBody := []byte(`{"name":"old-name","locationUri":"hosted","type":"AWS.Freeform"}`)
 	rec = doRequest(
@@ -112,7 +113,7 @@ func TestHandler_UpdateConfigurationProfile_HTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	// Update.
 	rec = doRequest(
@@ -125,7 +126,7 @@ func TestHandler_UpdateConfigurationProfile_HTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "new-name", updated.Name)
 }
 
@@ -143,7 +144,7 @@ func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *tes
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	profileBody := []byte(
 		`{"Name":"old-name","Description":"keep-me","LocationUri":"hosted","Type":"AWS.Freeform"}`,
@@ -152,7 +153,7 @@ func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *tes
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPatch,
 		"/applications/"+app.ID+"/configurationprofiles/"+profile.ID,
@@ -161,7 +162,7 @@ func TestHandler_UpdateConfigurationProfile_RetrievalRoleArnAndValidators(t *tes
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "arn:aws:iam::123456789012:role/retrieval", updated.RetrievalRoleArn,
 		"RetrievalRoleArn must be applied, not silently dropped")
 	require.Len(t, updated.Validators, 1, "Validators must be applied, not silently dropped")
@@ -245,21 +246,21 @@ func TestHandler_CreateConfigurationProfile_TagsAppliedInline(t *testing.T) {
 			require.Equal(t, http.StatusCreated, appRec.Code)
 
 			var app appconfig.Application
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 			body, err := json.Marshal(map[string]any{
 				"Name":        "tagged-prof-" + tt.name,
 				"LocationUri": "hosted",
 				"Type":        "AWS.Freeform",
 				"Tags":        tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var profile appconfig.ConfigurationProfile
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:application/" +
 				app.ID + "/configurationprofile/" + profile.ID
@@ -269,7 +270,7 @@ func TestHandler_CreateConfigurationProfile_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)
@@ -334,7 +335,7 @@ func seedExperimentDefinitionHTTP(t *testing.T, h *appconfig.Handler) (string, s
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"exp-http-env"}`))
@@ -343,7 +344,7 @@ func seedExperimentDefinitionHTTP(t *testing.T, h *appconfig.Handler) (string, s
 	var env struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 		[]byte(`{"Name":"exp-http-profile","LocationUri":"hosted","Type":"AWS.AppConfig.FeatureFlags"}`))
@@ -352,7 +353,7 @@ func seedExperimentDefinitionHTTP(t *testing.T, h *appconfig.Handler) (string, s
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	return app.ID, env.ID, prof.ID
 }
@@ -382,7 +383,7 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created appconfig.ExperimentDefinition
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	assert.NotEmpty(t, created.ID)
 	assert.Equal(t, appID, created.ApplicationID)
 	assert.Equal(t, envID, created.EnvironmentID)
@@ -396,7 +397,7 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var got appconfig.ExperimentDefinition
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, created.ID, got.ID)
 
 	listRec := doRequest(t, h, http.MethodGet, "/experimentdefinitions?application_identifier="+appID, nil)
@@ -405,7 +406,7 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	var listResp struct {
 		Items []appconfig.ExperimentDefinition `json:"Items"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Items, 1)
 	assert.Equal(t, created.ID, listResp.Items[0].ID)
 
@@ -414,7 +415,7 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updated appconfig.ExperimentDefinition
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.Equal(t, "country == 'US'", updated.AudienceRule)
 
 	deleteRec := doRequest(t, h, http.MethodDelete, "/applications/"+appID+"/experimentdefinitions/"+created.ID, nil)
@@ -424,7 +425,7 @@ func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, afterDeleteRec.Code, "default delete_type archives rather than destroying")
 
 	var afterDelete appconfig.ExperimentDefinition
-	require.NoError(t, json.Unmarshal(afterDeleteRec.Body.Bytes(), &afterDelete))
+	require.NoError(t, json.Unmarshal(afterDeleteRec.Body.Bytes(), &afterDelete, jsonx.V1()))
 	assert.Equal(t, "ARCHIVED", afterDelete.Status)
 
 	// FlagKey is validated against the profile's actual feature flag
@@ -551,14 +552,14 @@ func TestHandler_DeleteConfigurationProfile_DeletionProtectionCheck(t *testing.T
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var app appconfig.Application
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 			rec = doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/configurationprofiles",
 				[]byte(`{"name":"dpc-profile","locationUri":"hosted","type":"AWS.Freeform"}`))
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var profile appconfig.ConfigurationProfile
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 			path := "/applications/" + app.ID + "/configurationprofiles/" + profile.ID
 

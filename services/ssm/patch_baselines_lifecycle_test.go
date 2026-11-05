@@ -2,13 +2,14 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -241,7 +242,7 @@ func TestPatchBaseline_OSFilter(t *testing.T) {
 		"Filters": []map[string]any{
 			{"Key": "OPERATING_SYSTEM", "Values": []string{"AMAZON_LINUX_2"}},
 		},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "DescribePatchBaselines", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "linux-baseline")
@@ -252,7 +253,7 @@ func TestPatchBaseline_OSFilter(t *testing.T) {
 		"Filters": []map[string]any{
 			{"Key": "OPERATING_SYSTEM", "Values": []string{"WINDOWS"}},
 		},
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "DescribePatchBaselines", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "linux-baseline")
@@ -286,7 +287,7 @@ func TestPatchBaseline_ComplianceLevelRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			// GetPatchBaseline should return the compliance level.
-			body, _ := json.Marshal(map[string]any{"BaselineId": bl.BaselineID})
+			body, _ := json.Marshal(map[string]any{"BaselineId": bl.BaselineID}, jsonx.V1())
 			rec := doRequest(t, h, "GetPatchBaseline", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.complianceLevel)
@@ -295,7 +296,7 @@ func TestPatchBaseline_ComplianceLevelRoundTrip(t *testing.T) {
 			body, _ = json.Marshal(map[string]any{
 				"BaselineId":                     bl.BaselineID,
 				"ApprovedPatchesComplianceLevel": "LOW",
-			})
+			}, jsonx.V1())
 			rec = doRequest(t, h, "UpdatePatchBaseline", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), "LOW")
@@ -318,7 +319,7 @@ func TestPatchGroups_RegisterAndLookup(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"BaselineId": bl.BaselineID,
 		"PatchGroup": "ubuntu-servers",
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterPatchBaselineForPatchGroup", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -328,7 +329,7 @@ func TestPatchGroups_RegisterAndLookup(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ubuntu-servers")
 
 	// GetPatchBaselineForPatchGroup should return the baseline.
-	body, _ = json.Marshal(map[string]any{"PatchGroup": "ubuntu-servers"})
+	body, _ = json.Marshal(map[string]any{"PatchGroup": "ubuntu-servers"}, jsonx.V1())
 	rec = doRequest(t, h, "GetPatchBaselineForPatchGroup", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), bl.BaselineID)
@@ -337,7 +338,7 @@ func TestPatchGroups_RegisterAndLookup(t *testing.T) {
 	body, _ = json.Marshal(map[string]any{
 		"BaselineId": bl.BaselineID,
 		"PatchGroup": "ubuntu-servers",
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "DeregisterPatchBaselineForPatchGroup", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -380,14 +381,14 @@ func TestDeregisterPatchBaselineForPatchGroup_TableDriven(t *testing.T) {
 			body, _ := json.Marshal(map[string]any{
 				"BaselineId": tt.baselineID,
 				"PatchGroup": tt.patchGroup,
-			})
+			}, jsonx.V1())
 
 			rec := doRequest(t, h, "DeregisterPatchBaselineForPatchGroup", string(body))
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK && tt.wantBaselineID != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantBaselineID, resp["BaselineId"])
 				assert.Equal(t, tt.wantPatchGroup, resp["PatchGroup"])
 			}
@@ -408,7 +409,7 @@ func TestDescribeAvailablePatches_SeededCatalog(t *testing.T) {
 			Name string `json:"Name"`
 		} `json:"Patches"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.Patches, "the catalog must be seeded with real built-in patches")
 }
 
@@ -432,7 +433,7 @@ func TestSendCommand_RunPatchBaseline_PopulatesInstanceState(t *testing.T) {
 	var created struct {
 		BaselineID string `json:"BaselineId"`
 	}
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 	require.NotEmpty(t, created.BaselineID)
 
 	regResp := doRequest(t, h, "RegisterPatchBaselineForPatchGroup", `{
@@ -457,7 +458,7 @@ func TestSendCommand_RunPatchBaseline_PopulatesInstanceState(t *testing.T) {
 			PatchGroup string `json:"PatchGroup"`
 		} `json:"InstancePatchStates"`
 	}
-	require.NoError(t, json.Unmarshal(stateResp.Body.Bytes(), &states))
+	require.NoError(t, json.Unmarshal(stateResp.Body.Bytes(), &states, jsonx.V1()))
 	require.Len(t, states.InstancePatchStates, 1)
 	assert.Equal(t, "i-patchtest", states.InstancePatchStates[0].InstanceID)
 	assert.Equal(t, created.BaselineID, states.InstancePatchStates[0].BaselineID)
@@ -472,7 +473,7 @@ func TestSendCommand_RunPatchBaseline_PopulatesInstanceState(t *testing.T) {
 			State string `json:"State"`
 		} `json:"Patches"`
 	}
-	require.NoError(t, json.Unmarshal(patchesResp.Body.Bytes(), &patches))
+	require.NoError(t, json.Unmarshal(patchesResp.Body.Bytes(), &patches, jsonx.V1()))
 	require.NotEmpty(t, patches.Patches)
 
 	var sawInstalled bool

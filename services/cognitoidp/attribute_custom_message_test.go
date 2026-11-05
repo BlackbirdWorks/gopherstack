@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -134,7 +135,7 @@ func TestUpdateUserAttributes_CustomMessageAndVerification(t *testing.T) {
 			var resp struct {
 				CodeDeliveryDetailsList []map[string]string `json:"CodeDeliveryDetailsList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.CodeDeliveryDetailsList, 1)
 
 			d := resp.CodeDeliveryDetailsList[0]
@@ -216,7 +217,7 @@ func TestGetUserAttributeVerificationCode_FiresCustomMessage(t *testing.T) {
 	var resp struct {
 		CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "subj", resp.CodeDeliveryDetails["CustomMessageSubject"])
 	assert.Equal(t, "v", metadataOf(t, f.inv, "CustomMessage_VerifyUserAttribute", "clientMetadata")["k"])
 }

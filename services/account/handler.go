@@ -1,7 +1,7 @@
 package account
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -219,7 +220,7 @@ func decodeJSON(body []byte, v any) error {
 		return nil
 	}
 
-	return json.Unmarshal(body, v)
+	return json.Unmarshal(body, v, jsonx.V1())
 }
 
 func (h *Handler) handleGetContactInformation(c *echo.Context, body []byte) error {

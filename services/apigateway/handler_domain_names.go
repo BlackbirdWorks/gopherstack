@@ -1,9 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -107,7 +109,7 @@ func (h *Handler) domainNameActions() map[string]actionFn {
 
 func (h *Handler) createDomainNameAction(b []byte) (int, any, error) {
 	var input CreateDomainNameInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 
@@ -121,7 +123,7 @@ func (h *Handler) createDomainNameAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDomainNameAction(b []byte) (int, any, error) {
 	var input getDomainNameInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	dn, err := h.Backend.GetDomainName(input.DomainName)
@@ -134,7 +136,7 @@ func (h *Handler) getDomainNameAction(b []byte) (int, any, error) {
 
 func (h *Handler) getDomainNamesAction(b []byte) (int, any, error) {
 	var input getDomainNamesPageInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if input.ResourceOwner == resourceOwnerOther {
@@ -158,7 +160,7 @@ func (h *Handler) getDomainNamesAction(b []byte) (int, any, error) {
 
 func (h *Handler) deleteDomainNameAction(b []byte) (int, any, error) {
 	var input deleteDomainNameInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	if err := h.Backend.DeleteDomainName(input.DomainName); err != nil {
@@ -170,7 +172,7 @@ func (h *Handler) deleteDomainNameAction(b []byte) (int, any, error) {
 
 func (h *Handler) updateDomainNameAction(b []byte) (int, any, error) {
 	var input UpdateDomainNameInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return 0, nil, err
 	}
 	out, err := h.Backend.UpdateDomainName(input)
@@ -187,7 +189,7 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 	return map[string]actionFn{
 		opCreateDomainNameAccessAssociation: func(b []byte) (int, any, error) {
 			var input CreateDomainNameAccessAssociationInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -204,7 +206,7 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 				Position      string `json:"position,omitempty"`
 				Limit         int    `json:"limit,omitempty"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -224,7 +226,7 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 			var input struct {
 				Arn string `json:"domainNameAccessAssociationArn"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -239,7 +241,7 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 				Arn           string `json:"domainNameAccessAssociationArn"`
 				DomainNameArn string `json:"domainNameArn"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 
@@ -265,7 +267,7 @@ func (h *Handler) withDomainNameID(fn actionFn) actionFn {
 			DomainName   string `json:"domainName"`
 			DomainNameID string `json:"domainNameId"`
 		}
-		if err := json.Unmarshal(b, &ref); err != nil {
+		if err := json.Unmarshal(b, &ref, jsonx.V1()); err != nil {
 			return 0, nil, err
 		}
 

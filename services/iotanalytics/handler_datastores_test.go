@@ -1,12 +1,14 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAndDescribeDatastore(t *testing.T) {
@@ -125,7 +127,7 @@ func TestHandler_Datastores(t *testing.T) {
 				listRec := doRequest(t, h, http.MethodGet, "/datastores", nil)
 				assert.Equal(t, tt.wantStatus, listRec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				summaries, ok := resp["datastoreSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, 1)
@@ -207,7 +209,7 @@ func TestHandler_DescribeDatastore_NewFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "describe response must contain field %q", field)
 			}
@@ -248,7 +250,7 @@ func TestHandler_CreateDatastore_RetentionPeriodInResponse(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasRP := resp["retentionPeriod"]
 			assert.Equal(t, tt.wantRetention, hasRP)
 		})
@@ -292,7 +294,7 @@ func TestHandler_DescribeDatastore_IncludeStatistics(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasStats := resp["statistics"]
 			assert.Equal(t, tt.wantStatistics, hasStats)
 		})
@@ -316,7 +318,7 @@ func TestHandler_ListDatastores_DatastoreStorage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, _ := resp["datastoreSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	summary, _ := summaries[0].(map[string]any)

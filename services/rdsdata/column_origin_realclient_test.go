@@ -1,7 +1,7 @@
 package rdsdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rdsdata"
 )
 
@@ -93,7 +94,7 @@ func TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction(t *testin
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var begin map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &begin))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &begin, jsonx.V1()))
 	txID, ok := begin["transactionId"].(string)
 	require.True(t, ok)
 
@@ -107,7 +108,7 @@ func TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction(t *testin
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cols, ok := resp["columnMetadata"].([]any)
 	require.True(t, ok)

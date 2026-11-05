@@ -3,7 +3,7 @@ package cloudwatch_test
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
@@ -431,7 +432,7 @@ func TestInsightRule_PutValidation(t *testing.T) {
 	fiveFilters := jsonRule(`"$.a"`, `,"Filters":[`+
 		`{"Match":"$.a","IsPresent":true},{"Match":"$.b","IsPresent":true},{"Match":"$.c","IsPresent":true},`+
 		`{"Match":"$.d","IsPresent":true},{"Match":"$.e","IsPresent":true}]`) + `}`
-	elevenValues, err := json.Marshal([]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"})
+	elevenValues, err := json.Marshal([]string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, jsonx.V1())
 	require.NoError(t, err)
 
 	invalid := &cwtypes.InvalidParameterValueException{}

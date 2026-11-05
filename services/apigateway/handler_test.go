@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -129,7 +130,7 @@ func TestHandler_RestAPI(t *testing.T) {
 			assert.Equal(t, tt.wantCreateCode, rec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			assert.NotEmpty(t, created["id"])
 			assert.Equal(t, tt.primaryAPIName, created["name"])
 
@@ -144,7 +145,7 @@ func TestHandler_RestAPI(t *testing.T) {
 				assert.Equal(t, tt.wantGetCode, rec2.Code)
 
 				var got map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got, jsonx.V1()))
 				assert.Equal(t, apiID, got["id"])
 				assert.Equal(t, tt.primaryAPIName, got["name"])
 			}
@@ -154,7 +155,7 @@ func TestHandler_RestAPI(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec3.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp["item"].([]any), tt.wantListCount)
 			}
 
@@ -207,14 +208,14 @@ func TestHandler_Resources(t *testing.T) {
 
 			rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			rec2 := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			assert.Equal(t, http.StatusOK, rec2.Code)
 
 			var res map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res, jsonx.V1()))
 			items := res["item"].([]any)
 
 			if tt.wantResourceCount > 0 {
@@ -231,7 +232,7 @@ func TestHandler_Resources(t *testing.T) {
 				assert.Equal(t, http.StatusCreated, rec3.Code)
 
 				var child map[string]any
-				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &child))
+				require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &child, jsonx.V1()))
 
 				if tt.wantChildPath != "" {
 					assert.Equal(t, tt.wantChildPath, child["path"])
@@ -284,12 +285,12 @@ func TestHandler_Method(t *testing.T) {
 
 			rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			rec2 := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			var res map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res, jsonx.V1()))
 			rootID := res["item"].([]any)[0].(map[string]any)["id"].(string)
 
 			rec3 := postWithHandler(t, handler, e, "PutMethod",
@@ -298,7 +299,7 @@ func TestHandler_Method(t *testing.T) {
 			assert.Equal(t, tt.wantPutCode, rec3.Code)
 
 			var m map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &m))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &m, jsonx.V1()))
 			assert.Equal(t, tt.httpMethod, m["httpMethod"])
 
 			rec4 := postWithHandler(t, handler, e, "GetMethod",
@@ -347,12 +348,12 @@ func TestHandler_Integration(t *testing.T) {
 
 			rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			rec2 := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			var res map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &res, jsonx.V1()))
 			rootID := res["item"].([]any)[0].(map[string]any)["id"].(string)
 
 			postWithHandler(t, handler, e, "PutMethod",
@@ -365,7 +366,7 @@ func TestHandler_Integration(t *testing.T) {
 			assert.Equal(t, tt.wantPutCode, rec3.Code)
 
 			var integ map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &integ))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &integ, jsonx.V1()))
 			assert.Equal(t, tt.integrationType, integ["type"])
 
 			rec4 := postWithHandler(t, handler, e, "GetIntegration",
@@ -410,7 +411,7 @@ func TestHandler_Deployment(t *testing.T) {
 
 			rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			rec2 := postWithHandler(t, handler, e, "CreateDeployment",
@@ -419,14 +420,14 @@ func TestHandler_Deployment(t *testing.T) {
 			assert.Equal(t, tt.wantCreateCode, rec2.Code)
 
 			var depl map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &depl))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &depl, jsonx.V1()))
 			assert.NotEmpty(t, depl["id"])
 
 			rec3 := postWithHandler(t, handler, e, "GetDeployments", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 			assert.Equal(t, http.StatusOK, rec3.Code)
 
 			var depls map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &depls))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &depls, jsonx.V1()))
 			assert.Len(t, depls["item"].([]any), tt.wantListCount)
 		})
 	}
@@ -463,7 +464,7 @@ func TestHandler_Stages(t *testing.T) {
 
 			rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			postWithHandler(t, handler, e, "CreateDeployment",
@@ -473,7 +474,7 @@ func TestHandler_Stages(t *testing.T) {
 			assert.Equal(t, tt.wantListCode, rec2.Code)
 
 			var stages map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &stages))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &stages, jsonx.V1()))
 			assert.Len(t, stages["item"].([]any), tt.wantListCount)
 
 			rec3 := postWithHandler(t, handler, e, "GetStage",
@@ -540,7 +541,7 @@ func TestHandler_Errors(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["__type"])
 			}
 		})
@@ -716,7 +717,7 @@ func TestHandler_CreateAPIKey(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["name"])
 				// value must be non-empty (either provided or auto-generated)
 				assert.NotEmpty(t, resp["value"])
@@ -784,7 +785,7 @@ func TestHandler_CreateDocumentationPart(t *testing.T) {
 	require.Equal(t, http.StatusCreated, apiRec.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -833,7 +834,7 @@ func TestHandler_CreateDocumentationVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated, apiRec.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -979,7 +980,7 @@ func TestHandler_CreateModel(t *testing.T) {
 	require.Equal(t, http.StatusCreated, apiRec.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -1043,7 +1044,7 @@ func TestHandler_CreateStageStandalone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, apiRec.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp))
+	require.NoError(t, json.Unmarshal(apiRec.Body.Bytes(), &apiResp, jsonx.V1()))
 	apiID, _ := apiResp["id"].(string)
 	require.NotEmpty(t, apiID)
 
@@ -1051,7 +1052,7 @@ func TestHandler_CreateStageStandalone(t *testing.T) {
 	require.Equal(t, http.StatusCreated, deplRec.Code)
 
 	var deplResp map[string]any
-	require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &deplResp))
+	require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &deplResp, jsonx.V1()))
 	deplID, _ := deplResp["id"].(string)
 	require.NotEmpty(t, deplID)
 
@@ -1170,7 +1171,7 @@ func TestHandler_CreateUsagePlan(t *testing.T) {
 
 			if tt.checkResp != nil && rec.Code == http.StatusCreated {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.checkResp(t, resp)
 			}
 		})
@@ -1187,7 +1188,7 @@ func TestHandler_CreateUsagePlanKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, keyRec.Code)
 
 	var keyResp map[string]any
-	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &keyResp))
+	require.NoError(t, json.Unmarshal(keyRec.Body.Bytes(), &keyResp, jsonx.V1()))
 	keyID, _ := keyResp["id"].(string)
 	require.NotEmpty(t, keyID)
 
@@ -1195,7 +1196,7 @@ func TestHandler_CreateUsagePlanKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, planRec.Code)
 
 	var planResp map[string]any
-	require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp))
+	require.NoError(t, json.Unmarshal(planRec.Body.Bytes(), &planResp, jsonx.V1()))
 	planID, _ := planResp["id"].(string)
 	require.NotEmpty(t, planID)
 
@@ -1204,7 +1205,7 @@ func TestHandler_CreateUsagePlanKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, dupKeyRec.Code)
 
 	var dupKeyResp map[string]any
-	require.NoError(t, json.Unmarshal(dupKeyRec.Body.Bytes(), &dupKeyResp))
+	require.NoError(t, json.Unmarshal(dupKeyRec.Body.Bytes(), &dupKeyResp, jsonx.V1()))
 	dupKeyID, _ := dupKeyResp["id"].(string)
 	require.NotEmpty(t, dupKeyID)
 
@@ -1260,7 +1261,7 @@ func TestHandler_CreateUsagePlanKey(t *testing.T) {
 
 			if tt.wantType != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, resp["type"])
 			}
 		})

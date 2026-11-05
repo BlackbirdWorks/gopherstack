@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -239,7 +240,7 @@ func TestAccuracy_CustomizationJob_StopTransitionsStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "Stopping", out["status"])
 		})
 	}
@@ -284,7 +285,7 @@ func TestAccuracy_CustomizationJob_ListViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries := out["modelCustomizationJobSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantLen)
 
@@ -347,7 +348,7 @@ func TestAccuracy_CustomizationJob_ListFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries := out["modelCustomizationJobSummaries"].([]any)
 
 			gotNames := make([]string, 0, len(summaries))
@@ -447,7 +448,7 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createOut map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 			jobARN := createOut["jobArn"].(string)
 
 			recGet := doRequest(
@@ -460,7 +461,7 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.customizationType, out["customizationType"])
 		})
 	}
@@ -481,7 +482,7 @@ func TestHandler_ModelCustomizationJobLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	jobARN := createOut["jobArn"].(string)
 	assert.NotEmpty(t, jobARN)
 
@@ -490,7 +491,7 @@ func TestHandler_ModelCustomizationJobLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.NotEmpty(t, listOut["modelCustomizationJobSummaries"])
 
 	// Get job.

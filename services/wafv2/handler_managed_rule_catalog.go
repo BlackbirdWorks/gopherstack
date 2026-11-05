@@ -2,9 +2,11 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // defaultManagedRuleGroupVersion is this catalog's single hardcoded version
@@ -17,7 +19,7 @@ func (h *Handler) handleDescribeAllManagedProducts(body []byte) ([]byte, error) 
 	var req struct {
 		Scope string `json:"Scope"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -36,7 +38,7 @@ func (h *Handler) handleDescribeAllManagedProducts(body []byte) ([]byte, error) 
 		})
 	}
 
-	return json.Marshal(map[string]any{"ManagedProducts": products})
+	return json.Marshal(map[string]any{"ManagedProducts": products}, jsonx.V1())
 }
 
 // describeManagedProductsByVendorRequest is the request body for DescribeManagedProductsByVendor.
@@ -48,7 +50,7 @@ type describeManagedProductsByVendorRequest struct {
 // handleDescribeManagedProductsByVendor returns catalog entries filtered by vendor.
 func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, error) {
 	var req describeManagedProductsByVendorRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -75,7 +77,7 @@ func (h *Handler) handleDescribeManagedProductsByVendor(body []byte) ([]byte, er
 		})
 	}
 
-	return json.Marshal(map[string]any{"ManagedProducts": products})
+	return json.Marshal(map[string]any{"ManagedProducts": products}, jsonx.V1())
 }
 
 // describeManagedRuleGroupRequest is the request body for DescribeManagedRuleGroup.
@@ -89,7 +91,7 @@ type describeManagedRuleGroupRequest struct {
 // handleDescribeManagedRuleGroup returns catalog data for the requested managed rule group.
 func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 	var req describeManagedRuleGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -133,7 +135,7 @@ func (h *Handler) handleDescribeManagedRuleGroup(body []byte) ([]byte, error) {
 				resp["VersionName"] = defaultManagedRuleGroupVersion
 			}
 
-			return json.Marshal(resp)
+			return json.Marshal(resp, jsonx.V1())
 		}
 	}
 
@@ -205,7 +207,7 @@ type generateMobileSdkReleaseURLRequest struct {
 // handleGenerateMobileSdkReleaseURL returns a presigned-style URL for the requested mobile SDK release.
 func (h *Handler) handleGenerateMobileSdkReleaseURL(body []byte) ([]byte, error) {
 	var req generateMobileSdkReleaseURLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -231,7 +233,7 @@ func (h *Handler) handleGenerateMobileSdkReleaseURL(body []byte) ([]byte, error)
 
 	return json.Marshal(map[string]any{
 		"Url": url,
-	})
+	}, jsonx.V1())
 }
 
 // getMobileSdkReleaseRequest is the request body for GetMobileSdkRelease.
@@ -243,7 +245,7 @@ type getMobileSdkReleaseRequest struct {
 // handleGetMobileSdkRelease returns the mobile SDK release from the catalog.
 func (h *Handler) handleGetMobileSdkRelease(body []byte) ([]byte, error) {
 	var req getMobileSdkReleaseRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -272,7 +274,7 @@ func (h *Handler) handleGetMobileSdkRelease(body []byte) ([]byte, error) {
 			"ReleaseNotes":   release.ReleaseNotes,
 			"Tags":           []any{},
 		},
-	})
+	}, jsonx.V1())
 }
 
 // listAvailableManagedRuleGroupVersionsRequest is the request body for ListAvailableManagedRuleGroupVersions.
@@ -287,7 +289,7 @@ type listAvailableManagedRuleGroupVersionsRequest struct {
 // handleListAvailableManagedRuleGroupVersions returns versions for managed rule groups that support versioning.
 func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]byte, error) {
 	var req listAvailableManagedRuleGroupVersionsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -299,11 +301,11 @@ func (h *Handler) handleListAvailableManagedRuleGroupVersions(body []byte) ([]by
 					{"Name": defaultManagedRuleGroupVersion, "LastUpdateTimestamp": nil},
 				},
 				"CurrentDefaultVersion": defaultManagedRuleGroupVersion,
-			})
+			}, jsonx.V1())
 		}
 	}
 
-	return json.Marshal(map[string]any{"Versions": []any{}, "CurrentDefaultVersion": ""})
+	return json.Marshal(map[string]any{"Versions": []any{}, "CurrentDefaultVersion": ""}, jsonx.V1())
 }
 
 // listAvailableManagedRuleGroupsRequest is the request body for ListAvailableManagedRuleGroups.
@@ -316,7 +318,7 @@ type listAvailableManagedRuleGroupsRequest struct {
 // handleListAvailableManagedRuleGroups returns the catalog of managed rule groups.
 func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, error) {
 	var req listAvailableManagedRuleGroupsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -350,7 +352,7 @@ func (h *Handler) handleListAvailableManagedRuleGroups(body []byte) ([]byte, err
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // listMobileSdkReleasesRequest is the request body for ListMobileSdkReleases.
@@ -366,7 +368,7 @@ type listMobileSdkReleasesRequest struct {
 // handleListMobileSdkReleases lists mobile SDK releases from the catalog.
 func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
 	var req listMobileSdkReleasesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -398,7 +400,7 @@ func (h *Handler) handleListMobileSdkReleases(body []byte) ([]byte, error) {
 		resp["NextMarker"] = nextMarker
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // managedRuleCatalogDispatchOps returns the managed-rule-group and mobile-SDK catalog

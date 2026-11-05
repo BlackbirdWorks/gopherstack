@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ type createCodeRepositoryInput struct {
 func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req createCodeRepositoryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -34,7 +36,7 @@ func (h *Handler) handleCreateCodeRepository(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
+	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn}, jsonx.V1())
 }
 
 // describeCodeRepositoryInput mirrors DescribeCodeRepositoryInput
@@ -46,7 +48,7 @@ type describeCodeRepositoryInput struct {
 func (h *Handler) handleDescribeCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeCodeRepositoryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleDescribeCodeRepository(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // updateCodeRepositoryInput mirrors UpdateCodeRepositoryInput
@@ -76,7 +78,7 @@ type updateCodeRepositoryInput struct {
 func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateCodeRepositoryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -89,7 +91,7 @@ func (h *Handler) handleUpdateCodeRepository(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn})
+	return json.Marshal(map[string]any{keyCodeRepositoryArn: result.CodeRepositoryArn}, jsonx.V1())
 }
 
 // deleteCodeRepositoryInput mirrors DeleteCodeRepositoryInput
@@ -101,7 +103,7 @@ type deleteCodeRepositoryInput struct {
 func (h *Handler) handleDeleteCodeRepository(ctx context.Context, body []byte) error {
 	var req deleteCodeRepositoryInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -129,7 +131,7 @@ type listCodeRepositoriesInput struct {
 func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) ([]byte, error) {
 	var req listCodeRepositoriesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -162,5 +164,5 @@ func (h *Handler) handleListCodeRepositories(ctx context.Context, body []byte) (
 	return json.Marshal(map[string]any{
 		"CodeRepositorySummaryList": summaries,
 		keyNextToken:                next,
-	})
+	}, jsonx.V1())
 }

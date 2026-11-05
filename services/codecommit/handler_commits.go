@@ -2,9 +2,11 @@ package codecommit
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type batchGetCommitsInput struct {
@@ -70,7 +72,7 @@ func commitToMap(c *Commit) map[string]any {
 
 func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
 	var in batchGetCommitsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -100,7 +102,7 @@ func (h *Handler) handleBatchGetCommits(body []byte) (any, error) {
 
 func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	var in createCommitInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -209,7 +211,7 @@ func (h *Handler) handleGetCommit(body []byte) (any, error) {
 		RepositoryName string `json:"repositoryName"`
 		CommitID       string `json:"commitId"`
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -237,7 +239,7 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 		NextToken             string `json:"NextToken"`
 		MaxResults            int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

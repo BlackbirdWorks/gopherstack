@@ -1,7 +1,7 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -199,7 +200,7 @@ func whoMap(t *testing.T, v any) map[string]any {
 	require.True(t, ok, "unexpected who: %#v", v)
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(s), &m))
+	require.NoError(t, json.Unmarshal([]byte(s), &m, jsonx.V1()))
 
 	return m
 }

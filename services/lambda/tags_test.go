@@ -2,13 +2,15 @@ package lambda_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -26,7 +28,7 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 	getRec := callInMemoryHandler(t, h, http.MethodGet,
 		"/2015-03-31/functions/tags-fn", "")
 	var out lambda.GetFunctionOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 	fnARN := out.Configuration.FunctionArn
 
 	// Tag
@@ -41,7 +43,7 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var tagsOut map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&tagsOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &tagsOut, jsonx.V1()))
 	tags := tagsOut["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -57,7 +59,7 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var tagsOut2 map[string]any
-	require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&tagsOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec2.Body), &tagsOut2, jsonx.V1()))
 	tags2, _ := tagsOut2["Tags"].(map[string]any)
 	_, hasEnv := tags2["env"]
 	assert.False(t, hasEnv)
@@ -85,7 +87,7 @@ func TestGetFunction_ReturnsTopLevelTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 
 	rawTags, ok := out["Tags"].(map[string]any)
 	require.True(t, ok, "GetFunctionOutput must have a top-level Tags field, got: %v", out["Tags"])
@@ -103,7 +105,7 @@ func TestTags_CreateFunctionWithTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var fn lambda.FunctionConfiguration
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fn, jsonx.V1()))
 	// Tags may be in the function config or accessible separately
 	_ = fn
 }
@@ -142,7 +144,7 @@ func TestTaggedFunctions_CreationTags(t *testing.T) {
 
 			h, _ := newInMemoryHandler(t)
 
-			tagsJSON, err := json.Marshal(tt.tags)
+			tagsJSON, err := json.Marshal(tt.tags, jsonx.V1())
 			require.NoError(t, err)
 
 			body := `{"FunctionName":"` + tt.fnName + `","PackageType":"Image","Code":{"ImageUri":"x"},` +

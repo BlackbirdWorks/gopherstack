@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -84,7 +85,7 @@ func TestMLTransform_CRUD(t *testing.T) {
 			createRec := doGlueRequest(t, h, "CreateMLTransform", createBody)
 			if createRec.Code == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				transformID, _ = out["TransformId"].(string)
 			}
 
@@ -106,7 +107,7 @@ func TestMLTransform_Delete(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, createRec.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 		transformID := out["TransformId"].(string)
 
 		rec := doGlueRequest(t, h, "DeleteMLTransform", map[string]any{"TransformId": transformID})
@@ -232,7 +233,7 @@ func createTestMLTransform(t *testing.T, h *glue.Handler, name string) string {
 	var out struct {
 		TransformID string `json:"TransformId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.TransformID)
 
 	return out.TransformID
@@ -296,7 +297,7 @@ func TestMLLabelingSetGenerationTaskRun(t *testing.T) {
 	var out struct {
 		TaskRunID string `json:"TaskRunId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.TaskRunID)
 }
 
@@ -337,7 +338,7 @@ func TestMLExportImportLabels(t *testing.T) {
 			var out struct {
 				TaskRunID string `json:"TaskRunId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.TaskRunID)
 		})
 	}
@@ -380,7 +381,7 @@ func TestGetMLTaskRun(t *testing.T) {
 		var startOut struct {
 			TaskRunID string `json:"TaskRunId"`
 		}
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 
 		getRec := doGlueRequest(t, h, "GetMLTaskRun", map[string]any{
 			"TransformId": transformID,
@@ -393,7 +394,7 @@ func TestGetMLTaskRun(t *testing.T) {
 			TaskRunID   string `json:"TaskRunId"`
 			Status      string `json:"Status"`
 		}
-		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+		require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 		assert.Equal(t, transformID, getOut.TransformID)
 		assert.Equal(t, startOut.TaskRunID, getOut.TaskRunID)
 		assert.Equal(t, "RUNNING", getOut.Status)
@@ -413,7 +414,7 @@ func TestGetMLTaskRun(t *testing.T) {
 		var getOut2 struct {
 			Status string `json:"Status"`
 		}
-		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2))
+		require.NoError(t, json.Unmarshal(getRec2.Body.Bytes(), &getOut2, jsonx.V1()))
 		assert.Equal(t, "STOPPED", getOut2.Status)
 	})
 }
@@ -432,7 +433,7 @@ func TestGetMLTaskRuns(t *testing.T) {
 		var out struct {
 			TaskRuns []any `json:"TaskRuns"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.TaskRuns)
 	})
 
@@ -457,7 +458,7 @@ func TestGetMLTaskRuns(t *testing.T) {
 		var out struct {
 			TaskRuns []any `json:"TaskRuns"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.TaskRuns, 3)
 	})
 }
@@ -491,7 +492,7 @@ func TestGetMLTaskRuns_SDKPagination_TotalOrderNoTiesLost(t *testing.T) {
 		var out struct {
 			TaskRunID string `json:"TaskRunId"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		require.NotEmpty(t, out.TaskRunID)
 		wantIDs[out.TaskRunID] = true
 	}
@@ -543,7 +544,7 @@ func TestGetMLTaskRuns_SDKFilter_ByStatus(t *testing.T) {
 	var started struct {
 		TaskRunID string `json:"TaskRunId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &started, jsonx.V1()))
 
 	cancelRec := doGlueRequest(t, h, "CancelMLTaskRun", map[string]any{
 		"TransformId": transformID,
@@ -625,7 +626,7 @@ func TestListMLTransforms_Stateful(t *testing.T) {
 			var out struct {
 				TransformIDs []string `json:"TransformIds"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.TransformIDs, tc.wantLen)
 		})
 	}

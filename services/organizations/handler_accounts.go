@@ -1,12 +1,13 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -165,7 +166,7 @@ func (h *Handler) dispatchAccount(c *echo.Context, op string, body []byte) (bool
 func (h *Handler) handleListAccounts(c *echo.Context, body []byte) error {
 	var req listAccountsRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 		}
 	}
@@ -237,7 +238,7 @@ func (h *Handler) validateCreateAccountInput(
 
 func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 	var req createAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -258,7 +259,7 @@ func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleDescribeCreateAccountStatus(c *echo.Context, body []byte) error {
 	var req describeCreateAccountStatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -272,7 +273,7 @@ func (h *Handler) handleDescribeCreateAccountStatus(c *echo.Context, body []byte
 
 func (h *Handler) handleDescribeAccount(c *echo.Context, body []byte) error {
 	var req describeAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -286,7 +287,7 @@ func (h *Handler) handleDescribeAccount(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleRemoveAccountFromOrganization(c *echo.Context, body []byte) error {
 	var req removeAccountFromOrganizationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -299,7 +300,7 @@ func (h *Handler) handleRemoveAccountFromOrganization(c *echo.Context, body []by
 
 func (h *Handler) handleMoveAccount(c *echo.Context, body []byte) error {
 	var req moveAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -312,7 +313,7 @@ func (h *Handler) handleMoveAccount(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleCloseAccount(c *echo.Context, body []byte) error {
 	var req closeAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -329,7 +330,7 @@ func (h *Handler) handleCloseAccount(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) error {
 	var req createGovCloudAccountRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -350,7 +351,7 @@ func (h *Handler) handleCreateGovCloudAccount(c *echo.Context, body []byte) erro
 
 func (h *Handler) handleListCreateAccountStatus(c *echo.Context, body []byte) error {
 	var req listCreateAccountStatusRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -375,7 +376,7 @@ func (h *Handler) handleListCreateAccountStatus(c *echo.Context, body []byte) er
 
 func (h *Handler) handleListAccountsWithInvalidEffectivePolicy(c *echo.Context, body []byte) error {
 	var req listAccountsWithInvalidEffectivePolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

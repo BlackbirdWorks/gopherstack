@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ type createMlflowTrackingServerInput struct {
 func (h *Handler) handleCreateMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req createMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -67,7 +69,7 @@ func (h *Handler) handleCreateMlflowTrackingServer(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyTrackingServerArn: result.TrackingServerArn})
+	return json.Marshal(map[string]any{keyTrackingServerArn: result.TrackingServerArn}, jsonx.V1())
 }
 
 // describeMlflowTrackingServerInput is DescribeMlflowTrackingServer's request
@@ -104,7 +106,7 @@ type describeMlflowTrackingServerResponse struct {
 func (h *Handler) handleDescribeMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleDescribeMlflowTrackingServer(ctx context.Context, body [
 		S3BucketOwnerVerification:    result.S3BucketOwnerVerification,
 		CreationTime:                 epochSeconds(result.CreationTime),
 		LastModifiedTime:             epochSeconds(result.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // deleteMlflowTrackingServerInput is DeleteMlflowTrackingServer's request
@@ -147,7 +149,7 @@ type deleteMlflowTrackingServerInput struct {
 func (h *Handler) handleDeleteMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -160,7 +162,7 @@ func (h *Handler) handleDeleteMlflowTrackingServer(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr})
+	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr}, jsonx.V1())
 }
 
 // startMlflowTrackingServerInput is StartMlflowTrackingServer's request shape
@@ -172,7 +174,7 @@ type startMlflowTrackingServerInput struct {
 func (h *Handler) handleStartMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req startMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -185,7 +187,7 @@ func (h *Handler) handleStartMlflowTrackingServer(ctx context.Context, body []by
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr})
+	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr}, jsonx.V1())
 }
 
 // stopMlflowTrackingServerInput is StopMlflowTrackingServer's request shape
@@ -197,7 +199,7 @@ type stopMlflowTrackingServerInput struct {
 func (h *Handler) handleStopMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -210,7 +212,7 @@ func (h *Handler) handleStopMlflowTrackingServer(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr})
+	return json.Marshal(map[string]any{keyTrackingServerArn: arnStr}, jsonx.V1())
 }
 
 // createPresignedMlflowTrackingServerURLInput is
@@ -226,7 +228,7 @@ type createPresignedMlflowTrackingServerURLInput struct {
 func (h *Handler) handleCreatePresignedMlflowTrackingServerURL(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPresignedMlflowTrackingServerURLInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -243,7 +245,7 @@ func (h *Handler) handleCreatePresignedMlflowTrackingServerURL(ctx context.Conte
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAuthorizedURL: url})
+	return json.Marshal(map[string]string{keyAuthorizedURL: url}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -266,7 +268,7 @@ type createMlflowAppInput struct {
 func (h *Handler) handleCreateMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req createMlflowAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -288,7 +290,7 @@ func (h *Handler) handleCreateMlflowApp(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn}, jsonx.V1())
 }
 
 // describeMlflowAppResponse is the response body for DescribeMlflowApp.
@@ -319,7 +321,7 @@ type describeMlflowAppInput struct {
 func (h *Handler) handleDescribeMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeMlflowAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -345,7 +347,7 @@ func (h *Handler) handleDescribeMlflowApp(ctx context.Context, body []byte) ([]b
 		DefaultDomainIDList:          result.DefaultDomainIDList,
 		CreationTime:                 epochSeconds(result.CreationTime),
 		LastModifiedTime:             epochSeconds(result.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // deleteMlflowAppInput is DeleteMlflowApp's request shape
@@ -357,7 +359,7 @@ type deleteMlflowAppInput struct {
 func (h *Handler) handleDeleteMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteMlflowAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -369,7 +371,7 @@ func (h *Handler) handleDeleteMlflowApp(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyGenericArn: req.Arn})
+	return json.Marshal(map[string]any{keyGenericArn: req.Arn}, jsonx.V1())
 }
 
 // updateMlflowAppInput is UpdateMlflowApp's request shape
@@ -389,7 +391,7 @@ type updateMlflowAppInput struct {
 func (h *Handler) handleUpdateMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateMlflowAppInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -409,7 +411,7 @@ func (h *Handler) handleUpdateMlflowApp(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyGenericArn: result.Arn})
+	return json.Marshal(map[string]any{keyGenericArn: result.Arn}, jsonx.V1())
 }
 
 // listMlflowAppsInput is ListMlflowApps' request shape
@@ -430,7 +432,7 @@ type listMlflowAppsInput struct {
 func (h *Handler) handleListMlflowApps(ctx context.Context, body []byte) ([]byte, error) {
 	var req listMlflowAppsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -474,7 +476,7 @@ type createPresignedMlflowAppURLInput struct {
 func (h *Handler) handleCreatePresignedMlflowAppURL(ctx context.Context, body []byte) ([]byte, error) {
 	var req createPresignedMlflowAppURLInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -491,7 +493,7 @@ func (h *Handler) handleCreatePresignedMlflowAppURL(ctx context.Context, body []
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAuthorizedURL: url})
+	return json.Marshal(map[string]string{keyAuthorizedURL: url}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +516,7 @@ type listMlflowTrackingServersInput struct {
 func (h *Handler) handleListMlflowTrackingServers(ctx context.Context, body []byte) ([]byte, error) {
 	var req listMlflowTrackingServersInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -566,7 +568,7 @@ type updateMlflowTrackingServerInput struct {
 func (h *Handler) handleUpdateMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateMlflowTrackingServerInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -579,5 +581,5 @@ func (h *Handler) handleUpdateMlflowTrackingServer(ctx context.Context, body []b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyTrackingServerArn: s.TrackingServerArn})
+	return json.Marshal(map[string]string{keyTrackingServerArn: s.TrackingServerArn}, jsonx.V1())
 }

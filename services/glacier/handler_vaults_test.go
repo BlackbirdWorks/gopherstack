@@ -2,7 +2,8 @@ package glacier_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -46,7 +48,7 @@ func TestCreateDescribeDeleteVault(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var describeResp map[string]any
-			err := json.Unmarshal(rec.Body.Bytes(), &describeResp)
+			err := json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1())
 			require.NoError(t, err)
 			assert.Equal(t, tt.vaultName, describeResp["VaultName"])
 
@@ -218,7 +220,7 @@ func TestListVaults_AfterReset(t *testing.T) {
 				VaultList []any `json:"VaultList"`
 			}
 
-			err := json.NewDecoder(rec.Body).Decode(&resp)
+			err := json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1())
 			require.NoError(t, err)
 
 			assert.Len(t, resp.VaultList, tt.wantCount)
@@ -237,7 +239,7 @@ func TestAccountIDDash_SubstitutedInListVaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	vaultList := resp["VaultList"].([]any)
 	assert.Len(t, vaultList, 1)
 }
@@ -253,7 +255,7 @@ func TestAccountIDReal_WorksLikeDash(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	vaultList := resp["VaultList"].([]any)
 	assert.Len(t, vaultList, 1)
 }
@@ -297,7 +299,7 @@ func TestListVaults_LimitValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantLen > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				vaultList := resp["VaultList"].([]any)
 				assert.Len(t, vaultList, tt.wantLen)
 			}
@@ -320,7 +322,7 @@ func TestListVaults_MarkerPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	list1 := page1["VaultList"].([]any)
 	assert.Len(t, list1, 2)
@@ -334,7 +336,7 @@ func TestListVaults_MarkerPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	list2 := page2["VaultList"].([]any)
 	assert.Len(t, list2, 2)
@@ -465,7 +467,7 @@ func uploadArchiveHTTP(t *testing.T, h *glacier.Handler, vaultName string) strin
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(t, resp["archiveId"])
 
 	return resp["archiveId"]
@@ -495,7 +497,7 @@ func assertVaultDeleteRejected(t *testing.T, h *glacier.Handler, vaultName strin
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterValueException", errResp["code"])
 
 	descRec := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+vaultName, "")
@@ -579,7 +581,7 @@ func TestDeleteVault_InventorySemantics(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errResp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterValueException", errResp["code"])
 
 				descRec := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+vaultName, "")
@@ -720,7 +722,7 @@ func TestDeleteVault_WithActiveMultipartUploads(t *testing.T) {
 				"", map[string]string{"X-Amz-Part-Size": "1048576"})
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var initResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &initResp, jsonx.V1()))
 			uploadID := initResp["uploadId"]
 
 			// Delete vault (empty archives = ok, multipart uploads get cleaned).
@@ -767,7 +769,7 @@ func TestCreateVault_Idempotent(t *testing.T) {
 			rec := doRequestWithHeaders(t, h, http.MethodGet, "/"+testAccountID+"/vaults", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			vl := listResp["VaultList"].([]any)
 			assert.Len(t, vl, 1)
 		})
@@ -847,7 +849,7 @@ func TestDescribeVault_ArchiveStatsAsOfInventory(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, "/"+testAccountID+"/vaults/"+vaultName, "")
 			require.Equal(t, http.StatusOK, rec.Code)
 			var v map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &v, jsonx.V1()))
 
 			if tt.wantAbsent {
 				_, hasArchives := v["NumberOfArchives"]
@@ -946,7 +948,7 @@ func TestVault_CrossAccountIsolation(t *testing.T) {
 			listRecB := doRequestWithHeaders(t, hB, http.MethodGet, "/account-bbb/vaults", "", nil)
 			require.Equal(t, http.StatusOK, listRecB.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRecB.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRecB.Body.Bytes(), &listResp, jsonx.V1()))
 			vl := listResp["VaultList"].([]any)
 			require.Len(t, vl, 1, tt.name)
 			v := vl[0].(map[string]any)
@@ -990,7 +992,7 @@ func TestVault_CrossRegionIsolation(t *testing.T) {
 			recW := doRequestWithHeaders(t, hW, http.MethodGet, "/same-acct/vaults", "", nil)
 			require.Equal(t, http.StatusOK, recW.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(recW.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(recW.Body.Bytes(), &listResp, jsonx.V1()))
 			vl := listResp["VaultList"].([]any)
 			assert.Empty(t, vl, tt.name)
 		})
@@ -1023,7 +1025,7 @@ func TestVaultARN_Format(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn, _ := resp["VaultARN"].(string)
 			assert.NotEmpty(t, arn)
 			wantARN := "arn:aws:glacier:" + testRegion + ":" + testAccountID + ":vaults/" + tt.vaultName
@@ -1092,7 +1094,7 @@ func TestListVaults_LimitAndMarkerCombined(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			list := resp["VaultList"].([]any)
 			require.Len(t, list, len(tt.wantNames))
 			for i, want := range tt.wantNames {

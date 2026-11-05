@@ -2,7 +2,7 @@ package codecommit_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
 
@@ -40,7 +41,7 @@ func regionCall(t *testing.T, h *codecommit.Handler, region, op, body string) ma
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	out := map[string]any{}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }

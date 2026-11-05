@@ -2,7 +2,7 @@ package glacier
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -49,7 +49,7 @@ type provisionedCapacitySnapshot struct {
 // persisted directly alongside Tables, exactly as they were before this
 // conversion.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage    `json:"tables"`
+	Tables                map[string]jsontext.Value     `json:"tables"`
 	DataRetrievalPolicies map[string]string             `json:"dataRetrievalPolicies,omitempty"`
 	MultipartParts        []multipartPartSnapshot       `json:"multipartParts"`
 	ProvisionedCapacity   []provisionedCapacitySnapshot `json:"provisionedCapacity"`

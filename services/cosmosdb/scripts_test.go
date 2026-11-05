@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -22,7 +23,7 @@ const pkA = `["a"]`
 func scriptJSON(t *testing.T, fields map[string]string) string {
 	t.Helper()
 
-	raw, err := json.Marshal(fields)
+	raw, err := json.Marshal(fields, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)
@@ -562,7 +563,7 @@ func TestUDF_InQueries(t *testing.T) {
 				s.putScript("udfs", "boom", `function boom(){ throw new Error("x"); }`, nil).status,
 			)
 
-			body, err := json.Marshal(map[string]any{"query": tt.query})
+			body, err := json.Marshal(map[string]any{"query": tt.query}, jsonx.V1())
 			require.NoError(t, err)
 
 			resp := s.do(http.MethodPost, "/dbs/d/colls/c/docs", map[string]string{
@@ -577,7 +578,7 @@ func TestUDF_InQueries(t *testing.T) {
 			require.Equal(t, want, resp.status, string(resp.body))
 
 			if tt.want != "" {
-				docs, marshalErr := json.Marshal(resp.object(t)["Documents"])
+				docs, marshalErr := json.Marshal(resp.object(t)["Documents"], jsonx.V1())
 				require.NoError(t, marshalErr)
 				assert.JSONEq(t, tt.want, string(docs))
 			}

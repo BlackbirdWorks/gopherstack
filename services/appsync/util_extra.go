@@ -2,7 +2,8 @@ package appsync
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -88,7 +90,7 @@ func s3Object(a []any) (any, error) {
 		ref.Version = argStr(a, s3ObjectArgs)
 	}
 
-	b, err := json.Marshal(map[string]any{"s3": ref})
+	b, err := json.Marshal(map[string]any{"s3": ref}, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("encode s3 object: %w", err)
 	}
@@ -102,7 +104,7 @@ func s3ObjectJSON(_ *utilEnv, a []any) (any, error) {
 		return nil, err
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 
 	return string(b), err
 }
@@ -112,7 +114,7 @@ func fromS3ObjectJSON(doc string) (any, error) {
 		S3 *s3Ref `json:"s3"`
 	}
 
-	if err := json.Unmarshal([]byte(doc), &wrapper); err != nil || wrapper.S3 == nil {
+	if err := json.Unmarshal([]byte(doc), &wrapper, jsonx.V1()); err != nil || wrapper.S3 == nil {
 		return nil, fmt.Errorf("%w: not a DynamoDB S3 object", ErrValidation)
 	}
 
@@ -234,10 +236,9 @@ func xmlToJSONString(u *utilEnv, a []any) (any, error) {
 
 	var buf bytes.Buffer
 
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
+	enc := jsontext.NewEncoder(&buf, jsonx.V1(), jsontext.EscapeForHTML(false))
 
-	if err = enc.Encode(m); err != nil {
+	if err = json.MarshalEncode(enc, m); err != nil {
 		return nil, fmt.Errorf("encode xml: %w", err)
 	}
 

@@ -1,13 +1,15 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagsLifecycle(t *testing.T) {
@@ -22,14 +24,14 @@ func TestHandler_TagsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	opID := createResp["OperationId"].(string)
 
 	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 	require.Equal(t, http.StatusOK, opRec.Code)
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	operation := opResp["Operation"].(map[string]any)
 	targets := operation["Targets"].(map[string]any)
 	nsID := targets["NAMESPACE"].(string)
@@ -38,7 +40,7 @@ func TestHandler_TagsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, nsRec.Code)
 
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	arn := nsResp["Namespace"].(map[string]any)["Arn"].(string)
 
 	rec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": arn})
@@ -142,21 +144,21 @@ func TestHandler_TagResource_TooManyTags_Merged(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	opID := createResp["OperationId"].(string)
 
 	opRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": opID})
 	require.Equal(t, http.StatusOK, opRec.Code)
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	nsID := opResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	getRec := doSDRequest(t, h, "GetNamespace", map[string]any{"Id": nsID})
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	arn := getResp["Namespace"].(map[string]any)["Arn"].(string)
 
 	firstBatch := make([]map[string]string, 0, 40)
@@ -197,14 +199,14 @@ func TestMapToTagEntriesSorted(t *testing.T) {
 	require.Equal(t, 200, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcARN := createResp["Service"].(map[string]any)["Arn"].(string)
 
 	tagsRec := doSDRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": svcARN})
 	require.Equal(t, 200, tagsRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 3)
@@ -226,7 +228,7 @@ func TestHandler_ErrResourceNotFoundTagging(t *testing.T) {
 	assert.Equal(t, 400, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 

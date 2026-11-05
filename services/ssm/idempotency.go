@@ -3,9 +3,11 @@ package ssm
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxIdempotencyRecords caps remembered tokens per region; the oldest are evicted first.
@@ -20,19 +22,19 @@ type idempotencyRecord struct {
 }
 
 func idempotencyFingerprint(req any) string {
-	raw, err := json.Marshal(req)
+	raw, err := json.Marshal(req, jsonx.V1())
 	if err != nil {
 		return ""
 	}
 
 	var m map[string]any
-	if json.Unmarshal(raw, &m) != nil {
+	if json.Unmarshal(raw, &m, jsonx.V1()) != nil {
 		return ""
 	}
 
 	delete(m, "ClientToken")
 
-	canonical, err := json.Marshal(m)
+	canonical, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return ""
 	}

@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleLayersRoute dispatches Lambda Layers REST API requests.
@@ -149,7 +150,7 @@ func (h *Handler) handlePublishLayerVersion(c *echo.Context, bk *InMemoryBackend
 
 	var input PublishLayerVersionInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}
@@ -233,7 +234,7 @@ func (h *Handler) handleAddLayerVersionPermission(
 
 	var input AddLayerVersionPermissionInput
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 		}
 	}

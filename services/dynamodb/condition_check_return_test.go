@@ -2,7 +2,7 @@ package dynamodb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -34,7 +35,7 @@ func doDDBRequest(
 
 	var decoded map[string]any
 	if w.Body.Len() > 0 {
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded))
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded, jsonx.V1()))
 	}
 
 	return resp.StatusCode, decoded

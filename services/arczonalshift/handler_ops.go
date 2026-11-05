@@ -2,9 +2,11 @@ package arczonalshift
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -121,9 +123,9 @@ func (h *Handler) updatePractice(_ context.Context, req *restroute.Request) (any
 		return nil, 0, err
 	}
 
-	var present map[string]json.RawMessage
+	var present map[string]jsontext.Value
 	if len(req.Body) > 0 {
-		_ = json.Unmarshal(req.Body, &present)
+		_ = json.Unmarshal(req.Body, &present, jsonx.V1())
 	}
 
 	set := map[string]bool{}

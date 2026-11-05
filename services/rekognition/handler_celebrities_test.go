@@ -1,12 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCelebrities_ImageAnalysis(t *testing.T) {
@@ -29,7 +31,7 @@ func TestCelebrities_ImageAnalysis(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotNil(t, resp["CelebrityFaces"])
 			},
 		},
@@ -41,7 +43,7 @@ func TestCelebrities_ImageAnalysis(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Name"])
 				assert.NotNil(t, resp["KnownGender"])
 			},
@@ -76,7 +78,7 @@ func TestAsyncVideoJobs_CelebrityRecognition(t *testing.T) { //nolint:parallelte
 	require.Equal(t, http.StatusOK, rec.Code, "StartCelebrityRecognition")
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	jobID, ok := startResp["JobId"].(string)
 	require.True(t, ok)
 	assert.NotEmpty(t, jobID)
@@ -86,7 +88,7 @@ func TestAsyncVideoJobs_CelebrityRecognition(t *testing.T) { //nolint:parallelte
 	require.Equal(t, http.StatusOK, rec.Code, "GetCelebrityRecognition")
 
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 	assert.Equal(t, "IN_PROGRESS", firstResp["JobStatus"])
 
 	// Second poll returns SUCCEEDED
@@ -94,7 +96,7 @@ func TestAsyncVideoJobs_CelebrityRecognition(t *testing.T) { //nolint:parallelte
 	require.Equal(t, http.StatusOK, rec.Code, "GetCelebrityRecognition")
 
 	var secondResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", secondResp["JobStatus"])
 	assert.NotNil(t, secondResp["Celebrities"])
 }

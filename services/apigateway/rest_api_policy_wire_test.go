@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -55,9 +56,9 @@ func TestRestAPIPolicy_WireReEscaping(t *testing.T) {
 			var created struct {
 				ID string `json:"id"`
 			}
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
-			patchValue, err := json.Marshal(tt.plainPolicy)
+			patchValue, err := json.Marshal(tt.plainPolicy, jsonx.V1())
 			require.NoError(t, err)
 			patchBody := `{"patchOperations":[{"op":"replace","path":"/policy","value":` +
 				string(patchValue) + `}]}`
@@ -68,7 +69,7 @@ func TestRestAPIPolicy_WireReEscaping(t *testing.T) {
 			var resp struct {
 				Policy string `json:"policy"`
 			}
-			require.NoError(t, json.Unmarshal(patchRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(patchRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			// Mirror terraform-provider-aws's flattenAPIPolicy: wrap in
 			// literal quotes, then unquote -- must recover the plain policy.

@@ -2,7 +2,7 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -38,7 +39,7 @@ func TestResourceCreator_CustomResource_DeleteEvent(t *testing.T) {
 				ResponseURL        string `json:"ResponseURL"`
 			}
 
-			if err := json.Unmarshal(payload, &ev); err != nil {
+			if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 				return nil, 0, err
 			}
 
@@ -62,7 +63,7 @@ func TestResourceCreator_CustomResource_DeleteEvent(t *testing.T) {
 					"Status":             "SUCCESS",
 					"PhysicalResourceId": ev.PhysicalResourceID,
 				}
-				body, _ := json.Marshal(resp)
+				body, _ := json.Marshal(resp, jsonx.V1())
 				client := &http.Client{Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,
@@ -129,7 +130,7 @@ func TestResourceCreator_CustomResource_UpdateEvent(t *testing.T) {
 				ResponseURL           string         `json:"ResponseURL"`
 			}
 
-			if err := json.Unmarshal(payload, &ev); err != nil {
+			if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 				return nil, 0, err
 			}
 
@@ -157,7 +158,7 @@ func TestResourceCreator_CustomResource_UpdateEvent(t *testing.T) {
 					"Status":             "SUCCESS",
 					"PhysicalResourceId": ev.PhysicalResourceID,
 				}
-				body, _ := json.Marshal(resp)
+				body, _ := json.Marshal(resp, jsonx.V1())
 				client := &http.Client{Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,
@@ -248,7 +249,7 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 				ResponseURL        string `json:"ResponseURL"`
 			}
 
-			if err := json.Unmarshal(payload, &ev); err != nil {
+			if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 				return nil, 0, err
 			}
 
@@ -266,7 +267,7 @@ func TestStack_CustomResource_UpdateStack_SendsUpdateEvent(t *testing.T) {
 					"Status":             "SUCCESS",
 					"PhysicalResourceId": physID,
 				}
-				body, _ := json.Marshal(resp)
+				body, _ := json.Marshal(resp, jsonx.V1())
 				client := &http.Client{Timeout: 2 * time.Second}
 				req, reqErr := http.NewRequestWithContext(
 					ctx,

@@ -2,16 +2,18 @@ package memorydb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createACLRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -34,7 +36,7 @@ func (h *Handler) handleCreateACL(ctx context.Context, c *echo.Context, body []b
 func (h *Handler) handleDescribeACLs(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeACLRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -61,7 +63,7 @@ func (h *Handler) handleDescribeACLs(ctx context.Context, c *echo.Context, body 
 func (h *Handler) handleDeleteACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteACLRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -80,7 +82,7 @@ func (h *Handler) handleDeleteACL(ctx context.Context, c *echo.Context, body []b
 func (h *Handler) handleUpdateACL(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateACLRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

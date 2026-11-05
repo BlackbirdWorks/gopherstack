@@ -1,10 +1,12 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Resource share handlers ---
@@ -16,7 +18,7 @@ type createResourceShareInput struct {
 
 func (h *Handler) handleCreateResourceShare(c *echo.Context, body []byte) error {
 	var in createResourceShareInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

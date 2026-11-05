@@ -18,12 +18,14 @@ package omics_test
 // "maxResults" as the query key; that is covered separately below.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func Test_ListReferenceStores_PaginatesViaQueryString(t *testing.T) {
@@ -46,7 +48,7 @@ func Test_ListReferenceStores_PaginatesViaQueryString(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stores := resp["referenceStores"].([]any)
 	assert.Len(t, stores, 2, "maxResults=2 from the query string must be honored")
 	require.NotEmpty(t, resp["nextToken"], "a nextToken must be returned when more pages remain")
@@ -59,7 +61,7 @@ func Test_ListReferenceStores_PaginatesViaQueryString(t *testing.T) {
 	require.Equal(t, http.StatusOK, nextRec.Code)
 
 	var nextResp map[string]any
-	require.NoError(t, json.Unmarshal(nextRec.Body.Bytes(), &nextResp))
+	require.NoError(t, json.Unmarshal(nextRec.Body.Bytes(), &nextResp, jsonx.V1()))
 	remaining := nextResp["referenceStores"].([]any)
 	assert.Len(t, remaining, 1, "nextToken from the query string must resume from page two")
 }
@@ -81,7 +83,7 @@ func Test_ListAnnotationStores_PaginatesViaQueryString(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	stores := resp["annotationStores"].([]any)
 	assert.Len(t, stores, 2)
 	require.NotEmpty(t, resp["nextToken"])
@@ -104,13 +106,13 @@ func Test_ListRunBatches_UsesMaxItemsNotMaxResultsQueryParam(t *testing.T) {
 	require.Equal(t, http.StatusOK, ignoredRec.Code)
 
 	var ignoredResp map[string]any
-	require.NoError(t, json.Unmarshal(ignoredRec.Body.Bytes(), &ignoredResp))
+	require.NoError(t, json.Unmarshal(ignoredRec.Body.Bytes(), &ignoredResp, jsonx.V1()))
 	assert.Len(t, ignoredResp["items"].([]any), 3, "maxResults must not cap ListBatch")
 
 	limitedRec := doRequest(t, h, http.MethodGet, "/runBatch?maxItems=1", nil)
 	require.Equal(t, http.StatusOK, limitedRec.Code)
 
 	var limitedResp map[string]any
-	require.NoError(t, json.Unmarshal(limitedRec.Body.Bytes(), &limitedResp))
+	require.NoError(t, json.Unmarshal(limitedRec.Body.Bytes(), &limitedResp, jsonx.V1()))
 	assert.Len(t, limitedResp["items"].([]any), 1, "maxItems must cap ListBatch")
 }

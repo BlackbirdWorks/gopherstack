@@ -1,11 +1,13 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/backup/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // isValidVaultEvent derives its answer from types.BackupVaultEvent.Values()
@@ -35,7 +37,7 @@ func (b *InMemoryBackend) PutBackupVaultAccessPolicy(vaultName, policy string) e
 
 	if policy != "" {
 		var doc map[string]any
-		if err := json.Unmarshal([]byte(policy), &doc); err != nil {
+		if err := json.Unmarshal([]byte(policy), &doc, jsonx.V1()); err != nil {
 			return fmt.Errorf(
 				"%w: Policy must be a valid JSON document: %s",
 				ErrValidation,

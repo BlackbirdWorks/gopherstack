@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
@@ -143,7 +145,7 @@ func TestSESRetrospectionEndpoint(t *testing.T) {
 			var got struct {
 				Messages []map[string]any `json:"messages"`
 			}
-			require.NoError(t, json.Unmarshal(body, &got))
+			require.NoError(t, json.Unmarshal(body, &got, jsonx.V1()))
 			require.Len(t, got.Messages, tt.wantN)
 
 			if tt.wantN == 0 {
@@ -225,7 +227,7 @@ func TestSQSInspectEndpoint(t *testing.T) {
 						Body       string            `json:"Body"`
 					} `json:"Messages"`
 				}
-				require.NoError(t, json.Unmarshal(body, &got))
+				require.NoError(t, json.Unmarshal(body, &got, jsonx.V1()))
 				require.Len(t, got.Messages, 1)
 				assert.Equal(t, "payload", got.Messages[0].Body)
 				assert.Equal(t, "0", got.Messages[0].Attributes["ApproximateReceiveCount"])
@@ -316,7 +318,7 @@ func TestCloudWatchRawMetricsEndpoint(t *testing.T) {
 			var got struct {
 				Metrics []map[string]any `json:"metrics"`
 			}
-			require.NoError(t, json.Unmarshal(body, &got))
+			require.NoError(t, json.Unmarshal(body, &got, jsonx.V1()))
 
 			var found map[string]any
 
@@ -419,7 +421,7 @@ func TestLambdaRuntimesEndpoint(t *testing.T) {
 				Runtimes []string `json:"Runtimes"`
 			}
 
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			assert.Contains(t, out.Runtimes, tt.has)
 
 			if tt.hasNot != "" {

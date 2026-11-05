@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handlePutInlinePolicyToPermissionSet(c *echo.Context, body []byte) error {
@@ -13,7 +15,7 @@ func (h *Handler) handlePutInlinePolicyToPermissionSet(c *echo.Context, body []b
 		PermissionSetArn string `json:"PermissionSetArn"`
 		InlinePolicy     string `json:"InlinePolicy"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) handleGetInlinePolicyForPermissionSet(c *echo.Context, body []
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -52,7 +54,7 @@ func (h *Handler) handleDeleteInlinePolicyFromPermissionSet(c *echo.Context, bod
 		InstanceArn      string `json:"InstanceArn"`
 		PermissionSetArn string `json:"PermissionSetArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

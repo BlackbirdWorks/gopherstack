@@ -3,7 +3,7 @@ package ses
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -337,7 +338,7 @@ func (r *inboundRun) lambdaAction(ctx context.Context, a ReceiptAction) (ruleFlo
 
 	payload, err := json.Marshal(lambdaEvent{Records: []lambdaRecord{{
 		EventSource: "aws:ses", EventVersion: "1.0", SES: lambdaSES{Receipt: n.Receipt, Mail: n.Mail},
-	}}})
+	}}}, jsonx.V1())
 	if err != nil {
 		return flowContinue, fmt.Errorf("marshal lambda event: %w", err)
 	}
@@ -356,7 +357,7 @@ func (r *inboundRun) lambdaAction(ctx context.Context, a ReceiptAction) (ruleFlo
 		Disposition string `json:"disposition"`
 	}
 
-	_ = json.Unmarshal(out, &resp)
+	_ = json.Unmarshal(out, &resp, jsonx.V1())
 
 	switch strings.ToUpper(resp.Disposition) {
 	case "STOP_RULE":
@@ -428,7 +429,7 @@ func (r *inboundRun) notify(topicARN string, n receiptNotification) error {
 		return errInboundNoSNS
 	}
 
-	body, err := json.Marshal(n)
+	body, err := json.Marshal(n, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("marshal notification: %w", err)
 	}

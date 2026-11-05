@@ -1,11 +1,14 @@
 package acm_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestACMHandler_DescribeCertificate_NoFabricatedKeyId locks in the removal
@@ -30,19 +33,19 @@ func TestACMHandler_DescribeCertificate_NoFabricatedKeyId(t *testing.T) {
 	var reqOut struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut))
+	require.NoError(t, json.Unmarshal(reqRec.Body.Bytes(), &reqOut, jsonx.V1()))
 
-	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn})
+	descBody, err := json.Marshal(map[string]string{"CertificateArn": reqOut.CertificateArn}, jsonx.V1())
 	require.NoError(t, err)
 
 	descRec := postACMJSON(t, h, "DescribeCertificate", string(descBody))
 	require.Equal(t, http.StatusOK, descRec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &raw, jsonx.V1()))
 
-	var certRaw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw["Certificate"], &certRaw))
+	var certRaw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(raw["Certificate"], &certRaw, jsonx.V1()))
 
 	_, hasKeyID := certRaw["KeyId"]
 	require.False(t, hasKeyID, "DescribeCertificate must not emit a fabricated KeyId member on Certificate")

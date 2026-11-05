@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -108,7 +109,7 @@ func TestTokenEndpointClientAuthentication(t *testing.T) {
 			require.Equal(t, tt.status, rec.Code, rec.Body.String())
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 			if tt.wantCode != 0 {
 				assert.Equal(t, "invalid_client", body["error"])

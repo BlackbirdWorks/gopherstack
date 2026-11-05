@@ -1,13 +1,14 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -50,7 +51,7 @@ func TestFSx_StorageVirtualMachine(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				svm := out["StorageVirtualMachine"].(map[string]any)
 				assert.Contains(t, svm["StorageVirtualMachineId"].(string), "svm-")
 				assert.Equal(t, "CREATED", svm["Lifecycle"])
@@ -78,7 +79,7 @@ func TestFSx_SVMLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["StorageVirtualMachines"].([]any), 1)
 
 		// update: SvmAdminPassword is the real op's only scalar updatable
@@ -90,7 +91,7 @@ func TestFSx_SVMLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur, jsonx.V1()))
 		assert.Equal(t, svmID, ur["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"])
 
 		// delete
@@ -99,7 +100,7 @@ func TestFSx_SVMLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var del map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del, jsonx.V1()))
 		assert.Equal(t, svmID, del["StorageVirtualMachineId"])
 		assert.Equal(t, "DELETING", del["Lifecycle"])
 		assert.Equal(t, 0, fsx.SVMCount(b))

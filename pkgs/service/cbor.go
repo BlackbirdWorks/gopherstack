@@ -2,7 +2,7 @@ package service
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/aws/smithy-go/encoding/cbor"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ContentTypeCBOR is the AWS CBOR wire protocol content type used by DynamoDB, Kinesis, and Timestream.
@@ -39,7 +40,7 @@ func CBORToJSON(data []byte) ([]byte, error) {
 
 	generic := cborToInterface(val)
 
-	out, err := json.Marshal(generic)
+	out, err := json.Marshal(generic, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("json marshal: %w", err)
 	}
@@ -58,7 +59,7 @@ func CBORToJSON(data []byte) ([]byte, error) {
 // produces a CBOR list of byte strings when "BS" is in binaryKeys.
 func JSONToCBOR(data []byte, binaryKeys map[string]bool) ([]byte, error) {
 	var generic any
-	if err := json.Unmarshal(data, &generic); err != nil {
+	if err := json.Unmarshal(data, &generic, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("json unmarshal: %w", err)
 	}
 

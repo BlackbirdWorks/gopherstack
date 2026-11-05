@@ -1,13 +1,15 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDataRetrievalPolicy(t *testing.T) {
@@ -43,7 +45,7 @@ func TestDataRetrievalPolicy(t *testing.T) {
 
 			if tt.wantPolicy {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "Policy")
 			}
 		})
@@ -86,7 +88,7 @@ func TestDataRetrievalPolicy_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.NotEmpty(t, got)
 		})
 	}
@@ -112,7 +114,7 @@ func TestDataRetrievalPolicy_DefaultFreeTier(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 
 			policy, ok := got["Policy"].(map[string]any)
 			require.True(t, ok)
@@ -198,7 +200,7 @@ func TestDataRetrievalPolicy_GetDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policy := resp["Policy"].(map[string]any)
 	rules := policy["Rules"].([]any)
@@ -269,7 +271,7 @@ func TestDataRetrievalPolicy_SetAndGet(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			policy := resp["Policy"].(map[string]any)
 			rules := policy["Rules"].([]any)
 			require.NotEmpty(t, rules)

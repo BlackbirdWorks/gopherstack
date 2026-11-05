@@ -1,7 +1,8 @@
 package networkfirewall_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 
@@ -10,23 +11,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/networkfirewall/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // retime rewrites timeField on every record that has idField, giving the i-th id (sorted) times[i].
 func retime(t *testing.T, snap []byte, timeField string, times []string) []byte {
 	t.Helper()
 
-	var root map[string]json.RawMessage
+	var root map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(snap, &root))
+	require.NoError(t, json.Unmarshal(snap, &root, jsonx.V1()))
 
-	var tables map[string]json.RawMessage
+	var tables map[string]jsontext.Value
 
-	require.NoError(t, json.Unmarshal(root["tables"], &tables))
+	require.NoError(t, json.Unmarshal(root["tables"], &tables, jsonx.V1()))
 
 	for name, raw := range tables {
 		var rows []map[string]any
-		if json.Unmarshal(raw, &rows) != nil {
+		if json.Unmarshal(raw, &rows, jsonx.V1()) != nil {
 			continue
 		}
 
@@ -50,18 +53,18 @@ func retime(t *testing.T, snap []byte, timeField string, times []string) []byte 
 			}
 		}
 
-		b, err := json.Marshal(rows)
+		b, err := json.Marshal(rows, jsonx.V1())
 		require.NoError(t, err)
 
 		tables[name] = b
 	}
 
-	tb, err := json.Marshal(tables)
+	tb, err := json.Marshal(tables, jsonx.V1())
 	require.NoError(t, err)
 
 	root["tables"] = tb
 
-	out, err := json.Marshal(root)
+	out, err := json.Marshal(root, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

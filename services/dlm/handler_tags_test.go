@@ -2,7 +2,7 @@ package dlm_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dlm"
 )
 
@@ -46,7 +47,7 @@ func TestHandler_TagResource_InvalidBody(t *testing.T) {
 			// Get the ARN.
 			rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn := resp["Policy"].(map[string]any)["PolicyArn"].(string)
 
 			req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/tags/%s", arn), bytes.NewReader(tc.body))
@@ -89,7 +90,7 @@ func TestHandler_UntagResource_MultipleQueryKeys(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn := resp["Policy"].(map[string]any)["PolicyArn"].(string)
 
 			// Tag first.
@@ -141,12 +142,12 @@ func TestHandler_TagResource_GovCloudPartitionMatcherRouted(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	policyARN := getResp["Policy"].(map[string]any)["PolicyArn"].(string)
 	require.Contains(t, policyARN, "arn:aws-us-gov:dlm:", "sanity: PolicyArn must carry the GovCloud partition")
 
 	tagPath := fmt.Sprintf("/tags/%s", policyARN)
-	body, err := json.Marshal(map[string]any{"Tags": map[string]string{"env": "prod"}})
+	body, err := json.Marshal(map[string]any{"Tags": map[string]string{"env": "prod"}}, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(http.MethodPost, tagPath, bytes.NewReader(body))
@@ -164,7 +165,7 @@ func TestHandler_TagResource_GovCloudPartitionMatcherRouted(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "prod", tags["env"])
@@ -203,7 +204,7 @@ func TestHandler_UntagResource_URLEncodedTagKey(t *testing.T) {
 
 			rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			arn := resp["Policy"].(map[string]any)["PolicyArn"].(string)
 
 			doRequest(t, h, http.MethodPost, fmt.Sprintf("/tags/%s", arn), map[string]any{
@@ -228,7 +229,7 @@ func TestHandler_UntagResource_URLEncodedTagKey(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			tags, ok := listResp["Tags"].(map[string]any)
 			require.True(t, ok)
 			assert.NotContains(t, tags, tc.tagKey, "percent-decoded tag key must be removed")

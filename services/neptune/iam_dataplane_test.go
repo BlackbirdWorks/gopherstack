@@ -3,7 +3,7 @@ package neptune_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
@@ -233,7 +234,7 @@ func dpGremlinWS(t *testing.T, c neptune.DBCluster, accessKey, script string) (m
 	frame, err := json.Marshal(map[string]any{
 		"requestId": "7f1a8f4c-0b0e-4a8a-9d3a-1c2d3e4f5a6b", "op": "eval", "processor": "",
 		"args": map[string]any{"gremlin": script},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	require.NoError(t, conn.WriteMessage(websocket.TextMessage, frame))
 
@@ -241,7 +242,7 @@ func dpGremlinWS(t *testing.T, c neptune.DBCluster, accessKey, script string) (m
 	require.NoError(t, err)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(raw, &out))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()))
 
 	return out, nil
 }
@@ -294,7 +295,7 @@ func dpBoltToken(t *testing.T, c neptune.DBCluster, accessKey, secret, service s
 	raw, err := json.Marshal(map[string]string{
 		"Authorization": req.Header.Get("Authorization"), "HttpMethod": http.MethodGet,
 		"X-Amz-Date": req.Header.Get("X-Amz-Date"), "Host": req.Host,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(raw)

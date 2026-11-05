@@ -3,9 +3,11 @@ package lambda
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -50,8 +52,8 @@ type asyncOutcome struct {
 // asyncDestinationRecord is the JSON invocation record AWS Lambda delivers to
 // OnSuccess/OnFailure destinations.
 type asyncDestinationRecord struct {
-	RequestPayload  json.RawMessage      `json:"requestPayload,omitempty"`
-	ResponsePayload json.RawMessage      `json:"responsePayload,omitempty"`
+	RequestPayload  jsontext.Value       `json:"requestPayload,omitempty"`
+	ResponsePayload jsontext.Value       `json:"responsePayload,omitempty"`
 	Timestamp       string               `json:"timestamp"`
 	Version         string               `json:"version"`
 	RequestContext  asyncRequestContext  `json:"requestContext"`
@@ -100,7 +102,7 @@ func (b *InMemoryBackend) dispatchAsyncOutcome(ctx context.Context, out asyncOut
 		return
 	}
 
-	body, marshalErr := json.Marshal(buildAsyncDestinationRecord(out, functionArn))
+	body, marshalErr := json.Marshal(buildAsyncDestinationRecord(out, functionArn), jsonx.V1())
 	if marshalErr != nil {
 		log.WarnContext(ctx, "lambda: failed to marshal destination record",
 			"function", out.functionName, "error", marshalErr)
@@ -197,18 +199,18 @@ func buildAsyncDestinationRecord(out asyncOutcome, functionArn string) asyncDest
 
 // rawJSONOrNull returns b as raw JSON when it is valid JSON, otherwise a JSON
 // string containing the raw bytes so the record always marshals cleanly.
-func rawJSONOrNull(b []byte) json.RawMessage {
+func rawJSONOrNull(b []byte) jsontext.Value {
 	if len(b) == 0 {
-		return json.RawMessage("null")
+		return jsontext.Value("null")
 	}
 
-	if json.Valid(b) {
-		return json.RawMessage(b)
+	if jsontext.Value(b).IsValid(jsonx.V1()) {
+		return jsontext.Value(b)
 	}
 
-	quoted, err := json.Marshal(string(b))
+	quoted, err := json.Marshal(string(b), jsonx.V1())
 	if err != nil {
-		return json.RawMessage("null")
+		return jsontext.Value("null")
 	}
 
 	return quoted

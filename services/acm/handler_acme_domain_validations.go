@@ -2,9 +2,10 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -107,7 +108,7 @@ type createAcmeDomainValidationOutput struct {
 
 func (h *Handler) jsonCreateAcmeDomainValidation(ctx context.Context, body []byte) (any, error) {
 	var input createAcmeDomainValidationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -146,7 +147,7 @@ type describeAcmeDomainValidationOutput struct {
 
 func (h *Handler) jsonDescribeAcmeDomainValidation(ctx context.Context, body []byte) (any, error) {
 	var input describeAcmeDomainValidationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -176,7 +177,7 @@ type deleteAcmeDomainValidationOutput struct{}
 
 func (h *Handler) jsonDeleteAcmeDomainValidation(ctx context.Context, body []byte) (any, error) {
 	var input deleteAcmeDomainValidationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -204,9 +205,10 @@ type listAcmeDomainValidationsOutput struct {
 	AcmeDomainValidations []acmeDomainValidationWire `json:"AcmeDomainValidations"`
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) jsonListAcmeDomainValidations(ctx context.Context, body []byte) (any, error) {
 	var input listAcmeDomainValidationsInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -240,7 +242,7 @@ type updateAcmeDomainValidationOutput struct{}
 
 func (h *Handler) jsonUpdateAcmeDomainValidation(ctx context.Context, body []byte) (any, error) {
 	var input updateAcmeDomainValidationInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

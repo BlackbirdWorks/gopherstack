@@ -2,7 +2,7 @@ package appconfig_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
@@ -27,7 +28,7 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var app appconfig.Application
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &app, jsonx.V1()))
 
 	profileBody := []byte(`{"name":"hcv-profile","locationUri":"hosted","type":"AWS.Freeform"}`)
 	rec = doRequest(
@@ -40,7 +41,7 @@ func TestHandler_HostedConfigurationVersion_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var profile appconfig.ConfigurationProfile
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &profile, jsonx.V1()))
 
 	// Create hosted configuration version with raw body.
 	e := echo.New()
@@ -146,7 +147,7 @@ func TestHandler_HostedConfigVersion_HTTP_ListEmpty(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut, jsonx.V1()))
 
 	profRec := doRequest(
 		t, h, http.MethodPost,
@@ -159,7 +160,7 @@ func TestHandler_HostedConfigVersion_HTTP_ListEmpty(t *testing.T) {
 		ID string `json:"Id"`
 	}
 
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &profOut))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &profOut, jsonx.V1()))
 
 	listRec := doRequest(
 		t,
@@ -193,7 +194,7 @@ func TestHandler_HostedConfigVersionResponseHeaders(t *testing.T) {
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles",
@@ -203,7 +204,7 @@ func TestHandler_HostedConfigVersionResponseHeaders(t *testing.T) {
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	base := "/applications/" + app.ID + "/configurationprofiles/" + prof.ID +
 		"/hostedconfigurationversions"
@@ -254,7 +255,7 @@ func TestHandler_CreateHostedConfigurationVersion_LatestVersionNumberConflict(t 
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	profRec := doRequest(t, h, http.MethodPost,
 		"/applications/"+app.ID+"/configurationprofiles",
@@ -264,7 +265,7 @@ func TestHandler_CreateHostedConfigurationVersion_LatestVersionNumberConflict(t 
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	base := "/applications/" + app.ID + "/configurationprofiles/" + prof.ID + "/hostedconfigurationversions"
 

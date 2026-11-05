@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -40,7 +41,7 @@ func TestAppStream_Applications(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				app := resp["Application"].(map[string]any)
 				assert.Equal(t, "my-app", app["Name"])
 				assert.Contains(t, app["Arn"], ":application/my-app")
@@ -75,7 +76,7 @@ func TestAppStream_Applications(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				apps := resp["Applications"].([]any)
 				assert.Len(t, apps, 2)
 			},
@@ -91,7 +92,7 @@ func TestAppStream_Applications(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				app := resp["Application"].(map[string]any)
 				assert.Equal(t, "Updated App", app["DisplayName"])
 			},
@@ -113,7 +114,7 @@ func TestAppStream_Applications(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				usages, ok := resp["AppLicenseUsages"]
 				require.True(t, ok, "response must carry AppLicenseUsages")
 				assert.Empty(t, usages)
@@ -167,7 +168,7 @@ func TestAppStream_Applications(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assocs := resp["ApplicationFleetAssociations"].([]any)
 				assert.Len(t, assocs, 1)
 			},
@@ -262,7 +263,7 @@ func TestAppStream_CreateApplication_RequiredMembersRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	app := createOut["Application"].(map[string]any)
 
 	icon, ok := app["IconS3Location"].(map[string]any)
@@ -275,7 +276,7 @@ func TestAppStream_CreateApplication_RequiredMembersRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	apps := descOut["Applications"].([]any)
 	require.Len(t, apps, 1)
 	got := apps[0].(map[string]any)
@@ -304,7 +305,7 @@ func TestAppStream_ApplicationARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	app := resp["Application"].(map[string]any)
 	assert.Contains(t, app["Arn"], "arn:aws:appstream:")
 	assert.Contains(t, app["Arn"], "application/arn-app")

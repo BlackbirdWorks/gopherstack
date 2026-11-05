@@ -1,13 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
 )
 
@@ -41,7 +42,7 @@ func TestHandler_CreateGetListDeleteWirelessDevice(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id, ok := createResp["Id"].(string)
 			require.True(t, ok)
 			assert.NotEmpty(t, id)
@@ -51,7 +52,7 @@ func TestHandler_CreateGetListDeleteWirelessDevice(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.deviceName, getResp["Name"])
 
 			// List
@@ -59,7 +60,7 @@ func TestHandler_CreateGetListDeleteWirelessDevice(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			devices, ok := listResp["WirelessDeviceList"].([]any)
 			require.True(t, ok)
 			assert.Len(t, devices, 1)
@@ -133,7 +134,7 @@ func TestHandler_AssociateWirelessDeviceWithThing(t *testing.T) {
 				require.Equal(t, http.StatusCreated, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				devID = createResp["Id"].(string)
 			}
 
@@ -155,7 +156,7 @@ func TestHandler_UpdateWirelessDevice(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Update
@@ -168,7 +169,7 @@ func TestHandler_UpdateWirelessDevice(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "dev1-updated", getResp["Name"])
 }
 
@@ -188,7 +189,7 @@ func TestHandler_DeregisterWirelessDevice(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	id := createResp["Id"].(string)
 
 	// Deregister (should delete the device)
@@ -216,7 +217,7 @@ func TestHandler_DisassociateWirelessDeviceFromThing(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	devID := createResp["Id"].(string)
 
 	// Associate with thing
@@ -239,14 +240,14 @@ func TestHandler_GetWirelessDeviceStatistics(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 	devID := created["Id"].(string)
 
 	rec := doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/statistics", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var stats map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats, jsonx.V1()))
 	assert.Equal(t, devID, stats["WirelessDeviceId"])
 }
 
@@ -269,7 +270,7 @@ func TestHandler_SendDataToWirelessDevice(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["MessageId"])
 }
 
@@ -283,14 +284,14 @@ func TestHandler_TestWirelessDevice(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 	devID := created["Id"].(string)
 
 	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices/"+devID+"/test", `{}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PASS", resp["Result"])
 }
 
@@ -319,7 +320,7 @@ func TestHandler_QueuedMessages_SendListDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var devResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp, jsonx.V1()))
 	devID := devResp["Id"].(string)
 
 	// List queued messages (empty)
@@ -327,7 +328,7 @@ func TestHandler_QueuedMessages_SendListDelete(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	msgs, ok := listResp["DownlinkQueueMessagesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, msgs)
@@ -339,14 +340,14 @@ func TestHandler_QueuedMessages_SendListDelete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var sendResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sendResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sendResp, jsonx.V1()))
 	sentMessageID, _ := sendResp["MessageId"].(string)
 	require.NotEmpty(t, sentMessageID)
 
 	// List queued messages must now reflect the sent message.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/data", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	msgs, ok = listResp["DownlinkQueueMessagesList"].([]any)
 	require.True(t, ok)
 	require.Len(t, msgs, 1)
@@ -359,7 +360,7 @@ func TestHandler_QueuedMessages_SendListDelete(t *testing.T) {
 	// After deletion, the queue must be empty again.
 	rec = doIoTWRequest(t, h, http.MethodGet, "/wireless-devices/"+devID+"/data", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	msgs, ok = listResp["DownlinkQueueMessagesList"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, msgs)
@@ -381,7 +382,7 @@ func TestHandler_SendDataToWirelessDevice_UniqueMessageID(t *testing.T) {
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		msgID, _ := resp["MessageId"].(string)
 		assert.NotEmpty(t, msgID, "MessageId should not be empty")
@@ -399,7 +400,7 @@ func setupWirelessDevice(t *testing.T, h *iotwireless.Handler, name, devType, de
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	id, _ := resp["Id"].(string)
 	require.NotEmpty(t, id)
@@ -418,7 +419,7 @@ func TestHandler_QueuedMessages_MultipleSends(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	devID, ok := createResp["Id"].(string)
 	require.True(t, ok)
 
@@ -427,7 +428,7 @@ func TestHandler_QueuedMessages_MultipleSends(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var pre map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pre))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pre, jsonx.V1()))
 	assert.Empty(t, pre["DownlinkQueueMessagesList"])
 
 	// Send two messages (POST /wireless-devices/{id}/data).
@@ -438,7 +439,7 @@ func TestHandler_QueuedMessages_MultipleSends(t *testing.T) {
 		require.Equal(t, http.StatusCreated, r.Code)
 
 		var sr map[string]any
-		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &sr))
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &sr, jsonx.V1()))
 		assert.NotEmpty(t, sr["MessageId"], "SendData must return a MessageId")
 	}
 
@@ -447,7 +448,7 @@ func TestHandler_QueuedMessages_MultipleSends(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var post map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &post))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &post, jsonx.V1()))
 	msgs, ok := post["DownlinkQueueMessagesList"].([]any)
 	require.True(t, ok)
 	assert.Len(t, msgs, 2, "two enqueued messages must appear in list")
@@ -472,7 +473,7 @@ func Test_GetWirelessDevice_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	id := created["Id"].(string)
 
 	// Before association, ThingArn/ThingName must be absent.
@@ -480,7 +481,7 @@ func Test_GetWirelessDevice_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var before map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &before))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &before, jsonx.V1()))
 	assert.Empty(t, before["ThingArn"])
 	assert.Empty(t, before["ThingName"])
 
@@ -493,7 +494,7 @@ func Test_GetWirelessDevice_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var after map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &after))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &after, jsonx.V1()))
 	assert.Equal(t, thingArn, after["ThingArn"])
 	assert.Equal(t, "my-thing", after["ThingName"])
 
@@ -504,7 +505,7 @@ func Test_GetWirelessDevice_ReflectsThingAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var afterDisassoc map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &afterDisassoc))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &afterDisassoc, jsonx.V1()))
 	assert.Empty(t, afterDisassoc["ThingArn"])
 	assert.Empty(t, afterDisassoc["ThingName"])
 }

@@ -1,13 +1,14 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -33,7 +34,7 @@ func TestConfigSetTrackingOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tracking, ok := out["TrackingOptions"].(map[string]any)
 	require.True(t, ok, "TrackingOptions should be present in GetConfigurationSet response")
@@ -74,7 +75,7 @@ func TestConfigSetDeliveryOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	delivery, ok := out["DeliveryOptions"].(map[string]any)
 	require.True(t, ok, "DeliveryOptions should be present")
@@ -113,7 +114,7 @@ func TestConfigSetSendingOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	sending, ok := out["SendingOptions"].(map[string]any)
 	require.True(t, ok, "SendingOptions should be present")
@@ -150,7 +151,7 @@ func TestConfigSetReputationOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	rep, ok := out["ReputationOptions"].(map[string]any)
 	require.True(t, ok, "ReputationOptions should be present")
@@ -187,7 +188,7 @@ func TestConfigSetSuppressionOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	supp, ok := out["SuppressionOptions"].(map[string]any)
 	require.True(t, ok, "SuppressionOptions should be present")
@@ -234,7 +235,7 @@ func TestGetConfigurationSetDefaultSendingEnabled(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	sending, ok := out["SendingOptions"].(map[string]any)
 	require.True(t, ok, "SendingOptions always present in GetConfigurationSet")
@@ -265,7 +266,7 @@ func TestConfigSetMultipleOptions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "multi-cs", out["ConfigurationSetName"])
 	assert.NotNil(t, out["TrackingOptions"])
@@ -635,7 +636,7 @@ func TestGetConfigurationSet(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.csName, out["ConfigurationSetName"])
 			}
 		})
@@ -668,7 +669,7 @@ func TestListConfigurationSets(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	sets, ok := out["ConfigurationSets"].([]any)
 	require.True(t, ok)

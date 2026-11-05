@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -866,7 +867,7 @@ func TestDeleteUser_ClearsGroupAndWebAuthnStateOnRecreate(t *testing.T) {
 func unmarshalBody(t *testing.T, rec *httptest.ResponseRecorder, v any) error {
 	t.Helper()
 
-	return json.Unmarshal(rec.Body.Bytes(), v)
+	return json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1())
 }
 
 func TestAdminSetUserPassword_PolicyEnforced(t *testing.T) {

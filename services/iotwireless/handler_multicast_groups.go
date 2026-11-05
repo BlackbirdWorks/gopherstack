@@ -1,7 +1,8 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -59,7 +61,7 @@ func (h *Handler) createMulticastGroup(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	mg, err := h.Backend.CreateMulticastGroup(
 		h.AccountID,
@@ -141,7 +143,7 @@ func (h *Handler) updateMulticastGroup(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateMulticastGroup(
 		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, req.LoRaWAN,
@@ -214,11 +216,11 @@ func (h *Handler) startMulticastGroupSession(c *echo.Context, id string) error {
 // would, not answered with a fabricated success.
 func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
 	var req struct {
-		PayloadData      string          `json:"PayloadData"`
-		WirelessMetadata json.RawMessage `json:"WirelessMetadata"`
+		PayloadData      string         `json:"PayloadData"`
+		WirelessMetadata jsontext.Value `json:"WirelessMetadata"`
 	}
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.PayloadData == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException: PayloadData is required")
@@ -236,7 +238,7 @@ func (h *Handler) associateWirelessDeviceWithMulticastGroup(
 	c *echo.Context, multicastGroupID string, body []byte,
 ) error {
 	var req associateWirelessDeviceWithMulticastRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 

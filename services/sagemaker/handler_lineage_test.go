@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -34,7 +35,7 @@ func TestHandler_ArtifactLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	artifactArn, _ := createOut["ArtifactArn"].(string)
 	require.NotEmpty(t, artifactArn)
 	assert.Contains(t, artifactArn, "artifact/")
@@ -44,7 +45,7 @@ func TestHandler_ArtifactLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "my-artifact", descOut["ArtifactName"])
 	assert.Equal(t, "DataSet", descOut["ArtifactType"])
 	assert.NotZero(t, descOut["CreationTime"])
@@ -59,7 +60,7 @@ func TestHandler_ArtifactLifecycle(t *testing.T) {
 
 	recDesc2 := doSageMakerRequest(t, h, "DescribeArtifact", map[string]any{"ArtifactArn": artifactArn})
 	var descOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.Equal(t, "renamed-artifact", descOut2["ArtifactName"])
 	props, _ := descOut2["Properties"].(map[string]any)
 	assert.Equal(t, "final", props["stage"])
@@ -70,7 +71,7 @@ func TestHandler_ArtifactLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["ArtifactSummaries"].([]any), 1)
 
 	// Delete.
@@ -79,7 +80,7 @@ func TestHandler_ArtifactLifecycle(t *testing.T) {
 
 	recList2 := doSageMakerRequest(t, h, "ListArtifacts", map[string]any{})
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2["ArtifactSummaries"].([]any))
 }
 
@@ -140,7 +141,7 @@ func TestHandler_ListArtifacts_FilterByType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	summaries := out["ArtifactSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "a2", summaries[0].(map[string]any)["ArtifactName"])
@@ -300,7 +301,7 @@ func TestHandler_ContextLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	contextArn, _ := createOut["ContextArn"].(string)
 	require.NotEmpty(t, contextArn)
 	assert.Contains(t, contextArn, "context/my-context")
@@ -309,7 +310,7 @@ func TestHandler_ContextLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "Endpoint", descOut["ContextType"])
 
 	recUpdate := doSageMakerRequest(t, h, "UpdateContext", map[string]any{
@@ -320,12 +321,12 @@ func TestHandler_ContextLifecycle(t *testing.T) {
 
 	recDesc2 := doSageMakerRequest(t, h, "DescribeContext", map[string]any{"ContextName": "my-context"})
 	var descOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.Equal(t, "updated", descOut2["Description"])
 
 	recList := doSageMakerRequest(t, h, "ListContexts", map[string]any{})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["ContextSummaries"].([]any), 1)
 
 	recDelete := doSageMakerRequest(t, h, "DeleteContext", map[string]any{"ContextName": "my-context"})
@@ -428,7 +429,7 @@ func TestHandler_ActionLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "ModelDeployment", descOut["ActionType"])
 	assert.Equal(t, "InProgress", descOut["Status"])
 
@@ -440,12 +441,12 @@ func TestHandler_ActionLifecycle(t *testing.T) {
 
 	recDesc2 := doSageMakerRequest(t, h, "DescribeAction", map[string]any{"ActionName": "my-action"})
 	var descOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.Equal(t, "Completed", descOut2["Status"])
 
 	recList := doSageMakerRequest(t, h, "ListActions", map[string]any{})
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["ActionSummaries"].([]any), 1)
 
 	recDelete := doSageMakerRequest(t, h, "DeleteAction", map[string]any{"ActionName": "my-action"})
@@ -552,7 +553,7 @@ func TestHandler_AssociationLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	summaries := listOut["AssociationSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assoc := summaries[0].(map[string]any)
@@ -568,7 +569,7 @@ func TestHandler_AssociationLifecycle(t *testing.T) {
 
 	recList2 := doSageMakerRequest(t, h, "ListAssociations", map[string]any{})
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2["AssociationSummaries"].([]any))
 }
 
@@ -595,7 +596,7 @@ func TestHandler_ListAssociations_ResolvesEntityNames(t *testing.T) {
 		"Source":     map[string]any{"SourceUri": "arn:aws:sagemaker:us-east-1:0:endpoint/e"},
 	})
 	var actionOut map[string]any
-	require.NoError(t, json.Unmarshal(recAction.Body.Bytes(), &actionOut))
+	require.NoError(t, json.Unmarshal(recAction.Body.Bytes(), &actionOut, jsonx.V1()))
 	actionArn := actionOut["ActionArn"].(string)
 
 	recArtifact := doSageMakerRequest(t, h, "CreateArtifact", map[string]any{
@@ -604,7 +605,7 @@ func TestHandler_ListAssociations_ResolvesEntityNames(t *testing.T) {
 		"Source":       map[string]any{"SourceUri": "s3://bucket/data"},
 	})
 	var artifactOut map[string]any
-	require.NoError(t, json.Unmarshal(recArtifact.Body.Bytes(), &artifactOut))
+	require.NoError(t, json.Unmarshal(recArtifact.Body.Bytes(), &artifactOut, jsonx.V1()))
 	artifactArn := artifactOut["ArtifactArn"].(string)
 
 	doSageMakerRequest(t, h, "AddAssociation", map[string]any{
@@ -615,7 +616,7 @@ func TestHandler_ListAssociations_ResolvesEntityNames(t *testing.T) {
 
 	rec := doSageMakerRequest(t, h, "ListAssociations", map[string]any{})
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assoc := out["AssociationSummaries"].([]any)[0].(map[string]any)
 	assert.Equal(t, "src-action", assoc["SourceName"])
 	assert.Equal(t, "ModelDeployment", assoc["SourceType"])
@@ -656,7 +657,7 @@ func listAssociationSourceArns(t *testing.T, body []byte) []string {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(body, &out))
+	require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 
 	summaries, _ := out["AssociationSummaries"].([]any)
 	arns := make([]string, 0, len(summaries))
@@ -787,7 +788,7 @@ func TestHandler_ListAssociations_MaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	summaries, _ := out["AssociationSummaries"].([]any)
 	require.Len(t, summaries, 1, "MaxResults=1 should return exactly one association out of two")
@@ -802,7 +803,7 @@ func TestHandler_ListAssociations_MaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	summaries2, _ := out2["AssociationSummaries"].([]any)
 	require.Len(t, summaries2, 1, "second page should return the remaining association")
 
@@ -844,7 +845,7 @@ func TestHandler_QueryLineage_Traversal(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	vertices := out["Vertices"].([]any)
 	arns := make([]string, 0, len(vertices))
@@ -884,7 +885,7 @@ func TestHandler_QueryLineage_MaxDepth(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	vertices := out["Vertices"].([]any)
 	arns := make([]string, 0, len(vertices))
@@ -917,7 +918,7 @@ func TestHandler_QueryLineage_UnknownArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	vertices := out["Vertices"].([]any)
 	require.Len(t, vertices, 1)
 	assert.Empty(t, vertices[0].(map[string]any)["Type"])
@@ -1042,7 +1043,7 @@ func TestHandler_DescribeLineageGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out["LineageGroupArn"], "lineage-group/sagemaker-default-lineage-group")
 }
 
@@ -1064,7 +1065,7 @@ func TestHandler_ListLineageGroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	summaries := out["LineageGroupSummaries"].([]any)
 	require.Len(t, summaries, 1)
 	assert.Equal(t, "sagemaker-default-lineage-group", summaries[0].(map[string]any)["LineageGroupName"])
@@ -1154,7 +1155,7 @@ func createTestContext(t *testing.T, h *sagemaker.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["ContextArn"].(string)
 }
@@ -1170,7 +1171,7 @@ func createTestAction(t *testing.T, h *sagemaker.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["ActionArn"].(string)
 }
@@ -1186,7 +1187,7 @@ func createTestArtifact(t *testing.T, h *sagemaker.Handler, name string) string 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out["ArtifactArn"].(string)
 }
@@ -1256,7 +1257,7 @@ func TestCreateAction_TagsPresent(t *testing.T) {
 
 			if tt.wantTags {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				arnStr := resp["ActionArn"]
 				require.NotEmpty(t, arnStr)
@@ -1265,7 +1266,7 @@ func TestCreateAction_TagsPresent(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec2.Code)
 
 				var tagsResp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 				tags := tagsResp["Tags"].([]any)
 				require.Len(t, tags, 1)
@@ -1339,7 +1340,7 @@ func TestHandler_AddAssociation(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["SourceArn"], "arn:aws:sagemaker")
 				assert.Contains(t, resp["DestinationArn"], "arn:aws:sagemaker")
 			}
@@ -1439,7 +1440,7 @@ func TestHandler_AssociateTrialComponent(t *testing.T) {
 
 			if tt.wantArns {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["TrialArn"], "arn:aws:sagemaker")
 				assert.Contains(t, resp["TrialComponentArn"], "arn:aws:sagemaker")
 			}
@@ -1527,7 +1528,7 @@ func TestHandler_CreateAction(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["ActionArn"], "arn:aws:sagemaker")
 				assert.Contains(t, resp["ActionArn"], "action/")
 			}

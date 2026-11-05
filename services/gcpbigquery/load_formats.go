@@ -3,12 +3,14 @@ package gcpbigquery
 import (
 	"bytes"
 	"encoding/csv"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/parquetio"
 	"github.com/blackbirdworks/gopherstack/services/gcpbigquery/bqsql"
 )
@@ -133,8 +135,7 @@ func csvRow(lc loadConfig, fields []bqsql.Field, rec []string) ([]any, error) {
 }
 
 func parseJSONInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]any, []error, error) {
-	dec := json.NewDecoder(bytes.NewReader(decodeText(data, lc.Encoding)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader(decodeText(data, lc.Encoding)), jsonx.V1())
 
 	var (
 		rows [][]any
@@ -144,7 +145,7 @@ func parseJSONInput(lc loadConfig, fields []bqsql.Field, data []byte) ([][]any, 
 	for n := 1; ; n++ {
 		var obj map[string]any
 
-		err := dec.Decode(&obj)
+		err := json.UnmarshalDecode(dec, &obj, jsonx.V1(), jsonx.UseNumber())
 		if errors.Is(err, io.EOF) {
 			return rows, bad, nil
 		}

@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -235,7 +236,7 @@ func TestUpdateSecret_KmsKeyID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/test-key-id", desc.KmsKeyID)
 }
 
@@ -257,17 +258,17 @@ func TestUpdateSecret_ClientRequestTokenIdempotency(t *testing.T) {
 		"SecretId":           "update-idempotent",
 		"SecretString":       "updated-value",
 		"ClientRequestToken": token,
-	})
+	}, jsonx.V1())
 
 	rec = doR1Request(t, h, "secretsmanager.UpdateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out1 secretsmanager.UpdateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out1, jsonx.V1()))
 
 	rec = doR1Request(t, h, "secretsmanager.UpdateSecret", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out2 secretsmanager.UpdateSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out2, jsonx.V1()))
 
 	assert.Equal(t, out1.VersionID, out2.VersionID)
 }

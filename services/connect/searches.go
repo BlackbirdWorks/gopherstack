@@ -2,18 +2,21 @@ package connect
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // SearchRequest is the body shared by the Search* operations.
 type SearchRequest struct {
 	InstanceID     string `json:"InstanceId"`
 	NextToken      string
-	SearchCriteria json.RawMessage
-	SearchFilter   json.RawMessage
+	SearchCriteria jsontext.Value
+	SearchFilter   jsontext.Value
 	ResourceTypes  []string
 	MaxResults     int32
 }
@@ -435,10 +438,10 @@ type TagSet struct {
 	Value string `json:"value"`
 }
 
-func parseTagSearch(raw json.RawMessage) (func(k, v string) bool, error) {
+func parseTagSearch(raw jsontext.Value) (func(k, v string) bool, error) {
 	var c resourceTagsCriteria
 	if len(raw) > 0 && string(raw) != jsonNull {
-		if err := json.Unmarshal(raw, &c); err != nil {
+		if err := json.Unmarshal(raw, &c, jsonx.V1()); err != nil {
 			return nil, invalidParamErr("SearchCriteria is not valid")
 		}
 	}

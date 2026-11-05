@@ -2,7 +2,8 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -34,7 +36,7 @@ func TestHandler_CreateGrant_WithRetiringPrincipal_ViaHTTP(t *testing.T) {
 		GrantID    string `json:"GrantId"`
 		GrantToken string `json:"GrantToken"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp.GrantID)
 	assert.NotEmpty(t, resp.GrantToken)
 }
@@ -57,25 +59,25 @@ func TestHandler_CreateGrant_NameTooLong_ViaHTTP(t *testing.T) {
 		"GranteePrincipal": "arn:aws:iam::123456789012:role/grantee",
 		"Operations":       []string{"Encrypt"},
 		"Name":             strings.Repeat("x", 257),
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := b2postKMSOp(t, h, "CreateGrant", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", errResp.Type)
 	assert.NotEqual(t, "ValidationException", errResp.Type)
 
-	listBody, err := json.Marshal(map[string]string{"KeyId": keyID})
+	listBody, err := json.Marshal(map[string]string{"KeyId": keyID}, jsonx.V1())
 	require.NoError(t, err)
 
 	listRec := b2postKMSOp(t, h, "ListGrants", string(listBody))
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut kms.ListGrantsOutput
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut.Grants, "rejected CreateGrant must not create a grant")
 }
 
@@ -102,14 +104,14 @@ func TestHandler_PutKeyPolicy_InvalidPolicyName_ViaHTTP(t *testing.T) {
 		"KeyId":      keyID,
 		"PolicyName": "custom",
 		"Policy":     `{"Version":"2012-10-17","Statement":[]}`,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := b2postKMSOp(t, h, "PutKeyPolicy", string(body))
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp kms.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "UnsupportedOperationException", errResp.Type)
 	assert.NotEqual(t, "ValidationException", errResp.Type)
 
@@ -141,7 +143,7 @@ func TestKMSGrantOperations(t *testing.T) {
 	rec := doKMSHTTPRequest(t, h, "CreateGrant", createBody)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var createOut kms.CreateGrantOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut.GrantID)
 	assert.NotEmpty(t, createOut.GrantToken)
 
@@ -150,7 +152,7 @@ func TestKMSGrantOperations(t *testing.T) {
 	rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listOut kms.ListGrantsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Grants, 1)
 	assert.Equal(t, createOut.GrantID, listOut.Grants[0].GrantID)
 
@@ -161,7 +163,7 @@ func TestKMSGrantOperations(t *testing.T) {
 
 	// ListGrants after revoke — should be empty
 	rec = doKMSHTTPRequest(t, h, "ListGrants", listBody)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut.Grants)
 }
 
@@ -181,15 +183,15 @@ func TestKMSKeyPolicy(t *testing.T) {
 		"KeyId":      keyID,
 		"PolicyName": "default",
 		"Policy":     policy,
-	})
+	}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "PutKeyPolicy", string(putBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	getBody, _ := json.Marshal(map[string]string{"KeyId": keyID, "PolicyName": "default"})
+	getBody, _ := json.Marshal(map[string]string{"KeyId": keyID, "PolicyName": "default"}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "GetKeyPolicy", string(getBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var getOut kms.GetKeyPolicyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, policy, getOut.Policy)
 }
 
@@ -211,30 +213,30 @@ func TestKMSRetireGrant(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut kms.CreateGrantOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	grantToken := createOut.GrantToken
 
 	// ListRetirableGrants for the retiring principal
 	listBody, _ := json.Marshal(map[string]string{
 		"RetiringPrincipal": "arn:aws:iam::000000000000:role/retire-role",
-	})
+	}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "ListRetirableGrants", string(listBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut kms.ListGrantsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Grants, 1)
 	assert.Equal(t, createOut.GrantID, listOut.Grants[0].GrantID)
 
 	// RetireGrant using grant token
-	retireBody, _ := json.Marshal(map[string]string{"GrantToken": grantToken})
+	retireBody, _ := json.Marshal(map[string]string{"GrantToken": grantToken}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "RetireGrant", string(retireBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// ListGrants should now be empty
 	listGrantsBody := `{"KeyId":"` + keyID + `"}`
 	rec = doKMSHTTPRequest(t, h, "ListGrants", listGrantsBody)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut.Grants)
 }
 
@@ -285,9 +287,9 @@ func TestListGrants_RawBody_NoGrantTokenLeak(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var raw struct {
-				Grants []map[string]json.RawMessage `json:"Grants"`
+				Grants []map[string]jsontext.Value `json:"Grants"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 			require.Len(t, raw.Grants, 1)
 
 			_, hasToken := raw.Grants[0]["GrantToken"]

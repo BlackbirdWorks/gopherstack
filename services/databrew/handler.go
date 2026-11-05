@@ -2,7 +2,8 @@ package databrew
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -377,18 +379,18 @@ var onceSimpleQueryParamToJSONKey = sync.OnceValue(func() map[string]string {
 
 // mergeSimpleQueryParams copies every onceSimpleQueryParamToJSONKey entry
 // present on the request into m.
-func mergeSimpleQueryParams(c *echo.Context, m map[string]json.RawMessage) {
+func mergeSimpleQueryParams(c *echo.Context, m map[string]jsontext.Value) {
 	for param, jsonKey := range onceSimpleQueryParamToJSONKey() {
 		if v := c.QueryParam(param); v != "" {
-			m[jsonKey], _ = json.Marshal(v)
+			m[jsonKey], _ = json.Marshal(v, jsonx.V1())
 		}
 	}
 }
 
 func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, error) {
-	m := make(map[string]json.RawMessage)
+	m := make(map[string]jsontext.Value)
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &m); err != nil {
+		if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -396,11 +398,11 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 	if name != "" {
 		if existingName, ok := m["Name"]; ok {
 			var parsedName string
-			if err := json.Unmarshal(existingName, &parsedName); err == nil && parsedName != name {
+			if err := json.Unmarshal(existingName, &parsedName, jsonx.V1()); err == nil && parsedName != name {
 				return nil, fmt.Errorf("%w: name in body does not match path", errInvalidRequest)
 			}
 		}
-		nameJSON, _ := json.Marshal(name)
+		nameJSON, _ := json.Marshal(name, jsonx.V1())
 		m["Name"] = nameJSON
 	}
 
@@ -413,7 +415,7 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 	// encoder.AddQuery("tagKeys") per key). Without this, UntagResource always
 	// silently no-ops.
 	if tagKeys := c.QueryParams()["tagKeys"]; len(tagKeys) > 0 {
-		m["TagKeys"], _ = json.Marshal(tagKeys)
+		m["TagKeys"], _ = json.Marshal(tagKeys, jsonx.V1())
 	}
 	// ListRecipeVersions is GET /recipeVersions?name=... (top-level, no path
 	// segment for the recipe name); only set when name isn't already known
@@ -421,20 +423,20 @@ func enrichDataBrewBody(c *echo.Context, _, name string, body []byte) ([]byte, e
 	// alias already populated "Name" above).
 	if _, ok := m["Name"]; !ok {
 		if v := c.QueryParam("name"); v != "" {
-			m["Name"], _ = json.Marshal(v)
+			m["Name"], _ = json.Marshal(v, jsonx.V1())
 		}
 	}
 
-	result, _ := json.Marshal(m)
+	result, _ := json.Marshal(m, jsonx.V1())
 
 	return result, nil
 }
 
 func enrichDataBrewSubOpBody(path string, body []byte) []byte {
 	segments := strings.Split(path, "/")
-	m := make(map[string]json.RawMessage)
+	m := make(map[string]jsontext.Value)
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &m)
+		_ = json.Unmarshal(body, &m, jsonx.V1())
 	}
 
 	for i, seg := range segments {
@@ -442,26 +444,26 @@ func enrichDataBrewSubOpBody(path string, body []byte) []byte {
 		case "jobRun":
 			// e.g. /jobs/{Name}/jobRun/{RunId} — with or without /databrew/v1/ prefix
 			if i+1 < len(segments) {
-				runIDJSON, _ := json.Marshal(segments[i+1])
+				runIDJSON, _ := json.Marshal(segments[i+1], jsonx.V1())
 				m["RunId"] = runIDJSON
 			}
 		case "recipeVersion":
 			// e.g. /recipes/{Name}/recipeVersion/{RecipeVersion}
 			if i+1 < len(segments) {
-				versionJSON, _ := json.Marshal(segments[i+1])
+				versionJSON, _ := json.Marshal(segments[i+1], jsonx.V1())
 				m["RecipeVersion"] = versionJSON
 			}
 		case "tags":
 			// e.g. /databrew/v1/tags/{resourceArn} or /tags/{resourceArn}
 			if i+1 < len(segments) {
 				arn := strings.Join(segments[i+1:], "/")
-				arnJSON, _ := json.Marshal(arn)
+				arnJSON, _ := json.Marshal(arn, jsonx.V1())
 				m["ResourceArn"] = arnJSON
 			}
 		}
 	}
 
-	result, _ := json.Marshal(m)
+	result, _ := json.Marshal(m, jsonx.V1())
 
 	return result
 }

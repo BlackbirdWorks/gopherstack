@@ -1,10 +1,11 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchEntitySetOps(op, path, query string, body []byte) (any, int, bool, error) {
@@ -87,7 +88,7 @@ func (h *Handler) handleCreateThreatEntitySet( //nolint:dupl // existing issue.
 		ClientToken         string            `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -176,7 +177,7 @@ func (h *Handler) handleUpdateThreatEntitySet(detectorID, setID string, body []b
 		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -212,7 +213,7 @@ func (h *Handler) handleCreateTrustedEntitySet( //nolint:dupl // existing issue.
 		ClientToken         string            `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -298,7 +299,7 @@ func (h *Handler) handleUpdateTrustedEntitySet(detectorID, setID string, body []
 		ExpectedBucketOwner string `json:"expectedBucketOwner"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

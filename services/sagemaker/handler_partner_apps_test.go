@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreatePartnerApp(t *testing.T) {
@@ -27,7 +29,7 @@ func TestHandler_CreatePartnerApp(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["Arn"], "my-app")
 }
 
@@ -44,13 +46,13 @@ func TestHandler_DescribePartnerApp(t *testing.T) {
 		"Tier":             "small",
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doSageMakerRequest(t, h, "DescribePartnerApp", map[string]any{"Arn": createResp["Arn"]})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "app-1", resp["Name"])
 }
 
@@ -67,7 +69,7 @@ func TestHandler_DeletePartnerApp(t *testing.T) {
 		"Tier":             "small",
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doSageMakerRequest(t, h, "DeletePartnerApp", map[string]any{"Arn": createResp["Arn"]})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -95,14 +97,14 @@ func TestHandler_PartnerApp_ExtendedLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	appARN := createResp["Arn"]
 
 	describeRec := doSageMakerRequest(t, h, "DescribePartnerApp", map[string]any{"Arn": appARN})
 	assert.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "papp-1", describeResp["Name"])
 	assert.Equal(t, "comet", describeResp["Type"])
 	assert.Equal(t, "arn:aws:iam::000000000000:role/partner", describeResp["ExecutionRoleArn"])
@@ -115,14 +117,14 @@ func TestHandler_PartnerApp_ExtendedLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, updateRec.Code)
 
 	describeRec = doSageMakerRequest(t, h, "DescribePartnerApp", map[string]any{"Arn": appARN})
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "large", describeResp["Tier"])
 
 	listRec := doSageMakerRequest(t, h, "ListPartnerApps", map[string]any{})
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["Summaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)
@@ -131,7 +133,7 @@ func TestHandler_PartnerApp_ExtendedLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, presignRec.Code)
 
 	var presignResp map[string]string
-	require.NoError(t, json.Unmarshal(presignRec.Body.Bytes(), &presignResp))
+	require.NoError(t, json.Unmarshal(presignRec.Body.Bytes(), &presignResp, jsonx.V1()))
 	assert.Contains(t, presignResp["Url"], "papp-1")
 }
 
@@ -176,7 +178,7 @@ func TestHandler_ListPartnerApps_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Summaries"])
 }
 
@@ -193,13 +195,13 @@ func TestHandler_DeletePartnerApp_ReturnsArn(t *testing.T) {
 		"Tier":             "small",
 	})
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doSageMakerRequest(t, h, "DeletePartnerApp", map[string]any{"Arn": createResp["Arn"]})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, createResp["Arn"], resp["Arn"])
 }
 

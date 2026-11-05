@@ -1,13 +1,14 @@
 package elasticsearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // domainZoneAwarenessConfig holds zone awareness sub-config.
@@ -333,7 +334,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req domainJSON
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return
@@ -553,7 +554,7 @@ func (h *Handler) handleDescribeElasticsearchDomains(w http.ResponseWriter, r *h
 	}
 
 	var req describeDomainsRequest
-	if err = json.Unmarshal(body, &req); err != nil {
+	if err = json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 		return

@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	_ "embed" // quota catalog
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed catalog.json
@@ -62,7 +64,7 @@ type Catalog struct {
 
 var defaultCatalog = sync.OnceValue(func() *Catalog { //nolint:gochecknoglobals // immutable embedded data
 	var svcs []ServiceDef
-	if err := json.Unmarshal(catalogJSON, &svcs); err != nil {
+	if err := json.Unmarshal(catalogJSON, &svcs, jsonx.V1()); err != nil {
 		panic("servicequotas: embedded catalog is invalid: " + err.Error())
 	}
 
@@ -72,7 +74,7 @@ var defaultCatalog = sync.OnceValue(func() *Catalog { //nolint:gochecknoglobals 
 	}
 
 	var docs []ServiceDef
-	if err = json.Unmarshal(raw, &docs); err != nil {
+	if err = json.Unmarshal(raw, &docs, jsonx.V1()); err != nil {
 		panic("servicequotas: embedded docs catalog is invalid: " + err.Error())
 	}
 

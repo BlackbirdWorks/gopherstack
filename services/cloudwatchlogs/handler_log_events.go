@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type putLogEventsInput struct {
@@ -103,7 +105,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 	return map[string]actionFn{
 		"PutLogEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input putLogEventsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			result, err := h.Backend.PutLogEvents(
@@ -125,7 +127,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 		},
 		"GetLogEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input getLogEventsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
@@ -147,7 +149,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 		},
 		"FilterLogEvents": func(ctx context.Context, b []byte) (any, error) {
 			var input filterLogEventsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			groupName, err := resolveLogGroupRef(input.LogGroupName, input.LogGroupIdentifier)
@@ -180,7 +182,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 
 func (h *Handler) handleGetLogRecord(ctx context.Context, b []byte) (any, error) {
 	var input getLogRecordInput
-	if err := json.Unmarshal(b, &input); err != nil {
+	if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	record, err := h.Backend.GetLogRecord(withUnmask(ctx, input.Unmask), input.LogRecordPointer)
@@ -205,7 +207,7 @@ func (h *Handler) handleGetLogFields(ctx context.Context, body []byte) (any, err
 		LogGroupName       string `json:"logGroupName"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -253,7 +255,7 @@ func (h *Handler) handleGetLogObject(ctx context.Context, body []byte) (any, err
 		Unmask           bool   `json:"unmask"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -293,7 +295,7 @@ func (h *Handler) handlePutBearerTokenAuthentication(
 	ctx context.Context, body []byte,
 ) (any, error) {
 	var in putBearerTokenAuthenticationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -330,7 +332,7 @@ func (h *Handler) handleStartLiveTail(ctx context.Context, body []byte) (any, er
 		LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
 	}
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}

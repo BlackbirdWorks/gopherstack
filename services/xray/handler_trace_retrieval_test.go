@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -31,7 +32,7 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 		"start_time": 1700000000.0,
 		"end_time":   1700000001.5,
 	}
-	segJSON, err := json.Marshal(seg)
+	segJSON, err := json.Marshal(seg, jsonx.V1())
 	require.NoError(t, err)
 
 	unprocessed := b.PutTraceSegments([]string{string(segJSON)})
@@ -46,7 +47,7 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 	require.Equal(t, 200, startResp.Code)
 
 	var startResult map[string]any
-	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startResult))
+	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startResult, jsonx.V1()))
 
 	token, ok := startResult["RetrievalToken"].(string)
 	require.True(t, ok, "expected RetrievalToken in response")
@@ -55,7 +56,7 @@ func TestListRetrievedTraces_IncludesSegments(t *testing.T) {
 	require.Equal(t, 200, listResp.Code)
 
 	var listResult map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listResult))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listResult, jsonx.V1()))
 
 	traces, ok := listResult["Traces"].([]any)
 	require.True(t, ok, "expected Traces array in response")
@@ -90,7 +91,7 @@ func startTestRetrieval(t *testing.T, h *xray.Handler) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	token, ok := resp["RetrievalToken"].(string)
 	require.True(t, ok)
@@ -130,7 +131,7 @@ func TestHandler_CancelTraceRetrieval(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var resp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 	})
 }
@@ -148,7 +149,7 @@ func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		assert.Equal(t, "COMPLETE", resp["RetrievalStatus"])
 
@@ -173,7 +174,7 @@ func TestHandler_GetRetrievedTracesGraph(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var resp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 	})
 }
@@ -204,7 +205,7 @@ func TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	token, _ := startResp["RetrievalToken"].(string)
 	require.NotEmpty(t, token)
 
@@ -212,7 +213,7 @@ func TestHandler_GetRetrievedTracesGraph_ReflectsRetrievedTraces(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	services, ok := resp["Services"].([]any)
 	require.True(t, ok)
@@ -241,7 +242,7 @@ func TestTraceRetrieval_StartAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 
 	token, ok := startResp["RetrievalToken"].(string)
 	require.True(t, ok)
@@ -253,7 +254,7 @@ func TestTraceRetrieval_StartAndList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	assert.NotEmpty(t, listResp["RetrievalStatus"])
 }

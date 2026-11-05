@@ -3,7 +3,7 @@ package verifiedpermissions
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	cedar "github.com/cedar-policy/cedar-go"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type entityIdentifierJSON struct {
@@ -414,7 +416,7 @@ func parseJWTClaims(token string) (map[string]any, error) {
 	}
 
 	var claims map[string]any
-	if unmarshalErr := json.Unmarshal(payload, &claims); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(payload, &claims, jsonx.V1()); unmarshalErr != nil {
 		return nil, fmt.Errorf("%w: bad payload JSON: %w", errMalformedJWT, unmarshalErr)
 	}
 

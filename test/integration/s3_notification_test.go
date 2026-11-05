@@ -1,7 +1,8 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestIntegration_S3_NotificationToSQS verifies that S3 bucket notifications
@@ -117,41 +120,45 @@ func TestIntegration_S3_NotificationToSQS(t *testing.T) {
 	}, 10*time.Second, 500*time.Millisecond, "should receive SQS notification within 10s")
 
 	// Validate the notification payload format.
-	var payload map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal([]byte(receivedMsg), &payload), "notification body must be valid JSON")
+	var payload map[string]jsontext.Value
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(receivedMsg), &payload, jsonx.V1()),
+		"notification body must be valid JSON",
+	)
 
 	records, ok := payload["Records"]
 	require.True(t, ok, "notification must contain a Records array")
 
-	var recordList []map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(records, &recordList))
+	var recordList []map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(records, &recordList, jsonx.V1()))
 	require.NotEmpty(t, recordList)
 
 	record := recordList[0]
 
 	var eventSource string
-	require.NoError(t, json.Unmarshal(record["eventSource"], &eventSource))
+	require.NoError(t, json.Unmarshal(record["eventSource"], &eventSource, jsonx.V1()))
 	assert.Equal(t, "aws:s3", eventSource)
 
 	var eventName string
-	require.NoError(t, json.Unmarshal(record["eventName"], &eventName))
+	require.NoError(t, json.Unmarshal(record["eventName"], &eventName, jsonx.V1()))
 	assert.True(t, strings.HasPrefix(eventName, "s3:ObjectCreated:"), "eventName should be ObjectCreated")
 
-	var s3Block map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(record["s3"], &s3Block))
+	var s3Block map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(record["s3"], &s3Block, jsonx.V1()))
 
-	var bucketBlock map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(s3Block["bucket"], &bucketBlock))
+	var bucketBlock map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(s3Block["bucket"], &bucketBlock, jsonx.V1()))
 
 	var bucketName string
-	require.NoError(t, json.Unmarshal(bucketBlock["name"], &bucketName))
+	require.NoError(t, json.Unmarshal(bucketBlock["name"], &bucketName, jsonx.V1()))
 	assert.Equal(t, bucket, bucketName)
 
-	var objectBlock map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(s3Block["object"], &objectBlock))
+	var objectBlock map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(s3Block["object"], &objectBlock, jsonx.V1()))
 
 	var key string
-	require.NoError(t, json.Unmarshal(objectBlock["key"], &key))
+	require.NoError(t, json.Unmarshal(objectBlock["key"], &key, jsonx.V1()))
 	assert.Equal(t, objectKey, key)
 
 	t.Logf("S3 notification delivered: eventName=%s bucket=%s key=%s", eventName, bucketName, key)

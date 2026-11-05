@@ -1,7 +1,8 @@
 package ec2_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
@@ -1208,8 +1210,8 @@ func TestSnapshot_NoRedundantInstanceIMDSOptions(t *testing.T) {
 
 	data := b.Snapshot(t.Context())
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(data, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(data, &raw, jsonx.V1()))
 
 	_, ok := raw["instanceIMDSOptions"]
 	assert.False(t, ok, "instanceIMDSOptions must not be persisted; it is a dead shadow of Instance fields")

@@ -2,7 +2,8 @@ package connect
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -211,11 +213,11 @@ func (t *dataTableRec) primaryAttrs() []*DataTableAttribute {
 }
 
 func (t *dataTableRec) clone() *dataTableRec {
-	raw, _ := json.Marshal(t)
+	raw, _ := json.Marshal(t, jsonx.V1())
 
 	var out dataTableRec
 
-	_ = json.Unmarshal(raw, &out)
+	_ = json.Unmarshal(raw, &out, jsonx.V1())
 
 	return &out
 }
@@ -779,8 +781,8 @@ func checkDTText(v *DataTableValidation, s string) error {
 }
 
 func checkDTList(a *DataTableAttribute, s string) error {
-	var items []json.RawMessage
-	if err := json.Unmarshal([]byte(s), &items); err != nil {
+	var items []jsontext.Value
+	if err := json.Unmarshal([]byte(s), &items, jsonx.V1()); err != nil {
 		return valueErr("value must be a JSON array")
 	}
 
@@ -798,7 +800,7 @@ func checkDTList(a *DataTableAttribute, s string) error {
 	for _, raw := range items {
 		if a.ValueType == dtTypeNumberList {
 			var f float64
-			if json.Unmarshal(raw, &f) != nil {
+			if json.Unmarshal(raw, &f, jsonx.V1()) != nil {
 				return valueErr("list item %s is not a number", raw)
 			}
 
@@ -810,7 +812,7 @@ func checkDTList(a *DataTableAttribute, s string) error {
 		}
 
 		var str string
-		if json.Unmarshal(raw, &str) != nil {
+		if json.Unmarshal(raw, &str, jsonx.V1()) != nil {
 			return valueErr("list item %s is not text", raw)
 		}
 

@@ -4,7 +4,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcpfirestorebackend "github.com/blackbirdworks/gopherstack/services/gcpfirestore"
 	gcpfunctionsbackend "github.com/blackbirdworks/gopherstack/services/gcpfunctions"
@@ -130,9 +132,9 @@ func TestWireGCPFunctions_StorageFirestoreAndSecrets(t *testing.T) {
 		"GCPFunctions": fns, "GCPStorage": gcs, "GCPFirestore": fs, "GCPSecretManager": sm,
 	})
 
-	_, err := gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": json.RawMessage(`"src"`)})
+	_, err := gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": jsontext.Value(`"src"`)})
 	require.NoError(t, err)
-	_, err = gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": json.RawMessage(`"inbox"`)})
+	_, err = gcs.Backend.CreateBucket("p", gcpstoragebackend.Patch{"name": jsontext.Value(`"inbox"`)})
 	require.NoError(t, err)
 
 	_, err = sm.Backend.CreateSecret(&secretmanagerpb.CreateSecretRequest{
@@ -204,7 +206,7 @@ func TestWireGCPFunctions_StorageFirestoreAndSecrets(t *testing.T) {
 
 	var obj map[string]any
 
-	require.NoError(t, json.Unmarshal(ev.body, &obj))
+	require.NoError(t, json.Unmarshal(ev.body, &obj, jsonx.V1()))
 	assert.Equal(t, "inbox", obj["bucket"])
 	assert.Equal(t, "a.txt", obj["name"])
 

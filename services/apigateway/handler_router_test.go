@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
@@ -31,7 +32,7 @@ func createParityAPI(t *testing.T, h *apigateway.Handler, name string) string {
 	require.Equal(t, http.StatusCreated, rec.Code, "create api: %s", rec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	id, _ := out["id"].(string)
 	require.NotEmpty(t, id)
@@ -49,7 +50,7 @@ func getRootResourceID(t *testing.T, h *apigateway.Handler, apiID string) string
 	var out struct {
 		Items []map[string]any `json:"item"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	for _, r := range out.Items {
 		if r["path"] == "/" {
@@ -575,7 +576,7 @@ func TestHandler_APIGateway_FullWorkflow(t *testing.T) {
 
 // parseJSON is a helper to decode JSON from a response recorder.
 func parseJSON(rec *httptest.ResponseRecorder, v any) error {
-	return json.Unmarshal(rec.Body.Bytes(), v)
+	return json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1())
 }
 
 // errNoopNotImplemented is returned by noopBackend for methods that are not expected
@@ -1357,7 +1358,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var ops []string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 			assert.Contains(t, ops, "CreateRestApi")
 		})
 	}

@@ -1,13 +1,15 @@
 package opensearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/opensearch"
 )
 
@@ -32,7 +34,7 @@ func TestScheduledActions_ListForDomain(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	actions, ok := out["ScheduledActions"].([]any)
 	require.True(t, ok)
 	require.Len(t, actions, 1)
@@ -45,7 +47,7 @@ func TestScheduledActions_ListForDomain(t *testing.T) {
 	require.Equal(t, http.StatusOK, otherResp.StatusCode)
 
 	var otherOut map[string]any
-	require.NoError(t, json.NewDecoder(otherResp.Body).Decode(&otherOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(otherResp.Body), &otherOut, jsonx.V1()))
 	assert.Empty(t, otherOut["ScheduledActions"])
 }
 
@@ -75,7 +77,7 @@ func TestScheduledActions_UpdateReschedulesExistingAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	action, ok := out["ScheduledAction"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "action-upd", action["Id"])

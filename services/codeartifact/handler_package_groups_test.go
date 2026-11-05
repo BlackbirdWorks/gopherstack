@@ -2,7 +2,7 @@ package codeartifact_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codeartifact"
 )
 
@@ -94,7 +95,7 @@ func TestHandler_CreatePackageGroup(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				pg, _ := resp["packageGroup"].(map[string]any)
 				assert.NotEmpty(t, pg["arn"])
 				assert.Equal(t, "pg-domain", pg["domainName"])
@@ -125,7 +126,7 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	pg, _ := createResp["packageGroup"].(map[string]any)
 	assert.Equal(t, "/npm/mygroup/*", pg["pattern"])
 	assert.Equal(t, "test group", pg["description"])
@@ -302,7 +303,7 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				groups, _ := resp["packageGroups"].([]any)
 				assert.Len(t, groups, tt.wantCount)
 			}
@@ -329,7 +330,7 @@ func TestHandler_PackageGroupTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	pg, _ := createResp["packageGroup"].(map[string]any)
 	pgARN, _ := pg["arn"].(string)
 	require.NotEmpty(t, pgARN)
@@ -338,7 +339,7 @@ func TestHandler_PackageGroupTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tagList, _ := listResp["tags"].([]any)
 	assert.Len(t, tagList, 1)
 }
@@ -383,7 +384,7 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	allRec := doRequest(t, h, http.MethodPost, "/v1/package-groups?domain=hier-domain", nil)
 	require.Equal(t, http.StatusOK, allRec.Code)
 	var allResp map[string]any
-	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
+	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp, jsonx.V1()))
 	allGroups, _ := allResp["packageGroups"].([]any)
 	assert.Len(t, allGroups, 5)
 
@@ -397,7 +398,7 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, subRec.Code)
 	var subResp map[string]any
-	require.NoError(t, json.Unmarshal(subRec.Body.Bytes(), &subResp))
+	require.NoError(t, json.Unmarshal(subRec.Body.Bytes(), &subResp, jsonx.V1()))
 	subGroups, _ := subResp["packageGroups"].([]any)
 	assert.Len(t, subGroups, 2)
 
@@ -411,7 +412,7 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, subRec2.Code)
 	var subResp2 map[string]any
-	require.NoError(t, json.Unmarshal(subRec2.Body.Bytes(), &subResp2))
+	require.NoError(t, json.Unmarshal(subRec2.Body.Bytes(), &subResp2, jsonx.V1()))
 	subGroups2, _ := subResp2["packageGroups"].([]any)
 	assert.Empty(t, subGroups2)
 }

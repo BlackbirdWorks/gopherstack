@@ -1,7 +1,7 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -34,7 +35,7 @@ func TestVPHandler_TagResource(t *testing.T) {
 					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["arn"].(string)
 			},
@@ -95,7 +96,7 @@ func TestVPHandler_UntagResource(t *testing.T) {
 					"validationSettings": map[string]any{"mode": "OFF"},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["arn"].(string)
 			},
@@ -156,7 +157,7 @@ func TestVPHandler_ListTagsForResource(t *testing.T) {
 					"validationSettings": map[string]any{"mode": "OFF"},
 				})
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["arn"].(string)
 			},
@@ -193,7 +194,7 @@ func TestVPHandler_ListTagsForResource(t *testing.T) {
 
 			if tt.wantTags {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "tags")
 			}
 		})
@@ -210,7 +211,7 @@ func TestVPHandler_TagResource_TooManyTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	resourceARN := getResp["arn"].(string)
 
 	tags := make(map[string]any, 51)
@@ -225,7 +226,7 @@ func TestVPHandler_TagResource_TooManyTags(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "TooManyTagsException", resp["__type"])
 }
 
@@ -245,7 +246,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	// Get policy store ARN.
@@ -254,7 +255,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, getStoreRec.Code)
 	var getStoreResp map[string]any
-	require.NoError(t, json.Unmarshal(getStoreRec.Body.Bytes(), &getStoreResp))
+	require.NoError(t, json.Unmarshal(getStoreRec.Body.Bytes(), &getStoreResp, jsonx.V1()))
 	storeARN := getStoreResp["arn"].(string)
 	_ = storeARN
 
@@ -270,7 +271,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, policyRec.Code)
 	var policyResp map[string]any
-	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp))
+	require.NoError(t, json.Unmarshal(policyRec.Body.Bytes(), &policyResp, jsonx.V1()))
 	policyID := policyResp["policyId"].(string)
 
 	// Build the policy ARN (format: arn:aws:verifiedpermissions::<acct>:policy/<storeID>/<policyID>)
@@ -289,7 +290,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	listRec1 := doVPRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": policyARN})
 	require.Equal(t, http.StatusOK, listRec1.Code)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(listRec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(listRec1.Body.Bytes(), &resp1, jsonx.V1()))
 	tags1, _ := resp1["tags"].(map[string]any)
 	assert.Equal(t, "test", tags1["Env"])
 
@@ -303,7 +304,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	listRec2 := doVPRequest(t, h, "ListTagsForResource", map[string]any{"resourceArn": policyARN})
 	require.Equal(t, http.StatusOK, listRec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &resp2, jsonx.V1()))
 	tags2, _ := resp2["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags2["Env"])
 
@@ -319,7 +320,7 @@ func TestVPHandler_TagResource_PolicyResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	_, envPresent := tags["Env"]
 	assert.False(t, envPresent, "Env tag should be removed after UntagResource")
@@ -335,7 +336,7 @@ func TestVPHandler_TagResource_PolicyTemplateResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	tmplRec := doVPRequest(t, h, "CreatePolicyTemplate", map[string]any{
@@ -345,7 +346,7 @@ func TestVPHandler_TagResource_PolicyTemplateResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, tmplRec.Code)
 	var tmplResp map[string]any
-	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp))
+	require.NoError(t, json.Unmarshal(tmplRec.Body.Bytes(), &tmplResp, jsonx.V1()))
 	templateID := tmplResp["policyTemplateId"].(string)
 
 	templateARN := fmt.Sprintf(
@@ -364,7 +365,7 @@ func TestVPHandler_TagResource_PolicyTemplateResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	assert.Equal(t, "parity-test", tags["Purpose"])
 }
@@ -379,7 +380,7 @@ func TestVPHandler_TagResource_IdentitySourceResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, storeRec.Code)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &storeResp, jsonx.V1()))
 	policyStoreID := storeResp["policyStoreId"].(string)
 
 	isRec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
@@ -394,7 +395,7 @@ func TestVPHandler_TagResource_IdentitySourceResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, isRec.Code, "CreateIdentitySource body: %s", isRec.Body.String())
 	var isResp map[string]any
-	require.NoError(t, json.Unmarshal(isRec.Body.Bytes(), &isResp))
+	require.NoError(t, json.Unmarshal(isRec.Body.Bytes(), &isResp, jsonx.V1()))
 	identitySourceID := isResp["identitySourceId"].(string)
 
 	identitySourceARN := fmt.Sprintf(
@@ -413,7 +414,7 @@ func TestVPHandler_TagResource_IdentitySourceResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, _ := listResp["tags"].(map[string]any)
 	assert.Equal(t, "parity", tags["Owner"])
 }

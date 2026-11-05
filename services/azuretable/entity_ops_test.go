@@ -2,7 +2,7 @@ package azuretable_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
@@ -31,7 +32,7 @@ func TestInsertEntity(t *testing.T) {
 		assert.NotEmpty(t, rec.Header().Get("ETag"))
 
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "p", got["PartitionKey"])
 		assert.Equal(t, "r", got["RowKey"])
 		assert.Equal(t, "hi", got["Name"])
@@ -173,7 +174,7 @@ func TestEntity_EDMTypeRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tt.wantValue, got["Prop"], tt.name)
 
 			if tt.annPresent {
@@ -221,7 +222,7 @@ func TestGetEntity(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "x", got["A"])
 		assert.NotContains(t, got, "B")
 		assert.Contains(t, got, "PartitionKey")
@@ -255,7 +256,7 @@ func TestQueryEntities(t *testing.T) {
 		var body struct {
 			Value []map[string]any `json:"value"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		require.Len(t, body.Value, 2)
 		assert.Equal(t, "p1", body.Value[0]["PartitionKey"])
 		assert.Equal(t, "p2", body.Value[1]["PartitionKey"])
@@ -272,7 +273,7 @@ func TestQueryEntities(t *testing.T) {
 		var body struct {
 			Value []map[string]any `json:"value"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		require.Len(t, body.Value, 1)
 		assert.Equal(t, "p2", body.Value[0]["PartitionKey"])
 	})
@@ -297,7 +298,7 @@ func TestQueryEntities(t *testing.T) {
 		var body struct {
 			Value []map[string]any `json:"value"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Len(t, body.Value, 1)
 	})
 
@@ -385,7 +386,7 @@ func TestReplaceEntity(t *testing.T) {
 
 		rec = doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "z", got["A"])
 		assert.NotContains(t, got, "B")
 	})
@@ -412,7 +413,7 @@ func TestMergeEntity(t *testing.T) {
 
 		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "z", got["A"])
 		assert.Equal(t, "y", got["B"])
 	})
@@ -469,7 +470,7 @@ func TestMergeEntity(t *testing.T) {
 		// Merge semantics, not replace: B must survive.
 		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "z", got["A"])
 		assert.Equal(t, "y", got["B"])
 
@@ -496,7 +497,7 @@ func TestMergeEntity(t *testing.T) {
 
 		rec2 := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mytable(PartitionKey='p',RowKey='r')", nil)
 		var got map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &got, jsonx.V1()))
 		assert.Equal(t, "z", got["A"])
 		assert.Equal(t, "y", got["B"], "merge semantics must apply, not PUT's own replace semantics")
 	})

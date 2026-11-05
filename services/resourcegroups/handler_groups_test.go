@@ -2,7 +2,7 @@ package resourcegroups_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
@@ -230,7 +231,7 @@ func TestListGroups_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	groups1 := out1["Groups"].([]any)
 	assert.Len(t, groups1, 3)
 	token1, _ := out1["NextToken"].(string)
@@ -244,7 +245,7 @@ func TestListGroups_PaginationViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	groups2 := out2["Groups"].([]any)
 	assert.Len(t, groups2, 3)
 	assert.Empty(t, out2["NextToken"])
@@ -766,7 +767,7 @@ func TestResourceGroupsHandler_DeleteGroup_EchoesGroup(t *testing.T) {
 			Description string `json:"Description"`
 		} `json:"Group"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "echo-group", out.Group.Name)
 	assert.Equal(t, "echo desc", out.Group.Description)
 }
@@ -791,7 +792,7 @@ func TestResourceGroupsHandler_ListGroups_IdentifierFields(t *testing.T) {
 	var out struct {
 		GroupIdentifiers []map[string]any `json:"GroupIdentifiers"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.GroupIdentifiers, 1)
 	assert.Equal(t, "Ident Group", out.GroupIdentifiers[0]["DisplayName"])
 	criticality, ok := out.GroupIdentifiers[0]["Criticality"].(float64)

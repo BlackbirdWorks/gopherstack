@@ -3,7 +3,7 @@ package redshift
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"strconv"
 	"time"
@@ -253,16 +253,16 @@ type ServerlessUsageLimit struct {
 // unlike opensearch's DataSourceAttachment) and the registry marshals the live
 // struct with its own tags (gopherstack-n746d).
 type ServerlessScheduledAction struct {
-	StartTime                  time.Time       `json:"startTime,omitzero"`
-	EndTime                    time.Time       `json:"endTime,omitzero"`
-	NamespaceName              string          `json:"namespaceName,omitempty"`
-	RoleArn                    string          `json:"roleArn,omitempty"`
-	ScheduledActionDescription string          `json:"scheduledActionDescription,omitempty"`
-	ScheduledActionName        string          `json:"scheduledActionName"`
-	ScheduledActionUUID        string          `json:"scheduledActionUuid,omitempty"`
-	State                      string          `json:"state"`
-	Schedule                   json.RawMessage `json:"schedule,omitempty"`
-	TargetAction               json.RawMessage `json:"targetAction,omitempty"`
+	StartTime                  time.Time      `json:"startTime,omitzero"`
+	EndTime                    time.Time      `json:"endTime,omitzero"`
+	NamespaceName              string         `json:"namespaceName,omitempty"`
+	RoleArn                    string         `json:"roleArn,omitempty"`
+	ScheduledActionDescription string         `json:"scheduledActionDescription,omitempty"`
+	ScheduledActionName        string         `json:"scheduledActionName"`
+	ScheduledActionUUID        string         `json:"scheduledActionUuid,omitempty"`
+	State                      string         `json:"state"`
+	Schedule                   jsontext.Value `json:"schedule,omitempty"`
+	TargetAction               jsontext.Value `json:"targetAction,omitempty"`
 }
 
 // ServerlessCustomDomainAssociation represents a Redshift Serverless custom

@@ -1,7 +1,7 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -138,7 +139,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			// Get the network to find its ARN
 			networkID := createResp["NetworkId"].(string)
@@ -146,7 +147,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var netResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &netResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &netResp, jsonx.V1()))
 			network := netResp["Network"].(map[string]any)
 			arn := network["Arn"].(string)
 			assert.NotEmpty(t, arn)
@@ -161,7 +162,7 @@ func TestHandler_TagOperations(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tags := tagsResp["Tags"].(map[string]any)
 			assert.Equal(t, "test", tags["env"])
 
@@ -233,7 +234,7 @@ func TestHandler_UntagResourceQuery(t *testing.T) {
 			require.Equal(t, http.StatusOK, netRec.Code)
 
 			var netResp map[string]any
-			require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp))
+			require.NoError(t, json.Unmarshal(netRec.Body.Bytes(), &netResp, jsonx.V1()))
 			network := netResp["Network"].(map[string]any)
 			arn := network["Arn"].(string)
 
@@ -298,7 +299,7 @@ func TestHandler_TagNodeViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags := resp["Tags"].(map[string]any)
 	assert.Equal(t, "gold", tags["tier"])

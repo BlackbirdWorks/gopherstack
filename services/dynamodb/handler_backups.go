@@ -9,13 +9,14 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkdynamodb "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	sdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
@@ -75,7 +76,7 @@ func continuousBackupsOutputFromSDK(
 
 func (h *DynamoDBHandler) describeContinuousBackups(ctx context.Context, body []byte) (any, error) {
 	var req describeContinuousBackupsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -106,7 +107,7 @@ type updateContinuousBackupsInput struct {
 
 func (h *DynamoDBHandler) updateContinuousBackups(ctx context.Context, body []byte) (any, error) {
 	var req updateContinuousBackupsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +220,7 @@ func exportDescFieldsFromSDK(d *sdktypes.ExportDescription) exportDescriptionFie
 
 func (h *DynamoDBHandler) exportTableToPointInTime(ctx context.Context, body []byte) (any, error) {
 	var req exportTableToPointInTimeInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -250,7 +251,7 @@ type describeExportInput struct {
 
 func (h *DynamoDBHandler) describeExport(ctx context.Context, body []byte) (any, error) {
 	var req describeExportInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -280,7 +281,7 @@ type listExportsInput struct {
 
 func (h *DynamoDBHandler) listExports(ctx context.Context, body []byte) (any, error) {
 	var req listExportsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -327,7 +328,7 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(
 	body []byte,
 ) (any, error) {
 	var req describeTableReplicaAutoScalingInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

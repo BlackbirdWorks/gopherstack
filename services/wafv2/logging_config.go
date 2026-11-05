@@ -2,22 +2,25 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutLoggingConfiguration stores a full logging configuration JSON for the given resource ARN.
 func (b *InMemoryBackend) PutLoggingConfiguration(
 	ctx context.Context,
 	resourceARN string,
-	configJSON json.RawMessage,
+	configJSON jsontext.Value,
 ) error {
 	b.mu.Lock("PutLoggingConfiguration")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	stored := make(json.RawMessage, len(configJSON))
+	stored := make(jsontext.Value, len(configJSON))
 	copy(stored, configJSON)
 	b.loggingConfigsStore(region)[resourceARN] = stored
 
@@ -50,7 +53,7 @@ func (b *InMemoryBackend) DeleteLoggingConfiguration(ctx context.Context, resour
 func (b *InMemoryBackend) GetLoggingConfiguration(
 	ctx context.Context,
 	resourceARN, logScope string,
-) (json.RawMessage, error) {
+) (jsontext.Value, error) {
 	b.mu.RLock("GetLoggingConfiguration")
 	defer b.mu.RUnlock()
 
@@ -65,7 +68,7 @@ func (b *InMemoryBackend) GetLoggingConfiguration(
 		)
 	}
 
-	out := make(json.RawMessage, len(cfg))
+	out := make(jsontext.Value, len(cfg))
 	copy(out, cfg)
 
 	return out, nil
@@ -73,7 +76,7 @@ func (b *InMemoryBackend) GetLoggingConfiguration(
 
 // loggingConfigInScope reports whether cfg's LogScope (default CUSTOMER when the
 // document omits it) matches wantScope ("" matches the default, CUSTOMER).
-func loggingConfigInScope(cfg json.RawMessage, wantScope string) bool {
+func loggingConfigInScope(cfg jsontext.Value, wantScope string) bool {
 	if wantScope == "" {
 		wantScope = defaultLogScope
 	}
@@ -82,7 +85,7 @@ func loggingConfigInScope(cfg json.RawMessage, wantScope string) bool {
 		LogScope string `json:"LogScope"`
 	}
 
-	if err := json.Unmarshal(cfg, &doc); err != nil {
+	if err := json.Unmarshal(cfg, &doc, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -97,7 +100,7 @@ func loggingConfigInScope(cfg json.RawMessage, wantScope string) bool {
 // ListLoggingConfigurations returns all stored logging configuration JSONs for the
 // given scope (REGIONAL configs live under the request's actual region; CLOUDFRONT
 // configs are global and stored under the "" region key -- see arnRegionForScope).
-func (b *InMemoryBackend) ListLoggingConfigurations(ctx context.Context, scope string) []json.RawMessage {
+func (b *InMemoryBackend) ListLoggingConfigurations(ctx context.Context, scope string) []jsontext.Value {
 	b.mu.RLock("ListLoggingConfigurations")
 	defer b.mu.RUnlock()
 
@@ -111,11 +114,11 @@ func (b *InMemoryBackend) ListLoggingConfigurations(ctx context.Context, scope s
 
 	sort.Strings(arns)
 
-	result := make([]json.RawMessage, 0, len(arns))
+	result := make([]jsontext.Value, 0, len(arns))
 
 	for _, arn := range arns {
 		cfg := regionMap[arn]
-		out := make(json.RawMessage, len(cfg))
+		out := make(jsontext.Value, len(cfg))
 		copy(out, cfg)
 		result = append(result, out)
 	}

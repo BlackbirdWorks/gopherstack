@@ -1,13 +1,15 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAccessPolicy(t *testing.T) {
@@ -87,7 +89,7 @@ func TestAccessPolicy_SetGetDelete(t *testing.T) {
 				"/"+testAccountID+"/vaults/access-policy-vault/access-policy", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 			var policyResp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &policyResp, jsonx.V1()))
 			assert.NotEmpty(t, policyResp["Policy"])
 
 			// DELETE.

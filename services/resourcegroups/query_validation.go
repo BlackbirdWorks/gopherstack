@@ -2,9 +2,11 @@ package resourcegroups
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -42,7 +44,7 @@ func validateQueryShape(queryType, query string) error {
 
 func validateTagFilterQuery(raw []byte) error {
 	var q tagFilterQuery
-	if err := json.Unmarshal(raw, &q); err != nil {
+	if err := json.Unmarshal(raw, &q, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: ResourceQuery.Query is not a valid TAG_FILTERS_1_0 query: %w", ErrValidation, err)
 	}
 
@@ -62,7 +64,7 @@ func validateTagFilterQuery(raw []byte) error {
 
 func validateStackQuery(raw []byte) error {
 	var q cfnQuery
-	if err := json.Unmarshal(raw, &q); err != nil {
+	if err := json.Unmarshal(raw, &q, jsonx.V1()); err != nil {
 		return fmt.Errorf(
 			"%w: ResourceQuery.Query is not a valid CLOUDFORMATION_STACK_1_0 query: %w", ErrValidation, err)
 	}

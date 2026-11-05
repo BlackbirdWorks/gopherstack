@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -104,19 +105,19 @@ func TestPersistenceRoundtrip_PolicyCatalogAndPipelineVersions(t *testing.T) {
 	require.Equal(t, http.StatusOK, recPolicy.Code)
 
 	var policyOut map[string]any
-	require.NoError(t, json.Unmarshal(recPolicy.Body.Bytes(), &policyOut))
+	require.NoError(t, json.Unmarshal(recPolicy.Body.Bytes(), &policyOut, jsonx.V1()))
 	assert.JSONEq(t, `{"Version":"2012-10-17"}`, policyOut["ResourcePolicy"].(string))
 
 	recStatus := doSageMakerRequest(t, h2, "GetSagemakerServicecatalogPortfolioStatus", map[string]any{})
 	var statusOut map[string]any
-	require.NoError(t, json.Unmarshal(recStatus.Body.Bytes(), &statusOut))
+	require.NoError(t, json.Unmarshal(recStatus.Body.Bytes(), &statusOut, jsonx.V1()))
 	assert.Equal(t, "Enabled", statusOut["Status"])
 
 	recVersions := doSageMakerRequest(t, h2, "ListPipelineVersions", map[string]any{"PipelineName": "persist-pipeline"})
 	require.Equal(t, http.StatusOK, recVersions.Code)
 
 	var versionsOut map[string]any
-	require.NoError(t, json.Unmarshal(recVersions.Body.Bytes(), &versionsOut))
+	require.NoError(t, json.Unmarshal(recVersions.Body.Bytes(), &versionsOut, jsonx.V1()))
 	versions, _ := versionsOut["PipelineVersionSummaries"].([]any)
 	assert.Len(t, versions, 2)
 }
@@ -201,7 +202,7 @@ func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/HyperPodClusterRole", resp["ClusterRole"])
 
@@ -297,7 +298,7 @@ func TestPersistenceRoundtrip_PipelineDefinitionFromS3(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.JSONEq(t, `{"Version":"2020-12-01","Steps":[{"Name":"Step1"}]}`, resp["PipelineDefinition"].(string))
 }
 
@@ -434,7 +435,7 @@ func TestPersistenceRoundtrip_AIAndGenericJobFamilies(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantValue, out[tt.wantField])
 		})
 	}
@@ -458,7 +459,7 @@ func TestPersistenceRoundtrip_Domain(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	domainID := createOut["DomainId"].(string)
 
 	snap := h1.Snapshot(t.Context())
@@ -471,7 +472,7 @@ func TestPersistenceRoundtrip_Domain(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "VpcOnly", out["AppNetworkAccessType"])
 	assert.ElementsMatch(t, []any{"subnet-1"}, out["SubnetIds"])
 	assert.NotEmpty(t, out["DefaultUserSettings"])

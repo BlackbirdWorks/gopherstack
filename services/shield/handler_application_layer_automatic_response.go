@@ -1,8 +1,10 @@
 package shield
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // alarAction is the nested action object in ALAR requests.
@@ -31,7 +33,7 @@ func alarActionString(a alarAction) (string, error) {
 
 func (h *Handler) handleEnableApplicationLayerAutomaticResponse(body []byte) error {
 	var req alarRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -54,7 +56,7 @@ type disableALARRequest struct {
 
 func (h *Handler) handleDisableApplicationLayerAutomaticResponse(body []byte) error {
 	var req disableALARRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -67,7 +69,7 @@ func (h *Handler) handleDisableApplicationLayerAutomaticResponse(body []byte) er
 
 func (h *Handler) handleUpdateApplicationLayerAutomaticResponse(body []byte) error {
 	var req alarRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

@@ -2,12 +2,13 @@ package emr
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -63,7 +64,7 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
 	}
 
-	if !json.Valid([]byte(securityConfig)) {
+	if !jsontext.Value([]byte(securityConfig)).IsValid(jsonx.V1()) {
 		return nil, fmt.Errorf("%w: SecurityConfiguration must be valid JSON", ErrValidation)
 	}
 

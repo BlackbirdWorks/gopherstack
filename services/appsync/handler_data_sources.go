@@ -2,13 +2,14 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleDataSources handles /v1/apis/{apiId}/datasources[/{name}].
@@ -50,7 +51,7 @@ func (h *Handler) createDataSource(ctx context.Context, c *echo.Context, apiID s
 	}
 
 	var ds DataSource
-	if jsonErr := json.Unmarshal(body, &ds); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &ds, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -109,7 +110,7 @@ func (h *Handler) updateDataSource(ctx context.Context, c *echo.Context, apiID, 
 	}
 
 	var ds DataSource
-	if jsonErr := json.Unmarshal(body, &ds); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &ds, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -180,7 +181,7 @@ func (h *Handler) startDataSourceIntrospection(ctx context.Context, c *echo.Cont
 		RDSDataAPIConfig *RDSDataAPIConfig `json:"rdsDataApiConfig"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

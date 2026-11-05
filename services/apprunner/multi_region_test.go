@@ -2,7 +2,7 @@ package apprunner_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apprunner"
 )
 
@@ -41,7 +42,7 @@ func decode(t *testing.T, body string) map[string]any {
 
 	out := map[string]any{}
 	if body != "" {
-		require.NoError(t, json.Unmarshal([]byte(body), &out))
+		require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	}
 
 	return out

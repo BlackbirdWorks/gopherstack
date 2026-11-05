@@ -1,12 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestECS_CreateCluster_TagsAndCapacityProviders proves that CreateCluster
@@ -49,7 +51,7 @@ func TestECS_CreateCluster_TagsAndCapacityProviders(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			cluster := createResp["cluster"].(map[string]any)
 
@@ -77,7 +79,7 @@ func TestECS_CreateCluster_TagsAndCapacityProviders(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var describeResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeResp, jsonx.V1()))
 
 			described := describeResp["clusters"].([]any)[0].(map[string]any)
 			assert.Nil(t, described["tags"], "tags must be omitted when include=TAGS is not requested")
@@ -90,7 +92,7 @@ func TestECS_CreateCluster_TagsAndCapacityProviders(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var describeTaggedResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeTaggedResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &describeTaggedResp, jsonx.V1()))
 
 			describedTagged := describeTaggedResp["clusters"].([]any)[0].(map[string]any)
 			taggedTags, ok := describedTagged["tags"].([]any)

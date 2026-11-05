@@ -2,10 +2,13 @@ package azuregraph
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"reflect"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type normalizer[T any] interface {
@@ -28,7 +31,7 @@ func jsonFields(t reflect.Type) map[string]bool {
 }
 
 // mergeJSON overlays patch onto base: objects merge recursively, null deletes, anything else replaces.
-func mergeJSON(base, patch map[string]json.RawMessage) {
+func mergeJSON(base, patch map[string]jsontext.Value) {
 	for k, v := range patch {
 		if bytes.Equal(bytes.TrimSpace(v), []byte(jsonNull)) {
 			delete(base, k)
@@ -36,11 +39,12 @@ func mergeJSON(base, patch map[string]json.RawMessage) {
 			continue
 		}
 
-		var pm, bm map[string]json.RawMessage
-		if json.Unmarshal(v, &pm) == nil && pm != nil && json.Unmarshal(base[k], &bm) == nil && bm != nil {
+		var pm, bm map[string]jsontext.Value
+		if json.Unmarshal(v, &pm, jsonx.V1()) == nil && pm != nil && json.Unmarshal(base[k], &bm, jsonx.V1()) == nil &&
+			bm != nil {
 			mergeJSON(bm, pm)
 
-			if merged, err := json.Marshal(bm); err == nil {
+			if merged, err := json.Marshal(bm, jsonx.V1()); err == nil {
 				base[k] = merged
 
 				continue
@@ -53,9 +57,9 @@ func mergeJSON(base, patch map[string]json.RawMessage) {
 
 // applyBody merges a create or PATCH body onto cur and returns the resulting object.
 // Unknown or read-only properties are rejected the way Graph does.
-func applyBody[T any, P normalizer[T]](cur *T, body map[string]json.RawMessage, readOnly ...string) (*T, error) {
+func applyBody[T any, P normalizer[T]](cur *T, body map[string]jsontext.Value, readOnly ...string) (*T, error) {
 	known := jsonFields(reflect.TypeFor[T]())
-	patch := make(map[string]json.RawMessage, len(body))
+	patch := make(map[string]jsontext.Value, len(body))
 
 	for k, v := range body {
 		if strings.Contains(k, "@") {
@@ -73,25 +77,25 @@ func applyBody[T any, P normalizer[T]](cur *T, body map[string]json.RawMessage, 
 		patch[k] = v
 	}
 
-	raw, err := json.Marshal(cur)
+	raw, err := json.Marshal(cur, jsonx.V1())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // marshal of an owned struct cannot fail on input
 	}
 
-	base := map[string]json.RawMessage{}
-	if err = json.Unmarshal(raw, &base); err != nil {
+	base := map[string]jsontext.Value{}
+	if err = json.Unmarshal(raw, &base, jsonx.V1()); err != nil {
 		return nil, err //nolint:wrapcheck // as above
 	}
 
 	mergeJSON(base, patch)
 
-	merged, err := json.Marshal(base)
+	merged, err := json.Marshal(base, jsonx.V1())
 	if err != nil {
 		return nil, err //nolint:wrapcheck // as above
 	}
 
 	out := new(T)
-	if err = json.Unmarshal(merged, out); err != nil {
+	if err = json.Unmarshal(merged, out, jsonx.V1()); err != nil {
 		return nil, badRequest(
 			"Unable to read JSON request payload. Please ensure Content-Type header is set and payload is of valid JSON format.",
 		)

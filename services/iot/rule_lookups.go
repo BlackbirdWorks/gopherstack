@@ -2,12 +2,13 @@ package iot
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -175,7 +176,7 @@ func describeThingJSON(bk *InMemoryBackend, thing string) ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(thingDescription(t))
+	return json.Marshal(thingDescription(t), jsonx.V1())
 }
 
 func thingGroupsJSON(bk *InMemoryBackend, thing string) ([]byte, error) {
@@ -190,5 +191,5 @@ func thingGroupsJSON(bk *InMemoryBackend, thing string) ([]byte, error) {
 		groups = append(groups, entry)
 	}
 
-	return json.Marshal(map[string]any{keyThingGroups: groups})
+	return json.Marshal(map[string]any{keyThingGroups: groups}, jsonx.V1())
 }

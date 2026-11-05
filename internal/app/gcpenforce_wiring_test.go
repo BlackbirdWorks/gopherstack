@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
@@ -233,7 +234,7 @@ func getREST(t *testing.T, url string) (int, restEnvelope) {
 
 	var env restEnvelope
 
-	_ = json.Unmarshal(body, &env)
+	_ = json.Unmarshal(body, &env, jsonx.V1())
 
 	return resp.StatusCode, env
 }

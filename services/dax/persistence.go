@@ -2,11 +2,13 @@ package dax
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -37,7 +39,7 @@ const daxSnapshotVersion = 1
 // (older or newer) build of this backend as though it were the current
 // shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
@@ -124,7 +126,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		b.mu.RLock("Snapshot")
 		defer b.mu.RUnlock()
 
-		var tables map[string]json.RawMessage
+		var tables map[string]jsontext.Value
 
 		tables, tblErr = b.registry.SnapshotAll()
 
@@ -144,7 +146,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).ErrorContext(ctx, "dax: failed to marshal snapshot", "error", err)
 

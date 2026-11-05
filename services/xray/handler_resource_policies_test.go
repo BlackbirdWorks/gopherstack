@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -67,7 +68,7 @@ func TestPutAndListResourcePolicies(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policies, ok := resp["ResourcePolicies"].([]any)
 	require.True(t, ok)
@@ -82,7 +83,7 @@ func TestPutAndListResourcePolicies(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putResp map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &putResp, jsonx.V1()))
 
 	policyObj, ok := putResp["ResourcePolicy"].(map[string]any)
 	require.True(t, ok)
@@ -94,7 +95,7 @@ func TestPutAndListResourcePolicies(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	policies, ok = listResp["ResourcePolicies"].([]any)
 	require.True(t, ok)
@@ -148,7 +149,7 @@ func TestListResourcePolicies_NextTokenInResponse(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	_, ok := resp["NextToken"]
 	assert.True(t, ok, "NextToken must be present in ListResourcePolicies response")
@@ -314,7 +315,7 @@ func TestResourcePolicy_ListAfterPut(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policies, ok := resp["ResourcePolicies"].([]any)
 	require.True(t, ok)
@@ -339,7 +340,7 @@ func TestResourcePolicy_DeleteExistingPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policies, _ := resp["ResourcePolicies"].([]any)
 	assert.Empty(t, policies, "policy must be removed after delete")
@@ -372,7 +373,7 @@ func TestResourcePolicy_MaxCountUsesCorrectErrorCode(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PolicyCountLimitExceededException", resp["__type"])
 }
 
@@ -393,7 +394,7 @@ func TestResourcePolicy_SizeLimitExceeded(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "PolicySizeLimitExceededException", resp["__type"])
 }
 
@@ -413,7 +414,7 @@ func TestResourcePolicy_LastUpdatedTimeIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policy, ok := resp["ResourcePolicy"].(map[string]any)
 	require.True(t, ok)
@@ -447,7 +448,7 @@ func TestHandler_DeleteResourcePolicy_RevisionIDEnforced(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, wrongRec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(wrongRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(wrongRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidPolicyRevisionIdException", resp["__type"])
 
 	// The policy must still exist after the rejected delete.
@@ -455,7 +456,7 @@ func TestHandler_DeleteResourcePolicy_RevisionIDEnforced(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	policies, _ := listResp["ResourcePolicies"].([]any)
 	assert.Len(t, policies, 1, "policy must survive a delete with the wrong PolicyRevisionId")
 }

@@ -1,11 +1,13 @@
 package managedblockchain
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
@@ -30,7 +32,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 
 	var req tagResourceRequest
 
-	if parseErr := json.Unmarshal(body, &req); parseErr != nil {
+	if parseErr := json.Unmarshal(body, &req, jsonx.V1()); parseErr != nil {
 		return writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body")
 	}
 

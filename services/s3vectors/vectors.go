@@ -1,11 +1,12 @@
 package s3vectors
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/fnv"
 	"maps"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -51,7 +52,7 @@ func validateMetadata(ix *Index, meta any) (map[string]any, error) {
 			return nil, err
 		}
 
-		raw, _ := json.Marshal(v)
+		raw, _ := json.Marshal(v, jsonx.V1())
 		total += len(k) + len(raw)
 
 		if ix.filterable(k) {
@@ -136,7 +137,7 @@ func (b *InMemoryBackend) putVectors(sc scope, in *putVectorsIn) (any, error) {
 }
 
 func itoa(i int) string {
-	b, _ := json.Marshal(i)
+	b, _ := json.Marshal(i, jsonx.V1())
 
 	return string(b)
 }

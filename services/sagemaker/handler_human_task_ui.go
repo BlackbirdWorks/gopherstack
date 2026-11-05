@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,7 @@ type createHumanTaskUIInput struct {
 func (h *Handler) handleCreateHumanTaskUI(ctx context.Context, body []byte) ([]byte, error) {
 	var req createHumanTaskUIInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -44,7 +46,7 @@ func (h *Handler) handleCreateHumanTaskUI(ctx context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyHumanTaskUIArn: result.HumanTaskUIArn})
+	return json.Marshal(map[string]any{keyHumanTaskUIArn: result.HumanTaskUIArn}, jsonx.V1())
 }
 
 // describeHumanTaskUIInput mirrors DescribeHumanTaskUiInput
@@ -56,7 +58,7 @@ type describeHumanTaskUIInput struct {
 func (h *Handler) handleDescribeHumanTaskUI(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeHumanTaskUIInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -69,7 +71,7 @@ func (h *Handler) handleDescribeHumanTaskUI(ctx context.Context, body []byte) ([
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // deleteHumanTaskUIInput mirrors DeleteHumanTaskUiInput
@@ -81,7 +83,7 @@ type deleteHumanTaskUIInput struct {
 func (h *Handler) handleDeleteHumanTaskUI(ctx context.Context, body []byte) error {
 	var req deleteHumanTaskUIInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -107,7 +109,7 @@ type listHumanTaskUIsInput struct {
 func (h *Handler) handleListHumanTaskUIs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listHumanTaskUIsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

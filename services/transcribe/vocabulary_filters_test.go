@@ -1,13 +1,14 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -340,7 +341,7 @@ func TestVocabularyFilter_LastModifiedTimeAndDownloadUri(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 	var createRaw map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createRaw, jsonx.V1()))
 	assert.Contains(t, createRaw, "LastModifiedTime", "CreateVocabularyFilterOutput must include LastModifiedTime")
 
 	getRec := doTranscribeRequest(t, h, "GetVocabularyFilter", map[string]any{
@@ -349,7 +350,7 @@ func TestVocabularyFilter_LastModifiedTimeAndDownloadUri(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code, getRec.Body.String())
 
 	var getRaw map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRaw, jsonx.V1()))
 	assert.Contains(t, getRaw, "LastModifiedTime", "GetVocabularyFilterOutput must include LastModifiedTime")
 	assert.Equal(t, "s3://bucket/filter.txt", getRaw["DownloadUri"])
 
@@ -360,6 +361,6 @@ func TestVocabularyFilter_LastModifiedTimeAndDownloadUri(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
 
 	var updateRaw map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateRaw, jsonx.V1()))
 	assert.Contains(t, updateRaw, "LastModifiedTime", "UpdateVocabularyFilterOutput must include LastModifiedTime")
 }

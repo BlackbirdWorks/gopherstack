@@ -3,7 +3,8 @@ package gcpapigateway
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -156,7 +159,7 @@ func apiOfConfig(config string) string {
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"code": status, "message": msg})
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"code": status, "message": msg})
 }
 
 // DataPlane serves requests to gateways.
@@ -288,7 +291,7 @@ func (b *InMemoryBackend) forward(
 	}
 
 	if claims != nil {
-		if raw, mErr := json.Marshal(claims); mErr == nil {
+		if raw, mErr := json.Marshal(claims, jsonx.V1()); mErr == nil {
 			out.Header.Set(userinfoHeader, base64.RawURLEncoding.EncodeToString(raw))
 		}
 	}

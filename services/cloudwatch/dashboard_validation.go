@@ -1,9 +1,12 @@
 package cloudwatch
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // knownDashboardWidgetTypes are the CloudWatch dashboard widget "type" values
@@ -57,10 +60,10 @@ func validateDashboardBody(body string) []DashboardValidationMessage {
 		}}
 	}
 
-	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec := jsontext.NewDecoder(strings.NewReader(trimmed), jsonx.V1())
 
 	var raw any
-	if err := dec.Decode(&raw); err != nil {
+	if err := json.UnmarshalDecode(dec, &raw, jsonx.V1()); err != nil {
 		return []DashboardValidationMessage{{
 			DataPath: "/",
 			Message:  fmt.Sprintf("The dashboard body is not valid JSON: %s", err.Error()),
@@ -68,7 +71,11 @@ func validateDashboardBody(body string) []DashboardValidationMessage {
 		}}
 	}
 
-	if dec.More() {
+	if rest := strings.TrimLeft(
+		trimmed[dec.InputOffset():],
+		" \t\r\n",
+	); rest != "" && rest[0] != ']' &&
+		rest[0] != '}' {
 		return []DashboardValidationMessage{{
 			DataPath: "/",
 			Message:  "The dashboard body contains trailing content after the JSON value",

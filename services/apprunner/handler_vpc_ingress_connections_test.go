@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestVpcIngressConnectionCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -35,7 +37,7 @@ func TestVpcIngressConnectionCRUD(t *testing.T) { //nolint:paralleltest // exist
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vic := resp["VpcIngressConnection"].(map[string]any)
 				assert.Contains(t, vic["VpcIngressConnectionArn"], "vpcingressconnection/my-vic/")
 				assert.Equal(t, "AVAILABLE", vic["Status"])
@@ -80,7 +82,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	vicArn := createResp["VpcIngressConnection"].(map[string]any)["VpcIngressConnectionArn"].(string)
 
 	tests := []struct {
@@ -98,7 +100,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vic := resp["VpcIngressConnection"].(map[string]any)
 				assert.Equal(t, "vic1", vic["VpcIngressConnectionName"])
 			},
@@ -125,7 +127,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["VpcIngressConnectionSummaryList"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -138,7 +140,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["VpcIngressConnectionSummaryList"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -155,7 +157,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["VpcIngressConnectionSummaryList"].([]any)
 				assert.Len(t, list, 1)
 			},
@@ -168,7 +170,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["VpcIngressConnectionSummaryList"].([]any)
 				assert.Empty(t, list)
 			},
@@ -187,7 +189,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vic := resp["VpcIngressConnection"].(map[string]any)
 				ivc := vic["IngressVpcConfiguration"].(map[string]any)
 				assert.Equal(t, "vpc-new", ivc["VpcId"])
@@ -207,7 +209,7 @@ func TestVpcIngressConnectionDescribeDeleteListUpdate(t *testing.T) { //nolint:p
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				vic := resp["VpcIngressConnection"].(map[string]any)
 				assert.Equal(t, "vic1", vic["VpcIngressConnectionName"])
 			},

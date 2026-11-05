@@ -1,13 +1,14 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -33,7 +34,7 @@ func TestDevices_CRUD(t *testing.T) {
 	var confirmResp struct {
 		UserConfirmationNecessary bool `json:"UserConfirmationNecessary,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &confirmResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &confirmResp, jsonx.V1()))
 	assert.False(t, confirmResp.UserConfirmationNecessary)
 
 	// ListDevices — discover the generated device key.
@@ -43,7 +44,7 @@ func TestDevices_CRUD(t *testing.T) {
 	var listResp struct {
 		Devices []deviceWire `json:"Devices,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Devices, 1)
 	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 	deviceKey := listResp.Devices[0].DeviceKey
@@ -59,7 +60,7 @@ func TestDevices_CRUD(t *testing.T) {
 	var getResp struct {
 		Device deviceWire `json:"Device"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, deviceKey, getResp.Device.DeviceKey)
 
 	// UpdateDeviceStatus -> remembered
@@ -75,7 +76,7 @@ func TestDevices_CRUD(t *testing.T) {
 		"DeviceKey":   deviceKey,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 
 	// ForgetDevice
@@ -101,7 +102,7 @@ func TestDevices_CRUD(t *testing.T) {
 	var listResp2 struct {
 		Devices []deviceWire `json:"Devices,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2, jsonx.V1()))
 	assert.Empty(t, listResp2.Devices)
 }
 
@@ -144,7 +145,7 @@ func TestDevices_NotFoundAndValidation(t *testing.T) {
 	var listResp struct {
 		Devices []deviceWire `json:"Devices,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Devices, 1)
 
 	rec = doCognitoRequest(t, h, "UpdateDeviceStatus", map[string]any{
@@ -179,7 +180,7 @@ func TestAdminDevices_CRUD(t *testing.T) {
 	var listResp struct {
 		Devices []deviceWire `json:"Devices,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Devices, 1)
 	assert.Equal(t, "device-abc", listResp.Devices[0].DeviceKey)
 
@@ -210,7 +211,7 @@ func TestAdminDevices_CRUD(t *testing.T) {
 	var getResp struct {
 		Device deviceWire `json:"Device"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotContains(t, rec.Body.String(), "DeviceStatus")
 
 	// AdminForgetDevice — real deletion when the device exists.
@@ -395,7 +396,7 @@ func TestHandler_AdminForgetDevice(t *testing.T) {
 			h := newTestHandler(t)
 			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "device-pool"})
 			var poolResp map[string]any
-			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp, jsonx.V1()))
 			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
 
 			username := "device-user"

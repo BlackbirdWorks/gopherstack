@@ -1,13 +1,14 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
@@ -34,7 +35,7 @@ func TestHandler_UpdateConnectorLoggingRoleAndSecurityPolicyName(t *testing.T) {
 	var createOut struct {
 		ConnectorID string `json:"ConnectorId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 
 	updateRec := doTransferRequest(t, h, "UpdateConnector", map[string]any{
 		"ConnectorId":        createOut.ConnectorID,
@@ -54,7 +55,7 @@ func TestHandler_UpdateConnectorLoggingRoleAndSecurityPolicyName(t *testing.T) {
 			SecurityPolicyName string `json:"SecurityPolicyName"`
 		} `json:"Connector"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	assert.Equal(t, "arn:aws:iam::123456789012:role/TransferLogging", descOut.Connector.LoggingRole)
 	assert.Equal(t, "TransferSecurityPolicy-2024-01", descOut.Connector.SecurityPolicyName)
@@ -107,7 +108,7 @@ func TestHandler_CreateConnector(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["ConnectorId"])
 			}
 		})
@@ -174,7 +175,7 @@ func TestHandler_DescribeConnector(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
@@ -203,7 +204,7 @@ func TestHandler_UpdateConnector(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "UpdateConnector", map[string]any{
@@ -225,7 +226,7 @@ func TestHandler_TestConnection(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "TestConnection", map[string]any{
@@ -246,7 +247,7 @@ func TestHandler_StartFileTransfer(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "StartFileTransfer", map[string]any{
@@ -268,7 +269,7 @@ func TestHandler_StartDirectoryListing(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "StartDirectoryListing", map[string]any{
@@ -279,7 +280,7 @@ func TestHandler_StartDirectoryListing(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["ListingId"], "ListingId is a required field on StartDirectoryListingOutput")
 	assert.Equal(t, connectorID+"-"+resp["ListingId"].(string)+".json", resp["OutputFileName"])
 }
@@ -296,7 +297,7 @@ func TestHandler_ListFileTransferResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "ListFileTransferResults", map[string]any{
@@ -318,7 +319,7 @@ func TestHandler_StartRemoteDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "StartRemoteDelete", map[string]any{
@@ -340,7 +341,7 @@ func TestHandler_StartRemoteMove(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	rec := doTransferRequest(t, h, "StartRemoteMove", map[string]any{
@@ -368,7 +369,7 @@ func TestHandler_StartFileTransferPersistsRecord(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 	transferID := startResp["TransferId"].(string)
 	assert.NotEmpty(t, transferID)
 
@@ -379,7 +380,7 @@ func TestHandler_StartFileTransferPersistsRecord(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	results := listResp["FileTransferResults"].([]any)
 	require.Len(t, results, 1)
 
@@ -407,7 +408,7 @@ func TestHandler_DescribeConnectorLoggingRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
@@ -416,7 +417,7 @@ func TestHandler_DescribeConnectorLoggingRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	connector := descResp["Connector"].(map[string]any)
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/logging", connector["LoggingRole"])
@@ -450,8 +451,8 @@ func TestHandler_StartDirectoryListingUniqueId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var r1, r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 
 	id1 := r1["ListingId"].(string)
 	id2 := r2["ListingId"].(string)
@@ -513,7 +514,7 @@ func TestHandler_StartRemoteDelete_ReturnsDeleteId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["DeleteId"])
 	assert.NotContains(t, resp, "TransferId", "StartRemoteDeleteOutput has no TransferId field in real AWS")
 
@@ -540,7 +541,7 @@ func TestHandler_StartRemoteMove_ReturnsMoveId(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["MoveId"])
 	assert.NotContains(t, resp, "TransferId", "StartRemoteMoveOutput has no TransferId field in real AWS")
 
@@ -577,7 +578,7 @@ func TestHandler_ConnectorIPAddressType(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			connectorID := createResp["ConnectorId"].(string)
 
 			descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
@@ -586,7 +587,7 @@ func TestHandler_ConnectorIPAddressType(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 			connector := descResp["Connector"].(map[string]any)
 			assert.Equal(t, tt.ipAddressType, connector["IpAddressType"])
 			assert.Contains(t, descRec.Body.String(), `"IpAddressType":"`+tt.ipAddressType+`"`)
@@ -603,7 +604,7 @@ func TestHandler_ConnectorIPAddressType(t *testing.T) {
 		require.Equal(t, http.StatusOK, createRec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 		connectorID := createResp["ConnectorId"].(string)
 
 		descRec := doTransferRequest(t, h, "DescribeConnector", map[string]any{
@@ -612,7 +613,7 @@ func TestHandler_ConnectorIPAddressType(t *testing.T) {
 		require.Equal(t, http.StatusOK, descRec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 		connector := descResp["Connector"].(map[string]any)
 		_, hasIPAddressType := connector["IpAddressType"]
 		assert.False(t, hasIPAddressType, "IpAddressType must be absent, not an empty string, when unset")
@@ -634,7 +635,7 @@ func TestHandler_UpdateConnectorIPAddressType(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	connectorID := createResp["ConnectorId"].(string)
 
 	updateRec := doTransferRequest(t, h, "UpdateConnector", map[string]any{
@@ -649,7 +650,7 @@ func TestHandler_UpdateConnectorIPAddressType(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	connector := descResp["Connector"].(map[string]any)
 	assert.Equal(t, "DUALSTACK", connector["IpAddressType"])
 }

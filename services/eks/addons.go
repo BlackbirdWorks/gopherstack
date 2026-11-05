@@ -1,7 +1,7 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -445,7 +446,7 @@ func (b *InMemoryBackend) DescribeAddonConfiguration(addonName, addonVersion str
 	schema, _ := json.Marshal(map[string]any{
 		keyType:      "object",
 		"properties": map[string]any{},
-	})
+	}, jsonx.V1())
 
 	return map[string]any{
 		keyAddonName:          addonName,

@@ -1,8 +1,10 @@
 package eventbridge
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseEpochSecondsPtr converts an AWS json-1.1 wire-format epoch-seconds
@@ -45,7 +47,7 @@ type wireEventEntry struct {
 // quoted RFC3339 string.
 func (e *EventEntry) UnmarshalJSON(data []byte) error {
 	var w wireEventEntry
-	if err := json.Unmarshal(data, &w); err != nil {
+	if err := json.Unmarshal(data, &w, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -78,7 +80,7 @@ type wireStartReplayInput struct {
 // struct-tag-driven json.Unmarshal.
 func (in *StartReplayInput) UnmarshalJSON(data []byte) error {
 	var w wireStartReplayInput
-	if err := json.Unmarshal(data, &w); err != nil {
+	if err := json.Unmarshal(data, &w, jsonx.V1()); err != nil {
 		return err
 	}
 

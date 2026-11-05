@@ -6,7 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
 
@@ -53,10 +54,10 @@ func (l irsaOIDCLookup) OIDCProviderClientIDs(issuer string) ([]string, bool) {
 func signIRSAToken(t *testing.T, key *rsa.PrivateKey, claims map[string]any) string {
 	t.Helper()
 
-	hdr, err := json.Marshal(map[string]string{"alg": "RS256", "kid": "k"})
+	hdr, err := json.Marshal(map[string]string{"alg": "RS256", "kid": "k"}, jsonx.V1())
 	require.NoError(t, err)
 
-	body, err := json.Marshal(claims)
+	body, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	signing := base64.RawURLEncoding.EncodeToString(hdr) + "." + base64.RawURLEncoding.EncodeToString(body)
@@ -77,7 +78,7 @@ func irsaTrustPolicy(cond string) string {
 func forgeIRSAPayload(t *testing.T, token string, claims map[string]any) string {
 	t.Helper()
 
-	forged, err := json.Marshal(claims)
+	forged, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	parts := strings.Split(token, ".")
@@ -89,7 +90,7 @@ func forgeIRSAPayload(t *testing.T, token string, claims map[string]any) string 
 func unsignedIRSAToken(t *testing.T, claims map[string]any) string {
 	t.Helper()
 
-	body, err := json.Marshal(claims)
+	body, err := json.Marshal(claims, jsonx.V1())
 	require.NoError(t, err)
 
 	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`)) + "." +

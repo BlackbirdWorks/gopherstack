@@ -2,7 +2,7 @@ package pipes
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 
@@ -39,10 +39,10 @@ const pipesSnapshotVersion = 3
 // Restore must pre-register every (resource, region) tuple found in Tables
 // before calling registry.RestoreAll, see preRegisterSnapshotTables below.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage `json:"tables"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
-	Version   int                        `json:"version"`
+	Tables    map[string]jsontext.Value `json:"tables"`
+	AccountID string                    `json:"accountID"`
+	Region    string                    `json:"region"`
+	Version   int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 // "<resourceName>/<region>" (see store_setup.go's pipesTable/
 // enrichmentCountsTable); splitting on the first "/" recovers both parts
 // (region names never contain "/").
-func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]json.RawMessage) {
+func (b *InMemoryBackend) preRegisterSnapshotTables(tables map[string]jsontext.Value) {
 	for key := range tables {
 		name, region, found := strings.Cut(key, "/")
 		if !found {
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	if snap.Tables == nil {
-		snap.Tables = make(map[string]json.RawMessage)
+		snap.Tables = make(map[string]jsontext.Value)
 	}
 
 	b.preRegisterSnapshotTables(snap.Tables)

@@ -1,13 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ce"
 )
 
@@ -28,7 +30,7 @@ func TestCommitmentAnalysis_MultipleStartsListed(t *testing.T) {
 		var out struct {
 			AnalysisID string `json:"AnalysisId"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 		require.NotEmpty(t, out.AnalysisID)
 		analysisIDs = append(analysisIDs, out.AnalysisID)
 	}
@@ -48,7 +50,7 @@ func TestCommitmentAnalysis_MultipleStartsListed(t *testing.T) {
 			AnalysisID string `json:"AnalysisId"`
 		} `json:"AnalysisSummaryList"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	require.Len(t, listOut.AnalysisSummaryList, 3)
 
 	listedIDs := make(map[string]struct{}, 3)
@@ -81,7 +83,7 @@ func TestCommitmentPurchaseAnalysis_Lifecycle(t *testing.T) {
 		AnalysisStartedTime     string `json:"AnalysisStartedTime"`
 		EstimatedCompletionTime string `json:"EstimatedCompletionTime"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &startOut, jsonx.V1()))
 	require.NotEmpty(t, startOut.AnalysisID)
 	assert.NotEmpty(t, startOut.AnalysisStartedTime)
 	assert.NotEmpty(t, startOut.EstimatedCompletionTime)
@@ -96,7 +98,7 @@ func TestCommitmentPurchaseAnalysis_Lifecycle(t *testing.T) {
 		AnalysisID     string `json:"AnalysisId"`
 		AnalysisStatus string `json:"AnalysisStatus"`
 	}
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 	assert.Equal(t, startOut.AnalysisID, getOut.AnalysisID)
 	assert.Equal(t, "PROCESSING", getOut.AnalysisStatus)
 
@@ -109,7 +111,7 @@ func TestCommitmentPurchaseAnalysis_Lifecycle(t *testing.T) {
 			AnalysisID string `json:"AnalysisId"`
 		} `json:"AnalysisSummaryList"`
 	}
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	require.Len(t, listOut.AnalysisSummaryList, 1)
 	assert.Equal(t, startOut.AnalysisID, listOut.AnalysisSummaryList[0].AnalysisID)
 }
@@ -128,7 +130,7 @@ func TestSnapshotRestore_IncludesCommitmentAnalyses(t *testing.T) {
 	var startOut struct {
 		AnalysisID string `json:"AnalysisId"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&startOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &startOut, jsonx.V1()))
 
 	// Snapshot + restore
 	snap := h.Snapshot(t.Context())

@@ -1,7 +1,8 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -72,7 +74,7 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
@@ -170,7 +172,7 @@ func (h *Handler) handleDeprecateThingType(c *echo.Context) error {
 		UndoDeprecate bool `json:"undoDeprecate"`
 	}
 
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &body, jsonx.V1()); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}

@@ -1,13 +1,15 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Tagging(t *testing.T) {
@@ -69,7 +71,7 @@ func TestTags_SortedListTagsForResource(t *testing.T) {
 		} `json:"Tags"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Tags, 3)
 	assert.Equal(t, "aaa", resp.Tags[0].Key)
 	assert.Equal(t, "mmm", resp.Tags[1].Key)
@@ -104,7 +106,7 @@ func TestTags_OnDeploymentGroups(t *testing.T) {
 		} `json:"Tags"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Tags, 1)
 	assert.Equal(t, "env", resp.Tags[0].Key)
 	assert.Equal(t, "prod", resp.Tags[0].Value)
@@ -189,7 +191,7 @@ func TestTags_ResourceTagLimits(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
@@ -219,7 +221,7 @@ func TestTags_ResourceExceedsMaxTags(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	// TagResource's own deserializer models only InvalidTagsToAddException for
 	// tag content, not TagLimitExceededException (that code belongs to
 	// AddTagsToOnPremisesInstances/RemoveTagsFromOnPremisesInstances/

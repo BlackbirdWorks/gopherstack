@@ -1,7 +1,7 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -31,7 +32,7 @@ func TestListPrincipals_Pagination(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	shareARN := createResp.ResourceShare.ResourceShareArn
 	require.NotEmpty(t, shareARN)
 
@@ -104,7 +105,7 @@ func TestListPrincipals_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -113,7 +114,7 @@ func TestListPrincipals_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.Principals)
@@ -151,7 +152,7 @@ func TestListPrincipals_ResourceShareArnsFilter(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"resourceShare"`
 	}
-	require.NoError(t, json.Unmarshal(createA.Body.Bytes(), &respA))
+	require.NoError(t, json.Unmarshal(createA.Body.Bytes(), &respA, jsonx.V1()))
 	shareArnA := respA.ResourceShare.ResourceShareArn
 	require.NotEmpty(t, shareArnA)
 
@@ -174,7 +175,7 @@ func TestListPrincipals_ResourceShareArnsFilter(t *testing.T) {
 			ResourceShareArn string `json:"resourceShareArn"`
 		} `json:"principals"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(
 		t, resp.Principals, 1,
 		"resourceShareArns must scope results to the requested share, not return every share",
@@ -229,7 +230,7 @@ func TestListPrincipals_ResourceOwnerFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			principals := resp["principals"].([]any)
 			assert.Len(t, principals, tc.wantCount)
 		})

@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var errMQTestFunction = errors.New("boom")
@@ -203,7 +205,7 @@ func TestMQWorkerBatching(t *testing.T) {
 						Messages []struct{} `json:"messages"`
 					}
 
-					require.NoError(t, json.Unmarshal(payload, &ev))
+					require.NoError(t, json.Unmarshal(payload, &ev, jsonx.V1()))
 
 					sizes = append(sizes, len(ev.Messages))
 

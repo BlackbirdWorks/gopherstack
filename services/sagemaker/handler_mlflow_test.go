@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateMlflowTrackingServer(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_CreateMlflowTrackingServer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["TrackingServerArn"], "my-server")
 }
 
@@ -38,7 +40,7 @@ func TestHandler_DescribeMlflowTrackingServer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ts-1", resp["TrackingServerName"])
 }
 
@@ -53,14 +55,14 @@ func TestHandler_StartStopMlflowTrackingServer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	assert.Contains(t, startResp["TrackingServerArn"], "ts-ss")
 
 	rec = doSageMakerRequest(t, h, "StopMlflowTrackingServer", map[string]any{"TrackingServerName": "ts-ss"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var stopResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stopResp, jsonx.V1()))
 	assert.Contains(t, stopResp["TrackingServerArn"], "ts-ss")
 }
 
@@ -120,7 +122,7 @@ func TestHandler_DeleteMlflowTrackingServer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var deleteResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &deleteResp, jsonx.V1()))
 	assert.Contains(t, deleteResp["TrackingServerArn"], "ts-del")
 
 	rec = doSageMakerRequest(t, h, "DescribeMlflowTrackingServer", map[string]any{"TrackingServerName": "ts-del"})
@@ -313,7 +315,7 @@ func TestHandler_CreatePresignedMlflowTrackingServerUrl(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["AuthorizedUrl"], "ts-1")
 }
 
@@ -345,7 +347,7 @@ func TestHandler_MlflowApp_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	appARN := createResp["Arn"]
 	require.Contains(t, appARN, "mlflow-app/app-1")
 
@@ -353,7 +355,7 @@ func TestHandler_MlflowApp_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, describeRec.Code)
 
 	var describeResp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "app-1", describeResp["Name"])
 	assert.Equal(t, "Created", describeResp["Status"])
 	assert.Equal(t, "s3://bucket/path", describeResp["ArtifactStoreUri"])
@@ -365,21 +367,21 @@ func TestHandler_MlflowApp_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, updateRec.Code)
 
 	describeRec = doSageMakerRequest(t, h, "DescribeMlflowApp", map[string]any{"Arn": appARN})
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &describeResp, jsonx.V1()))
 	assert.Equal(t, "s3://bucket/new-path", describeResp["ArtifactStoreUri"])
 
 	presignRec := doSageMakerRequest(t, h, "CreatePresignedMlflowAppUrl", map[string]any{"Arn": appARN})
 	assert.Equal(t, http.StatusOK, presignRec.Code)
 
 	var presignResp map[string]string
-	require.NoError(t, json.Unmarshal(presignRec.Body.Bytes(), &presignResp))
+	require.NoError(t, json.Unmarshal(presignRec.Body.Bytes(), &presignResp, jsonx.V1()))
 	assert.Contains(t, presignResp["AuthorizedUrl"], "app-1")
 
 	listRec := doSageMakerRequest(t, h, "ListMlflowApps", map[string]any{})
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	summaries, ok := listResp["Summaries"].([]any)
 	require.True(t, ok)
 	assert.Len(t, summaries, 1)
@@ -388,7 +390,7 @@ func TestHandler_MlflowApp_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, deleteRec.Code)
 
 	var deleteResp map[string]string
-	require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp))
+	require.NoError(t, json.Unmarshal(deleteRec.Body.Bytes(), &deleteResp, jsonx.V1()))
 	assert.Equal(t, appARN, deleteResp["Arn"])
 
 	describeRec = doSageMakerRequest(t, h, "DescribeMlflowApp", map[string]any{"Arn": appARN})
@@ -586,7 +588,7 @@ func TestHandler_ListMlflowTrackingServers(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["TrackingServerSummaries"])
 
 	// Create one
@@ -600,7 +602,7 @@ func TestHandler_ListMlflowTrackingServers(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "ListMlflowTrackingServers", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries := resp["TrackingServerSummaries"].([]any)
 	assert.Len(t, summaries, 1)
 
@@ -631,7 +633,7 @@ func TestHandler_UpdateMlflowTrackingServer(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["TrackingServerArn"])
 }
 
@@ -663,7 +665,7 @@ func TestHandler_UpdateMlflowTrackingServer_MlflowVersionNotOnWire(t *testing.T)
 		"TrackingServerName": "my-server",
 	})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(
 		t, "2.0.0", resp["MlflowVersion"],
 		"MlflowVersion is not a real UpdateMlflowTrackingServerInput field and must not change",

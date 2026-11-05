@@ -10,7 +10,7 @@ package appsync
 // every "clean" table directly, same as here).
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -48,7 +48,7 @@ const appsyncSnapshotVersion = 2
 // func(*APIKey) string that could reproduce the "<apiID>#<keyID>" composite
 // key from the value alone). It is persisted explicitly here instead.
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage    `json:"tables"`
+	Tables  map[string]jsontext.Value     `json:"tables"`
 	APIKeys map[string]map[string]*APIKey `json:"apiKeys,omitempty"`
 	Version int                           `json:"version"`
 }

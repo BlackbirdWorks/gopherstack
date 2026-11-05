@@ -2,13 +2,16 @@ package cosmosdb_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // newEchoContextForRequest wraps req in an *echo.Context for tests that call
@@ -32,12 +35,11 @@ func newEchoContextForRequest(t *testing.T, req *http.Request) *echo.Context {
 func decodeJSONBody(t *testing.T, raw string) map[string]any {
 	t.Helper()
 
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(bytes.NewReader([]byte(raw)))
 
 	var m map[string]any
 
-	require.NoError(t, dec.Decode(&m))
+	require.NoError(t, json.UnmarshalDecode(dec, &m, jsonx.V1(), jsonx.UseNumber()))
 
 	return m
 }

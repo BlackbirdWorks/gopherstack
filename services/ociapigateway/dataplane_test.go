@@ -2,7 +2,7 @@ package ociapigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ociapigateway "github.com/blackbirdworks/gopherstack/services/ociapigateway"
 )
 
@@ -452,7 +453,7 @@ func TestSpecRoundTrip(t *testing.T) {
 		} `json:"specification"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()))
 	assert.Equal(t, "STOCK_RESPONSE_BACKEND", out.Specification.Routes[0].Backend.Type)
 	assert.NotContains(t, body, "StubResponse")
 }

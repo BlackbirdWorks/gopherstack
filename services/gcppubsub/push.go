@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -196,7 +197,7 @@ func (b *InMemoryBackend) sendPush(
 		}
 
 		var err error
-		if body, err = json.Marshal(env); err != nil {
+		if body, err = json.Marshal(env, jsonx.V1()); err != nil {
 			return false
 		}
 

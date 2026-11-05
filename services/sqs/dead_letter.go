@@ -1,20 +1,21 @@
 package sqs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // redrivePolicy represents the JSON structure of an SQS RedrivePolicy attribute.
 type redrivePolicy struct {
-	DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
-	MaxReceiveCount     json.Number `json:"maxReceiveCount"`
+	DeadLetterTargetArn string       `json:"deadLetterTargetArn"`
+	MaxReceiveCount     jsonx.Number `json:"maxReceiveCount"`
 }
 
 // applyRedrivePolicy parses the RedrivePolicy attribute and wires up DLQ fields on q.
@@ -32,11 +33,11 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 
 	var pol redrivePolicy
 
-	if err := json.Unmarshal([]byte(raw), &pol); err != nil {
+	if err := json.Unmarshal([]byte(raw), &pol, jsonx.V1()); err != nil {
 		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
 
-	count, err := pol.MaxReceiveCount.Int64()
+	count, err := pol.MaxReceiveCount.Int()
 	if err != nil || count <= 0 {
 		return &InvalidParameterError{Message: "Invalid value for the parameter RedrivePolicy."}
 	}
@@ -72,7 +73,7 @@ func applyRedrivePolicy(q *Queue, attrs map[string]string, backend *InMemoryBack
 		}
 	}
 
-	q.MaxReceiveCount = int(count)
+	q.MaxReceiveCount = count
 	q.dlq = dlq
 
 	now := backend.now()
@@ -134,7 +135,7 @@ func checkRedriveAllowPolicy(dlq *Queue, srcArn string) error {
 	// never left with a malformed value; treat it permissively rather than
 	// blocking on a defensive parse error.
 	//nolint:nilerr // intentional fail-open on a defensive parse error, see comment above
-	if json.Unmarshal([]byte(raw), &policy) != nil {
+	if json.Unmarshal([]byte(raw), &policy, jsonx.V1()) != nil {
 		return nil
 	}
 
@@ -178,11 +179,11 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 		}
 
 		var pol redrivePolicy
-		if err := json.Unmarshal([]byte(raw), &pol); err != nil {
+		if err := json.Unmarshal([]byte(raw), &pol, jsonx.V1()); err != nil {
 			continue
 		}
 
-		count, err := pol.MaxReceiveCount.Int64()
+		count, err := pol.MaxReceiveCount.Int()
 		if err != nil || count <= 0 {
 			continue
 		}

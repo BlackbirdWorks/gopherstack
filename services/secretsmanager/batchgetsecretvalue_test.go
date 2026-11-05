@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -334,7 +335,7 @@ func TestBatchGetSecretValue_SecretIDListTooLong_HTTP(t *testing.T) {
 
 			if tt.wantType != "" {
 				var errResp secretsmanager.ErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, tt.wantType, errResp.Type)
 			}
 		})
@@ -358,7 +359,7 @@ func TestBatchGetSecretValue_SecretIdListAndFiltersRejected(t *testing.T) {
 		"BatchGetSecretValue with both SecretIdList and Filters must return 400; body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }
 
@@ -386,7 +387,7 @@ func TestBatchGetSecretValue_FilterUsesPrefix(t *testing.T) {
 	var out struct {
 		SecretValues []map[string]any `json:"SecretValues"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.SecretValues, 2,
 		"real AWS: BatchGetSecretValue filter uses prefix matching; body: %s", rec.Body.String())
 }
@@ -426,7 +427,7 @@ func TestBatchGetSecretValue_HTTP(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.BatchGetSecretValueOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.SecretValues, 2)
 				assert.Empty(t, out.Errors)
 			},
@@ -446,7 +447,7 @@ func TestBatchGetSecretValue_HTTP(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.BatchGetSecretValueOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.SecretValues, 1)
 				assert.Len(t, out.Errors, 1)
 				assert.Equal(t, "ResourceNotFoundException", out.Errors[0].ErrorCode)
@@ -473,7 +474,7 @@ func TestBatchGetSecretValue_HTTP(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.BatchGetSecretValueOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.SecretValues, 2)
 			},
 		},

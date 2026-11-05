@@ -2,7 +2,8 @@ package dashboard
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 )
 
@@ -74,7 +76,7 @@ func azureKeyVaultInternalToken() string {
 	claims, _ := json.Marshal(map[string]any{
 		"iss": "gopherstack-dashboard",
 		"exp": time.Now().Add(azureKeyVaultTokenTTL).Unix(),
-	})
+	}, jsonx.V1())
 
 	return header + "." + enc.EncodeToString(claims) + "."
 }
@@ -88,8 +90,12 @@ func (h *DashboardHandler) azureKeyVaultCreateVault(c *echo.Context) error {
 		Name string `json:"name"`
 	}
 
-	if err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, azureKeyVaultMaxBodyBytes)).
-		Decode(&in); err != nil || !azureKeyVaultNameRe.MatchString(in.Name) {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, azureKeyVaultMaxBodyBytes)),
+		&in,
+		jsonx.V1(),
+	); err != nil ||
+		!azureKeyVaultNameRe.MatchString(in.Name) {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "vault name must be 3-24 characters: letters, digits and hyphens, starting with a letter",
 		})

@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestStartWorkflowRun_RunProperties(t *testing.T) {
@@ -47,7 +49,7 @@ func TestStartWorkflowRun_RunProperties(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var start map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 			rec = doGlueRequest(t, h, "GetWorkflowRunProperties", map[string]any{
 				"Name": "wf", "RunId": start["RunId"],
@@ -55,7 +57,7 @@ func TestStartWorkflowRun_RunProperties(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var got map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tt.want, got["RunProperties"])
 		})
 	}
@@ -86,7 +88,7 @@ func TestGetWorkflowRun_IncludeGraph(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var start map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &start, jsonx.V1()))
 
 			body := map[string]any{"Name": "graphwf", "IncludeGraph": tt.includeGraph}
 			if tt.action == "GetWorkflowRun" {
@@ -97,7 +99,7 @@ func TestGetWorkflowRun_IncludeGraph(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			run, _ := out["Run"].(map[string]any)
 			if tt.action == "GetWorkflowRuns" {

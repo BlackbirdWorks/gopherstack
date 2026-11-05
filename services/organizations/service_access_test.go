@@ -1,12 +1,15 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestBackend_ServiceAccess tests enabling/disabling AWS service access.
@@ -181,7 +184,7 @@ func TestServiceAccess_Handler(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &resp, jsonx.V1()))
 
 	principals := resp["EnabledServicePrincipals"].([]any)
 	assert.Empty(t, principals, "disabled service should not appear")

@@ -49,6 +49,7 @@ func TestAppSyncDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/appsync")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -83,6 +84,7 @@ func TestAppSyncDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/appsync")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

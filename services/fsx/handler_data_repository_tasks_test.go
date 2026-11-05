@@ -1,13 +1,15 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestFSx_DataRepositoryTask(t *testing.T) {
@@ -45,7 +47,7 @@ func TestFSx_DataRepositoryTask(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			task := out["DataRepositoryTask"].(map[string]any)
 			assert.Contains(t, task["TaskId"].(string), "task-")
 			assert.Equal(t, "EXECUTING", task["Lifecycle"])
@@ -105,7 +107,7 @@ func TestFSx_DataRepositoryTaskLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 		taskID := cr["DataRepositoryTask"].(map[string]any)["TaskId"].(string)
 
 		// describe
@@ -114,14 +116,14 @@ func TestFSx_DataRepositoryTaskLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["DataRepositoryTasks"].([]any), 1)
 
 		// cancel
 		rec3 := doFSxRequest(t, h, "CancelDataRepositoryTask", map[string]any{"TaskId": taskID})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var car map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &car))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &car, jsonx.V1()))
 		assert.Equal(t, "CANCELING", car["Lifecycle"])
 	})
 }
@@ -158,7 +160,7 @@ func TestFSx_CreateDataRepositoryTask_RejectsConcurrentExecuting(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec2.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, "DataRepositoryTaskExecuting", out["__type"])
 	})
 
@@ -183,7 +185,7 @@ func TestFSx_CreateDataRepositoryTask_RejectsConcurrentExecuting(t *testing.T) {
 		rec1 := doFSxRequest(t, h, "CreateDataRepositoryTask", newTaskBody(fsID))
 		require.Equal(t, http.StatusOK, rec1.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &cr, jsonx.V1()))
 		taskID := cr["DataRepositoryTask"].(map[string]any)["TaskId"].(string)
 
 		cancelRec := doFSxRequest(t, h, "CancelDataRepositoryTask", map[string]any{"TaskId": taskID})
@@ -242,7 +244,7 @@ func TestDataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			task := out["DataRepositoryTask"].(map[string]any)
 			taskARN := task["ResourceARN"].(string)
@@ -253,7 +255,7 @@ func TestDataRepositoryTask_TagsStoredAtCreation(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code, "ListTagsForResource on DRT must succeed")
 
 			var tagOut map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagOut))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagOut, jsonx.V1()))
 
 			tags, ok := tagOut["Tags"].([]any)
 			require.True(t, ok, "Tags must be a JSON array")
@@ -279,7 +281,7 @@ func TestDataRepositoryTask_TagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	taskARN := out["DataRepositoryTask"].(map[string]any)["ResourceARN"].(string)
 
 	// TagResource on a DRT ARN must succeed.
@@ -294,7 +296,7 @@ func TestDataRepositoryTask_TagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var tagOut map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagOut))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &tagOut, jsonx.V1()))
 	tags := tagOut["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "added", tags[0].(map[string]any)["Key"])

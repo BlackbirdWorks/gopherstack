@@ -1,8 +1,10 @@
 package ecs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Load balancer, logging, secrets, and volume models ----
@@ -913,7 +915,7 @@ func (c *ContainerDefinition) UnmarshalJSON(data []byte) error {
 	type plain ContainerDefinition
 
 	p := plain{Essential: true}
-	if err := json.Unmarshal(data, &p); err != nil {
+	if err := json.Unmarshal(data, &p, jsonx.V1()); err != nil {
 		return err
 	}
 

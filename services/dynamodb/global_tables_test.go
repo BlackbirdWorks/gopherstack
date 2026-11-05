@@ -1,7 +1,7 @@
 package dynamodb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
@@ -149,7 +150,7 @@ func TestGlobalTables(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, code)
 
 			if tt.wantBodyContains != "" {
-				bodyBytes, _ := json.Marshal(resp)
+				bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 				assert.Contains(t, string(bodyBytes), tt.wantBodyContains)
 			}
 		})
@@ -883,7 +884,7 @@ func TestUpdateGlobalTableSettings_NotFound_ViaHandler(t *testing.T) {
 		"GlobalTableName": "NoSuchGT",
 	})
 	require.Equal(t, http.StatusBadRequest, code)
-	bodyBytes, _ := json.Marshal(resp)
+	bodyBytes, _ := json.Marshal(resp, jsonx.V1())
 	assert.Contains(t, string(bodyBytes), "GlobalTableNotFoundException")
 }
 

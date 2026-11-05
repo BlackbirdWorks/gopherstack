@@ -2,13 +2,15 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -194,7 +196,7 @@ func eventBridgeEntry(m map[string]any, busARN string) (EventBridgeEntry, error)
 		e.Detail = d
 	case nil:
 	default:
-		raw, err := json.Marshal(d)
+		raw, err := json.Marshal(d, jsonx.V1())
 		if err != nil {
 			return e, fmt.Errorf("%w: event detail is not JSON-serializable", ErrValidation)
 		}
@@ -275,7 +277,7 @@ func parseSearchBody(body []byte) any {
 	}
 
 	var v any
-	if err := json.Unmarshal(body, &v); err != nil {
+	if err := json.Unmarshal(body, &v, jsonx.V1()); err != nil {
 		return string(body)
 	}
 
@@ -313,7 +315,7 @@ func openSearchRequest(endpoint string, m map[string]any) (OpenSearchRequest, er
 	case string:
 		req.Body = []byte(body)
 	default:
-		raw, err := json.Marshal(body)
+		raw, err := json.Marshal(body, jsonx.V1())
 		if err != nil {
 			return req, fmt.Errorf("%w: request body is not JSON-serializable", ErrValidation)
 		}

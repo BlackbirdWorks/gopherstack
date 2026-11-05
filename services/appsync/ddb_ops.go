@@ -3,11 +3,14 @@ package appsync
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"reflect"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -228,16 +231,28 @@ func checkFailedErr(req map[string]any, err error) error {
 	return err
 }
 
+func clampInt32(i int64) int {
+	if i > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	if i < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int(i)
+}
+
 func intOf(v any) int {
 	switch n := v.(type) {
 	case float64:
-		return int(n)
+		return clampInt32(int64(n))
 	case int:
-		return n
-	case json.Number:
+		return clampInt32(int64(n))
+	case jsonx.Number:
 		i, _ := n.Int64()
 
-		return int(i)
+		return clampInt32(i)
 	default:
 		return 0
 	}
@@ -250,8 +265,8 @@ func ddbQueryScan(
 	q.Index, _ = req["index"].(string)
 	q.Consistent, _ = req["consistentRead"].(bool)
 
-	if n := intOf(req["limit"]); n > 0 {
-		q.Limit = int32(n) //nolint:gosec // bounded by request
+	if n := intOf(req["limit"]); n > 0 && n <= math.MaxInt32 {
+		q.Limit = int32(n)
 	}
 
 	if fwd, ok := req["scanIndexForward"].(bool); ok {
@@ -305,7 +320,7 @@ func ddbQueryScan(
 }
 
 func encodeNextToken(key map[string]any) string {
-	b, _ := json.Marshal(key)
+	b, _ := json.Marshal(key, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(b)
 }
@@ -317,7 +332,7 @@ func decodeNextToken(tok string) (map[string]any, error) {
 	}
 
 	var key map[string]any
-	if err = json.Unmarshal(raw, &key); err != nil || len(key) == 0 {
+	if err = json.Unmarshal(raw, &key, jsonx.V1()); err != nil || len(key) == 0 {
 		return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 

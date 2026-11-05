@@ -2,7 +2,8 @@ package neptune
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/bolt"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -169,7 +171,7 @@ type cypherCall struct {
 func writeCypherJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json;charset=UTF-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), body)
 }
 
 func writeCypherError(w http.ResponseWriter, status int, code, detail string) {
@@ -207,7 +209,7 @@ var errMethodNotAllowed = errors.New("method not allowed")
 
 func readCypherJSON(body io.Reader) (cypherCall, error) {
 	var req cypherRequest
-	if err := json.NewDecoder(body).Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(body), &req, jsonx.V1()); err != nil {
 		return cypherCall{}, fmt.Errorf("decode request: %w", err)
 	}
 
@@ -225,7 +227,7 @@ func readCypherJSON(body io.Reader) (cypherCall, error) {
 	case string:
 		call.params = p
 	default:
-		raw, _ := json.Marshal(p)
+		raw, _ := json.Marshal(p, jsonx.V1())
 		call.params = string(raw)
 	}
 
@@ -291,7 +293,7 @@ func (f *cypherFront) runQuery(ctx context.Context, w http.ResponseWriter, query
 		return
 	}
 
-	writeCypherJSON(w, http.StatusOK, map[string]json.RawMessage{"results": rowsOrEmpty(rows)})
+	writeCypherJSON(w, http.StatusOK, map[string]jsontext.Value{"results": rowsOrEmpty(rows)})
 }
 
 func (f *cypherFront) serveExplain(ctx context.Context, w http.ResponseWriter, call cypherCall, params map[string]any) {
@@ -318,9 +320,9 @@ func (f *cypherFront) serveExplain(ctx context.Context, w http.ResponseWriter, c
 	_, _ = io.WriteString(w, plan)
 }
 
-func rowsOrEmpty(rows []byte) json.RawMessage {
+func rowsOrEmpty(rows []byte) jsontext.Value {
 	if len(rows) == 0 {
-		return json.RawMessage("[]")
+		return jsontext.Value("[]")
 	}
 
 	return rows

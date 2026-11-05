@@ -2,7 +2,7 @@ package textract_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -109,7 +110,7 @@ func TestAsyncJobWritesOutputConfig(t *testing.T) {
 			assert.Contains(t, w.objects, "out/pre/"+id+"/.s3_access_check")
 
 			var page map[string]any
-			require.NoError(t, json.Unmarshal(w.objects["out/pre/"+id+"/1"], &page))
+			require.NoError(t, json.Unmarshal(w.objects["out/pre/"+id+"/1"], &page, jsonx.V1()))
 			assert.Contains(t, page, tt.wantKey)
 			assert.Contains(t, page, "DocumentMetadata")
 

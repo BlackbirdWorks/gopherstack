@@ -2,7 +2,7 @@ package dynamodb
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strconv"
 	"sync"
@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
@@ -63,7 +64,7 @@ func marshalResponse(v any) ([]byte, func(), error) {
 		return e.bytes(), e.release, nil
 	}
 
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 
 	return b, noopRelease, err
 }
@@ -322,7 +323,7 @@ func appendSDKItems(dst []byte, items []map[string]types.AttributeValue) []byte 
 
 // appendMarshaled splices json.Marshal(v) for rarely-populated sub-documents.
 func appendMarshaled(dst []byte, v any) []byte {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return append(dst, "null"...)
 	}

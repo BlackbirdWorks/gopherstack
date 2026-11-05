@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_Tags(t *testing.T) {
@@ -75,7 +77,7 @@ func TestHandler_Tags(t *testing.T) {
 				var out struct {
 					Tags map[string]string `json:"tags"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantTags, out.Tags)
 			}
 		})

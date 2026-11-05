@@ -1,11 +1,12 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -51,7 +52,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 	return map[string]actionFn{
 		opGetTags: func(b []byte) (int, any, error) {
 			var input getTagsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			t, err := h.Backend.GetResourceTags(input.ResourceARN)
@@ -63,7 +64,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 		},
 		opTagResource: func(b []byte) (int, any, error) {
 			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			for key := range input.Tags {
@@ -83,7 +84,7 @@ func (h *Handler) tagActions() map[string]actionFn {
 		},
 		opUntagResource: func(b []byte) (int, any, error) {
 			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return 0, nil, err
 			}
 			if err := h.Backend.UntagResource(input.ResourceARN, input.TagKeys); err != nil {

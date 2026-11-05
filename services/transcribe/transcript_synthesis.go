@@ -1,9 +1,11 @@
 package transcribe
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // syntheticWordBaseDuration is the base duration in seconds for synthetic word timing.
@@ -17,7 +19,7 @@ const syntheticWordGap = 0.05
 
 // marshalJSON marshals v to JSON bytes, returning nil on error (only used for synthetic output).
 func marshalJSON(v any) ([]byte, error) {
-	return json.Marshal(v)
+	return json.Marshal(v, jsonx.V1())
 }
 
 // deriveTranscriptText produces a transcript string from the job name and media URI.

@@ -1,8 +1,10 @@
 package ec2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -49,7 +51,7 @@ func (b *InMemoryBackend) ModifyClientVpnEndpointAuthorizationPolicy(
 
 	if policyDocument != nil {
 		var doc map[string]any
-		if err := json.Unmarshal([]byte(*policyDocument), &doc); err != nil || doc == nil {
+		if err := json.Unmarshal([]byte(*policyDocument), &doc, jsonx.V1()); err != nil || doc == nil {
 			return false, fmt.Errorf("%w: PolicyDocument must be a JSON object", ErrInvalidParameter)
 		}
 	}

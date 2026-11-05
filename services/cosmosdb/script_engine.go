@@ -1,7 +1,6 @@
 package cosmosdb
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/dop251/goja"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/jsruntime"
 )
 
@@ -90,7 +90,7 @@ func toJS(vm *goja.Runtime, v any) goja.Value {
 		return goja.Null()
 	case undef:
 		return goja.Undefined()
-	case json.Number:
+	case jsonx.Number:
 		return numberToJS(vm, t)
 	case map[string]any:
 		o := vm.NewObject()
@@ -111,7 +111,7 @@ func toJS(vm *goja.Runtime, v any) goja.Value {
 	}
 }
 
-func numberToJS(vm *goja.Runtime, n json.Number) goja.Value {
+func numberToJS(vm *goja.Runtime, n jsonx.Number) goja.Value {
 	if i, err := n.Int64(); err == nil {
 		return vm.ToValue(i)
 	}
@@ -137,15 +137,15 @@ func fromJS(v goja.Value) any {
 func normalizeExport(v any) any {
 	switch t := v.(type) {
 	case int64:
-		return json.Number(strconv.FormatInt(t, 10))
+		return jsonx.Number(strconv.FormatInt(t, 10))
 	case int:
-		return json.Number(strconv.Itoa(t))
+		return jsonx.Number(strconv.Itoa(t))
 	case float64:
 		if math.IsNaN(t) || math.IsInf(t, 0) {
 			return nil
 		}
 
-		return json.Number(strconv.FormatFloat(t, 'g', -1, 64))
+		return jsonx.Number(strconv.FormatFloat(t, 'g', -1, 64))
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, e := range t {

@@ -2,9 +2,11 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -17,7 +19,7 @@ type checkCapacityRequest struct {
 
 func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte, error) {
 	var req checkCapacityRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -32,7 +34,7 @@ func (h *Handler) handleCheckCapacity(ctx context.Context, body []byte) ([]byte,
 
 	return json.Marshal(map[string]any{
 		"Capacity": capacity,
-	})
+	}, jsonx.V1())
 }
 
 // createRuleGroupRequest is the request body for CreateRuleGroup.
@@ -40,9 +42,9 @@ type createRuleGroupRequest struct {
 	Name                 string           `json:"Name"`
 	Scope                string           `json:"Scope"`
 	Description          string           `json:"Description"`
-	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
-	MonetizationConfig   json.RawMessage  `json:"MonetizationConfig"`
+	VisibilityConfig     jsontext.Value   `json:"VisibilityConfig"`
+	CustomResponseBodies jsontext.Value   `json:"CustomResponseBodies"`
+	MonetizationConfig   jsontext.Value   `json:"MonetizationConfig"`
 	Rules                []map[string]any `json:"Rules"`
 	Tags                 []tags.KV        `json:"Tags"`
 	Capacity             int64            `json:"Capacity"`
@@ -50,7 +52,7 @@ type createRuleGroupRequest struct {
 
 func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req createRuleGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -121,7 +123,7 @@ func (h *Handler) handleCreateRuleGroup(ctx context.Context, body []byte) ([]byt
 			keyLockToken:   rg.LockToken,
 			keyDescription: rg.Description,
 		},
-	})
+	}, jsonx.V1())
 }
 
 // getRuleGroupRequest is the request body for GetRuleGroup.
@@ -134,7 +136,7 @@ type getRuleGroupRequest struct {
 
 func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req getRuleGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -171,7 +173,7 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 	}
 
 	arnStr := rg.ARN
-	visConfig := parseVisibilityConfig(json.RawMessage(rg.VisibilityConfig), rg.Name)
+	visConfig := parseVisibilityConfig(jsontext.Value(rg.VisibilityConfig), rg.Name)
 
 	// LabelNamespace grammar ("awswaf:<account ID>:rulegroup:<rule group
 	// name>:") confirmed via
@@ -194,14 +196,14 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 
 	if len(rg.CustomResponseBodies) > 0 {
 		var crb any
-		if json.Unmarshal(rg.CustomResponseBodies, &crb) == nil {
+		if json.Unmarshal(rg.CustomResponseBodies, &crb, jsonx.V1()) == nil {
 			ruleGroupMap["CustomResponseBodies"] = crb
 		}
 	}
 
 	if len(rg.MonetizationConfig) > 0 {
 		var mc any
-		if json.Unmarshal(rg.MonetizationConfig, &mc) == nil {
+		if json.Unmarshal(rg.MonetizationConfig, &mc, jsonx.V1()) == nil {
 			ruleGroupMap["MonetizationConfig"] = mc
 		}
 	}
@@ -209,7 +211,7 @@ func (h *Handler) handleGetRuleGroup(ctx context.Context, body []byte) ([]byte, 
 	return json.Marshal(map[string]any{
 		"RuleGroup":  ruleGroupMap,
 		keyLockToken: rg.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleListRuleGroups(ctx context.Context, body []byte) ([]byte, error) {
@@ -238,15 +240,15 @@ type updateRuleGroupRequest struct {
 	Scope                string           `json:"Scope"`
 	LockToken            string           `json:"LockToken"`
 	Description          string           `json:"Description"`
-	VisibilityConfig     json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies json.RawMessage  `json:"CustomResponseBodies"`
-	MonetizationConfig   json.RawMessage  `json:"MonetizationConfig"`
+	VisibilityConfig     jsontext.Value   `json:"VisibilityConfig"`
+	CustomResponseBodies jsontext.Value   `json:"CustomResponseBodies"`
+	MonetizationConfig   jsontext.Value   `json:"MonetizationConfig"`
 	Rules                []map[string]any `json:"Rules"`
 }
 
 func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateRuleGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -287,7 +289,7 @@ func (h *Handler) handleUpdateRuleGroup(ctx context.Context, body []byte) ([]byt
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "wafv2: updated rule group", "id", req.ID)
 
-	return json.Marshal(map[string]string{keyNextLockToken: rg.LockToken})
+	return json.Marshal(map[string]string{keyNextLockToken: rg.LockToken}, jsonx.V1())
 }
 
 // deleteRuleGroupRequest is the request body for DeleteRuleGroup.
@@ -300,7 +302,7 @@ type deleteRuleGroupRequest struct {
 
 func (h *Handler) handleDeleteRuleGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteRuleGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

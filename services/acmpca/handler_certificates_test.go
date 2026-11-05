@@ -2,7 +2,7 @@ package acmpca_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/acmpca"
 )
 
@@ -265,7 +266,7 @@ func TestACMPCA_IssueCertificate_EndDateValidity(t *testing.T) {
 	var out struct {
 		CertificateArn string `json:"CertificateArn"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.CertificateArn,
 		"IssueCertificate with END_DATE must return a CertificateArn")
 }
@@ -325,7 +326,7 @@ func TestACMPCA_IssueCertificate_ValidityTypeAliases(t *testing.T) {
 			var out struct {
 				CertificateArn string `json:"CertificateArn"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotEmpty(t, out.CertificateArn,
 				"validity type %q must return CertificateArn", tt.validityType)
 		})
@@ -433,7 +434,7 @@ func TestACMPCA_GetCertificate_ChainIncludesCAChain(t *testing.T) {
 				Certificate      string `json:"Certificate"`
 				CertificateChain string `json:"CertificateChain"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.NotEmpty(t, out.Certificate, "Certificate must be present")
 			if tt.wantChain {

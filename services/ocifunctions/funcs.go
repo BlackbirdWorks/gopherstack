@@ -1,7 +1,7 @@
 package ocifunctions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"strings"
 	"time"
@@ -39,8 +39,8 @@ type fnIn struct {
 	Source      *sourceIn         `json:"sourceDetails"`
 	Name        string            `json:"displayName"`
 	AppID       string            `json:"applicationId"`
-	Failure     json.RawMessage   `json:"failureDestination"`
-	Success     json.RawMessage   `json:"successDestination"`
+	Failure     jsontext.Value    `json:"failureDestination"`
+	Success     jsontext.Value    `json:"successDestination"`
 }
 
 type fnWire struct {
@@ -60,8 +60,8 @@ type fnWire struct {
 	LifecycleState string                    `json:"lifecycleState"`
 	Shape          string                    `json:"shape,omitempty"`
 	InvokeEndpoint string                    `json:"invokeEndpoint"`
-	Success        json.RawMessage           `json:"successDestination,omitempty"`
-	Failure        json.RawMessage           `json:"failureDestination,omitempty"`
+	Success        jsontext.Value            `json:"successDestination,omitempty"`
+	Failure        jsontext.Value            `json:"failureDestination,omitempty"`
 	Memory         int64                     `json:"memoryInMBs"`
 	Timeout        int                       `json:"timeoutInSeconds"`
 }

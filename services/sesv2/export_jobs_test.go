@@ -1,13 +1,14 @@
 package sesv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
 
@@ -127,7 +128,7 @@ func TestGetExportJob(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodGet, "/v2/email/export-jobs/"+jobID, nil)
@@ -249,7 +250,7 @@ func TestCreateExportJobWireShape(t *testing.T) {
 			}
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			jobID, ok := createResp["JobId"].(string)
 			require.True(t, ok)
 
@@ -257,7 +258,7 @@ func TestCreateExportJobWireShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.wantSource, getResp["ExportSourceType"])
 		})
 	}
@@ -285,7 +286,7 @@ func TestCancelExportJobAfterCreate(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	jobID := createResp["JobId"].(string)
 
 	rec := doRequest(t, h, http.MethodPut, "/v2/email/export-jobs/"+jobID+"/cancel", nil)

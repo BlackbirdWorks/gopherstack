@@ -1,9 +1,10 @@
 package cosmosdb
 
 import (
-	"encoding/json"
 	"math"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -52,7 +53,7 @@ func (a *aggAcc) add(v any) {
 	}
 }
 
-func (a *aggAcc) addNumber(n json.Number) {
+func (a *aggAcc) addNumber(n jsonx.Number) {
 	a.numCount++
 	a.sumFloat += numFloat(n)
 
@@ -101,7 +102,7 @@ func (a *aggAcc) result() any {
 		case a.floatSum:
 			return floatResult(a.sumFloat)
 		default:
-			return json.Number(strconv.FormatInt(a.sumInt, 10))
+			return jsonx.Number(strconv.FormatInt(a.sumInt, 10))
 		}
 	case aggAvg:
 		if a.numCount == 0 {

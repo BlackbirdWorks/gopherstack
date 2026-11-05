@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchPublishingDestOps(op, path, query string, body []byte) (any, int, bool, error) {
@@ -49,7 +51,7 @@ func (h *Handler) handleCreatePublishingDestination(detectorID string, body []by
 		ClientToken           string                `json:"clientToken"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -137,7 +139,7 @@ func (h *Handler) handleUpdatePublishingDestination(detectorID, destID string, b
 		DestinationProperties DestinationProperties `json:"destinationProperties"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

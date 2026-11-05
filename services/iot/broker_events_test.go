@@ -1,7 +1,7 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -79,7 +80,7 @@ func (w *eventWatcher) next(t *testing.T, topic string) map[string]any {
 			}
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(m.Payload(), &out))
+			require.NoError(t, json.Unmarshal(m.Payload(), &out, jsonx.V1()))
 
 			return out
 		case <-timeout:
@@ -174,7 +175,7 @@ func TestBrokerLifecycleEvents(t *testing.T) {
 					select {
 					case m := <-w.msgs:
 						var p map[string]any
-						require.NoError(t, json.Unmarshal(m.Payload(), &p))
+						require.NoError(t, json.Unmarshal(m.Payload(), &p, jsonx.V1()))
 
 						switch {
 						case p["clientId"] != "dev-dup":
@@ -645,7 +646,7 @@ func TestBrokerConnectFailedEvent(t *testing.T) {
 		assert.Equal(t, "$aws/events/presence/connect_failed/intruder", m.Topic())
 
 		var p map[string]any
-		require.NoError(t, json.Unmarshal(m.Payload(), &p))
+		require.NoError(t, json.Unmarshal(m.Payload(), &p, jsonx.V1()))
 		assert.Equal(t, "connect_failed", p["eventType"])
 		assert.Equal(t, "AUTHORIZATION_FAILED", p["connectFailureReason"])
 		assert.Equal(t, "intruder", p["clientId"])

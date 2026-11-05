@@ -1,7 +1,7 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -25,7 +26,7 @@ func wafCreateWebACL(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	aclMap, ok := resp["WebACL"].(map[string]any)
 	require.True(t, ok)
 	id, ok := aclMap["WebACLId"].(string)
@@ -49,7 +50,7 @@ func TestWAF_WebACL_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	acl := getResp["WebACL"].(map[string]any)
 	assert.Equal(t, "my-acl", acl["Name"])
 	assert.Equal(t, id, acl["WebACLId"])
@@ -64,7 +65,7 @@ func TestWAF_WebACL_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	acls := listResp["WebACLs"].([]any)
 	assert.Len(t, acls, 1)
 
@@ -92,7 +93,7 @@ func TestWAF_WebACL_DefaultAction_BLOCK(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	acl := resp["WebACL"].(map[string]any)
 	da := acl["DefaultAction"].(map[string]any)
 	assert.Equal(t, "BLOCK", da["Type"])
@@ -114,7 +115,7 @@ func TestWAF_WebACL_UpdateDefaultAction(t *testing.T) {
 
 	rec = wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": id})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	acl := resp["WebACL"].(map[string]any)
 	da := acl["DefaultAction"].(map[string]any)
 	assert.Equal(t, "BLOCK", da["Type"])
@@ -148,7 +149,7 @@ func TestWAF_WebACL_UpdateRules_InsertAndDelete(t *testing.T) {
 	// Verify rule present
 	rec = wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": aclID})
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	acl := getResp["WebACL"].(map[string]any)
 	rules := acl["Rules"].([]any)
 	require.Len(t, rules, 1)
@@ -175,7 +176,7 @@ func TestWAF_WebACL_UpdateRules_InsertAndDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": aclID})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 	acl = getResp["WebACL"].(map[string]any)
 	rules = acl["Rules"].([]any)
 	assert.Empty(t, rules)
@@ -263,7 +264,7 @@ func TestWAF_WebACL_RulesPrioritySorted(t *testing.T) {
 
 	rec = wafDo(t, h, "GetWebACL", map[string]any{"WebACLId": aclID})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rules := resp["WebACL"].(map[string]any)["Rules"].([]any)
 	require.Len(t, rules, 2)
 	assert.EqualValues(t, 1, rules[0].(map[string]any)["Priority"])
@@ -284,7 +285,7 @@ func TestWAF_WebACL_ChangeTokenRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, token, resp["ChangeToken"])
 }
 
@@ -299,7 +300,7 @@ func TestWAF_MultipleWebACLs_List(t *testing.T) {
 	rec := wafDo(t, h, "ListWebACLs", map[string]any{"Limit": 100})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	acls := resp["WebACLs"].([]any)
 	assert.Len(t, acls, 3)
 }
@@ -369,7 +370,7 @@ func TestCreateWebACLMigrationStack(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		s3URL, ok := resp["S3ObjectUrl"].(string)
 		require.True(t, ok)
 		assert.Contains(t, s3URL, "my-migration-bucket")

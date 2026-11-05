@@ -1,6 +1,10 @@
 package athena
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 type tagResourceInput struct {
 	ResourceARN string `json:"ResourceARN"`
@@ -22,7 +26,7 @@ func (h *Handler) tagOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"TagResource": func(b []byte) (any, error) {
 			var input tagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -30,7 +34,7 @@ func (h *Handler) tagOps() map[string]athenaActionFn {
 		},
 		"UntagResource": func(b []byte) (any, error) {
 			var input untagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -38,7 +42,7 @@ func (h *Handler) tagOps() map[string]athenaActionFn {
 		},
 		"ListTagsForResource": func(b []byte) (any, error) {
 			var input listTagsForResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

@@ -1,10 +1,12 @@
 package dsql
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchPolicyOps handles cluster resource-policy operations.
@@ -32,7 +34,7 @@ func (h *Handler) handleGetClusterPolicy(c *echo.Context, identifier string) err
 
 func (h *Handler) handlePutClusterPolicy(c *echo.Context, identifier string, body []byte) error {
 	var req putClusterPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeInvalidBody(c)
 	}
 

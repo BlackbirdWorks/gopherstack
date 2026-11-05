@@ -2,7 +2,7 @@ package sagemaker_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -60,7 +61,7 @@ func TestHandler_CreateEndpointConfig(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["EndpointConfigArn"], "arn:aws:sagemaker")
 			}
 		})
@@ -111,7 +112,7 @@ func TestHandler_DescribeEndpointConfig(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantName, resp["EndpointConfigName"])
 			}
 		})
@@ -250,7 +251,7 @@ func TestHandler_ListEndpointConfigs(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			configs, ok := resp["EndpointConfigs"].([]any)
 			require.True(t, ok)
@@ -281,7 +282,7 @@ func TestHandler_Tags_EndpointConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tags, ok := resp["Tags"].([]any)
 	require.True(t, ok)
@@ -334,7 +335,7 @@ func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			configs, configsOK := resp["EndpointConfigs"].([]any)
 			require.True(t, configsOK)
@@ -355,7 +356,7 @@ func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
 				var resp2 map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 				configs2, configs2OK := resp2["EndpointConfigs"].([]any)
 				require.True(t, configs2OK)
@@ -444,7 +445,7 @@ func TestCreateEndpointConfig_RequiresProductionVariants(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				msg, _ := errResp["message"].(string)
 				assert.Contains(t, msg, "ProductionVariant",
 					"error message must mention ProductionVariant")
@@ -525,7 +526,7 @@ func TestHandler_ListEndpointConfigs_FilterSort(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	list, ok := resp["EndpointConfigs"].([]any)
 	require.True(t, ok)
@@ -597,7 +598,7 @@ func TestHandler_ListEndpointConfigs_CreationTimeAfterInclusive(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	configs, ok := resp["EndpointConfigs"].([]any)
 	require.True(t, ok)
 	require.Len(t, configs, 1)

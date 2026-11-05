@@ -1,8 +1,10 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) dispatchFindingOps(op, path string, body []byte) (any, int, bool, error) {
@@ -54,7 +56,7 @@ func (h *Handler) handleGetFindings(detectorID string, body []byte) (any, int, e
 		FindingIDs   []string      `json:"findingIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -79,7 +81,7 @@ func (h *Handler) handleListFindings(detectorID string, body []byte) (any, int, 
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -116,7 +118,7 @@ func (h *Handler) handleArchiveFindings(detectorID string, body []byte) (int, er
 		FindingIDs []string `json:"findingIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -132,7 +134,7 @@ func (h *Handler) handleUnarchiveFindings(detectorID string, body []byte) (int, 
 		FindingIDs []string `json:"findingIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -149,7 +151,7 @@ func (h *Handler) handleCreateSampleFindings(detectorID string, body []byte) (in
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -170,7 +172,7 @@ func (h *Handler) handleGetFindingsStatistics(detectorID string, body []byte) (a
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -195,7 +197,7 @@ func (h *Handler) handleUpdateFindingsFeedback(detectorID string, body []byte) (
 		FindingIDs []string `json:"findingIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 

@@ -1,7 +1,7 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 	"testing"
@@ -254,8 +254,8 @@ func TestServerlessScheduledActionIndex_OrderedWithFilter(t *testing.T) {
 			ScheduledActionName: s.name,
 			NamespaceName:       s.ns,
 			RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
-			Schedule:            json.RawMessage(`{"cron":"0 10 ? * MON *"}`),
-			TargetAction: json.RawMessage(
+			Schedule:            jsontext.Value(`{"cron":"0 10 ? * MON *"}`),
+			TargetAction: jsontext.Value(
 				`{"createSnapshot":{"namespaceName":"` + s.ns + `","snapshotName":"snap"}}`,
 			),
 			StartTime: start,

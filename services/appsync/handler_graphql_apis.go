@@ -2,7 +2,7 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createGraphqlAPI handles POST /v1/apis.
@@ -39,7 +40,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		XrayEnabled                       bool                               `json:"xrayEnabled"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -202,7 +203,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		ResolverCountLimit                int32                              `json:"resolverCountLimit"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -255,7 +256,7 @@ func (h *Handler) handleEnvironmentVariables(ctx context.Context, c *echo.Contex
 			EnvironmentVariables map[string]string `json:"environmentVariables"`
 		}
 
-		if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &input, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 		}
 

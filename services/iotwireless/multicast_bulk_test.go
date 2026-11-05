@@ -1,12 +1,13 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iotwireless"
 )
 
@@ -86,7 +87,7 @@ func TestHandler_StartBulkAssociate_MutatesState(t *testing.T) {
 	var created struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec = doIoTWRequest(t, h, "POST", "/wireless-devices", `{"Name":"d1","Type":"LoRaWAN"}`)
 	require.Equal(t, 201, rec.Code)

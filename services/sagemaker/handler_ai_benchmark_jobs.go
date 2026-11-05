@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aiBenchmarkJobOpsSupported returns the operations handled by
@@ -51,19 +54,19 @@ func (h *Handler) dispatchAIBenchmarkJobOps(
 // createAIBenchmarkJobInput mirrors CreateAIBenchmarkJobInput
 // (api_op_CreateAIBenchmarkJob.go:33-73).
 type createAIBenchmarkJobInput struct {
-	BenchmarkTarget            json.RawMessage `json:"BenchmarkTarget"`
-	OutputConfig               json.RawMessage `json:"OutputConfig"`
-	NetworkConfig              json.RawMessage `json:"NetworkConfig"`
-	AIBenchmarkJobName         string          `json:"AIBenchmarkJobName"`
-	AIWorkloadConfigIdentifier string          `json:"AIWorkloadConfigIdentifier"`
-	RoleArn                    string          `json:"RoleArn"`
-	Tags                       []tagObject     `json:"Tags"`
+	BenchmarkTarget            jsontext.Value `json:"BenchmarkTarget"`
+	OutputConfig               jsontext.Value `json:"OutputConfig"`
+	NetworkConfig              jsontext.Value `json:"NetworkConfig"`
+	AIBenchmarkJobName         string         `json:"AIBenchmarkJobName"`
+	AIWorkloadConfigIdentifier string         `json:"AIWorkloadConfigIdentifier"`
+	RoleArn                    string         `json:"RoleArn"`
+	Tags                       []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAIBenchmarkJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -84,7 +87,7 @@ func (h *Handler) handleCreateAIBenchmarkJob(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: j.AIBenchmarkJobArn})
+	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: j.AIBenchmarkJobArn}, jsonx.V1())
 }
 
 // describeAIBenchmarkJobInput mirrors DescribeAIBenchmarkJobInput
@@ -96,7 +99,7 @@ type describeAIBenchmarkJobInput struct {
 func (h *Handler) handleDescribeAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAIBenchmarkJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -109,7 +112,7 @@ func (h *Handler) handleDescribeAIBenchmarkJob(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(j)
+	return json.Marshal(j, jsonx.V1())
 }
 
 // deleteAIBenchmarkJobInput mirrors DeleteAIBenchmarkJobInput
@@ -121,7 +124,7 @@ type deleteAIBenchmarkJobInput struct {
 func (h *Handler) handleDeleteAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteAIBenchmarkJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -134,7 +137,7 @@ func (h *Handler) handleDeleteAIBenchmarkJob(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN})
+	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN}, jsonx.V1())
 }
 
 // stopAIBenchmarkJobInput mirrors StopAIBenchmarkJobInput
@@ -146,7 +149,7 @@ type stopAIBenchmarkJobInput struct {
 func (h *Handler) handleStopAIBenchmarkJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req stopAIBenchmarkJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -159,7 +162,7 @@ func (h *Handler) handleStopAIBenchmarkJob(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN})
+	return json.Marshal(map[string]string{keyAIBenchmarkJobArn: jobARN}, jsonx.V1())
 }
 
 // listAIBenchmarkJobsInput mirrors ListAIBenchmarkJobsInput
@@ -178,7 +181,7 @@ type listAIBenchmarkJobsInput struct {
 func (h *Handler) handleListAIBenchmarkJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAIBenchmarkJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

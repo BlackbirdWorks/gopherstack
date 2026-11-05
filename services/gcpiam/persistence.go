@@ -2,7 +2,7 @@ package gcpiam
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"time"
 
@@ -19,23 +19,23 @@ import (
 const snapshotVersion = 1
 
 type keySnap struct {
-	Key     json.RawMessage `json:"key"`
-	Cert    []byte          `json:"cert,omitempty"`
-	Public  []byte          `json:"public,omitempty"`
-	Private []byte          `json:"private,omitempty"`
+	Key     jsontext.Value `json:"key"`
+	Cert    []byte         `json:"cert,omitempty"`
+	Public  []byte         `json:"public,omitempty"`
+	Private []byte         `json:"private,omitempty"`
 }
 
 type accountSnap struct {
 	Keys      map[string]keySnap `json:"keys,omitempty"`
 	System    *keySnap           `json:"system,omitempty"`
 	DeletedAt time.Time          `json:"deletedAt"`
-	Account   json.RawMessage    `json:"account"`
-	Policy    json.RawMessage    `json:"policy,omitempty"`
+	Account   jsontext.Value     `json:"account"`
+	Policy    jsontext.Value     `json:"policy,omitempty"`
 }
 
 type roleSnap struct {
-	DeletedAt time.Time       `json:"deletedAt"`
-	Role      json.RawMessage `json:"role"`
+	DeletedAt time.Time      `json:"deletedAt"`
+	Role      jsontext.Value `json:"role"`
 }
 
 type backendSnapshot struct {
@@ -45,7 +45,7 @@ type backendSnapshot struct {
 	Version  int                    `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -54,7 +54,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 

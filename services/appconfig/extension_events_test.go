@@ -2,7 +2,7 @@ package appconfig_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"slices"
 	"sync"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -104,7 +105,7 @@ type lifecycleInvoker struct {
 
 func (l *lifecycleInvoker) Invoke(_ context.Context, _ string, payload []byte) ([]byte, error) {
 	var ev map[string]any
-	if err := json.Unmarshal(payload, &ev); err != nil {
+	if err := json.Unmarshal(payload, &ev, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +271,7 @@ func TestExtensionActions_OnDeploymentTargets(t *testing.T) {
 			assert.Equal(t, "OnDeploymentComplete", snsMsgs[1].attrs["MessageType"])
 
 			var m map[string]any
-			require.NoError(t, json.Unmarshal([]byte(snsMsgs[0].message), &m))
+			require.NoError(t, json.Unmarshal([]byte(snsMsgs[0].message), &m, jsonx.V1()))
 			assert.Equal(t, "1", m["DeploymentNumber"])
 			assert.Equal(t, "1", m["ConfigurationVersion"])
 			assert.Equal(t, "my deploy", m["Description"])
@@ -282,7 +283,7 @@ func TestExtensionActions_OnDeploymentTargets(t *testing.T) {
 			t.Helper()
 
 			var m map[string]any
-			require.NoError(t, json.Unmarshal([]byte(sqsMsgs[1]), &m))
+			require.NoError(t, json.Unmarshal([]byte(sqsMsgs[1]), &m, jsonx.V1()))
 			assert.Equal(t, "OnDeploymentComplete", m["Type"])
 			assert.Equal(t, "1", m["DeploymentNumber"])
 		}},
@@ -297,7 +298,7 @@ func TestExtensionActions_OnDeploymentTargets(t *testing.T) {
 			assert.Contains(t, busMsgs[0].resources[0], ":extensionassociation/")
 
 			var m map[string]any
-			require.NoError(t, json.Unmarshal([]byte(busMsgs[0].detail), &m))
+			require.NoError(t, json.Unmarshal([]byte(busMsgs[0].detail), &m, jsonx.V1()))
 			assert.InDelta(t, 1, m["DeploymentNumber"], 0)
 		}},
 	}

@@ -1,7 +1,7 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/datasync"
 )
@@ -169,7 +170,7 @@ func TestListLocations_NoFabricatedCreationTime(t *testing.T) {
 	var resp struct {
 		Locations []map[string]any `json:"Locations"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Locations, 1, "must exercise a non-empty collection")
 
 	_, hasCreationTime := resp.Locations[0]["CreationTime"]

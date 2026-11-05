@@ -1,9 +1,11 @@
 package guardduty
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // keyMembers is the real required response key for GetMembers, ListMembers,
@@ -157,7 +159,7 @@ func (h *Handler) handleCreateMembers(detectorID string, body []byte) (any, int,
 		AccountDetails []map[string]any `json:"accountDetails"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -173,7 +175,7 @@ func (h *Handler) handleDeleteMembers(detectorID string, body []byte) (any, int,
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -190,7 +192,7 @@ func (h *Handler) handleGetMembers(detectorID string, body []byte) (any, int, er
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -215,7 +217,7 @@ func (h *Handler) handleInviteMembers(detectorID string, body []byte) (any, int,
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -253,7 +255,7 @@ func (h *Handler) handleStartMonitoringMembers(detectorID string, body []byte) (
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -270,7 +272,7 @@ func (h *Handler) handleStopMonitoringMembers(detectorID string, body []byte) (a
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -287,7 +289,7 @@ func (h *Handler) handleDisassociateMembers(detectorID string, body []byte) (any
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -304,7 +306,7 @@ func (h *Handler) handleGetMemberDetectors(detectorID string, body []byte) (any,
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -326,7 +328,7 @@ func (h *Handler) handleUpdateMemberDetectors(detectorID string, body []byte) (a
 		Features    []DetectorFeature `json:"features"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -346,7 +348,7 @@ func (h *Handler) handleAcceptAdministratorInvitation(detectorID string, body []
 		InvitationID    string `json:"invitationId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -363,7 +365,7 @@ func (h *Handler) handleAcceptInvitation(detectorID string, body []byte) (int, e
 		InvitationID string `json:"invitationId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return http.StatusBadRequest, ErrValidation
 	}
 
@@ -379,7 +381,7 @@ func (h *Handler) handleDeclineInvitations(body []byte) (any, int, error) {
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -393,7 +395,7 @@ func (h *Handler) handleDeleteInvitations(body []byte) (any, int, error) {
 		AccountIDs []string `json:"accountIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

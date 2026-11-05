@@ -2,7 +2,7 @@ package dashboard_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
@@ -88,7 +89,7 @@ func newArtDashboard(t *testing.T) artFixture {
 		} `json:"items"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list, jsonx.V1()))
 	require.Len(t, list.Items, 1)
 	f.imageID = list.Items[0].ID
 
@@ -105,7 +106,7 @@ func artTenancy(t *testing.T, f artFixture) string {
 		Compartments []string `json:"compartments"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Compartments)
 
 	return out.Compartments[0]
@@ -161,7 +162,7 @@ func TestOCIArtifactsProxyRepositoryActions(t *testing.T) {
 		Immutable bool   `json:"isImmutable"`
 	}
 
-	require.NoError(t, json.Unmarshal(create.Body.Bytes(), &repo))
+	require.NoError(t, json.Unmarshal(create.Body.Bytes(), &repo, jsonx.V1()))
 	assert.NotEqual(t, "forged", repo.ID)
 	assert.NotEqual(t, "forged", repo.CreatedBy)
 	assert.Empty(t, repo.Tags)
@@ -172,7 +173,7 @@ func TestOCIArtifactsProxyRepositoryActions(t *testing.T) {
 	upd := artDo(t, f.h, http.MethodPut, artAPI+"/containerRepositories/"+repo.ID,
 		`{"isImmutable":true,"isPublic":false,"freeformTags":{"forged":"yes"},"compartmentId":"x"}`)
 	require.Equal(t, http.StatusOK, upd.Code, upd.Body.String())
-	require.NoError(t, json.Unmarshal(upd.Body.Bytes(), &repo))
+	require.NoError(t, json.Unmarshal(upd.Body.Bytes(), &repo, jsonx.V1()))
 	assert.True(t, repo.Immutable)
 	assert.False(t, repo.Public)
 	assert.Empty(t, repo.Tags)
@@ -222,7 +223,7 @@ func TestOCIArtifactsProxySignaturesAreScrubbed(t *testing.T) {
 		"compartmentId": tenancy, "imageId": f.imageID, "kmsKeyId": "ocid1.key.oc1..kmskey0001",
 		"kmsKeyVersionId": "ocid1.keyversion.oc1..ver", "message": enc([]byte(artMsg)),
 		"signature": enc([]byte(artSig)), "signingAlgorithm": "SHA_256_RSA_PKCS_PSS",
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	made := f.direct(t, http.MethodPost, "/20160918/container/imageSignatures", string(body))
@@ -254,7 +255,7 @@ func TestOCIArtifactsProxyGenericLifecycleAndDownload(t *testing.T) {
 		ID string `json:"id"`
 	}
 
-	require.NoError(t, json.Unmarshal(made.Body.Bytes(), &repo))
+	require.NoError(t, json.Unmarshal(made.Body.Bytes(), &repo, jsonx.V1()))
 	assert.NotEqual(t, "forged", repo.ID)
 
 	put := f.direct(t, http.MethodPut,
@@ -273,7 +274,7 @@ func TestOCIArtifactsProxyGenericLifecycleAndDownload(t *testing.T) {
 		} `json:"items"`
 	}
 
-	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &arts))
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &arts, jsonx.V1()))
 	require.Len(t, arts.Items, 1)
 	assert.NotEmpty(t, arts.Items[0].Sha256)
 

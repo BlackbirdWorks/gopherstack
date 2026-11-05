@@ -1,7 +1,7 @@
 package transfer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListUsersSshPublicKeyCountAndHomeDirectoryType verifies that ListUsers returns
@@ -25,7 +27,7 @@ func TestHandler_ListUsersSshPublicKeyCountAndHomeDirectoryType(t *testing.T) {
 	var srvOut struct {
 		ServerID string `json:"ServerId"`
 	}
-	require.NoError(t, json.Unmarshal(createSrvRec.Body.Bytes(), &srvOut))
+	require.NoError(t, json.Unmarshal(createSrvRec.Body.Bytes(), &srvOut, jsonx.V1()))
 
 	createUserRec := doTransferRequest(t, h, "CreateUser", map[string]any{
 		"ServerId":          srvOut.ServerID,
@@ -57,7 +59,7 @@ func TestHandler_ListUsersSshPublicKeyCountAndHomeDirectoryType(t *testing.T) {
 			SSHPublicKeyCount int    `json:"SshPublicKeyCount"`
 		} `json:"Users"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Users, 1)
 
 	assert.Equal(t, "LOGICAL", listOut.Users[0].HomeDirectoryType)
@@ -95,7 +97,7 @@ func TestHandler_UserARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	user := descResp["User"].(map[string]any)
 
 	// newTestHandler uses testAccountID = "123456789012" and testRegion = "us-east-1"
@@ -130,7 +132,7 @@ func TestHandler_CreateUserPosixProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	user := descResp["User"].(map[string]any)
 	posix := user["PosixProfile"].(map[string]any)
 
@@ -164,7 +166,7 @@ func TestHandler_CreateUserHomeDirectoryLogical(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	user := descResp["User"].(map[string]any)
 
 	assert.Equal(t, "LOGICAL", user["HomeDirectoryType"])
@@ -207,7 +209,7 @@ func TestHandler_DescribeUserIncludesSshPublicKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	user := descResp["User"].(map[string]any)
 	keys, ok := user["SshPublicKeys"].([]any)
 	require.True(t, ok, "SshPublicKeys must be present")
@@ -235,7 +237,7 @@ func TestHandler_ListUsersPagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	users := listResp["Users"].([]any)
 	assert.Len(t, users, 2)
@@ -269,7 +271,7 @@ func TestHandler_UpdateUserPosixProfile(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	user := descResp["User"].(map[string]any)
 	posix := user["PosixProfile"].(map[string]any)
 	assert.EqualValues(t, 9999, posix["Uid"])
@@ -285,7 +287,7 @@ func TestHandler_UserCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	// Create user
@@ -298,7 +300,7 @@ func TestHandler_UserCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, createUserRec.Code)
 
 	var userResp map[string]any
-	require.NoError(t, json.Unmarshal(createUserRec.Body.Bytes(), &userResp))
+	require.NoError(t, json.Unmarshal(createUserRec.Body.Bytes(), &userResp, jsonx.V1()))
 	assert.Equal(t, "alice", userResp["UserName"])
 
 	// Describe user
@@ -315,7 +317,7 @@ func TestHandler_UserCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listUsersRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listUsersRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listUsersRec.Body.Bytes(), &listResp, jsonx.V1()))
 	users := listResp["Users"].([]any)
 	assert.Len(t, users, 1)
 
@@ -341,7 +343,7 @@ func TestHandler_UserCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listUsersRec2.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listUsersRec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(listUsersRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	assert.Empty(t, listResp2["Users"])
 }
 
@@ -354,7 +356,7 @@ func TestHandler_CreateUser_MissingFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	tests := []struct {
@@ -395,7 +397,7 @@ func TestHandler_ListUsers_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	serverID := createResp["ServerId"].(string)
 
 	for _, username := range []string{"alice", "bob", "charlie"} {
@@ -434,7 +436,7 @@ func TestHandler_ListUsers_Pagination(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			users := resp["Users"].([]any)
 			assert.GreaterOrEqual(t, len(users), tt.wantMinCount)
 
@@ -503,7 +505,7 @@ func TestHandler_DescribeDeleteUpdateUser(t *testing.T) {
 			require.Equal(t, http.StatusOK, createServerRec.Code)
 
 			var serverResp map[string]any
-			require.NoError(t, json.Unmarshal(createServerRec.Body.Bytes(), &serverResp))
+			require.NoError(t, json.Unmarshal(createServerRec.Body.Bytes(), &serverResp, jsonx.V1()))
 			serverID := serverResp["ServerId"].(string)
 
 			doTransferRequest(t, h, "CreateUser", map[string]any{

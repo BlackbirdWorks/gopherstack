@@ -3,7 +3,7 @@ package cognitoidentity_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 )
 
@@ -62,7 +63,7 @@ func doCognitoIdentityRequest(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -338,7 +339,7 @@ func TestNonNilSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, listPoolsRec.Code)
 
 	var listPoolsOut map[string]any
-	require.NoError(t, json.Unmarshal(listPoolsRec.Body.Bytes(), &listPoolsOut))
+	require.NoError(t, json.Unmarshal(listPoolsRec.Body.Bytes(), &listPoolsOut, jsonx.V1()))
 	pools, poolsOK := listPoolsOut["IdentityPools"].([]any)
 	require.True(t, poolsOK, "IdentityPools should be a non-null array")
 	assert.Empty(t, pools)
@@ -351,7 +352,7 @@ func TestNonNilSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	listIDsRec := doCognitoIdentityRequest(t, h, "ListIdentities", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -360,7 +361,7 @@ func TestNonNilSlices(t *testing.T) {
 	require.Equal(t, http.StatusOK, listIDsRec.Code)
 
 	var listIDsOut map[string]any
-	require.NoError(t, json.Unmarshal(listIDsRec.Body.Bytes(), &listIDsOut))
+	require.NoError(t, json.Unmarshal(listIDsRec.Body.Bytes(), &listIDsOut, jsonx.V1()))
 	identities, idsOK := listIDsOut["Identities"].([]any)
 	require.True(t, idsOK, "Identities should be a non-null array")
 	assert.Empty(t, identities)
@@ -389,7 +390,7 @@ func TestSeedHelpers(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "seeded-pool", descOut["IdentityPoolName"])
 
 	// Seed an identity.
@@ -420,7 +421,7 @@ func TestCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, h.Backend.PoolCount())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	doCognitoIdentityRequest(t, h, "GetId", map[string]any{
@@ -470,7 +471,7 @@ func TestPersistenceRoundTripWithPrincipalTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	setRec := doCognitoIdentityRequest(t, h, "SetPrincipalTagAttributeMap", map[string]any{
@@ -497,7 +498,7 @@ func TestPersistenceRoundTripWithPrincipalTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	tags, _ := getOut["PrincipalTags"].(map[string]any)
 	assert.Equal(t, "user_id", tags["sub"])

@@ -34,6 +34,7 @@ func TestSESv2Dashboard_NotFound(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/sesv2")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("text=Simple Email Service").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,

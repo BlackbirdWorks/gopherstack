@@ -3,11 +3,12 @@ package bedrockagentcore
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -96,7 +97,7 @@ func userFromJWT(in doc) (string, error) {
 		Sub string `json:"sub"`
 	}
 
-	if err = json.Unmarshal(raw, &claims); err != nil || claims.Sub == "" {
+	if err = json.Unmarshal(raw, &claims, jsonx.V1()); err != nil || claims.Sub == "" {
 		return "", invalid("userToken must carry a sub claim")
 	}
 

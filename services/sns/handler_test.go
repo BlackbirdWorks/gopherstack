@@ -2,7 +2,7 @@ package sns_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -70,7 +71,7 @@ func extractSNSHTTPMessage(body string) string {
 		Message string `json:"Message"`
 		Type    string `json:"Type"`
 	}
-	if err := json.Unmarshal([]byte(body), &env); err == nil && env.Type == "Notification" {
+	if err := json.Unmarshal([]byte(body), &env, jsonx.V1()); err == nil && env.Type == "Notification" {
 		return env.Message
 	}
 

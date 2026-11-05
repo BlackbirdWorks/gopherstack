@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
@@ -53,13 +54,13 @@ func setupAuthorizerAPI(
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiID := createResp["id"].(string)
 
 	// Get root resource.
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create /secure resource.
@@ -68,7 +69,7 @@ func setupAuthorizerAPI(
 	require.Equal(t, http.StatusCreated, childRec.Code)
 
 	var childResp map[string]any
-	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp, jsonx.V1()))
 	childID := childResp["id"].(string)
 
 	// Create authorizer.
@@ -83,7 +84,7 @@ func setupAuthorizerAPI(
 	require.Equal(t, http.StatusCreated, authRec.Code)
 
 	var authResp map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 	authID := authResp["id"].(string)
 
 	// PutMethod with authorizerId.
@@ -280,7 +281,7 @@ func TestRunAuthorizer_MethodArn_ResourcePath(t *testing.T) {
 			// Verify the methodArn in the captured event uses the stripped resource path ("/secure"),
 			// not the full proxy path ("/restapis/.../prod/_user_request_/secure").
 			var event map[string]any
-			require.NoError(t, json.Unmarshal(capturedPayload, &event))
+			require.NoError(t, json.Unmarshal(capturedPayload, &event, jsonx.V1()))
 			methodArn, _ := event["methodArn"].(string)
 			assert.Contains(t, methodArn, "/secure", "methodArn should contain the stripped path")
 			assert.NotContains(t, methodArn, "_user_request_", "methodArn must not contain internal proxy prefix")
@@ -856,12 +857,12 @@ func TestRunCognitoAuthorizer_ValidToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiID := createResp["id"].(string)
 
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	childRec := postWithHandler(t, h, e, "CreateResource",
@@ -869,7 +870,7 @@ func TestRunCognitoAuthorizer_ValidToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, childRec.Code)
 
 	var childResp map[string]any
-	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp, jsonx.V1()))
 	childID := childResp["id"].(string)
 
 	authBody := `{
@@ -882,7 +883,7 @@ func TestRunCognitoAuthorizer_ValidToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, authRec.Code)
 
 	var authResp map[string]any
-	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp, jsonx.V1()))
 	authID := authResp["id"].(string)
 
 	putMethodBody := `{"restApiId":"` + apiID + `","resourceId":"` + childID +

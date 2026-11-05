@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -29,7 +30,7 @@ func TestFullCRUDLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, epRec.Code)
 	var epResp map[string]any
-	require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp))
+	require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp, jsonx.V1()))
 	ep := epResp["ResolverEndpoint"].(map[string]any)
 	epID := ep["Id"].(string)
 	assert.NotEmpty(t, ep["CreationTime"])
@@ -48,7 +49,7 @@ func TestFullCRUDLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 	var ruleResp map[string]any
-	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
+	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp, jsonx.V1()))
 	rule := ruleResp["ResolverRule"].(map[string]any)
 	ruleID := rule["Id"].(string)
 	assert.Equal(t, "req-rule-lifecycle", rule["CreatorRequestId"])
@@ -61,7 +62,7 @@ func TestFullCRUDLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, qlcRec.Code)
 	var qlcResp map[string]any
-	require.NoError(t, json.Unmarshal(qlcRec.Body.Bytes(), &qlcResp))
+	require.NoError(t, json.Unmarshal(qlcRec.Body.Bytes(), &qlcResp, jsonx.V1()))
 	qlc := qlcResp["ResolverQueryLogConfig"].(map[string]any)
 	qlcID := qlc["Id"].(string)
 	assert.EqualValues(t, 0, qlc["AssociationCount"])
@@ -79,7 +80,7 @@ func TestFullCRUDLifecycle(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, getRec.Code)
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.EqualValues(t, 1, getResp["ResolverQueryLogConfig"].(map[string]any)["AssociationCount"])
 
 	// 5. Firewall rule group with timestamps.
@@ -89,7 +90,7 @@ func TestFullCRUDLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, frgRec.Code)
 	var frgResp map[string]any
-	require.NoError(t, json.Unmarshal(frgRec.Body.Bytes(), &frgResp))
+	require.NoError(t, json.Unmarshal(frgRec.Body.Bytes(), &frgResp, jsonx.V1()))
 	frg := frgResp["FirewallRuleGroup"].(map[string]any)
 	frgID := frg["Id"].(string)
 	assert.Equal(t, "NOT_SHARED", frg["ShareStatus"])

@@ -1,13 +1,14 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 )
 
@@ -126,7 +127,7 @@ func TestHandler_DescribeScalingActivities(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	activities, ok := resp["ScalingActivities"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, activities)
@@ -154,7 +155,7 @@ func TestHandler_DescribeScalingActivities_AfterRegister(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	activities, ok := resp["ScalingActivities"].([]any)
 	require.True(t, ok)
 	require.Len(t, activities, 1)
@@ -188,7 +189,7 @@ func TestHandler_DescribeScalingActivities_WithInput(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	acts, ok := resp["ScalingActivities"].([]any)
 	require.True(t, ok, "ScalingActivities should be an array")
 	assert.Empty(t, acts, "expected empty array not null")
@@ -213,7 +214,7 @@ func TestHandler_DescribeScalingActivities_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	page1 := out1["ScalingActivities"].([]any)
 	assert.Len(t, page1, 2)
 	nextToken, ok := out1["NextToken"].(string)
@@ -226,7 +227,7 @@ func TestHandler_DescribeScalingActivities_Pagination(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	page2 := out2["ScalingActivities"].([]any)
 	assert.Len(t, page2, 2)
 }
@@ -243,7 +244,7 @@ func TestHandler_DescribeScalingActivities_TypedFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	activities := out["ScalingActivities"].([]any)
 	require.Len(t, activities, 1)
 

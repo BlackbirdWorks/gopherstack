@@ -5,7 +5,7 @@ import (
 	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha512"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +14,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -249,8 +250,13 @@ func ParseScramSecret(secretString string) (ScramCredential, error) {
 		Password *string `json:"password"`
 	}
 
-	if err := json.Unmarshal([]byte(secretString), &v); err != nil || v.Username == nil || v.Password == nil ||
-		*v.Username == "" || *v.Password == "" {
+	if err := json.Unmarshal(
+		[]byte(secretString),
+		&v,
+		jsonx.V1(),
+	); err != nil || v.Username == nil || v.Password == nil ||
+		*v.Username == "" ||
+		*v.Password == "" {
 		return ScramCredential{}, errScramSecretShape
 	}
 

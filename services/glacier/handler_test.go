@@ -1,7 +1,8 @@
 package glacier_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
@@ -230,7 +232,7 @@ func TestHandlerReset(t *testing.T) {
 			var out struct {
 				VaultList []any `json:"VaultList"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.VaultList, tt.wantAfter)
 		})
 	}
@@ -582,7 +584,7 @@ func TestErrorResponse_IncludesTypeField(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 
 	assert.NotEmpty(t, errBody["code"], "error body should have code field")
 	assert.NotEmpty(t, errBody["__type"], "error body should have __type field")
@@ -646,7 +648,7 @@ func TestErrorResponse_FormatFields(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			// Both "code" and "__type" must be present (SDK compatibility).
 			assert.Equal(t, tt.wantCodeKey, errResp["code"])
 			assert.Equal(t, tt.wantCodeKey, errResp["__type"])
@@ -732,8 +734,8 @@ func TestPagination_MarkerNotFound_EmptyList(t *testing.T) {
 			rec := doRequestWithHeaders(t, h, tt.method, tt.path, "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			var resp map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			raw, ok := resp[tt.jsonKey]
 			assert.True(t, ok, "%s key must be present", tt.jsonKey)
 			assert.Equal(t, "[]", string(raw), "%s must be [] not null when marker not found", tt.jsonKey)

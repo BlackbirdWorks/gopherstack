@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonEnhancedMonitoringReq struct {
@@ -25,7 +27,7 @@ func (h *Handler) handleEnableEnhancedMonitoring(
 	body []byte,
 ) (any, error) {
 	var req jsonEnhancedMonitoringReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -53,7 +55,7 @@ func (h *Handler) handleDisableEnhancedMonitoring(
 	body []byte,
 ) (any, error) {
 	var req jsonEnhancedMonitoringReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

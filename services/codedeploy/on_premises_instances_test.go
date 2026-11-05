@@ -1,7 +1,7 @@
 package codedeploy_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
 )
 
@@ -90,7 +91,7 @@ func TestHandler_BatchGetOnPremisesInstances(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				infos, ok := resp["instanceInfos"].([]any)
 				require.True(t, ok)
 				assert.Len(t, infos, tt.wantCount)
@@ -120,7 +121,7 @@ func TestOnPremisesInstances_TagsAlwaysSlice(t *testing.T) {
 		} `json:"instanceInfos"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.InstanceInfos, 1)
 	// Tags should be an empty slice, not nil/missing
 	assert.NotNil(t, resp.InstanceInfos[0].Tags)
@@ -230,7 +231,7 @@ func TestOnPremisesInstances_IamValidation(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
@@ -290,7 +291,7 @@ func TestOnPremisesInstances_ListTagFilter(t *testing.T) {
 			var resp struct {
 				InstanceNames []string `json:"instanceNames"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.ElementsMatch(t, tt.wantNames, resp.InstanceNames)
 		})
 	}
@@ -337,7 +338,7 @@ func TestOnPremisesInstances_NotFoundErrorMapping(t *testing.T) {
 			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, resp["__type"])
 		})
 	}
@@ -354,7 +355,7 @@ func TestGetOnPremisesInstance_NotRegisteredNotDoesNotExist(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InstanceNotRegisteredException", resp["__type"])
 	assert.NotEqual(t, "InstanceDoesNotExistException", resp["__type"])
 
@@ -364,6 +365,6 @@ func TestGetOnPremisesInstance_NotRegisteredNotDoesNotExist(t *testing.T) {
 	var listResp struct {
 		InstanceNames []string `json:"instanceNames"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Empty(t, listResp.InstanceNames)
 }

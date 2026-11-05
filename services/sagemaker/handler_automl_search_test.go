@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListCandidatesForAutoMLJob(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_ListCandidatesForAutoMLJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	candidates, ok := resp["Candidates"].([]any)
 	require.True(t, ok)
 	assert.Len(t, candidates, 3)
@@ -76,7 +78,7 @@ func TestHandler_Search_TrainingJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	results, ok := resp["Results"].([]any)
 	require.True(t, ok)
 	require.Len(t, results, 1)
@@ -98,7 +100,7 @@ func TestHandler_Search_TrainingJob(t *testing.T) {
 	})
 
 	var noMatchResp map[string]any
-	require.NoError(t, json.Unmarshal(noMatchRec.Body.Bytes(), &noMatchResp))
+	require.NoError(t, json.Unmarshal(noMatchRec.Body.Bytes(), &noMatchResp, jsonx.V1()))
 	assert.Empty(t, noMatchResp["Results"])
 }
 
@@ -122,7 +124,7 @@ func TestHandler_ListModelMetadata(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["ModelMetadataSummaries"].([]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, summaries)
@@ -134,7 +136,7 @@ func TestHandler_ListModelMetadata(t *testing.T) {
 	})
 
 	var filteredResp map[string]any
-	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp))
+	require.NoError(t, json.Unmarshal(filteredRec.Body.Bytes(), &filteredResp, jsonx.V1()))
 	filtered, ok := filteredResp["ModelMetadataSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, filtered, 1)
@@ -157,7 +159,7 @@ func TestHandler_GetSearchSuggestions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	suggestions, ok := resp["PropertyNameSuggestions"].([]any)
 	require.True(t, ok)
 	require.Len(t, suggestions, 1)
@@ -185,7 +187,7 @@ func TestHandler_GetScalingConfigurationRecommendation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.InEpsilon(t, float64(60), resp["TargetCpuUtilizationPerCore"], 0.001)
 	dyn, ok := resp["DynamicScalingConfiguration"].(map[string]any)
 	require.True(t, ok)
@@ -220,7 +222,7 @@ func TestHandler_ListCandidatesForAutoMLJob_SortByStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	candidates := resp["Candidates"].([]any)
 	require.Len(t, candidates, 3)
 

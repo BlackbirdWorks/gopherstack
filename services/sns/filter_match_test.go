@@ -1,7 +1,7 @@
 package sns_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -46,7 +47,7 @@ func TestFilterPolicyAnythingButMatchDelivery(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "blue-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -127,7 +128,7 @@ func TestFilterPolicyPrefixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "order-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -138,7 +139,7 @@ func TestFilterPolicyPrefixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			t.Fatalf("non-matching message was delivered: %s", env.Message)
 		}
 	case <-time.After(300 * time.Millisecond):
@@ -175,7 +176,7 @@ func TestFilterPolicySuffixMatch(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "log-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):
@@ -212,7 +213,7 @@ func TestFilterPolicyEqualsIgnoreCase(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "prod-msg", env.Message)
 		}
 	case <-time.After(2 * time.Second):

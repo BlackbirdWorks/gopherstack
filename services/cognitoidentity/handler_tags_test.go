@@ -1,12 +1,14 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_ListTagsForResource(t *testing.T) {
@@ -43,7 +45,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID := created["IdentityPoolId"].(string)
 				arn = "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 			}
@@ -56,7 +58,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tags, _ := out["Tags"].(map[string]any)
 				assert.Equal(t, "test", tags["env"])
 			}
@@ -76,7 +78,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 
@@ -97,7 +99,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	tags, _ := listOut["Tags"].(map[string]any)
 	assert.Equal(t, "backend", tags["team"])
 	assert.Equal(t, "alice", tags["owner"])
@@ -116,7 +118,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2, jsonx.V1()))
 	tags2, _ := listOut2["Tags"].(map[string]any)
 	assert.Equal(t, "backend", tags2["team"])
 	assert.NotContains(t, tags2, "owner")
@@ -160,7 +162,7 @@ func TestListTagsForResource_EmptyTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	poolID := created["IdentityPoolId"].(string)
 	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
@@ -171,7 +173,7 @@ func TestListTagsForResource_EmptyTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Tags should always be present (even if empty), not omitted.
 	tags, hasKey := out["Tags"]

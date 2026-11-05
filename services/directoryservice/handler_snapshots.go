@@ -1,12 +1,13 @@
 package directoryservice
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
@@ -20,7 +21,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 		Name        string `json:"Name"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -38,6 +39,7 @@ func (h *Handler) handleCreateSnapshot(c *echo.Context) error {
 	})
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -48,7 +50,7 @@ func (h *Handler) handleDeleteSnapshot(c *echo.Context) error {
 		SnapshotID string `json:"SnapshotId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -79,7 +81,7 @@ func (h *Handler) handleDescribeSnapshots(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 		}
 	}
@@ -120,7 +122,7 @@ func (h *Handler) handleGetSnapshotLimits(c *echo.Context) error {
 		DirectoryID string `json:"DirectoryId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 
@@ -152,7 +154,7 @@ func (h *Handler) handleRestoreFromSnapshot(c *echo.Context) error {
 		SnapshotID string `json:"SnapshotId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errResp("ClientException", "invalid JSON"))
 	}
 

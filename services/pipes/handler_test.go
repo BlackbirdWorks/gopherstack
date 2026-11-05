@@ -3,7 +3,7 @@ package pipes_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pipes"
 )
 
@@ -32,7 +33,7 @@ func doPipesRequest(t *testing.T, h *pipes.Handler, method, path string, body an
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -340,7 +341,7 @@ func createTestPipeWithARN(t *testing.T, h *pipes.Handler, pipeName string) stri
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["Arn"].(string)
 }
@@ -529,7 +530,7 @@ func TestPipes_Handler_Reset(t *testing.T) {
 			var out struct {
 				Pipes []any `json:"Pipes"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Pipes, tt.wantAfter)
 		})
 	}
@@ -634,7 +635,7 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 				Name string `json:"Name"`
 			} `json:"Pipes"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.Pipes, 2)
 	})
 
@@ -647,7 +648,7 @@ func TestHandler_ListPipesFiltering(t *testing.T) {
 				Name string `json:"Name"`
 			} `json:"Pipes"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.Pipes, 1)
 		assert.Equal(t, "sqs-beta", out.Pipes[0].Name)
 	})
@@ -688,7 +689,7 @@ func TestHandler_SourceAndTargetParameters(t *testing.T) {
 			} `json:"SqsQueueParameters"`
 		} `json:"SourceParameters"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, 5, created.SourceParameters.SqsQueueParameters.BatchSize)
 	assert.JSONEq(t, `{"fixed":"value"}`, created.TargetParameters.InputTemplate)
 }
@@ -713,7 +714,7 @@ func TestHandler_ListPipesIncludesSourceTarget(t *testing.T) {
 	var out struct {
 		Pipes []map[string]any `json:"Pipes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Pipes, 1)
 	assert.Equal(t, "arn:aws:sqs:us-east-1:000000000000:my-queue", out.Pipes[0]["Source"])
 	assert.Equal(t, "arn:aws:lambda:us-east-1:000000000000:function:my-fn", out.Pipes[0]["Target"])
@@ -740,7 +741,7 @@ func auditDo(t *testing.T, h *pipes.Handler, method, path string, body any) *htt
 
 	if body != nil {
 		var err error
-		b, err = json.Marshal(body)
+		b, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -763,7 +764,7 @@ func auditCreate(t *testing.T, h *pipes.Handler, name string, body map[string]an
 	require.Equal(t, http.StatusOK, rec.Code, "create pipe %q: %s", name, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -775,7 +776,7 @@ func auditDescribe(t *testing.T, h *pipes.Handler, name string) map[string]any {
 	require.Equal(t, http.StatusOK, rec.Code, "describe pipe %q: %s", name, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp
 }
@@ -839,7 +840,7 @@ func TestStartStop_ConflictException(t *testing.T) {
 				"real AWS returns 409 ConflictException, not 400 ValidationException")
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "ConflictException", resp["__type"],
 				"error type must be ConflictException; body: %s", rec.Body.String())
 		})
@@ -881,7 +882,7 @@ func TestServiceQuotaExceededException(t *testing.T) {
 	// The key assertion is the error type when it does fail.
 	if rec.Code != http.StatusOK {
 		var resp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "ServiceQuotaExceededException", resp["__type"],
 			"quota exceeded must return ServiceQuotaExceededException; body: %s", rec.Body.String())
 	}
@@ -908,7 +909,7 @@ func TestListPipes_EnrichmentInSummary(t *testing.T) {
 	var out struct {
 		Pipes []map[string]any `json:"Pipes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Pipes, 1)
 
 	enrichment, _ := out.Pipes[0]["Enrichment"].(string)
@@ -935,7 +936,7 @@ func TestListPipes_NoEnrichmentOmitted(t *testing.T) {
 	var out struct {
 		Pipes []map[string]any `json:"Pipes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Pipes, 1)
 
 	_, hasEnrichment := out.Pipes[0]["Enrichment"]
@@ -954,7 +955,7 @@ func TestInvalidNextToken_ValidationException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"],
 		"invalid NextToken must return ValidationException; body: %s", rec.Body.String())
 }
@@ -1020,7 +1021,7 @@ func TestServiceQuotaErrorCode(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ServiceQuotaExceededException", resp["__type"],
 		"1001st pipe must fail with ServiceQuotaExceededException; body: %s", rec.Body.String())
 }
@@ -1144,6 +1145,6 @@ func TestHandler_UpdatePipeDesiredState(t *testing.T) {
 	var out struct {
 		DesiredState string `json:"DesiredState"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "STOPPED", out.DesiredState)
 }

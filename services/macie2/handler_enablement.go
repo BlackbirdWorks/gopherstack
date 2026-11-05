@@ -1,12 +1,13 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseMaciePath(method string, parts []string) (string, string) {
@@ -78,7 +79,7 @@ func (h *Handler) handleEnableMacie(body []byte) (int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return http.StatusBadRequest, ErrValidation
 		}
 	}
@@ -117,7 +118,7 @@ func (h *Handler) handleUpdateMacieSession(body []byte) (any, int, error) {
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, http.StatusBadRequest, ErrValidation
 		}
 	}

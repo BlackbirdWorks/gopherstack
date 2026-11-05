@@ -1,11 +1,13 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // slTagWire is the wire shape of a single Redshift Serverless tag -- a
@@ -56,7 +58,7 @@ func (h *ServerlessHandler) handleTagResource(c *echo.Context, body []byte) erro
 		Tags        []slTagWire `json:"tags"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -77,7 +79,7 @@ func (h *ServerlessHandler) handleUntagResource(c *echo.Context, body []byte) er
 		TagKeys     []string `json:"tagKeys"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -97,7 +99,7 @@ func (h *ServerlessHandler) handleListTagsForResource(c *echo.Context, body []by
 		ResourceArn string `json:"resourceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 

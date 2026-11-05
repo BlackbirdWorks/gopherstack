@@ -2,13 +2,15 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Resource-type / property-name string constants shared by Search,
@@ -69,7 +71,7 @@ func (c *AutoMLCandidate) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(c),
 		CreationTime:     epochSeconds(c.CreationTime),
 		LastModifiedTime: epochSeconds(c.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // generateAutoMLCandidates deterministically derives a set of candidates for
@@ -361,13 +363,13 @@ func matchesSearchFilter(flat map[string]any, f SearchFilter) bool {
 // []map[string]any via a JSON round trip, so its fields can be addressed by
 // the JSON dotted path a NestedFilters entry documents.
 func toObjectList(raw any) ([]map[string]any, bool) {
-	b, marshalErr := json.Marshal(raw)
+	b, marshalErr := json.Marshal(raw, jsonx.V1())
 	if marshalErr != nil {
 		return nil, false
 	}
 
 	var items []map[string]any
-	if unmarshalErr := json.Unmarshal(b, &items); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(b, &items, jsonx.V1()); unmarshalErr != nil {
 		return nil, false
 	}
 

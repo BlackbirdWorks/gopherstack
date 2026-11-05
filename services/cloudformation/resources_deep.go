@@ -4,10 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -58,7 +59,7 @@ func resolvedJSONProp(props map[string]any, key string, params, physicalIDs map[
 	case string:
 		return t
 	default:
-		raw, err := json.Marshal(resolveDeep(t, params, physicalIDs))
+		raw, err := json.Marshal(resolveDeep(t, params, physicalIDs), jsonx.V1())
 		if err != nil {
 			return ""
 		}

@@ -2,7 +2,7 @@ package bedrock_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,7 +200,7 @@ func seedJobResources(
 	require.NoError(t, err)
 
 	wf, err := b.StartAutomatedReasoningPolicyBuildWorkflow(
-		arp.PolicyArn, "INGEST_CONTENT", json.RawMessage(`{}`),
+		arp.PolicyArn, "INGEST_CONTENT", jsontext.Value(`{}`),
 	)
 	require.NoError(t, err)
 

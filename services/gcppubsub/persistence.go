@@ -2,7 +2,7 @@ package gcppubsub
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -22,34 +22,34 @@ var errNullMessage = errors.New("gcppubsub: snapshot has a null message")
 const snapshotVersion = 1
 
 type topicSnap struct {
-	Topic    json.RawMessage `json:"topic"`
-	Retained []*message      `json:"retained,omitempty"`
+	Topic    jsontext.Value `json:"topic"`
+	Retained []*message     `json:"retained,omitempty"`
 }
 
 type subSnap struct {
-	LastActive time.Time       `json:"lastActive"`
-	Sub        json.RawMessage `json:"sub"`
-	Msgs       []*subMsg       `json:"msgs,omitempty"`
+	LastActive time.Time      `json:"lastActive"`
+	Sub        jsontext.Value `json:"sub"`
+	Msgs       []*subMsg      `json:"msgs,omitempty"`
 }
 
 type pbSnapSnap struct {
-	Created  time.Time       `json:"created"`
-	Snapshot json.RawMessage `json:"snapshot"`
-	Unacked  []string        `json:"unacked,omitempty"`
+	Created  time.Time      `json:"created"`
+	Snapshot jsontext.Value `json:"snapshot"`
+	Unacked  []string       `json:"unacked,omitempty"`
 }
 
 type backendSnapshot struct {
-	Topics    map[string]topicSnap       `json:"topics"`
-	Subs      map[string]subSnap         `json:"subs"`
-	Snapshots map[string]pbSnapSnap      `json:"snapshots"`
-	Schemas   map[string]*schemaRec      `json:"schemas"`
-	Policies  map[string]json.RawMessage `json:"policies,omitempty"`
-	LastMsg   int64                      `json:"lastMsg"`
-	EtagSeq   uint64                     `json:"etagSeq,omitempty"`
-	Version   int                        `json:"version"`
+	Topics    map[string]topicSnap      `json:"topics"`
+	Subs      map[string]subSnap        `json:"subs"`
+	Snapshots map[string]pbSnapSnap     `json:"snapshots"`
+	Schemas   map[string]*schemaRec     `json:"schemas"`
+	Policies  map[string]jsontext.Value `json:"policies,omitempty"`
+	LastMsg   int64                     `json:"lastMsg"`
+	EtagSeq   uint64                    `json:"etagSeq,omitempty"`
+	Version   int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -58,7 +58,7 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
@@ -73,7 +73,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Version:   snapshotVersion,
 		LastMsg:   b.lastMsg,
 		EtagSeq:   iamSeq,
-		Policies:  make(map[string]json.RawMessage, len(iamPolicies)),
+		Policies:  make(map[string]jsontext.Value, len(iamPolicies)),
 		Schemas:   b.schemas,
 		Topics:    make(map[string]topicSnap, len(b.topics)),
 		Subs:      make(map[string]subSnap, len(b.subs)),
@@ -153,7 +153,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-func decodePolicies(raw map[string]json.RawMessage) (map[string]*iampb.Policy, error) {
+func decodePolicies(raw map[string]jsontext.Value) (map[string]*iampb.Policy, error) {
 	out := make(map[string]*iampb.Policy, len(raw))
 
 	for n, r := range raw {

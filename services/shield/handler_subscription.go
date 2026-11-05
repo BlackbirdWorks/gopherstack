@@ -2,12 +2,13 @@ package shield
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -91,7 +92,7 @@ func (h *Handler) handleDescribeSubscription() ([]byte, error) {
 			"Limits":                    subscriptionResourceLimits(),
 			"SubscriptionLimits":        subscriptionLimits(),
 		},
-	})
+	}, jsonx.V1())
 }
 
 // updateSubscriptionRequest is the request body for UpdateSubscription.
@@ -101,7 +102,7 @@ type updateSubscriptionRequest struct {
 
 func (h *Handler) handleUpdateSubscription(body []byte) error {
 	var req updateSubscriptionRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -117,7 +118,7 @@ func (h *Handler) handleGetSubscriptionState() ([]byte, error) {
 
 	return json.Marshal(map[string]string{
 		"SubscriptionState": state,
-	})
+	}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteSubscription() error {

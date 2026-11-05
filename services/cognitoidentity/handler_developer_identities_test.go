@@ -1,12 +1,14 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_LookupDeveloperIdentity(t *testing.T) {
@@ -52,7 +54,7 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID = created["IdentityPoolId"].(string)
 
 				devRec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
@@ -64,7 +66,7 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, devRec.Code)
 
 				var devOut map[string]any
-				require.NoError(t, json.Unmarshal(devRec.Body.Bytes(), &devOut))
+				require.NoError(t, json.Unmarshal(devRec.Body.Bytes(), &devOut, jsonx.V1()))
 				identityID = devOut["IdentityId"].(string)
 			}
 
@@ -89,7 +91,7 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 				body = map[string]any{
 					"IdentityPoolId": created["IdentityPoolId"],
@@ -101,7 +103,7 @@ func TestHandler_LookupDeveloperIdentity(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["IdentityId"])
 			}
 		})
@@ -145,7 +147,7 @@ func TestHandler_MergeDeveloperIdentities(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID := created["IdentityPoolId"].(string)
 
 				for _, userID := range []string{"user-src", "user-dst"} {
@@ -171,7 +173,7 @@ func TestHandler_MergeDeveloperIdentities(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["IdentityId"])
 			}
 		})
@@ -226,7 +228,7 @@ func TestHandler_UnlinkIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID := created["IdentityPoolId"].(string)
 
 				getIDRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
@@ -239,7 +241,7 @@ func TestHandler_UnlinkIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, getIDRec.Code)
 
 				var getIDOut map[string]any
-				require.NoError(t, json.Unmarshal(getIDRec.Body.Bytes(), &getIDOut))
+				require.NoError(t, json.Unmarshal(getIDRec.Body.Bytes(), &getIDOut, jsonx.V1()))
 				identityID = getIDOut["IdentityId"].(string)
 
 				body = map[string]any{
@@ -261,7 +263,7 @@ func TestHandler_UnlinkIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, descRec.Code)
 
 				var descOut map[string]any
-				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+				require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 				logins, ok := descOut["Logins"].([]any)
 				require.True(t, ok)
 				assert.Equal(t, []any{"graph.facebook.com"}, logins)
@@ -308,7 +310,7 @@ func TestHandler_UnlinkDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID = created["IdentityPoolId"].(string)
 
 				tokenRec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
@@ -320,7 +322,7 @@ func TestHandler_UnlinkDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, tokenRec.Code)
 
 				var tokenOut map[string]any
-				require.NoError(t, json.Unmarshal(tokenRec.Body.Bytes(), &tokenOut))
+				require.NoError(t, json.Unmarshal(tokenRec.Body.Bytes(), &tokenOut, jsonx.V1()))
 				identityID = tokenOut["IdentityId"].(string)
 
 				body = map[string]any{
@@ -343,7 +345,7 @@ func TestHandler_UnlinkDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, lookupRec.Code)
 
 				var lookupOut map[string]any
-				require.NoError(t, json.Unmarshal(lookupRec.Body.Bytes(), &lookupOut))
+				require.NoError(t, json.Unmarshal(lookupRec.Body.Bytes(), &lookupOut, jsonx.V1()))
 				ids, ok := lookupOut["DeveloperUserIdentifierList"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, ids)
@@ -364,7 +366,7 @@ func TestHandler_UnlinkIdentity_TokenMismatch_Returns403(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",
@@ -376,7 +378,7 @@ func TestHandler_UnlinkIdentity_TokenMismatch_Returns403(t *testing.T) {
 	require.Equal(t, http.StatusOK, idRec.Code)
 
 	var idOut map[string]any
-	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "UnlinkIdentity", map[string]any{
 		"IdentityId": idOut["IdentityId"],
@@ -402,7 +404,7 @@ func TestHandler_UnlinkDeveloperIdentity_WrongUser_Returns403(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	devRec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
@@ -414,7 +416,7 @@ func TestHandler_UnlinkDeveloperIdentity_WrongUser_Returns403(t *testing.T) {
 	require.Equal(t, http.StatusOK, devRec.Code)
 
 	var devOut map[string]any
-	require.NoError(t, json.Unmarshal(devRec.Body.Bytes(), &devOut))
+	require.NoError(t, json.Unmarshal(devRec.Body.Bytes(), &devOut, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "UnlinkDeveloperIdentity", map[string]any{
 		"IdentityId":              devOut["IdentityId"],

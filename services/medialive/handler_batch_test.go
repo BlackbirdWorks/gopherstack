@@ -1,12 +1,14 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestBatch_StartStopDelete(t *testing.T) {
@@ -80,7 +82,7 @@ func TestBatch_StartStopKnownChannels(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var startResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	successful := startResp["successful"].([]any)
 	assert.Len(t, successful, 1)
 	assert.Equal(t, chID, successful[0].(map[string]any)["id"])
@@ -97,7 +99,7 @@ func TestBatch_StartStopKnownChannels(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp, jsonx.V1()))
 	delSuccessful := delResp["successful"].([]any)
 	assert.Len(t, delSuccessful, 1)
 }
@@ -111,7 +113,7 @@ func TestBatch_StartNotFound(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	failed := resp["failed"].([]any)
 	assert.Len(t, failed, 1)
 }
@@ -127,7 +129,7 @@ func TestBatch_DeleteInputSecurityGroups(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/prod/inputSecurityGroups", map[string]any{})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	groupID := created["securityGroup"].(map[string]any)["id"].(string)
 
 	rec = doRequest(t, h, http.MethodPost, "/prod/batch/delete", map[string]any{
@@ -135,7 +137,7 @@ func TestBatch_DeleteInputSecurityGroups(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	successful := resp["successful"].([]any)
 	require.Len(t, successful, 1)
 	assert.Equal(t, groupID, successful[0].(map[string]any)["id"])

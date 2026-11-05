@@ -2,7 +2,7 @@ package wafv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -270,7 +271,7 @@ func TestHandler_GetWebACLForResource(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				webACL, ok := result["WebACL"].(map[string]any)
 				require.True(t, ok)
 				assert.NotEmpty(t, webACL["Id"])
@@ -297,7 +298,7 @@ func TestHandler_GetWebACLForResource_WithVisibilityConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	webACL, ok := result["WebACL"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "my-acl", webACL["Name"])
@@ -317,7 +318,7 @@ func TestGetWebACLForResourceReturnsRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getRespW map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRespW))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getRespW, jsonx.V1()))
 	webACLARN := getRespW["WebACL"].(map[string]any)["ARN"].(string)
 
 	// Associate with a resource.
@@ -335,7 +336,7 @@ func TestGetWebACLForResourceReturnsRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, forResourceRec.Code)
 
 	var forResourceResp map[string]any
-	require.NoError(t, json.Unmarshal(forResourceRec.Body.Bytes(), &forResourceResp))
+	require.NoError(t, json.Unmarshal(forResourceRec.Body.Bytes(), &forResourceResp, jsonx.V1()))
 
 	webACL := forResourceResp["WebACL"].(map[string]any)
 	rules, ok := webACL["Rules"].([]any)
@@ -371,7 +372,7 @@ func TestListResourcesForWebACL_MultipleResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 	arns, _ := resp["ResourceArns"].([]any)
 	assert.Len(t, arns, 3, "should list 3 associated resources")
 
@@ -451,7 +452,7 @@ func TestHandler_ListResourcesForWebACL(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				resources, ok := resp["ResourceArns"].([]any)
 				require.True(t, ok)
 				assert.Len(t, resources, tt.wantResources)
@@ -539,7 +540,7 @@ func TestAssociateWebACL_ReplaceExisting(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	webACL := resp["WebACL"].(map[string]any)
 	assert.Equal(t, "acl-two", webACL["Name"])
 }
@@ -557,7 +558,7 @@ func TestGetWebACLForResource_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "WAFNonexistentItemException", errResp["__type"])
 }
 

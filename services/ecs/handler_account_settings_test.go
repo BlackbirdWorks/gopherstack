@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -40,7 +41,7 @@ func TestAccountSettings_AllValidNames(t *testing.T) {
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	settings := listOut["settings"].([]any)
 	assert.GreaterOrEqual(t, len(settings), len(validNames))
 }
@@ -71,7 +72,7 @@ func TestAccountSettings_PutDefault_vs_Put(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	settings := listOut["settings"].([]any)
 	assert.GreaterOrEqual(t, len(settings), 1)
 }
@@ -99,7 +100,7 @@ func TestAccountSettings_Delete(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	settings := listOut["settings"].([]any)
 	assert.Empty(t, settings)
 }
@@ -123,7 +124,7 @@ func TestAccountSettings_OverwriteExisting(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	settings := listOut["settings"].([]any)
 	require.NotEmpty(t, settings)
 	// Last write wins
@@ -150,7 +151,7 @@ func TestAccountSettings_TaskLongArnFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, putResp.Code)
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut, jsonx.V1()))
 	setting := putOut["setting"].(map[string]any)
 	assert.Equal(t, "taskLongArnFormat", setting["name"])
 	assert.Equal(t, "enabled", setting["value"])
@@ -168,7 +169,7 @@ func TestAccountSettings_ContainerInstanceLongArnFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, putResp.Code)
 
 	var putOut map[string]any
-	require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut))
+	require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut, jsonx.V1()))
 	setting := putOut["setting"].(map[string]any)
 	assert.Equal(t, "containerInstanceLongArnFormat", setting["name"])
 	assert.Equal(t, "enabled", setting["value"])
@@ -192,7 +193,7 @@ func TestAccountSettings_FargateSettings(t *testing.T) {
 		require.Equal(t, http.StatusOK, putResp.Code, "PutAccountSetting %s", name)
 
 		var putOut map[string]any
-		require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut))
+		require.NoError(t, json.Unmarshal(putResp.Body.Bytes(), &putOut, jsonx.V1()))
 		setting := putOut["setting"].(map[string]any)
 		assert.Equal(t, name, setting["name"])
 	}
@@ -215,7 +216,7 @@ func TestAccountSettings_ServiceLongArnFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, listResp.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	settings := listOut["settings"].([]any)
 	require.NotEmpty(t, settings)
 	assert.Equal(t, "enabled", settings[0].(map[string]any)["value"])
@@ -273,7 +274,7 @@ func TestECS_DeleteAccountSetting(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			setting, ok := resp["setting"].(map[string]any)
 			require.True(t, ok)
@@ -293,7 +294,7 @@ func TestECS_ListAccountSettings(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		settings, ok := resp["settings"].([]any)
 		require.True(t, ok)
@@ -321,7 +322,7 @@ func TestECS_ListAccountSettings(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		settings, ok := resp["settings"].([]any)
 		require.True(t, ok)
@@ -376,7 +377,7 @@ func TestECS_PutAccountSetting(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			setting, ok := resp["setting"].(map[string]any)
 			require.True(t, ok)
@@ -423,7 +424,7 @@ func TestECS_PutAccountSettingDefault(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			setting, ok := resp["setting"].(map[string]any)
 			require.True(t, ok)

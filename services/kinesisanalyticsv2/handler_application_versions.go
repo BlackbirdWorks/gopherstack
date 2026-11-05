@@ -2,12 +2,13 @@ package kinesisanalyticsv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type describeApplicationOperationInput struct {
@@ -93,7 +94,7 @@ type rollbackApplicationOutput struct {
 
 func (h *Handler) handleDescribeApplicationOperation(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationOperationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -114,7 +115,7 @@ func (h *Handler) handleDescribeApplicationOperation(ctx context.Context, c *ech
 
 func (h *Handler) handleListApplicationOperations(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationOperationsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -144,7 +145,7 @@ func (h *Handler) handleListApplicationOperations(ctx context.Context, c *echo.C
 
 func (h *Handler) handleDescribeApplicationVersion(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationVersionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -160,7 +161,7 @@ func (h *Handler) handleDescribeApplicationVersion(ctx context.Context, c *echo.
 
 func (h *Handler) handleListApplicationVersions(ctx context.Context, c *echo.Context, body []byte) error {
 	var in listApplicationVersionsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
@@ -185,7 +186,7 @@ func (h *Handler) handleListApplicationVersions(ctx context.Context, c *echo.Con
 
 func (h *Handler) handleRollbackApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in rollbackApplicationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 

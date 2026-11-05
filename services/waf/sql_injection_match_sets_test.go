@@ -1,13 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -23,7 +24,7 @@ func TestWAF_SqlInjectionMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	simsMap := createResp["SqlInjectionMatchSet"].(map[string]any)
 	id := simsMap["SqlInjectionMatchSetId"].(string)
 	require.NotEmpty(t, id)
@@ -48,7 +49,7 @@ func TestWAF_SqlInjectionMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	rec = wafDo(t, h, "GetSqlInjectionMatchSet", map[string]any{"SqlInjectionMatchSetId": id})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sims := resp["SqlInjectionMatchSet"].(map[string]any)
 	tuples := sims["SqlInjectionMatchTuples"].([]any)
 	require.Len(t, tuples, 1)
@@ -60,7 +61,7 @@ func TestWAF_SqlInjectionMatchSet_CreateGetUpdateDeleteList(t *testing.T) {
 	// List
 	rec = wafDo(t, h, "ListSqlInjectionMatchSets", map[string]any{"Limit": 100})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	sets := listResp["SqlInjectionMatchSets"].([]any)
 	assert.Len(t, sets, 1)
 
@@ -107,7 +108,7 @@ func wafCreateSQLInjectionMatchSet(t *testing.T, h *waf.Handler, name string) st
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	m := resp["SqlInjectionMatchSet"].(map[string]any)
 	id := m["SqlInjectionMatchSetId"].(string)
 	require.NotEmpty(t, id)

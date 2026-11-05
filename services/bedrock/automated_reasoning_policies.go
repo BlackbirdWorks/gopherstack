@@ -1,7 +1,7 @@
 package bedrock
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"slices"
 	"sort"
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 // ARPCreateOptions carries CreateAutomatedReasoningPolicy's optional policyDefinition and kmsKeyId.
 type ARPCreateOptions struct {
 	KmsKeyID         string
-	PolicyDefinition json.RawMessage
+	PolicyDefinition jsontext.Value
 }
 
 // CreateAutomatedReasoningPolicyWithOptions is CreateAutomatedReasoningPolicy with ARPCreateOptions.
@@ -317,7 +317,7 @@ func (b *InMemoryBackend) arpVersionSummariesLocked(policyARN string) []*Automat
 // would orphan that index instead of leaving the name unchanged.
 func (b *InMemoryBackend) UpdateAutomatedReasoningPolicy(
 	policyARN, name, description string,
-	policyDefinition json.RawMessage,
+	policyDefinition jsontext.Value,
 ) (*AutomatedReasoningPolicy, error) {
 	if len(policyDefinition) == 0 {
 		return nil, fmt.Errorf("%w: policyDefinition is required", ErrValidation)
@@ -451,7 +451,7 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicy(policyARN string, force
 // request body (serializers.go:8008-8058).
 func (b *InMemoryBackend) StartAutomatedReasoningPolicyBuildWorkflow(
 	policyARN, buildWorkflowType string,
-	sourceContent json.RawMessage,
+	sourceContent jsontext.Value,
 ) (*AutomatedReasoningPolicyBuildWorkflow, error) {
 	if buildWorkflowType == "" {
 		return nil, fmt.Errorf("%w: buildWorkflowType is required", ErrValidation)

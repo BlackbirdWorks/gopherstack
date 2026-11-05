@@ -2,9 +2,12 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // GetResourcePolicy retrieves the resource-based policy for a secret.
@@ -142,8 +145,8 @@ func (b *InMemoryBackend) ValidateResourcePolicy(
 }
 
 func validateResourcePolicyDocument(policyStr string) []PolicyValidationException {
-	var policy map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(policyStr), &policy); err != nil {
+	var policy map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(policyStr), &policy, jsonx.V1()); err != nil {
 		return []PolicyValidationException{
 			{
 				CheckName:    "SyntaxCheck",
@@ -172,25 +175,25 @@ func validateResourcePolicyDocument(policyStr string) []PolicyValidationExceptio
 }
 
 type policyStatement struct {
-	Effect    string          `json:"Effect"`
-	Principal json.RawMessage `json:"Principal"`
-	Condition json.RawMessage `json:"Condition"`
+	Effect    string         `json:"Effect"`
+	Principal jsontext.Value `json:"Principal"`
+	Condition jsontext.Value `json:"Condition"`
 }
 
 // policyAllowsPublicAccess reports whether an unconditioned Allow statement
 // grants a wildcard principal.
 func policyAllowsPublicAccess(policyStr string) bool {
 	var doc struct {
-		Statement json.RawMessage `json:"Statement"`
+		Statement jsontext.Value `json:"Statement"`
 	}
-	if json.Unmarshal([]byte(policyStr), &doc) != nil {
+	if json.Unmarshal([]byte(policyStr), &doc, jsonx.V1()) != nil {
 		return false
 	}
 
 	var stmts []policyStatement
-	if json.Unmarshal(doc.Statement, &stmts) != nil {
+	if json.Unmarshal(doc.Statement, &stmts, jsonx.V1()) != nil {
 		var one policyStatement
-		if json.Unmarshal(doc.Statement, &one) != nil {
+		if json.Unmarshal(doc.Statement, &one, jsonx.V1()) != nil {
 			return false
 		}
 
@@ -206,14 +209,14 @@ func policyAllowsPublicAccess(policyStr string) bool {
 	return false
 }
 
-func principalIsWildcard(raw json.RawMessage) bool {
+func principalIsWildcard(raw jsontext.Value) bool {
 	var s string
-	if json.Unmarshal(raw, &s) == nil {
+	if json.Unmarshal(raw, &s, jsonx.V1()) == nil {
 		return s == "*"
 	}
 
-	var m map[string]json.RawMessage
-	if json.Unmarshal(raw, &m) != nil {
+	var m map[string]jsontext.Value
+	if json.Unmarshal(raw, &m, jsonx.V1()) != nil {
 		return false
 	}
 
@@ -222,11 +225,11 @@ func principalIsWildcard(raw json.RawMessage) bool {
 		return false
 	}
 
-	if json.Unmarshal(aws, &s) == nil {
+	if json.Unmarshal(aws, &s, jsonx.V1()) == nil {
 		return s == "*"
 	}
 
 	var list []string
 
-	return json.Unmarshal(aws, &list) == nil && slices.Contains(list, "*")
+	return json.Unmarshal(aws, &list, jsonx.V1()) == nil && slices.Contains(list, "*")
 }

@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -33,7 +34,7 @@ func TestRequestRealism_ErrorMessageHasNoCodePrefix(t *testing.T) {
 			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", out["__type"])
 			assert.NotContains(t, out["message"], "ResourceNotFoundException")
 		})

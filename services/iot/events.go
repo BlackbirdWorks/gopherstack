@@ -1,13 +1,15 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // UpdateEventConfigurations keys that gate registry events.
@@ -92,7 +94,7 @@ func (b *InMemoryBackend) flushEvents() {
 	}
 
 	for _, ev := range events {
-		raw, err := json.Marshal(ev.payload)
+		raw, err := json.Marshal(ev.payload, jsonx.V1())
 		if err != nil {
 			continue
 		}

@@ -1,12 +1,15 @@
 package ce_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestGetCostAndUsage_UnparseableTimePeriodRejected verifies that a
@@ -43,7 +46,7 @@ func TestGetCostAndUsage_UnparseableTimePeriodRejected(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var wireErr wireError
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&wireErr))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &wireErr, jsonx.V1()))
 			assert.Equal(t, "ValidationError", wireErr.Type)
 		})
 	}

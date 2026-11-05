@@ -2,7 +2,7 @@ package support
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,12 +12,14 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func doWhiteboxSupportRequest(t *testing.T, h *Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -184,6 +186,6 @@ func TestSupport_CreateCase_CaseCreationLimitExceeded_WireType(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	assert.Equal(t, "CaseCreationLimitExceeded", result["__type"])
 }

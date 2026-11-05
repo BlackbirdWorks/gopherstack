@@ -1,11 +1,12 @@
 package cloudtrail
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -27,7 +28,7 @@ type createChannelBody struct {
 
 func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 	var in createChannelBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -81,7 +82,7 @@ type deleteChannelBody struct {
 
 func (h *Handler) handleDeleteChannel(c *echo.Context, body []byte) error {
 	var in deleteChannelBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -100,7 +101,7 @@ type getChannelBody struct {
 
 func (h *Handler) handleGetChannel(c *echo.Context, body []byte) error {
 	var in getChannelBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -127,7 +128,7 @@ type updateChannelBody struct {
 
 func (h *Handler) handleUpdateChannel(c *echo.Context, body []byte) error {
 	var in updateChannelBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
@@ -154,7 +155,7 @@ type listChannelsBody struct {
 func (h *Handler) handleListChannels(c *echo.Context, body []byte) error {
 	var in listChannelsBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errResp("InvalidParameterCombinationException", "invalid request body"),

@@ -1,8 +1,10 @@
 package apigatewayv2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // isoTime wraps [time.Time] and marshals to/from a JSON string in RFC3339 format,
@@ -12,12 +14,12 @@ type isoTime struct {
 }
 
 func (t isoTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.UTC().Format(time.RFC3339))
+	return json.Marshal(t.UTC().Format(time.RFC3339), jsonx.V1())
 }
 
 func (t *isoTime) UnmarshalJSON(b []byte) error {
 	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
+	if err := json.Unmarshal(b, &s, jsonx.V1()); err != nil {
 		return err
 	}
 

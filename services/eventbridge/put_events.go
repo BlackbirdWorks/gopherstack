@@ -2,7 +2,7 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxPutEventsEntries is AWS's per-request cap on PutEvents/PutPartnerEvents
@@ -298,7 +299,7 @@ func putEventsEntryBytes(e EventEntry) int {
 // (MalformedDetail) or whose bus does not exist (ResourceNotFoundException).
 func (b *InMemoryBackend) validatePutEventsTarget(region string, e EventEntry) (string, string, bool) {
 	var detail map[string]any
-	if err := json.Unmarshal([]byte(e.Detail), &detail); err != nil {
+	if err := json.Unmarshal([]byte(e.Detail), &detail, jsonx.V1()); err != nil {
 		return "MalformedDetail", "Detail is malformed.", false
 	}
 

@@ -1,7 +1,7 @@
 package ocivault
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -106,7 +106,7 @@ type Secret struct {
 	Description    string                    `json:"description,omitempty"`
 	State          string                    `json:"state"`
 	Etag           string                    `json:"etag"`
-	Rules          []json.RawMessage         `json:"rules,omitempty"`
+	Rules          []jsontext.Value          `json:"rules,omitempty"`
 	Versions       []*SecretVersion          `json:"versions"`
 	Seq            int64                     `json:"seq"`
 	Current        int64                     `json:"current"`

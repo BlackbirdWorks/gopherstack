@@ -1,12 +1,13 @@
 package service
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 )
@@ -94,7 +95,7 @@ func SnapshotKnownRegions() []byte {
 		return nil
 	}
 
-	data, err := json.Marshal(regions)
+	data, err := json.Marshal(regions, jsonx.V1())
 	if err != nil {
 		return nil
 	}
@@ -107,7 +108,7 @@ func SnapshotKnownRegions() []byte {
 // backfill, not a correctness-critical load.
 func RestoreKnownRegions(data []byte) {
 	var regions []string
-	if err := json.Unmarshal(data, &regions); err != nil {
+	if err := json.Unmarshal(data, &regions, jsonx.V1()); err != nil {
 		return
 	}
 

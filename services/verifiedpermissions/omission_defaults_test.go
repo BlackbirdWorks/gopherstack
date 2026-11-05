@@ -1,13 +1,15 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // These tests lock in the documented per-page default the real SDK states
@@ -28,7 +30,7 @@ func TestVPHandler_ListPolicyStores_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	stores, _ := resp["policyStores"].([]any)
 	assert.Len(t, stores, 10, "ListPolicyStores omits maxResults => real SDK defaults to 10 per response")
@@ -58,7 +60,7 @@ func TestVPHandler_ListPolicies_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policies, _ := resp["policies"].([]any)
 	assert.Len(t, policies, 10, "ListPolicies omits maxResults => real SDK defaults to 10 per response")
@@ -83,7 +85,7 @@ func TestVPHandler_ListPolicyTemplates_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	templates, _ := resp["policyTemplates"].([]any)
 	assert.Len(t, templates, 10, "ListPolicyTemplates omits maxResults => real SDK defaults to 10 per response")
@@ -114,7 +116,7 @@ func TestVPHandler_ListIdentitySources_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	sources, _ := resp["identitySources"].([]any)
 	assert.Len(t, sources, 10, "ListIdentitySources omits maxResults => real SDK defaults to 10 per response")
@@ -139,7 +141,7 @@ func TestVPHandler_ListPolicyStoreAliases_DefaultPageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	aliases, _ := resp["policyStoreAliases"].([]any)
 	assert.Len(t, aliases, 5, "ListPolicyStoreAliases omits maxResults => real SDK defaults to 5 per response")
@@ -169,7 +171,7 @@ func TestVPHandler_CreateIdentitySource_CognitoGroupEntityTypeDefault(t *testing
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec = doVPRequest(t, h, "GetIdentitySource", map[string]any{
 		"policyStoreId":    storeID,
@@ -178,7 +180,7 @@ func TestVPHandler_CreateIdentitySource_CognitoGroupEntityTypeDefault(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cfg, _ := resp["configuration"].(map[string]any)
 	cognito, _ := cfg["cognitoUserPoolConfiguration"].(map[string]any)

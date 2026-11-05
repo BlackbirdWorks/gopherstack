@@ -1,11 +1,13 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // applyGuardrailRequest represents the parsed ApplyGuardrail request body.
@@ -158,7 +160,7 @@ func (h *Handler) handleApplyGuardrail(
 
 	var req applyGuardrailRequest
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	if msg := validateApplyGuardrail(&req); msg != "" {
@@ -185,7 +187,7 @@ func (h *Handler) handleApplyGuardrail(
 		},
 	}
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}

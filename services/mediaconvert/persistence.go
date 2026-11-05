@@ -2,10 +2,12 @@ package mediaconvert
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -75,7 +77,7 @@ func newDirtyDTORegistry() (*store.Registry, *store.Table[counterSnapshot], *sto
 // absent: it was never persisted pre-Phase-3.3 either (see the old Restore,
 // which always reset it to empty).
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage   `json:"tables"`
+	Tables       map[string]jsontext.Value    `json:"tables"`
 	Tags         map[string]map[string]string `json:"tags"`
 	Certificates map[string]struct{}          `json:"certificates"`
 	Policy       *Policy                      `json:"policy,omitempty"`
@@ -142,7 +144,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:       b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "mediaconvert: failed to marshal snapshot", "error", err)
 
@@ -222,7 +224,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreDirtyTablesLocked restores the "dirty" tables (queueCounters,
 // tokenIndex) from tables via the ephemeral DTO registry, converting each DTO
 // back to its live type. The caller MUST hold b.mu for writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, cDTOs, tDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

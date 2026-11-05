@@ -2,12 +2,14 @@ package detective_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -18,7 +20,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var graphResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &graphResp, jsonx.V1()))
 	graphArn := graphResp["GraphArn"].(string)
 
 	// Add a member.
@@ -46,7 +48,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				pkgs, ok := resp["DatasourcePackages"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, pkgs, "DETECTIVE_CORE")
@@ -69,7 +71,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				pkgs, ok := resp["DatasourcePackages"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, pkgs, "DETECTIVE_CORE")
@@ -84,7 +86,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				members, ok := resp["MemberDatasources"].([]any)
 				require.True(t, ok)
 				assert.Len(t, members, 1)
@@ -99,7 +101,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				unprocessed, ok := resp["UnprocessedAccounts"].([]any)
 				require.True(t, ok)
 				assert.Len(t, unprocessed, 1)
@@ -114,7 +116,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				members, ok := resp["MembershipDatasources"].([]any)
 				require.True(t, ok)
 				assert.Len(t, members, 1)
@@ -133,7 +135,7 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				unprocessed, ok := resp["UnprocessedGraphs"].([]any)
 				require.True(t, ok)
 				assert.Len(t, unprocessed, 1)
@@ -195,7 +197,7 @@ func TestUpdateDatasourcePackages_InvalidPackageRejected(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var gResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp, jsonx.V1()))
 	graphARN := gResp["GraphArn"].(string)
 
 	rec2 := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
@@ -223,7 +225,7 @@ func TestBatchGetGraphMemberDatasources_WireShape(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var gResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp, jsonx.V1()))
 	graphARN := gResp["GraphArn"].(string)
 
 	memberRec := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
@@ -247,7 +249,7 @@ func TestBatchGetGraphMemberDatasources_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 	members, ok := resp["MemberDatasources"].([]any)
 	require.True(t, ok)
 	require.Len(t, members, 1)
@@ -280,7 +282,7 @@ func TestListDatasourcePackagesOpaqueToken(t *testing.T) {
 	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var gResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp, jsonx.V1()))
 	graphARN := gResp["GraphArn"].(string)
 
 	updateRec := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
@@ -295,7 +297,7 @@ func TestListDatasourcePackagesOpaqueToken(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	tok, hasTok := resp["NextToken"].(string)
 	require.True(t, hasTok, "NextToken must be present when more results exist")
@@ -310,7 +312,7 @@ func TestListDatasourcePackagesOpaqueToken(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec3.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp2, jsonx.V1()))
 	_, hasTok2 := resp2["NextToken"]
 	assert.False(t, hasTok2, "NextToken must be absent on the last page")
 }

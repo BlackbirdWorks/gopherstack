@@ -1,7 +1,7 @@
 package mediapackage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTags(t *testing.T) {
@@ -20,7 +22,7 @@ func TestTags(t *testing.T) {
 	// Get ARN
 	rec := doRequest(t, h, http.MethodGet, "/channels/"+channelID, nil)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	resourceARN := descResp["arn"].(string)
 
 	// TagResource
@@ -33,7 +35,7 @@ func TestTags(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags := listResp["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -48,7 +50,7 @@ func TestTags(t *testing.T) {
 
 	// Verify tag removed
 	rec = doRequest(t, h, http.MethodGet, "/tags/"+resourceARN, nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags = listResp["tags"].(map[string]any)
 	assert.NotContains(t, tags, "env")
 	assert.Equal(t, "platform", tags["team"])

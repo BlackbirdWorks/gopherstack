@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -34,7 +34,7 @@ const ecsSnapshotVersion = 1
 // The remaining fields are resources deliberately left as plain maps by
 // registerAllTables (see its exclusion list) and so are still serialised directly.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage         `json:"tables"`
+	Tables                map[string]jsontext.Value          `json:"tables"`
 	TaskDefinitions       map[string][]*TaskDefinition       `json:"taskDefinitions"`
 	Attributes            map[string]map[string]*Attribute   `json:"attributes"`
 	DaemonTaskDefinitions map[string][]*DaemonTaskDefinition `json:"daemonTaskDefinitions"`

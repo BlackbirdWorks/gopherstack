@@ -1,7 +1,7 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"sync"
 	"testing"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -105,7 +106,7 @@ func egEvent(id, subject string) azureeventgrid.Event {
 	raw, _ := json.Marshal(map[string]any{
 		"id": id, "subject": subject, "eventType": "App.Thing", "eventTime": "2026-10-20T12:00:00Z",
 		"dataVersion": "1", "data": map[string]any{"n": 1},
-	})
+	}, jsonx.V1())
 
 	events, err := azureeventgrid.ParseEvents(raw, azureeventgrid.SchemaEventGrid)
 	if err != nil {

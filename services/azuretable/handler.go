@@ -3,7 +3,7 @@ package azuretable
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/azureauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
@@ -626,7 +627,7 @@ func odataLevelFromAccept(accept string) string {
 func (h *Handler) writeJSON(c *echo.Context, status int, v any) error {
 	level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
 
-	body, err := json.Marshal(v)
+	body, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return h.writeErrorNoRecurse(c, http.StatusInternalServerError, "InternalError", "Failed to marshal response.")
 	}
@@ -670,7 +671,7 @@ func (h *Handler) writeErrorNoRecurse(c *echo.Context, status int, code, message
 	c.Response().Header().Set("X-Ms-Error-Code", code)
 	body, _ := json.Marshal(odataErrorEnvelope{
 		Error: odataErrorDetail{Code: code, Message: odataErrorMessage{Lang: "en-US", Value: message}},
-	})
+	}, jsonx.V1())
 
 	return c.Blob(status, "application/json;odata=minimalmetadata;streaming=true;charset=utf-8", body)
 }

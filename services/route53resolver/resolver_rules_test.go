@@ -2,13 +2,14 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -69,7 +70,7 @@ func TestResolverRule_CreatorAndTimestamps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["ResolverRule"].(map[string]any)
 
 	assert.Equal(t, "req-rule-001", rule["CreatorRequestId"])
@@ -307,7 +308,7 @@ func TestUpdateResolverRule(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["ResolverRule"].(map[string]any)["Id"].(string)
 			},
@@ -445,7 +446,7 @@ func TestListResolverRules_SortedByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rules, ok := resp["ResolverRules"].([]any)
 	require.True(t, ok)
 	require.Len(t, rules, 2)
@@ -469,7 +470,7 @@ func TestDeleteResolverRule_CascadesAssociations(t *testing.T) {
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 
 	var ruleResp map[string]any
-	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
+	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp, jsonx.V1()))
 	ruleID := ruleResp["ResolverRule"].(map[string]any)["Id"].(string)
 
 	// Associate with a VPC.
@@ -531,7 +532,7 @@ func TestListResolverRules_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			rules, _ := resp["ResolverRules"].([]any)
 			assert.Len(t, rules, tt.wantLen)
 			nextToken, _ := resp["NextToken"].(string)
@@ -585,7 +586,7 @@ func TestCreateResolverRule_EndpointValidation(t *testing.T) {
 				require.Equal(t, http.StatusOK, epRec.Code)
 
 				var epResp map[string]any
-				require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp))
+				require.NoError(t, json.Unmarshal(epRec.Body.Bytes(), &epResp, jsonx.V1()))
 				ep := epResp["ResolverEndpoint"].(map[string]any)
 				endpointID = ep["Id"].(string)
 			}
@@ -615,7 +616,7 @@ func TestCreateResolverRule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule, ok := resp["ResolverRule"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, rule["Arn"], "arn:aws:route53resolver:")
@@ -681,7 +682,7 @@ func TestListResolverRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rules, ok := resp["ResolverRules"].([]any)
 	require.True(t, ok)
 	assert.Len(t, rules, 2)
@@ -748,7 +749,7 @@ func TestListResolverRules_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			rules, _ := resp["ResolverRules"].([]any)
 			gotNames := make([]string, len(rules))
 			for i, r := range rules {
@@ -775,7 +776,7 @@ func TestListResolverRules_UnknownFilterNameRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }
 
@@ -790,7 +791,7 @@ func TestDeleteResolverRule(t *testing.T) {
 		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	rule := createResp["ResolverRule"].(map[string]any)
 	id := rule["Id"].(string)
 
@@ -811,7 +812,7 @@ func TestGetResolverRule(t *testing.T) {
 		"TargetIps":  []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
 	})
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	rule := createResp["ResolverRule"].(map[string]any)
 	id := rule["Id"].(string)
 
@@ -821,7 +822,7 @@ func TestGetResolverRule(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	got, ok := resp["ResolverRule"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, id, got["Id"])

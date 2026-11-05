@@ -3,7 +3,7 @@ package backup_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"sort"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -359,7 +360,7 @@ func TestReportJob_JSONContent(t *testing.T) {
 	require.Len(t, got.ReportDestination.S3Keys, 1)
 
 	var rows []map[string]string
-	require.NoError(t, json.Unmarshal(store.objects["rep/"+got.ReportDestination.S3Keys[0]], &rows))
+	require.NoError(t, json.Unmarshal(store.objects["rep/"+got.ReportDestination.S3Keys[0]], &rows, jsonx.V1()))
 	require.Len(t, rows, 1)
 	assert.Equal(t, testVolumeArn, rows[0]["Resource ARN"])
 	assert.Equal(t, "COMPLETED", rows[0]["Job Status"])

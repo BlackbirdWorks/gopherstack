@@ -2,11 +2,13 @@ package identitystore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ----------------------------------------
@@ -56,7 +58,7 @@ type deleteGroupRequest struct {
 
 func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -84,7 +86,7 @@ func (h *Handler) handleCreateGroup(ctx context.Context, c *echo.Context, body [
 
 func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req describeGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -107,7 +109,7 @@ func (h *Handler) handleDescribeGroup(ctx context.Context, c *echo.Context, body
 //nolint:dupl // structurally parallel to handleListUsers; both validate MaxResults, filter, paginate
 func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []byte) error {
 	var req listGroupsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleListGroups(ctx context.Context, c *echo.Context, body []
 
 func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req updateGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -160,7 +162,7 @@ func (h *Handler) handleUpdateGroup(ctx context.Context, c *echo.Context, body [
 
 func (h *Handler) handleDeleteGroup(ctx context.Context, c *echo.Context, body []byte) error {
 	var req deleteGroupRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

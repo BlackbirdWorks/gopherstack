@@ -1,7 +1,7 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -189,10 +190,10 @@ func TestPathsDetachedOrCyclic(t *testing.T) {
 		require.NotNil(t, data)
 
 		snap := organizations.NewBackendSnapshot()
-		require.NoError(t, json.Unmarshal(data, snap))
+		require.NoError(t, json.Unmarshal(data, snap, jsonx.V1()))
 		snap.AccountParent[acctID] = "ou-doesnotexist-00000000"
 
-		corrupted, err := json.Marshal(snap)
+		corrupted, err := json.Marshal(snap, jsonx.V1())
 		require.NoError(t, err)
 
 		fresh := organizations.NewInMemoryBackend("000000000000", "us-east-1")
@@ -219,10 +220,10 @@ func TestPathsDetachedOrCyclic(t *testing.T) {
 		require.NotNil(t, data)
 
 		snap := organizations.NewBackendSnapshot()
-		require.NoError(t, json.Unmarshal(data, snap))
+		require.NoError(t, json.Unmarshal(data, snap, jsonx.V1()))
 
 		var ous []organizations.OrganizationalUnit
-		require.NoError(t, json.Unmarshal(snap.Tables["ous"], &ous))
+		require.NoError(t, json.Unmarshal(snap.Tables["ous"], &ous, jsonx.V1()))
 
 		for i := range ous {
 			switch ous[i].ID {
@@ -233,14 +234,14 @@ func TestPathsDetachedOrCyclic(t *testing.T) {
 			}
 		}
 
-		rawOUs, err := json.Marshal(ous)
+		rawOUs, err := json.Marshal(ous, jsonx.V1())
 		require.NoError(t, err)
 		snap.Tables["ous"] = rawOUs
 
 		snap.OUParent[ouA.ID] = ouB.ID
 		snap.OUParent[ouB.ID] = ouA.ID
 
-		corrupted, err := json.Marshal(snap)
+		corrupted, err := json.Marshal(snap, jsonx.V1())
 		require.NoError(t, err)
 
 		fresh := organizations.NewInMemoryBackend("000000000000", "us-east-1")

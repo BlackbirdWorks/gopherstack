@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleTagResource handles TagResource requests.
@@ -13,7 +15,7 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) (any, error)
 		ResourceArn string            `json:"ResourceArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -31,7 +33,7 @@ func (h *Handler) handleUntagResource(_ context.Context, body []byte) (any, erro
 		TagKeys     []string `json:"TagKeys"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -50,7 +52,7 @@ func (h *Handler) handleListTags(_ context.Context, body []byte) (any, error) {
 		MaxResults  int32  `json:"MaxResults"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

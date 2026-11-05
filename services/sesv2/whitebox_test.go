@@ -2,7 +2,7 @@ package sesv2
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -12,6 +12,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // wantCreationTimeTagValue is the tag value newTaggableTenant/
@@ -82,7 +84,7 @@ func TestCreateOpsWithTags_CreationTimeTagsRoundTrip(t *testing.T) {
 func doWhiteboxRequest(t *testing.T, h *Handler, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	b, err := json.Marshal(body)
+	b, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req := httptest.NewRequest(method, path, bytes.NewReader(b))

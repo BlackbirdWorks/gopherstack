@@ -1,13 +1,14 @@
 package appconfigdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
 
@@ -134,7 +135,7 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 		assert.Equal(t, "BadRequestException", rec.Header().Get("X-Amzn-Errortype"))
 
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Equal(t, "BadRequestException", body["__type"])
 		assert.Equal(t, "InvalidParameters", body["Reason"])
 
@@ -158,14 +159,14 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 			"EnvironmentIdentifier":                "e",
 			"ConfigurationProfileIdentifier":       "p",
 			"RequiredMinimumPollIntervalInSeconds": 60,
-		})
+		}, jsonx.V1())
 		require.NoError(t, err)
 
 		sessionRec := doRequest(t, h2, http.MethodPost, "/configurationsessions", sessionBody)
 		require.Equal(t, http.StatusCreated, sessionRec.Code)
 
 		var sessionResp map[string]string
-		require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &sessionResp))
+		require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &sessionResp, jsonx.V1()))
 		tok := sessionResp["InitialConfigurationToken"]
 
 		// First poll succeeds.
@@ -180,7 +181,7 @@ func TestHandler_BadRequestException_Details(t *testing.T) {
 		assert.Equal(t, "BadRequestException", rec2.Header().Get("X-Amzn-Errortype"))
 
 		var body map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body, jsonx.V1()))
 		assert.Equal(t, "BadRequestException", body["__type"])
 		assert.Equal(t, "InvalidParameters", body["Reason"])
 
@@ -216,7 +217,7 @@ func TestHandler_ResourceNotFoundException_Structure(t *testing.T) {
 		assert.Equal(t, "ResourceNotFoundException", rec.Header().Get("X-Amzn-Errortype"))
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 		assert.Equal(t, "Deployment", resp["ResourceType"])
 
@@ -245,7 +246,7 @@ func TestHandler_ResourceNotFoundException_Structure(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "BadRequestException", resp["__type"])
 	})
 }
@@ -377,7 +378,7 @@ func TestHandler_ErrorResponseShape(t *testing.T) {
 				"X-Amzn-ErrorType header must match exception type")
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, tt.wantErrorType, body["__type"],
 				"response body __type field must match exception type")
 			assert.NotEmpty(t, body["message"], "error body must have a message field")

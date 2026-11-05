@@ -2,7 +2,8 @@ package stepfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions/asl"
 )
 
@@ -272,7 +274,7 @@ func finalizeSyncExecutionResult(
 		return syncResult
 	}
 
-	outputBytes, _ := json.Marshal(result.Output)
+	outputBytes, _ := json.Marshal(result.Output, jsonx.V1())
 	syncResult.Status = statusSucceeded
 	syncResult.Output = string(outputBytes)
 
@@ -674,7 +676,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 		return
 	}
 
-	outputBytes, _ := json.Marshal(result.Output)
+	outputBytes, _ := json.Marshal(result.Output, jsonx.V1())
 	exec.Status = statusSucceeded
 	exec.Output = string(outputBytes)
 	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Included: true}
@@ -1142,7 +1144,7 @@ func validateExecutionInput(input string) error {
 		return fmt.Errorf("%w: input exceeds %d bytes", ErrInvalidExecutionInput, maxExecutionInputBytes)
 	}
 
-	if input != "" && !json.Valid([]byte(input)) {
+	if input != "" && !jsontext.Value([]byte(input)).IsValid(jsonx.V1()) {
 		return fmt.Errorf("%w: input is not valid JSON", ErrInvalidExecutionInput)
 	}
 

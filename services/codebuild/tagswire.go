@@ -1,8 +1,10 @@
 package codebuild
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // wireTags is the wire representation of CodeBuild's tags field: a JSON
@@ -25,12 +27,12 @@ func (t wireTags) MarshalJSON() ([]byte, error) {
 
 	sort.Slice(items, func(i, j int) bool { return items[i].Key < items[j].Key })
 
-	return json.Marshal(items)
+	return json.Marshal(items, jsonx.V1())
 }
 
 func (t *wireTags) UnmarshalJSON(data []byte) error {
 	var items []wireTag
-	if err := json.Unmarshal(data, &items); err != nil {
+	if err := json.Unmarshal(data, &items, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
@@ -25,7 +27,7 @@ func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["NotebookInstanceArn"])
 
 	// Describe.
@@ -39,7 +41,7 @@ func TestHandler_NotebookInstanceLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["NotebookInstances"].([]any), 1)
 
 	// Start.
@@ -129,7 +131,7 @@ func TestHandler_NotebookInstance_EventuallyInService(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recDesc.Code)
 
 		var descOut map[string]any
-		require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut))
+		require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &descOut, jsonx.V1()))
 		assert.NotEmpty(t, descOut["NotebookInstanceStatus"])
 	})
 }

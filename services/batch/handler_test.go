@@ -2,7 +2,8 @@ package batch_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/batch"
 )
@@ -33,7 +35,7 @@ func doRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -58,7 +60,7 @@ func post(t *testing.T, h *batch.Handler, path string, body any) *httptest.Respo
 
 func mustUnmarshal(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), v, jsonx.V1()))
 }
 
 // --- Handler metadata tests ---
@@ -418,15 +420,15 @@ func TestBatch_RequiredFieldValidation(t *testing.T) {
 func assertTagsPresent(t *testing.T, raw []byte) {
 	t.Helper()
 
-	var rawMap map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw, &rawMap))
+	var rawMap map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(raw, &rawMap, jsonx.V1()))
 
 	tagBytes, hasTags := rawMap["tags"]
 	assert.True(t, hasTags, "tags key must be present in describe response")
 
 	if hasTags {
 		var tags map[string]string
-		require.NoError(t, json.Unmarshal(tagBytes, &tags), "tags must be a JSON object, not null")
+		require.NoError(t, json.Unmarshal(tagBytes, &tags, jsonx.V1()), "tags must be a JSON object, not null")
 		assert.NotNil(t, tags, "tags must be {} not null")
 	}
 }

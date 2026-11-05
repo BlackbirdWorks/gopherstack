@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -57,7 +58,7 @@ func TestHandler_PutLogEvents_MismatchedSequenceToken_StillAccepted(t *testing.T
 					"logEvents": []any{
 						map[string]any{"message": "setup", "timestamp": now + int64(i)},
 					},
-				})
+				}, jsonx.V1())
 				doLogsRequest(t, h, e, "PutLogEvents", string(body))
 			}
 
@@ -66,7 +67,7 @@ func TestHandler_PutLogEvents_MismatchedSequenceToken_StillAccepted(t *testing.T
 				"logStreamName": "s",
 				"sequenceToken": tt.sequenceToken,
 				"logEvents":     []any{map[string]any{"message": "new", "timestamp": now}},
-			})
+			}, jsonx.V1())
 			rec := doLogsRequest(t, h, e, "PutLogEvents", string(reqBody))
 
 			assert.Equal(t, http.StatusOK, rec.Code,
@@ -75,7 +76,7 @@ func TestHandler_PutLogEvents_MismatchedSequenceToken_StillAccepted(t *testing.T
 			var okResp struct {
 				NextSequenceToken string `json:"nextSequenceToken"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &okResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &okResp, jsonx.V1()))
 			assert.Equal(t, strconv.Itoa(tt.setupEvents+1), okResp.NextSequenceToken)
 		})
 	}
@@ -212,7 +213,7 @@ func TestHandler_LogEventsOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -220,13 +221,13 @@ func TestHandler_LogEventsOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})
@@ -258,7 +259,7 @@ func TestHandler_PutBearerTokenAuthentication_RoundTrip(t *testing.T) {
 	var desc struct {
 		LogGroups []map[string]any `json:"logGroups"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc, jsonx.V1()))
 	require.Len(t, desc.LogGroups, 1)
 	assert.Equal(t, true, desc.LogGroups[0]["bearerTokenAuthenticationEnabled"])
 
@@ -314,7 +315,7 @@ func TestHandler_LiveTailAndLogFieldOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeLogsRequest(t, tt.action, string(bodyBytes))
@@ -322,7 +323,7 @@ func TestHandler_LiveTailAndLogFieldOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				list, ok := resp[tt.wantListField].([]any)
 				require.True(t, ok, "expected list field %q in response", tt.wantListField)
 				assert.Empty(t, list)
@@ -368,7 +369,7 @@ func TestHandler_PutLogEvents_EntityRejection(t *testing.T) {
 			if tt.entity != nil {
 				req["entity"] = tt.entity
 			}
-			body, _ := json.Marshal(req)
+			body, _ := json.Marshal(req, jsonx.V1())
 			rec := doLogsRequest(t, h, e, "PutLogEvents", string(body))
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -377,7 +378,7 @@ func TestHandler_PutLogEvents_EntityRejection(t *testing.T) {
 					ErrorType string `json:"errorType"`
 				} `json:"rejectedEntityInfo"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			if tt.wantType == "" {
 				assert.Nil(t, out.RejectedEntityInfo)
 

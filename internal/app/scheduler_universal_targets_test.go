@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedtypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const universalPrefix = "arn:aws:scheduler:::aws-sdk:"
@@ -46,7 +48,7 @@ func TestSchedulerUniversalTargets(t *testing.T) {
 				t.Helper()
 
 				url, _ := authzQueue(t, fx, "universal-q")
-				in, err := json.Marshal(map[string]string{"QueueUrl": url, "MessageBody": "hello"})
+				in, err := json.Marshal(map[string]string{"QueueUrl": url, "MessageBody": "hello"}, jsonx.V1())
 				require.NoError(t, err)
 
 				return string(in), url
@@ -97,7 +99,7 @@ func TestSchedulerUniversalTargets(t *testing.T) {
 				jd := setupBatchQueue(t, fx)
 				in, err := json.Marshal(map[string]string{
 					"JobName": "universal-job", "JobQueue": "eb-queue", "JobDefinition": jd,
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				return string(in), ""

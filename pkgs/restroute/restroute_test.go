@@ -2,7 +2,7 @@ package restroute_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -215,7 +216,7 @@ func TestServerDispatchAndErrors(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Header().Get("X-Amzn-Errortype"))
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 
 			if tt.wantCode != "" {
 				assert.NotEmpty(t, body["message"])
@@ -242,7 +243,7 @@ func TestErrorMessageDropsRepeatedCode(t *testing.T) {
 	)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "cell is busy", body["message"])
 	assert.Equal(t, "R", body["reason"])
 }

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func newECSTaskFixture(t *testing.T, role string) (*sfnFixture, *ecs.Client, string) {
@@ -87,7 +89,7 @@ func TestECSTaskStateEventsReachRuleTarget(t *testing.T) {
 
 		for _, m := range out.Messages {
 			var env map[string]any
-			uErr := json.Unmarshal([]byte(aws.ToString(m.Body)), &env)
+			uErr := json.Unmarshal([]byte(aws.ToString(m.Body)), &env, jsonx.V1())
 			if uErr != nil || env["detail-type"] != "ECS Task State Change" {
 				continue
 			}

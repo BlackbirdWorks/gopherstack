@@ -3,7 +3,8 @@ package apigatewayv2
 import (
 	"context"
 	"crypto/rsa"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/cwmetric"
 	"github.com/blackbirdworks/gopherstack/pkgs/executeapi"
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -643,7 +645,7 @@ func handleCreateMulti[I, O any](
 	log := logger.Load(c.Request().Context())
 
 	var input I
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -682,7 +684,7 @@ func handleUpdate[I, O any](
 	log := logger.Load(c.Request().Context())
 
 	var input I
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 
@@ -785,7 +787,7 @@ func handleCreateNoParent[I, O any](
 	log := logger.Load(c.Request().Context())
 
 	var input I
-	if err := json.NewDecoder(c.Request().Body).Decode(&input); err != nil {
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(c.Request().Body), &input, jsonx.V1()); err != nil {
 		return writeErr(c, http.StatusBadRequest, msgInvalidBody)
 	}
 

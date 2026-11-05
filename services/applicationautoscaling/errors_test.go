@@ -9,7 +9,7 @@ package applicationautoscaling_test
 // InvalidNextTokenException.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 )
 
@@ -40,7 +41,7 @@ func TestHandler_PutScalingPolicy_RequiresRegisteredTarget(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ObjectNotFoundException", errBody["__type"])
 }
 
@@ -62,7 +63,7 @@ func TestHandler_PutScheduledAction_RequiresRegisteredTarget(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ObjectNotFoundException", errBody["__type"])
 }
 
@@ -84,7 +85,7 @@ func TestHandler_ObjectNotFoundException_Is400Not404(t *testing.T) {
 	require.NotEqual(t, http.StatusNotFound, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ObjectNotFoundException", errBody["__type"])
 }
 
@@ -218,7 +219,7 @@ func TestHandler_DescribeOps_InvalidNextToken(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errBody map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Equal(t, "InvalidNextTokenException", errBody["__type"])
 		})
 	}

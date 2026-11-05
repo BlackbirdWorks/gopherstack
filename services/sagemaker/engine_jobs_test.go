@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"os"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -215,11 +216,17 @@ func TestEngineTraining_ConfigFilesAndStop(t *testing.T) {
 	cfg := filepath.Join(mountSource(spec, "/opt/ml/input"), "config")
 
 	var res map[string]any
-	require.NoError(t, json.Unmarshal([]byte(readFileOrEmpty(filepath.Join(cfg, "resourceconfig.json"))), &res))
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(readFileOrEmpty(filepath.Join(cfg, "resourceconfig.json"))), &res, jsonx.V1()),
+	)
 	assert.Equal(t, "algo-1", res["current_host"])
 
 	var chans map[string]map[string]string
-	require.NoError(t, json.Unmarshal([]byte(readFileOrEmpty(filepath.Join(cfg, "inputdataconfig.json"))), &chans))
+	require.NoError(
+		t,
+		json.Unmarshal([]byte(readFileOrEmpty(filepath.Join(cfg, "inputdataconfig.json"))), &chans, jsonx.V1()),
+	)
 	assert.Equal(t, "text/csv", chans["train"]["ContentType"])
 	assert.Equal(t, "File", chans["train"]["TrainingInputMode"])
 

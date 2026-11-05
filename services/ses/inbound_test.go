@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/smtp"
 	"net/textproto"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ses"
 )
 
@@ -364,7 +365,7 @@ func TestInboundNotificationShape(t *testing.T) {
 		} `json:"receipt"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n))
+	require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n, jsonx.V1()))
 	assert.Equal(t, "Received", n.NotificationType)
 	assert.Equal(t, "sender@sender.test", n.Mail.Source)
 	assert.Equal(t, []string{"user@example.com"}, n.Mail.Destination)
@@ -400,7 +401,7 @@ func TestInboundNotificationShape(t *testing.T) {
 		} `json:"Records"`
 	}
 
-	require.NoError(t, json.Unmarshal(lam.payloads[0], &ev))
+	require.NoError(t, json.Unmarshal(lam.payloads[0], &ev, jsonx.V1()))
 	require.Len(t, ev.Records, 1)
 	assert.Equal(t, "aws:ses", ev.Records[0].EventSource)
 	assert.Equal(t, "Lambda", ev.Records[0].SES.Receipt.Action.Type)

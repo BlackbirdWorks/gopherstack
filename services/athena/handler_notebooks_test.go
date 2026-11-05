@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -38,7 +39,7 @@ func TestHandler_CreateNotebook(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["NotebookId"])
 			}
 		})
@@ -74,7 +75,7 @@ func TestHandler_CreatePresignedNotebookUrl(t *testing.T) {
 
 			if tt.wantURL {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["NotebookUrl"], tt.sessionID)
 				assert.NotEmpty(t, resp["AuthToken"])
 				assert.Positive(t, resp["AuthTokenExpirationTime"])
@@ -98,7 +99,7 @@ func TestHandler_DeleteNotebook(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var cr map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 
 				return cr["NotebookId"]
 			},
@@ -142,7 +143,7 @@ func TestHandler_ExportNotebook(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var cr map[string]string
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 
 				return cr["NotebookId"]
 			},
@@ -170,7 +171,7 @@ func TestHandler_ExportNotebook(t *testing.T) {
 
 			if tt.wantName != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				meta, _ := resp["NotebookMetadata"].(map[string]any)
 				require.NotNil(t, meta, "NotebookMetadata should be present")
 				assert.Equal(t, tt.wantName, meta["Name"])

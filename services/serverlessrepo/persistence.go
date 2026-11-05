@@ -2,10 +2,12 @@ package serverlessrepo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -80,7 +82,7 @@ func newDirtyDTORegistry() (
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables          map[string]json.RawMessage                     `json:"tables"`
+	Tables          map[string]jsontext.Value                      `json:"tables"`
 	AppPolicies     map[string][]*ApplicationPolicyStatement       `json:"appPolicies"`
 	AppDependencies map[string]map[string][]*ApplicationDependency `json:"appDependencies"`
 	AccountID       string                                         `json:"accountID"`
@@ -157,7 +159,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:          b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "serverlessrepo: failed to marshal snapshot", "error", err)
 
@@ -225,7 +227,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // cfTemplates, cfChangeSets) from tables via the ephemeral DTO registry,
 // converting each DTO back to its live type. The caller MUST hold b.mu for
 // writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, vDTOs, tDTOs, csDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

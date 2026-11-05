@@ -1,7 +1,7 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -22,7 +23,7 @@ func TestFSx_Backup(t *testing.T) {
 		rec := doFSxRequest(t, h, "CreateBackup", map[string]any{"FileSystemId": fsID})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		bk := resp["Backup"].(map[string]any)
 		assert.Contains(t, bk["BackupId"].(string), "backup-")
 		assert.Contains(t, bk["ResourceARN"].(string), "arn:aws:fsx:")
@@ -46,7 +47,7 @@ func TestFSx_Backup(t *testing.T) {
 		rec := doFSxRequest(t, h, "DescribeBackups", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		bks := resp["Backups"].([]any)
 		assert.Len(t, bks, 2)
 	})
@@ -58,7 +59,7 @@ func TestFSx_Backup(t *testing.T) {
 		rec := doFSxRequest(t, h, "DescribeBackups", map[string]any{"BackupIds": []string{bkID}})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		bks := resp["Backups"].([]any)
 		require.Len(t, bks, 1)
 		assert.Equal(t, bkID, bks[0].(map[string]any)["BackupId"])
@@ -92,7 +93,7 @@ func TestFSx_Backup(t *testing.T) {
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		fs := resp["FileSystem"].(map[string]any)
 		assert.Contains(t, fs["FileSystemId"].(string), "fs-")
 		assert.Equal(t, "AVAILABLE", fs["Lifecycle"])
@@ -141,7 +142,7 @@ func TestFSx_CreateFileSystemFromBackup_FileSystemTypeVersion(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			fs := resp["FileSystem"].(map[string]any)
 
 			got, _ := fs["FileSystemTypeVersion"].(string)
@@ -184,7 +185,7 @@ func TestFSx_CopyBackup(t *testing.T) {
 
 			if tc.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				bk := out["Backup"].(map[string]any)
 				assert.Contains(t, bk["BackupId"].(string), "backup-")
 				newID := bk["BackupId"].(string)
@@ -219,7 +220,7 @@ func TestFSx_DeleteBackup_Response(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, bkID, resp["BackupId"])
 			assert.Equal(t, tc.wantLC, resp["Lifecycle"])
 		})
@@ -261,7 +262,7 @@ func TestFSx_BackupNotFound_ErrorCode(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantType, resp["__type"])
 		})
 	}

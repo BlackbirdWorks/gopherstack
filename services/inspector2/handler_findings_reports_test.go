@@ -1,13 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -28,7 +29,7 @@ func TestFindingsReportLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	reportID, _ := createResp["reportId"].(string)
 	require.NotEmpty(t, reportID)
 
@@ -39,7 +40,7 @@ func TestFindingsReportLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var statusResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statusResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &statusResp, jsonx.V1()))
 	assert.Equal(t, reportID, statusResp["reportId"])
 	assert.Equal(t, "SUCCEEDED", statusResp["status"])
 
@@ -74,7 +75,7 @@ func TestFindingAggregations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, ok := resp["responses"]
 	assert.True(t, ok)
 }
@@ -106,7 +107,7 @@ func TestSearchVulnerabilities(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	vulns, ok := resp["vulnerabilities"].([]any)
 	require.True(t, ok)
@@ -134,7 +135,7 @@ func TestSearchVulnerabilitiesNoMatches(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	vulns, ok := resp["vulnerabilities"].([]any)
 	require.True(t, ok)
@@ -161,7 +162,7 @@ func TestBatchGetCodeSnippet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	results, ok := resp["codeSnippetResults"].([]any)
 	require.True(t, ok)
@@ -207,7 +208,7 @@ func TestBatchGetFindingDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	details, ok := resp["findingDetails"].([]any)
 	require.True(t, ok)

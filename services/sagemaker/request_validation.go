@@ -1,13 +1,14 @@
 package sagemaker
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -152,7 +153,7 @@ func validateListPaging(op string, body []byte) error {
 		NextToken  string `json:"NextToken"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if m := req.MaxResults; m != nil && (*m < minListMaxResults || *m > maxListMaxResults) {
 		return fmt.Errorf(

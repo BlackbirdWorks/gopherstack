@@ -1,12 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_AssociateApprovalRuleTemplateWithRepository(t *testing.T) {
@@ -154,7 +156,7 @@ func TestHandler_BatchAssociateApprovalRuleTemplateWithRepositories(t *testing.T
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				assoc, _ := resp["associatedRepositoryNames"].([]any)
 				assert.Len(t, assoc, tt.wantAssocCount)
@@ -237,7 +239,7 @@ func TestHandler_BatchDisassociateApprovalRuleTemplateFromRepositories(t *testin
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				disassoc, _ := resp["disassociatedRepositoryNames"].([]any)
 				assert.Len(t, disassoc, tt.wantDisassocCount)
@@ -262,7 +264,7 @@ func TestHandler_BatchAssociate_EmptySlicesNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Must be JSON array, not null
 	associated := resp["associatedRepositoryNames"]
@@ -284,7 +286,7 @@ func TestHandler_BatchDisassociate_EmptySlicesNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	disassoc := resp["disassociatedRepositoryNames"]
 	assert.NotNil(t, disassoc, "disassociatedRepositoryNames must not be null")
@@ -310,7 +312,7 @@ func TestHandler_ListAssociatedApprovalRuleTemplatesForRepository(t *testing.T) 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	names := resp["approvalRuleTemplateNames"].([]any)
 	assert.Contains(t, names, "assoc-tmpl")
 }
@@ -335,7 +337,7 @@ func TestHandler_ListRepositoriesForApprovalRuleTemplate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repos := resp["repositoryNames"].([]any)
 	assert.Contains(t, repos, "repo-for-tmpl")
 }
@@ -355,7 +357,7 @@ func TestHandler_ListRepositoriesForApprovalRuleTemplate_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	repos := resp["repositoryNames"].([]any)
 	assert.Empty(t, repos)
 }
@@ -389,7 +391,7 @@ func TestHandler_ListAssociatedApprovalRuleTemplatesForRepository_AfterAssoc(t *
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	names := resp["approvalRuleTemplateNames"].([]any)
 	assert.Len(t, names, 2)
 }
@@ -525,7 +527,7 @@ func TestHandler_BatchAssociateAndDisassociate_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assoc := resp["associatedRepositoryNames"].([]any)
 			errs := resp["errors"].([]any)
 			assert.Len(t, assoc, tt.wantAssocLen)
@@ -539,7 +541,7 @@ func TestHandler_BatchAssociateAndDisassociate_TableDriven(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				disassoc := resp["disassociatedRepositoryNames"].([]any)
 				assert.Len(t, disassoc, tt.wantAssocLen)
 			}
@@ -589,13 +591,13 @@ func TestListAssociatedApprovalRuleTemplatesForRepository_RepoNotFound(t *testin
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				names, ok := resp["approvalRuleTemplateNames"].([]any)
 				require.True(t, ok, "approvalRuleTemplateNames must be a JSON array")
 				assert.Empty(t, names)
 			} else {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "RepositoryDoesNotExistException", errResp["__type"])
 			}
 		})
@@ -647,13 +649,13 @@ func TestListRepositoriesForApprovalRuleTemplate_TemplateNotFound(t *testing.T) 
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				repos, ok := resp["repositoryNames"].([]any)
 				require.True(t, ok, "repositoryNames must be a JSON array")
 				assert.Empty(t, repos)
 			} else {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "ApprovalRuleTemplateDoesNotExistException", errResp["__type"])
 			}
 		})

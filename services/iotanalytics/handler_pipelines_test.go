@@ -1,12 +1,14 @@
 package iotanalytics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAndDescribePipeline(t *testing.T) {
@@ -105,7 +107,7 @@ func TestHandler_StartAndCancelPipelineReprocessing(t *testing.T) {
 
 			if tt.wantStart == http.StatusCreated {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &resp, jsonx.V1()))
 				reprocessingID, ok := resp["reprocessingId"].(string)
 				require.True(t, ok)
 				assert.NotEmpty(t, reprocessingID)
@@ -169,7 +171,7 @@ func TestHandler_RunPipelineActivity(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				payloads, _ := resp["payloads"].([]any)
 				assert.Len(t, payloads, tt.wantLen)
 			}
@@ -233,7 +235,7 @@ func TestHandler_Pipelines(t *testing.T) {
 				listRec := doRequest(t, h, http.MethodGet, "/pipelines", nil)
 				assert.Equal(t, tt.wantStatus, listRec.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 				summaries, ok := resp["pipelineSummaries"].([]any)
 				require.True(t, ok)
 				assert.Len(t, summaries, 1)
@@ -350,7 +352,7 @@ func TestHandler_DescribePipeline_NewFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 			for _, field := range tt.wantFields {
 				assert.Contains(t, resp, field, "describe response must contain field %q", field)
 			}
@@ -452,7 +454,7 @@ func TestHandler_ReprocessingSummaries_Sorted(t *testing.T) {
 		require.Equal(t, http.StatusCreated, startRec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &resp, jsonx.V1()))
 		ids[i], _ = resp["reprocessingId"].(string)
 		require.NotEmpty(t, ids[i])
 	}
@@ -462,7 +464,7 @@ func TestHandler_ReprocessingSummaries_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	pipeline, ok := resp["pipeline"].(map[string]any)
 	require.True(t, ok)
 	summaries, ok := pipeline["reprocessingSummaries"].([]any)
@@ -510,7 +512,7 @@ func TestHandler_PipelineReprocessingSummary_NoStartEndTimeLeak(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	pl, _ := resp["pipeline"].(map[string]any)
 	summaries, _ := pl["reprocessingSummaries"].([]any)
 	require.Len(t, summaries, 1)

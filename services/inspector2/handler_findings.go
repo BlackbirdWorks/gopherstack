@@ -1,13 +1,14 @@
 package inspector2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -173,6 +174,7 @@ func resourceToWire(r FindingResource) map[string]any {
 	return res
 }
 
+//nolint:dupl // structurally similar JSON-protocol handlers
 func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -186,7 +188,7 @@ func (h *Handler) handleCreateFindingsReport(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -215,7 +217,7 @@ func (h *Handler) handleCancelFindingsReport(c *echo.Context) error {
 		ReportID string `json:"reportId"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -237,7 +239,7 @@ func (h *Handler) handleGetFindingsReportStatus(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -286,7 +288,7 @@ func (h *Handler) handleListFindingAggregations(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -316,7 +318,7 @@ func (h *Handler) handleSearchVulnerabilities(c *echo.Context) error {
 	}
 
 	if len(body) > 0 {
-		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+		if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 			return c.JSON(
 				http.StatusBadRequest,
 				errorResponse("ValidationException", "invalid JSON"),
@@ -404,7 +406,7 @@ func (h *Handler) handleBatchGetCodeSnippet(c *echo.Context) error {
 		FindingArns []string `json:"findingArns"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
@@ -430,7 +432,7 @@ func (h *Handler) handleBatchGetFindingDetails(c *echo.Context) error {
 		FindingArns []string `json:"findingArns"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 

@@ -1,7 +1,7 @@
 package mq
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -25,7 +26,7 @@ type createConfigurationInput struct {
 
 func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error {
 	var in createConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(
 			http.StatusBadRequest,
 			errorResponse("BadRequestException", "invalid request body"),
@@ -122,7 +123,7 @@ type updateConfigurationInput struct {
 
 func (h *Handler) handleUpdateConfiguration(c *echo.Context, configID string, body []byte) error {
 	var in updateConfigurationInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(
 			http.StatusBadRequest,
 			errorResponse("BadRequestException", "invalid request body"),

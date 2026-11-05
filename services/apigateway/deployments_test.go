@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -29,7 +31,7 @@ func TestDeleteDeployment_StageProtection(t *testing.T) {
 		"create deployment: %d %s", rec.Code, rec.Body.String())
 
 	var depl map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depl))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depl, jsonx.V1()))
 	deplID, _ := depl["id"].(string)
 	require.NotEmpty(t, deplID)
 
@@ -58,7 +60,7 @@ func TestDeleteDeployment_Unreferenced(t *testing.T) {
 		"create deployment: %d %s", rec.Code, rec.Body.String())
 
 	var depl map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depl))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depl, jsonx.V1()))
 	deplID, _ := depl["id"].(string)
 	require.NotEmpty(t, deplID)
 
@@ -104,7 +106,7 @@ func TestCreateDeployment_StageDescription(t *testing.T) {
 			require.True(t, createAPIRec.Code >= 200 && createAPIRec.Code < 300)
 
 			var apiResp map[string]any
-			require.NoError(t, json.NewDecoder(createAPIRec.Body).Decode(&apiResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createAPIRec.Body), &apiResp, jsonx.V1()))
 			apiID, _ := apiResp["id"].(string)
 			require.NotEmpty(t, apiID)
 
@@ -117,7 +119,7 @@ func TestCreateDeployment_StageDescription(t *testing.T) {
 			require.True(t, stageRec.Code >= 200 && stageRec.Code < 300)
 
 			var stage map[string]any
-			require.NoError(t, json.NewDecoder(stageRec.Body).Decode(&stage))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stageRec.Body), &stage, jsonx.V1()))
 			// JSON omitempty means empty description is absent (nil), not "".
 			got, _ := stage["description"].(string)
 			assert.Equal(t, tt.wantDescription, got)
@@ -163,13 +165,13 @@ func TestCreateDeployment_StageVariables(t *testing.T) {
 			require.True(t, createAPIRec.Code >= 200 && createAPIRec.Code < 300)
 
 			var apiResp map[string]any
-			require.NoError(t, json.NewDecoder(createAPIRec.Body).Decode(&apiResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createAPIRec.Body), &apiResp, jsonx.V1()))
 			apiID, _ := apiResp["id"].(string)
 			require.NotEmpty(t, apiID)
 
 			var deplBody string
 			if tt.variables != nil {
-				varsJSON, _ := json.Marshal(tt.variables)
+				varsJSON, _ := json.Marshal(tt.variables, jsonx.V1())
 				deplBody = `{"stageName":"prod","variables":` + string(varsJSON) + `}`
 			} else {
 				deplBody = `{"stageName":"prod"}`
@@ -181,7 +183,7 @@ func TestCreateDeployment_StageVariables(t *testing.T) {
 			require.True(t, stageRec.Code >= 200 && stageRec.Code < 300)
 
 			var stage map[string]any
-			require.NoError(t, json.NewDecoder(stageRec.Body).Decode(&stage))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(stageRec.Body), &stage, jsonx.V1()))
 
 			vars, _ := stage["variables"].(map[string]any)
 			assert.Len(t, vars, tt.wantVarsLen)
@@ -235,7 +237,7 @@ func TestUpdateDeployment(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.description, resp["description"])
 			}
 		})
@@ -272,13 +274,13 @@ func TestHandler_GetAndDeleteDeployment(t *testing.T) {
 
 			createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"api"}`)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			apiID := created["id"].(string)
 
 			deplRec := postWithHandler(t, h, e, "CreateDeployment",
 				fmt.Sprintf(`{"restApiId":%q,"stageName":"prod","description":""}`, apiID))
 			var depl map[string]any
-			require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &depl))
+			require.NoError(t, json.Unmarshal(deplRec.Body.Bytes(), &depl, jsonx.V1()))
 			deplID := depl["id"].(string)
 
 			if tt.action == "DeleteDeployment" {

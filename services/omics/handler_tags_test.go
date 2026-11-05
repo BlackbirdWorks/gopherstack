@@ -1,7 +1,7 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestOmics_Tags(t *testing.T) {
@@ -21,7 +23,7 @@ func TestOmics_Tags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var wfResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wfResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wfResp, jsonx.V1()))
 	wfARN := wfResp["arn"].(string)
 
 	// TagResource
@@ -33,7 +35,7 @@ func TestOmics_Tags(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["tags"].(map[string]any)
 	assert.Equal(t, "test", tags["env"])
 }

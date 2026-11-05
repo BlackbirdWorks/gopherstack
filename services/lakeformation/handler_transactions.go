@@ -2,16 +2,18 @@ package lakeformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCancelTransaction(_ context.Context, c *echo.Context, body []byte) error {
 	var in cancelTransactionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -28,7 +30,7 @@ func (h *Handler) handleCancelTransaction(_ context.Context, c *echo.Context, bo
 
 func (h *Handler) handleCommitTransaction(_ context.Context, c *echo.Context, body []byte) error {
 	var in commitTransactionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -47,7 +49,7 @@ func (h *Handler) handleCommitTransaction(_ context.Context, c *echo.Context, bo
 func (h *Handler) handleStartTransaction(_ context.Context, c *echo.Context, body []byte) error {
 	var in startTransactionInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -59,7 +61,7 @@ func (h *Handler) handleStartTransaction(_ context.Context, c *echo.Context, bod
 
 func (h *Handler) handleDescribeTransaction(_ context.Context, c *echo.Context, body []byte) error {
 	var in describeTransactionInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) handleDescribeTransaction(_ context.Context, c *echo.Context, 
 func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, body []byte) error {
 	var in listTransactionsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}
@@ -93,7 +95,7 @@ func (h *Handler) handleListTransactions(_ context.Context, c *echo.Context, bod
 
 func (h *Handler) handleDeleteObjectsOnCancel(_ context.Context, c *echo.Context, body []byte) error {
 	var in deleteObjectsOnCancelInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
@@ -119,7 +121,7 @@ func (h *Handler) handleDeleteObjectsOnCancel(_ context.Context, c *echo.Context
 func (h *Handler) handleExtendTransaction(_ context.Context, c *echo.Context, body []byte) error {
 	var in extendTransactionInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 		}
 	}

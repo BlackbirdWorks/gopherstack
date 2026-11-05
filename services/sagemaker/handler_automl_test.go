@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // autoMLJobRequestBody returns a minimal-but-complete CreateAutoMLJob request
@@ -46,7 +48,7 @@ func TestHandler_CreateAutoMLJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["AutoMLJobArn"], "my-job")
 }
 
@@ -106,7 +108,7 @@ func TestHandler_CreateAutoMLJob_InputDataConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	channels, ok := descResp["InputDataConfig"].([]any)
 	require.True(t, ok, "DescribeAutoMLJob must always emit InputDataConfig (required field)")
@@ -134,7 +136,7 @@ func TestHandler_DescribeAutoMLJob(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "job-1", resp["AutoMLJobName"])
 	assert.Equal(t, "InProgress", resp["AutoMLJobStatus"])
 }
@@ -154,7 +156,7 @@ func TestHandler_DescribeAutoMLJob_ModelDeployConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	deployConfig, ok := resp["ModelDeployConfig"].(map[string]any)
 	require.True(t, ok, "DescribeAutoMLJob must return ModelDeployConfig when set")
@@ -221,7 +223,7 @@ func TestHandler_StopAutoMLJob(t *testing.T) {
 
 	rec = doSageMakerRequest(t, h, "DescribeAutoMLJob", map[string]any{"AutoMLJobName": "job-stop"})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Stopping", resp["AutoMLJobStatus"])
 }
 
@@ -237,7 +239,7 @@ func TestHandler_ListAutoMLJobs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["AutoMLJobSummaries"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -257,7 +259,7 @@ func TestHandler_ListAutoMLJobs_FilterSort(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["AutoMLJobSummaries"].([]any)
 	require.Len(t, items, 1)
 	assert.Equal(t, "job-alpha", items[0].(map[string]any)["AutoMLJobName"])
@@ -267,7 +269,7 @@ func TestHandler_ListAutoMLJobs_FilterSort(t *testing.T) {
 		"SortOrder": "Descending",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items = resp["AutoMLJobSummaries"].([]any)
 	require.Len(t, items, 2)
 	assert.Equal(t, "job-beta", items[0].(map[string]any)["AutoMLJobName"])
@@ -308,7 +310,7 @@ func TestAutoMLJob_OutputDataConfigRoundtrip(t *testing.T) {
 			MetricName string `json:"MetricName"`
 		} `json:"AutoMLJobObjective"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	require.NotNil(t, out.OutputDataConfig, "OutputDataConfig must be returned by DescribeAutoMLJob")
 	assert.Equal(t, "s3://my-bucket/automl-output/", out.OutputDataConfig.S3OutputPath)
@@ -334,7 +336,7 @@ func TestAutoMLJob_InitialStatus_InProgress(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InProgress", resp["AutoMLJobStatus"])
 }
 

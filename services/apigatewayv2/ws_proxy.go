@@ -3,7 +3,7 @@ package apigatewayv2
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -164,7 +165,7 @@ func (s *wsSession) sendForbidden() {
 		jsonKeyMessage: wsForbiddenMessage,
 		"connectionId": s.connID,
 		"requestId":    uuid.NewString(),
-	})
+	}, jsonx.V1())
 	s.send(b)
 }
 
@@ -223,7 +224,7 @@ func (s *wsSession) invoke(
 		return nil, fmt.Errorf("%w: %s", ErrInvalidLambdaArn, integration.IntegrationURI)
 	}
 
-	payload, marshalErr := json.Marshal(event)
+	payload, marshalErr := json.Marshal(event, jsonx.V1())
 	if marshalErr != nil {
 		return nil, fmt.Errorf("failed to marshal WebSocket event: %w", marshalErr)
 	}
@@ -364,7 +365,7 @@ func proxyResponseStatus(out []byte) int {
 	var resp struct {
 		StatusCode *int `json:"statusCode"`
 	}
-	if json.Unmarshal(out, &resp) != nil || resp.StatusCode == nil {
+	if json.Unmarshal(out, &resp, jsonx.V1()) != nil || resp.StatusCode == nil {
 		return 0
 	}
 
@@ -441,7 +442,7 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 		"multiValueQueryStringParameters": s.query,
 		"stageVariables":                  map[string]string{},
 		evKeyRequestContext:               s.requestContext(routeKeyConnect, wsEventConnect),
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return errRouteAuthConfigInvalid
 	}
@@ -458,7 +459,7 @@ func (h *Handler) enforceWSRequestAuthorizer(c *echo.Context, s *wsSession, auth
 	var policy iamPolicyResponse
 	allow, explicit := false, false
 
-	if json.Unmarshal(out, &policy) == nil {
+	if json.Unmarshal(out, &policy, jsonx.V1()) == nil {
 		allow, explicit = evaluateIAMPolicy(policy.PolicyDocument.Statement, methodArn)
 	}
 
@@ -497,7 +498,7 @@ func evalRouteSelection(expr string, body []byte) string {
 	expr = strings.ReplaceAll(expr, `\$`, escaped)
 
 	var doc any
-	_ = json.Unmarshal(body, &doc)
+	_ = json.Unmarshal(body, &doc, jsonx.V1())
 
 	failed := false
 	out := wsBodyVarRE.ReplaceAllStringFunc(expr, func(m string) string {

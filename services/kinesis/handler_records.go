@@ -2,8 +2,10 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonPutRecordReq struct {
@@ -91,7 +93,7 @@ func (h *Handler) handlePutRecord(
 	body []byte,
 ) (any, error) {
 	var req jsonPutRecordReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -128,7 +130,7 @@ func (h *Handler) handlePutRecords(
 	body []byte,
 ) (any, error) {
 	var req jsonPutRecordsReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 
@@ -168,7 +170,7 @@ func (h *Handler) handleGetRecords(
 	body []byte,
 ) (any, error) {
 	var req jsonGetRecordsReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArgument
 	}
 

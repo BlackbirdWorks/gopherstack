@@ -3,12 +3,14 @@ package eks
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -39,12 +41,12 @@ const idempotencyTokenTTL = 24 * time.Hour
 const maxIdempotencyRecords = 1024
 
 type idempotencyRecord struct {
-	CreatedAt   time.Time       `json:"createdAt"`
-	Op          string          `json:"op"`
-	Token       string          `json:"token"`
-	Fingerprint string          `json:"fingerprint"`
-	Body        json.RawMessage `json:"body"`
-	StatusCode  int             `json:"statusCode"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	Op          string         `json:"op"`
+	Token       string         `json:"token"`
+	Fingerprint string         `json:"fingerprint"`
+	Body        jsontext.Value `json:"body"`
+	StatusCode  int            `json:"statusCode"`
 }
 
 func idempotencyKey(op, token string) string { return op + "\x00" + token }
@@ -59,7 +61,7 @@ func idempotencyKeyFn(v *idempotencyRecord) string { return idempotencyKey(v.Op,
 // byte-identically.
 func idempotencyFingerprint(reqBody []byte) string {
 	var v map[string]any
-	if err := json.Unmarshal(reqBody, &v); err != nil {
+	if err := json.Unmarshal(reqBody, &v, jsonx.V1()); err != nil {
 		sum := sha256.Sum256(reqBody)
 
 		return hex.EncodeToString(sum[:])
@@ -67,7 +69,7 @@ func idempotencyFingerprint(reqBody []byte) string {
 
 	delete(v, "clientRequestToken")
 
-	canon, err := json.Marshal(v)
+	canon, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		canon = reqBody
 	}
@@ -100,7 +102,7 @@ func idempotencyExpired(rec *idempotencyRecord, now time.Time) bool {
 }
 
 // storeIdempotency records a successful (2xx) response for later replay.
-func (b *InMemoryBackend) storeIdempotency(op, token, fingerprint string, statusCode int, body json.RawMessage) {
+func (b *InMemoryBackend) storeIdempotency(op, token, fingerprint string, statusCode int, body jsontext.Value) {
 	b.mu.Lock("storeIdempotency")
 	defer b.mu.Unlock()
 
@@ -158,7 +160,7 @@ func (h *Handler) withIdempotency(
 		}
 
 		var body any
-		if err := json.Unmarshal(rec.Body, &body); err != nil {
+		if err := json.Unmarshal(rec.Body, &body, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 		}
 
@@ -171,7 +173,7 @@ func (h *Handler) withIdempotency(
 	}
 
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		if raw, mErr := json.Marshal(body); mErr == nil {
+		if raw, mErr := json.Marshal(body, jsonx.V1()); mErr == nil {
 			h.Backend.storeIdempotency(op, token, fp, status, raw)
 		}
 	}

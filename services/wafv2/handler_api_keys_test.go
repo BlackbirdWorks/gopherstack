@@ -2,7 +2,7 @@ package wafv2_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/wafv2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
@@ -79,7 +81,7 @@ func TestHandler_CreateAndDeleteAPIKey(t *testing.T) {
 			}
 
 			var createResult map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResult, jsonx.V1()))
 			apiKey, _ := createResult["APIKey"].(string)
 
 			deleteRec := doWafv2Request(t, h, "DeleteAPIKey", tt.deleteBody(apiKey))
@@ -100,7 +102,7 @@ func TestAPIKeyBase64Encoding(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	apiKey, ok := resp["APIKey"].(string)
 	require.True(t, ok)
@@ -249,7 +251,7 @@ func TestHandler_GetDecryptedAPIKey(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				apiKey, _ = resp["APIKey"].(string)
 				require.NotEmpty(t, apiKey)
 			}
@@ -267,7 +269,7 @@ func TestHandler_GetDecryptedAPIKey(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotContains(t, resp, "Scope", "GetDecryptedAPIKeyOutput has no Scope member")
 				assert.Contains(t, resp, "TokenDomains")
 			}

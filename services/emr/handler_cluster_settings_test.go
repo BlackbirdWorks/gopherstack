@@ -1,12 +1,14 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestTerminationProtection(t *testing.T) {
@@ -19,7 +21,7 @@ func TestTerminationProtection(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	clusterID := create.JobFlowID
 
 	protectRec := doEMRRequest(t, h, "SetTerminationProtection", map[string]any{
@@ -63,7 +65,7 @@ func TestSetKeepJobFlowAliveWhenNoSteps_SyncsAutoTerminate(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 	clusterID := create.JobFlowID
 
 	describe := func() bool {
@@ -75,7 +77,7 @@ func TestSetKeepJobFlowAliveWhenNoSteps_SyncsAutoTerminate(t *testing.T) {
 				AutoTerminate bool `json:"AutoTerminate"`
 			} `json:"Cluster"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 		return out.Cluster.AutoTerminate
 	}
@@ -107,7 +109,7 @@ func TestModifyCluster(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	modRec := doEMRRequest(t, h, "ModifyCluster", map[string]any{
 		"ClusterId":            create.JobFlowID,
@@ -118,7 +120,7 @@ func TestModifyCluster(t *testing.T) {
 	var modOut struct {
 		StepConcurrencyLevel int `json:"StepConcurrencyLevel"`
 	}
-	require.NoError(t, json.Unmarshal(modRec.Body.Bytes(), &modOut))
+	require.NoError(t, json.Unmarshal(modRec.Body.Bytes(), &modOut, jsonx.V1()))
 	assert.Equal(t, 5, modOut.StepConcurrencyLevel)
 }
 
@@ -132,7 +134,7 @@ func TestModifyCluster_InvalidRange(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	modRec := doEMRRequest(t, h, "ModifyCluster", map[string]any{
 		"ClusterId":            create.JobFlowID,

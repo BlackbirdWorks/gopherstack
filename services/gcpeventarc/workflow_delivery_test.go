@@ -2,7 +2,7 @@ package gcpeventarc_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"cloud.google.com/go/eventarc/apiv1/eventarcpb"
@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const eventWorkflow = `
@@ -94,7 +96,7 @@ func TestPubsubEventStartsWorkflowExecution(t *testing.T) {
 	require.Equal(t, executionspb.Execution_SUCCEEDED, execs[0].GetState(), execs[0].GetError().GetPayload())
 
 	var arg map[string]any
-	require.NoError(t, json.Unmarshal([]byte(execs[0].GetArgument()), &arg))
+	require.NoError(t, json.Unmarshal([]byte(execs[0].GetArgument()), &arg, jsonx.V1()))
 	assert.Equal(t, "1.0", arg["specversion"])
 	assert.Equal(t, "google.cloud.pubsub.topic.v1.messagePublished", arg["type"])
 
@@ -111,7 +113,7 @@ func TestPubsubEventStartsWorkflowExecution(t *testing.T) {
 			Subscription string `json:"subscription"`
 		} `json:"data"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(execs[0].GetResult()), &res))
+	require.NoError(t, json.Unmarshal([]byte(execs[0].GetResult()), &res, jsonx.V1()))
 
 	assert.Equal(t, "1.0", res.Specversion)
 	assert.Equal(t, "//pubsub.googleapis.com/"+topic, res.Source)
@@ -148,7 +150,7 @@ func TestStorageEventStartsWorkflowExecution(t *testing.T) {
 			Name   string `json:"name"`
 		} `json:"data"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(execs[0].GetResult()), &res))
+	require.NoError(t, json.Unmarshal([]byte(execs[0].GetResult()), &res, jsonx.V1()))
 	assert.Equal(t, "google.cloud.storage.object.v1.finalized", res.Type)
 	assert.Equal(t, "events-bkt", res.Data.Bucket)
 	assert.Equal(t, "dir/a.txt", res.Data.Name)

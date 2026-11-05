@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -400,7 +401,7 @@ func TestSendCommand_RunPatchBaseline_ApprovalRules_Compliance(t *testing.T) {
 	var created struct {
 		BaselineID string `json:"BaselineId"`
 	}
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &created, jsonx.V1()))
 
 	regResp := doRequest(t, h, "RegisterPatchBaselineForPatchGroup", `{
 		"BaselineId":"`+created.BaselineID+`","PatchGroup":"rule-group"
@@ -423,7 +424,7 @@ func TestSendCommand_RunPatchBaseline_ApprovalRules_Compliance(t *testing.T) {
 			State string `json:"State"`
 		} `json:"Patches"`
 	}
-	require.NoError(t, json.Unmarshal(patchesResp.Body.Bytes(), &patches))
+	require.NoError(t, json.Unmarshal(patchesResp.Body.Bytes(), &patches, jsonx.V1()))
 
 	states := map[string]string{}
 	for _, p := range patches.Patches {

@@ -1,7 +1,7 @@
 package cognitoidp_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -116,7 +117,7 @@ func TestHandler_GetUser_WithMFAFields(t *testing.T) {
 		PreferredMfaSetting string   `json:"PreferredMfaSetting,omitempty"`
 		UserMFASettingList  []string `json:"UserMFASettingList,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, []string{"SOFTWARE_TOKEN_MFA"}, resp.UserMFASettingList)
 	assert.Equal(t, "SOFTWARE_TOKEN_MFA", resp.PreferredMfaSetting)
 }
@@ -140,7 +141,7 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 	var assocResp struct {
 		SecretCode string `json:"SecretCode,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	require.NotEmpty(t, assocResp.SecretCode)
 
 	setupCode, err := cognitoidp.GenerateTOTPCode(assocResp.SecretCode, time.Now())
@@ -173,7 +174,7 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 		ChallengeName *string `json:"ChallengeName,omitempty"`
 		Session       *string `json:"Session,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(setMFARec.Body.Bytes(), &mfaInitResp))
+	require.NoError(t, json.Unmarshal(setMFARec.Body.Bytes(), &mfaInitResp, jsonx.V1()))
 	require.NotNil(t, mfaInitResp.ChallengeName)
 	require.Equal(t, "SOFTWARE_TOKEN_MFA", *mfaInitResp.ChallengeName)
 
@@ -197,7 +198,7 @@ func TestHandler_RespondToAuthChallenge_SMSMFAFlow(t *testing.T) {
 			AccessToken string `json:"AccessToken,omitempty"`
 		} `json:"AuthenticationResult"`
 	}
-	require.NoError(t, json.Unmarshal(respondRec.Body.Bytes(), &tokenResp))
+	require.NoError(t, json.Unmarshal(respondRec.Body.Bytes(), &tokenResp, jsonx.V1()))
 	require.NotNil(t, tokenResp.AuthenticationResult)
 	assert.NotEmpty(t, tokenResp.AuthenticationResult.AccessToken)
 }
@@ -217,7 +218,7 @@ func TestHandler_AssociateSoftwareToken_Accurate(t *testing.T) {
 	var resp struct {
 		SecretCode string `json:"SecretCode,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp.SecretCode)
 	assert.Greater(t, len(resp.SecretCode), 10)
 }
@@ -266,7 +267,7 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	var assocResp struct {
 		SecretCode string `json:"SecretCode,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	require.NotEmpty(t, assocResp.SecretCode)
 
 	code, err := cognitoidp.GenerateTOTPCode(assocResp.SecretCode, time.Now())
@@ -281,7 +282,7 @@ func TestHandler_VerifySoftwareToken_Accurate(t *testing.T) {
 	var resp struct {
 		Status string `json:"Status,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "SUCCESS", resp.Status)
 }
 
@@ -384,7 +385,7 @@ func TestSetGetMfaConfig_SmsMfaConfiguration(t *testing.T) {
 		} `json:"SmsMfaConfiguration"`
 		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 	assert.Equal(t, "ON", setOut.MfaConfiguration)
 	require.NotNil(t, setOut.SmsMfaConfiguration)
 	assert.Equal(t, "Your code is {####}", setOut.SmsMfaConfiguration.SmsAuthenticationMessage)
@@ -403,7 +404,7 @@ func TestSetGetMfaConfig_SmsMfaConfiguration(t *testing.T) {
 		} `json:"SmsMfaConfiguration"`
 		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "ON", getOut.MfaConfiguration)
 	require.NotNil(t, getOut.SmsMfaConfiguration)
 	assert.Equal(t, "Your code is {####}", getOut.SmsMfaConfiguration.SmsAuthenticationMessage)
@@ -430,7 +431,7 @@ func TestSetGetMfaConfig_SoftwareTokenMfa(t *testing.T) {
 		} `json:"SoftwareTokenMfaConfiguration"`
 		MfaConfiguration string `json:"MfaConfiguration,omitempty"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 	assert.Equal(t, "OPTIONAL", setOut.MfaConfiguration)
 	require.NotNil(t, setOut.SoftwareTokenMfaConfiguration)
 	assert.True(t, setOut.SoftwareTokenMfaConfiguration.Enabled)
@@ -446,7 +447,7 @@ func TestSetGetMfaConfig_SoftwareTokenMfa(t *testing.T) {
 			Enabled bool `json:"Enabled,omitempty"`
 		} `json:"SoftwareTokenMfaConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getOut, jsonx.V1()))
 	require.NotNil(t, getOut.SoftwareTokenMfaConfiguration)
 	assert.True(t, getOut.SoftwareTokenMfaConfiguration.Enabled)
 }
@@ -473,7 +474,7 @@ func TestSetGetMfaConfig_EmailMfa(t *testing.T) {
 			Subject string `json:"Subject,omitempty"`
 		} `json:"EmailMfaConfiguration"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &setOut, jsonx.V1()))
 	require.NotNil(t, setOut.EmailMfaConfiguration)
 	assert.Equal(t, "Your login code is {####}", setOut.EmailMfaConfiguration.Message)
 	assert.Equal(t, "Login verification", setOut.EmailMfaConfiguration.Subject)
@@ -701,7 +702,7 @@ func TestAdminGetUserMFAFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// Fields should be present (even if empty/nil for non-MFA user).
 	// The response JSON should decode without error and have the base fields.

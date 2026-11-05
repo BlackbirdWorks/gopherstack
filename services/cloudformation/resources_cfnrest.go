@@ -1,12 +1,13 @@
 package cloudformation
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -28,12 +29,12 @@ func decodeCFNProps(dst any, props map[string]any, params, physicalIDs map[strin
 		resolved["Tags"] = tagListProp(props, params, physicalIDs)
 	}
 
-	raw, err := json.Marshal(resolved)
+	raw, err := json.Marshal(resolved, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("encode properties: %w", err)
 	}
 
-	if err = json.Unmarshal(raw, dst); err != nil {
+	if err = json.Unmarshal(raw, dst, jsonx.V1()); err != nil {
 		return fmt.Errorf("decode properties: %w", err)
 	}
 

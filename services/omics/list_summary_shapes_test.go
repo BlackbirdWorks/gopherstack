@@ -2,7 +2,8 @@ package omics_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestListSummaries_MemberRoundTrips drives each op's Create/Start then List
@@ -166,7 +169,7 @@ func TestListReadSetUploadParts_RawBodyUsesPartSourceKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, storeRec.Code)
 
 	var store map[string]any
-	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 	storeID := store["id"].(string)
 
 	uploadRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/upload", map[string]any{
@@ -178,7 +181,7 @@ func TestListReadSetUploadParts_RawBodyUsesPartSourceKey(t *testing.T) {
 	require.Equal(t, http.StatusCreated, uploadRec.Code)
 
 	var upload map[string]any
-	require.NoError(t, json.Unmarshal(uploadRec.Body.Bytes(), &upload))
+	require.NoError(t, json.Unmarshal(uploadRec.Body.Bytes(), &upload, jsonx.V1()))
 	uploadID := upload["uploadId"].(string)
 
 	partRec := doRequest(
@@ -198,7 +201,7 @@ func TestListReadSetUploadParts_RawBodyUsesPartSourceKey(t *testing.T) {
 	var listResp struct {
 		Parts []map[string]any `json:"parts"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	require.Len(t, listResp.Parts, 1)
 
 	assert.Equal(t, "SOURCE1", listResp.Parts[0]["partSource"])
@@ -244,7 +247,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, storeRec.Code)
 
 		var store map[string]any
-		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 		storeID := store["id"].(string)
 
 		jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/activationjob", map[string]any{
@@ -269,7 +272,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, storeRec.Code)
 
 		var store map[string]any
-		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 		storeID := store["id"].(string)
 
 		jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
@@ -295,7 +298,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, storeRec.Code)
 
 		var store map[string]any
-		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 		storeID := store["id"].(string)
 
 		jobRec := doRequest(t, h, http.MethodPost, "/sequencestore/"+storeID+"/importjob", map[string]any{
@@ -321,7 +324,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, storeRec.Code)
 
 		var store map[string]any
-		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 		storeID := store["id"].(string)
 
 		jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
@@ -347,7 +350,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, storeRec.Code)
 
 		var store map[string]any
-		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+		require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store, jsonx.V1()))
 		storeID := store["id"].(string)
 
 		jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
@@ -413,7 +416,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, wfRec.Code)
 
 		var wf map[string]any
-		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 		wfID := wf["id"].(string)
 
 		runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
@@ -425,7 +428,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, runRec.Code)
 
 		var run map[string]any
-		require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run))
+		require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &run, jsonx.V1()))
 		runID := run["id"].(string)
 
 		listRec := doRequest(t, h, http.MethodGet, "/run/"+runID+"/task", nil)
@@ -445,7 +448,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, wfRec.Code)
 
 		var wf map[string]any
-		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 		wfID := wf["id"].(string)
 
 		runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
@@ -478,7 +481,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, wfRec.Code)
 
 		var wf map[string]any
-		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 		wfID := wf["id"].(string)
 
 		batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
@@ -495,7 +498,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, batchRec.Code)
 
 		var batch map[string]any
-		require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch))
+		require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batch, jsonx.V1()))
 		batchID := batch["id"].(string)
 
 		listRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID+"/run", nil)
@@ -543,7 +546,7 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 		require.Equal(t, http.StatusCreated, wfRec.Code)
 
 		var wf map[string]any
-		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+		require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 		wfID := wf["id"].(string)
 
 		verRec := doRequest(t, h, http.MethodPost, "/workflow/"+wfID+"/version", map[string]any{
@@ -566,14 +569,14 @@ func TestListSummaries_OmitDescribeOnlyFields(t *testing.T) {
 func listItems(t *testing.T, body []byte, key string) []map[string]any {
 	t.Helper()
 
-	var resp map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(body, &resp))
+	var resp map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	raw, ok := resp[key]
 	require.True(t, ok, "response missing key %q", key)
 
 	var items []map[string]any
-	require.NoError(t, json.Unmarshal(raw, &items))
+	require.NoError(t, json.Unmarshal(raw, &items, jsonx.V1()))
 
 	return items
 }

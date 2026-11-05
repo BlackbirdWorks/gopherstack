@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -139,7 +141,7 @@ func TestPutProvisionedConcurrencyConfig(t *testing.T) {
 			}
 
 			var out lambda.ProvisionedConcurrencyConfig
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantRequested, out.RequestedProvisionedConcurrentExecutions)
 			assert.Equal(t, tt.wantRequested, out.AllocatedProvisionedConcurrentExecutions)
 			assert.Equal(t, "READY", out.Status)
@@ -233,7 +235,7 @@ func TestGetProvisionedConcurrencyConfig(t *testing.T) {
 			}
 
 			var out lambda.ProvisionedConcurrencyConfig
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantRequested, out.RequestedProvisionedConcurrentExecutions)
 			assert.Equal(t, "READY", out.Status)
 		})
@@ -407,7 +409,7 @@ func TestListProvisionedConcurrencyConfigs(t *testing.T) {
 			}
 
 			var out lambda.ListProvisionedConcurrencyConfigsOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.ProvisionedConcurrencyConfigs, tt.wantCount)
 		})
 	}
@@ -469,7 +471,7 @@ func TestProvisionedConcurrency_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, putRec.Code)
 
 	var pc lambda.ProvisionedConcurrencyConfig
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&pc))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &pc, jsonx.V1()))
 	assert.Equal(t, 5, pc.RequestedProvisionedConcurrentExecutions)
 	assert.Equal(t, "READY", pc.Status)
 
@@ -479,7 +481,7 @@ func TestProvisionedConcurrency_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getPC lambda.ProvisionedConcurrencyConfig
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getPC))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getPC, jsonx.V1()))
 	assert.Equal(t, 5, getPC.RequestedProvisionedConcurrentExecutions)
 
 	// List
@@ -488,7 +490,7 @@ func TestProvisionedConcurrency_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListProvisionedConcurrencyConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.ProvisionedConcurrencyConfigs, 1)
 
 	// Delete
@@ -500,7 +502,7 @@ func TestProvisionedConcurrency_Lifecycle(t *testing.T) {
 	listRec2 := callInMemoryHandler(t, h, http.MethodGet,
 		"/2019-09-30/functions/pc-fn/provisioned-concurrency", "")
 	var listOut2 lambda.ListProvisionedConcurrencyConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec2.Body), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2.ProvisionedConcurrencyConfigs)
 }
 
@@ -549,7 +551,7 @@ func TestProvisionedConcurrency_StatusReady(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	assert.InDelta(t, float64(5), out["RequestedProvisionedConcurrentExecutions"], 0)
 	assert.InDelta(t, float64(5), out["AllocatedProvisionedConcurrentExecutions"], 0)
 	assert.InDelta(t, float64(5), out["AvailableProvisionedConcurrentExecutions"], 0)
@@ -587,7 +589,7 @@ func TestProvisionedConcurrency_List_IncludesAllQualifiers(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var out lambda.ListProvisionedConcurrencyConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &out, jsonx.V1()))
 	assert.Len(t, out.ProvisionedConcurrencyConfigs, 2)
 }
 
@@ -658,7 +660,7 @@ func TestProvisionedConcurrency_FullCRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var pcOut lambda.ProvisionedConcurrencyConfig
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pcOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pcOut, jsonx.V1()))
 	assert.Equal(t, 5, pcOut.RequestedProvisionedConcurrentExecutions)
 	assert.Equal(t, "READY", pcOut.Status)
 
@@ -673,7 +675,7 @@ func TestProvisionedConcurrency_FullCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut lambda.ListProvisionedConcurrencyConfigsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.ProvisionedConcurrencyConfigs, 1)
 
 	// DeleteProvisionedConcurrencyConfig.

@@ -2,7 +2,7 @@ package azurearm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/mysql/armmysqlflexibleservers/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const myNS = "Microsoft.DBforMySQL"
@@ -87,7 +89,7 @@ func TestMySQLFlexServerCRUD(t *testing.T) {
 	status, raw := s.raw(t, http.MethodGet, flexServerPath(myNS, "my-crud"), "", flexAPIMy)
 	require.Equal(t, http.StatusOK, status)
 
-	enc, err := json.Marshal(raw)
+	enc, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 	assert.NotContains(t, string(enc), flexPassword)
 	assert.NotContains(t, string(enc), "administratorLoginPassword")

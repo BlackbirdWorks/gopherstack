@@ -3,13 +3,14 @@ package docdb
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -40,7 +41,7 @@ func masterSecretBody(user string) (string, string, error) {
 
 	password := hex.EncodeToString(raw)
 
-	body, err := json.Marshal(map[string]string{"username": user, "password": password})
+	body, err := json.Marshal(map[string]string{"username": user, "password": password}, jsonx.V1())
 	if err != nil {
 		return "", "", fmt.Errorf("encode master user secret: %w", err)
 	}

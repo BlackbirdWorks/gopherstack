@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -21,7 +23,7 @@ type createImageInput struct {
 func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req createImageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -36,7 +38,7 @@ func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"ImageArn": result.ImageArn})
+	return json.Marshal(map[string]any{"ImageArn": result.ImageArn}, jsonx.V1())
 }
 
 type describeImageInput struct {
@@ -46,7 +48,7 @@ type describeImageInput struct {
 func (h *Handler) handleDescribeImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeImageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) handleDescribeImage(ctx context.Context, body []byte) ([]byte,
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 type deleteImageInput struct {
@@ -69,7 +71,7 @@ type deleteImageInput struct {
 func (h *Handler) handleDeleteImage(ctx context.Context, body []byte) error {
 	var req deleteImageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -95,7 +97,7 @@ type listImagesInput struct {
 func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, error) {
 	var req listImagesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -135,7 +137,7 @@ func (h *Handler) handleListImages(ctx context.Context, body []byte) ([]byte, er
 	return json.Marshal(map[string]any{
 		"Images":     summaries,
 		keyNextToken: next,
-	})
+	}, jsonx.V1())
 }
 
 type updateImageInput struct {
@@ -149,7 +151,7 @@ type updateImageInput struct {
 func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateImageInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -167,7 +169,7 @@ func (h *Handler) handleUpdateImage(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyImageArn: result.ImageArn})
+	return json.Marshal(map[string]any{keyImageArn: result.ImageArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +193,7 @@ type createImageVersionInput struct {
 func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req createImageVersionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -214,7 +216,7 @@ func (h *Handler) handleCreateImageVersion(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"ImageVersionArn": result.ImageVersionArn})
+	return json.Marshal(map[string]any{"ImageVersionArn": result.ImageVersionArn}, jsonx.V1())
 }
 
 type describeImageVersionInput struct {
@@ -226,7 +228,7 @@ type describeImageVersionInput struct {
 func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeImageVersionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -241,7 +243,7 @@ func (h *Handler) handleDescribeImageVersion(ctx context.Context, body []byte) (
 
 	result.ClientToken = ""
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 type deleteImageVersionInput struct {
@@ -253,7 +255,7 @@ type deleteImageVersionInput struct {
 func (h *Handler) handleDeleteImageVersion(ctx context.Context, body []byte) error {
 	var req deleteImageVersionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -279,7 +281,7 @@ type listImageVersionsInput struct {
 func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listImageVersionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -313,7 +315,7 @@ func (h *Handler) handleListImageVersions(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]any{
 		"ImageVersions": summaries,
 		keyNextToken:    next,
-	})
+	}, jsonx.V1())
 }
 
 type updateImageVersionInput struct {
@@ -334,7 +336,7 @@ type updateImageVersionInput struct {
 func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateImageVersionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -358,7 +360,7 @@ func (h *Handler) handleUpdateImageVersion(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyImageVersionArn: result.ImageVersionArn})
+	return json.Marshal(map[string]any{keyImageVersionArn: result.ImageVersionArn}, jsonx.V1())
 }
 
 // ---------------------------------------------------------------------------
@@ -376,7 +378,7 @@ type listAliasesInput struct {
 func (h *Handler) handleListAliases(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAliasesInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -396,5 +398,5 @@ func (h *Handler) handleListAliases(ctx context.Context, body []byte) ([]byte, e
 		resp[keyNextToken] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

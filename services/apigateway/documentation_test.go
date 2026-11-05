@@ -1,13 +1,15 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDocumentationPart_CRUD tests GetDocumentationPart, GetDocumentationParts, DeleteDocumentationPart.
@@ -61,7 +63,7 @@ func TestDocumentationPart_CRUD(t *testing.T) {
 					fmt.Sprintf(`{"restApiId":%q}`, apiID))
 				assert.Equal(t, http.StatusOK, rec2.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp["item"].([]any), tt.listWantLen)
 			}
 
@@ -130,7 +132,7 @@ func TestDocumentationVersion_CRUD(t *testing.T) {
 					fmt.Sprintf(`{"restApiId":%q}`, apiID))
 				assert.Equal(t, http.StatusOK, rec2.Code)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp["item"].([]any), tt.listWantLen)
 			}
 

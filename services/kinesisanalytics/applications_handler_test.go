@@ -2,7 +2,7 @@ package kinesisanalytics_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 )
 
@@ -46,7 +47,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantKey)
 			}
 		})
@@ -160,7 +161,7 @@ func TestDeleteApplication_TimestampMismatch_ConcurrentModificationException(t *
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ConcurrentModificationException", resp["__type"],
 		"timestamp mismatch must return ConcurrentModificationException, not LimitExceededException")
 }
@@ -225,7 +226,7 @@ func TestHandler_ListApplications(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["ApplicationSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantCount)

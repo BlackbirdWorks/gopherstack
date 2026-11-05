@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -27,7 +29,7 @@ func TestMediaConvert_JobTemplate_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	jtData, ok := createResp["jobTemplate"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, templateName, jtData["name"])
@@ -53,7 +55,7 @@ func TestMediaConvert_JobTemplate_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	updatedJT, ok := updateResp["jobTemplate"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "updated description", updatedJT["description"])
@@ -118,7 +120,7 @@ func TestCreateJobTemplate_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	jt := resp["jobTemplate"].(map[string]any)
 	tags := jt["tags"].(map[string]any)
 	assert.Equal(t, "12345", tags["cost-center"])
@@ -165,7 +167,7 @@ func TestCreateJobTemplate_AccelerationHopDestinationsStatusUpdateInterval(t *te
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	jt := resp["jobTemplate"].(map[string]any)
 
 	accel := jt["accelerationSettings"].(map[string]any)
@@ -238,7 +240,7 @@ func TestUpdateJobTemplate_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	jt := resp["jobTemplate"].(map[string]any)
 
 	accel := jt["accelerationSettings"].(map[string]any)

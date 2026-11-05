@@ -1,7 +1,7 @@
 package bedrockruntime
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- InvokeGuardrailChecks (POST /guardrail-checks/invoke) ---
@@ -162,7 +164,7 @@ type guardrailChecksTextUnitsResponse struct {
 func (h *Handler) handleInvokeGuardrailChecks(c *echo.Context, body []byte) error {
 	var req invokeGuardrailChecksRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 		}
 	}
@@ -204,7 +206,7 @@ func (h *Handler) handleInvokeGuardrailChecks(c *echo.Context, body []byte) erro
 		"usage":    usage,
 	}
 
-	out, err := json.Marshal(resp)
+	out, err := json.Marshal(resp, jsonx.V1())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, errorResponse("InternalServerException", "internal server error"))
 	}

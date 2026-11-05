@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handlePutFile(body []byte) (any, error) {
@@ -21,7 +23,7 @@ func (h *Handler) handlePutFile(body []byte) (any, error) {
 		CommitMessage  string `json:"commitMessage"`
 		ParentCommitID string `json:"parentCommitId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" || req.FilePath == "" {
@@ -61,7 +63,7 @@ func (h *Handler) handleGetFile(body []byte) (any, error) {
 		CommitSpecifier string `json:"commitSpecifier"`
 		FilePath        string `json:"filePath"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" || req.FilePath == "" {
@@ -89,7 +91,7 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 		CommitSpecifier string `json:"commitSpecifier"`
 		FolderPath      string `json:"folderPath"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -165,7 +167,7 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 		CommitMessage    string `json:"commitMessage"`
 		KeepEmptyFolders bool   `json:"keepEmptyFolders"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" || req.FilePath == "" {
@@ -196,7 +198,7 @@ func (h *Handler) handleGetBlob(body []byte) (any, error) {
 		RepositoryName string `json:"repositoryName"`
 		BlobID         string `json:"blobId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" || req.BlobID == "" {
@@ -223,7 +225,7 @@ func (h *Handler) handleGetBlobDifferences(body []byte) (any, error) {
 		BeforeBlobID     string `json:"beforeBlobId"`
 		NextToken        string `json:"NextToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -265,7 +267,7 @@ func (h *Handler) handleListFileCommitHistory(body []byte) (any, error) {
 		NextToken      string `json:"nextToken"`
 		MaxResults     int    `json:"maxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

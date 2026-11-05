@@ -1,10 +1,12 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildConfigOps() map[string]handlerFunc {
@@ -18,7 +20,7 @@ func (h *Handler) buildConfigOps() map[string]handlerFunc {
 
 func (h *Handler) handleDescribeImageGenerationConfiguration(c *echo.Context, body []byte) error {
 	var req describeImageGenerationConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -34,7 +36,7 @@ func (h *Handler) handleDescribeImageGenerationConfiguration(c *echo.Context, bo
 
 func (h *Handler) handleUpdateImageGenerationConfiguration(c *echo.Context, body []byte) error {
 	var req updateImageGenerationConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -49,7 +51,7 @@ func (h *Handler) handleUpdateImageGenerationConfiguration(c *echo.Context, body
 
 func (h *Handler) handleDescribeNotificationConfiguration(c *echo.Context, body []byte) error {
 	var req describeNotificationConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -65,7 +67,7 @@ func (h *Handler) handleDescribeNotificationConfiguration(c *echo.Context, body 
 
 func (h *Handler) handleUpdateNotificationConfiguration(c *echo.Context, body []byte) error {
 	var req updateNotificationConfigurationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

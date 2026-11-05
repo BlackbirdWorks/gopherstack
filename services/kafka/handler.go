@@ -3,7 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -653,7 +654,7 @@ func decodeJSONBody(body []byte, v any) error {
 		return nil
 	}
 
-	return json.Unmarshal(body, v)
+	return json.Unmarshal(body, v, jsonx.V1())
 }
 
 // ----------------------------------------
@@ -666,7 +667,7 @@ const defaultPageSize = 100
 func encodeKafkaPageToken(offset int) string {
 	data, _ := json.Marshal(struct {
 		O int `json:"o"`
-	}{O: offset})
+	}{O: offset}, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(data)
 }
@@ -689,7 +690,7 @@ func decodeKafkaPageToken(token string) int {
 		O int `json:"o"`
 	}
 
-	err = json.Unmarshal(data, &t)
+	err = json.Unmarshal(data, &t, jsonx.V1())
 	if err != nil || t.O < 0 {
 		return 0
 	}

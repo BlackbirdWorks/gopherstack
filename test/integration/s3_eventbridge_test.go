@@ -1,7 +1,8 @@
 package integration_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestIntegration_S3_NotificationToEventBridge verifies that when EventBridgeConfiguration
@@ -144,37 +147,37 @@ func TestIntegration_S3_NotificationToEventBridge(t *testing.T) {
 	}, 10*time.Second, 500*time.Millisecond, "should receive EventBridge event in SQS within 10s")
 
 	// Validate the EventBridge event envelope.
-	var event map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal([]byte(receivedMsg), &event), "event must be valid JSON")
+	var event map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal([]byte(receivedMsg), &event, jsonx.V1()), "event must be valid JSON")
 
 	var source string
-	require.NoError(t, json.Unmarshal(event["source"], &source))
+	require.NoError(t, json.Unmarshal(event["source"], &source, jsonx.V1()))
 	assert.Equal(t, "aws.s3", source)
 
 	var detailType string
-	require.NoError(t, json.Unmarshal(event["detail-type"], &detailType))
+	require.NoError(t, json.Unmarshal(event["detail-type"], &detailType, jsonx.V1()))
 	assert.Equal(t, "Object Created", detailType)
 
 	// Validate the event detail.
-	var detail map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(event["detail"], &detail))
+	var detail map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(event["detail"], &detail, jsonx.V1()))
 
-	var bucketDetail map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(detail["bucket"], &bucketDetail))
+	var bucketDetail map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(detail["bucket"], &bucketDetail, jsonx.V1()))
 
 	var bucketName string
-	require.NoError(t, json.Unmarshal(bucketDetail["name"], &bucketName))
+	require.NoError(t, json.Unmarshal(bucketDetail["name"], &bucketName, jsonx.V1()))
 	assert.Equal(t, bucket, bucketName)
 
-	var objectDetail map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(detail["object"], &objectDetail))
+	var objectDetail map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(detail["object"], &objectDetail, jsonx.V1()))
 
 	var key string
-	require.NoError(t, json.Unmarshal(objectDetail["key"], &key))
+	require.NoError(t, json.Unmarshal(objectDetail["key"], &key, jsonx.V1()))
 	assert.Equal(t, objectKey, key)
 
 	var reason string
-	require.NoError(t, json.Unmarshal(detail["reason"], &reason))
+	require.NoError(t, json.Unmarshal(detail["reason"], &reason, jsonx.V1()))
 	assert.Equal(t, "PutObject", reason)
 
 	t.Logf("S3→EventBridge event delivered: source=%s detail-type=%s bucket=%s key=%s reason=%s",

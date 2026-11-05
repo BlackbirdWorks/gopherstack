@@ -3,7 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/dns/dnstest"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -895,7 +897,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
 				webACL, err := wafBk.CreateWebACL(
 					context.Background(), "wiring-test-acl", "REGIONAL", "",
-					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+					jsontext.Value(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 				require.NoError(t, wafBk.TagResource(
@@ -1527,7 +1529,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 						"SubnetIds":        []string{"subnet-1", "subnet-2"},
 						"SecurityGroupIds": []string{"sg-1"},
 					},
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				req := httptest.NewRequest(http.MethodPut, "/environments/wiring-test-env", bytes.NewReader(body))
@@ -2355,7 +2357,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
 				webACL, err := wafBk.CreateWebACL(
 					context.Background(), "roundtrip-acl", "REGIONAL", "",
-					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+					jsontext.Value(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 				)
 				require.NoError(t, err)
 
@@ -3102,7 +3104,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()))
 
 	// Verify the new observability fields are present.
 	assert.Contains(t, body, "goroutines", "health response must include goroutines count")
@@ -3208,7 +3210,8 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	waitForEndpoint(t, fmt.Sprintf("http://localhost:%d/_localstack/init/ready", port), func(resp *http.Response) bool {
 		var body map[string]any
 
-		return json.NewDecoder(resp.Body).Decode(&body) == nil && body["completed"] == true
+		return json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()) == nil &&
+			body["completed"] == true
 	})
 
 	for _, tt := range tests {
@@ -3219,7 +3222,7 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			var body map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &body, jsonx.V1()))
 			tt.validate(t, body)
 		})
 	}
@@ -3384,7 +3387,7 @@ func TestBuildSnapshotHandler_EmptyManager(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp snapshotResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, snapshotBundleFormat, resp.Format)
 	assert.Equal(t, 0, resp.Exported)
 	assert.Empty(t, resp.Services)
@@ -3445,7 +3448,7 @@ func TestBuildSnapshotHandler(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp snapshotResponse
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			assert.Equal(t, snapshotBundleFormat, resp.Format)
 			assert.Equal(t, "ok", resp.Status)
@@ -3469,14 +3472,14 @@ func TestBuildSnapshotHandler_ResponseIsValidJSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp snapshotResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	// Service snapshot must be embedded as raw JSON, not base64.
 	rawSvc, ok := resp.Services["svc"]
 	require.True(t, ok, "svc key must be present")
 
 	var parsed map[string]any
-	require.NoError(t, json.Unmarshal(rawSvc, &parsed))
+	require.NoError(t, json.Unmarshal(rawSvc, &parsed, jsonx.V1()))
 	assert.Equal(t, []any{float64(1), float64(2), float64(3)}, parsed["items"])
 }
 
@@ -3490,14 +3493,14 @@ func TestBuildLoadHandler_EmptyBundle(t *testing.T) {
 
 	body, _ := json.Marshal(snapshotBundle{
 		Format:   snapshotBundleFormat,
-		Services: map[string]json.RawMessage{},
-	})
+		Services: map[string]jsontext.Value{},
+	}, jsonx.V1())
 	rec := postJSON(t, handler, body)
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp loadResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "ok", resp.Status)
 	assert.Equal(t, 0, resp.Loaded)
 }
@@ -3505,7 +3508,7 @@ func TestBuildLoadHandler_EmptyBundle(t *testing.T) {
 func TestBuildLoadHandler(t *testing.T) {
 	t.Parallel()
 
-	snap := json.RawMessage(`{"restored":true}`)
+	snap := jsontext.Value(`{"restored":true}`)
 
 	tests := []struct {
 		setupErr       error
@@ -3518,7 +3521,7 @@ func TestBuildLoadHandler(t *testing.T) {
 			name: "single_service_loaded",
 			bundle: snapshotBundle{
 				Format:   snapshotBundleFormat,
-				Services: map[string]json.RawMessage{"svc": snap},
+				Services: map[string]jsontext.Value{"svc": snap},
 			},
 			wantStatusCode: http.StatusOK,
 			wantLoaded:     1,
@@ -3527,7 +3530,7 @@ func TestBuildLoadHandler(t *testing.T) {
 			name: "unknown_service_skipped",
 			bundle: snapshotBundle{
 				Format:   snapshotBundleFormat,
-				Services: map[string]json.RawMessage{"unknown": snap},
+				Services: map[string]jsontext.Value{"unknown": snap},
 			},
 			wantStatusCode: http.StatusOK,
 			wantLoaded:     1,
@@ -3537,7 +3540,7 @@ func TestBuildLoadHandler(t *testing.T) {
 			setupErr: errRestoreFailure,
 			bundle: snapshotBundle{
 				Format:   snapshotBundleFormat,
-				Services: map[string]json.RawMessage{"svc": snap},
+				Services: map[string]jsontext.Value{"svc": snap},
 			},
 			wantStatusCode: http.StatusInternalServerError,
 		},
@@ -3555,7 +3558,7 @@ func TestBuildLoadHandler(t *testing.T) {
 			e.HTTPErrorHandler = buildHTTPErrorHandler()
 			e.POST("/", handler)
 
-			body, marshalErr := json.Marshal(tt.bundle)
+			body, marshalErr := json.Marshal(tt.bundle, jsonx.V1())
 			require.NoError(t, marshalErr)
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -3567,7 +3570,7 @@ func TestBuildLoadHandler(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp loadResponse
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.Equal(t, "ok", resp.Status)
 				assert.Equal(t, tt.wantLoaded, resp.Loaded)
 			} else {
@@ -3649,7 +3652,7 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, snapRec.Code)
 
 			var snapResp snapshotResponse
-			require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(snapRec.Body), &snapResp, jsonx.V1()))
 			assert.Equal(t, len(tt.initial), snapResp.Exported)
 
 			// Step 2: Reset all services.
@@ -3662,7 +3665,7 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 			}
 
 			// Step 3: POST /_gopherstack/load with the exported snapshot.
-			loadBody, err := json.Marshal(snapResp.snapshotBundle)
+			loadBody, err := json.Marshal(snapResp.snapshotBundle, jsonx.V1())
 			require.NoError(t, err)
 
 			loadReq := httptest.NewRequest(
@@ -3678,7 +3681,7 @@ func TestSnapshotLoadRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, loadRec.Code)
 
 			var loadResp loadResponse
-			require.NoError(t, json.NewDecoder(loadRec.Body).Decode(&loadResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(loadRec.Body), &loadResp, jsonx.V1()))
 			assert.Equal(t, "ok", loadResp.Status)
 			assert.Equal(t, len(tt.initial), loadResp.Loaded)
 
@@ -3711,10 +3714,10 @@ func TestSnapshotLoadRoundTrip_CrossManagerLoad(t *testing.T) {
 	require.Equal(t, http.StatusOK, snapRec.Code)
 
 	var snapResp snapshotResponse
-	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(snapRec.Body), &snapResp, jsonx.V1()))
 
 	// Load into mgrB.
-	loadBody, err := json.Marshal(snapResp.snapshotBundle)
+	loadBody, err := json.Marshal(snapResp.snapshotBundle, jsonx.V1())
 	require.NoError(t, err)
 
 	loadReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(loadBody))
@@ -3741,7 +3744,7 @@ func TestSnapshotLoadRoundTrip_EmptyServicesProduceEmptyBundle(t *testing.T) {
 	require.Equal(t, http.StatusOK, snapRec.Code)
 
 	var snapResp snapshotResponse
-	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(snapRec.Body), &snapResp, jsonx.V1()))
 	assert.Equal(t, 0, snapResp.Exported, "nil-snapshot service must not be exported")
 	assert.Empty(t, snapResp.Services)
 }
@@ -3762,7 +3765,7 @@ func TestBuildEchoServer_SnapshotLoadRoutes(t *testing.T) {
 	e.ServeHTTP(snapshotRec, snapshotReq)
 	assert.NotEqual(t, http.StatusNotFound, snapshotRec.Code, "snapshot route must be registered")
 
-	loadBody, _ := json.Marshal(snapshotBundle{Format: snapshotBundleFormat, Services: nil})
+	loadBody, _ := json.Marshal(snapshotBundle{Format: snapshotBundleFormat, Services: nil}, jsonx.V1())
 	loadReq := httptest.NewRequest(http.MethodPost, "/_gopherstack/load", bytes.NewReader(loadBody))
 	loadReq.Header.Set("Content-Type", "application/json")
 	loadRec := httptest.NewRecorder()
@@ -3791,7 +3794,7 @@ func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *te
 	require.Equal(t, http.StatusOK, snapRec.Code)
 
 	var snapResp snapshotResponse
-	require.NoError(t, json.NewDecoder(snapRec.Body).Decode(&snapResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(snapRec.Body), &snapResp, jsonx.V1()))
 	assert.Equal(t, 3, snapResp.Exported)
 
 	// Reset.
@@ -3800,7 +3803,7 @@ func TestBuildSnapshotHandler_MultipleServices_StatePreservedIndependently(t *te
 	}
 
 	// Load.
-	loadBody, err := json.Marshal(snapResp.snapshotBundle)
+	loadBody, err := json.Marshal(snapResp.snapshotBundle, jsonx.V1())
 	require.NoError(t, err)
 
 	loadRec := httptest.NewRecorder()

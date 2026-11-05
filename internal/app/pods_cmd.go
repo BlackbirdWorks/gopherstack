@@ -3,7 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const podCmdTimeout = 10 * time.Minute
@@ -85,7 +87,7 @@ func (t PodTarget) call(method, path string, query url.Values, body any) error {
 	var rdr io.Reader
 
 	if body != nil {
-		b, err := json.Marshal(body)
+		b, err := json.Marshal(body, jsonx.V1())
 		if err != nil {
 			return fmt.Errorf("encode request: %w", err)
 		}
@@ -118,9 +120,9 @@ func (t PodTarget) call(method, path string, query url.Values, body any) error {
 		return fmt.Errorf("%w: %d: %s", errPodServer, resp.StatusCode, strings.TrimSpace(string(out)))
 	}
 
-	var pretty bytes.Buffer
-	if json.Indent(&pretty, out, "", "  ") == nil {
-		out = pretty.Bytes()
+	pretty := jsontext.Value(bytes.Clone(out))
+	if pretty.Indent(jsonx.V1(), jsontext.WithIndent("  ")) == nil {
+		out = pretty
 	}
 
 	fmt.Fprintln(os.Stdout, strings.TrimSpace(string(out)))

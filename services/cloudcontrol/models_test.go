@@ -1,13 +1,14 @@
 package cloudcontrol_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 )
 
@@ -30,7 +31,7 @@ func TestProgressEvent_OptionalFieldsOmittedWhenTerminalSuccess(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	pe, ok := out["ProgressEvent"].(map[string]any)
 	require.True(t, ok, "ProgressEvent must be present")
@@ -57,7 +58,7 @@ func TestGetResourceRequestStatus_HooksProgressEventOmittedWhenEmpty(t *testing.
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	pe, ok := createOut["ProgressEvent"].(map[string]any)
 	require.True(t, ok)
 
@@ -71,7 +72,7 @@ func TestGetResourceRequestStatus_HooksProgressEventOmittedWhenEmpty(t *testing.
 	require.Equal(t, http.StatusOK, statusRec.Code)
 
 	var statusOut map[string]any
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusOut))
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusOut, jsonx.V1()))
 
 	assert.NotContains(t, statusOut, "HooksProgressEvent",
 		"HooksProgressEvent must be omitted since this backend has no Hooks concept")

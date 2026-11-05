@@ -2,7 +2,7 @@ package polly_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/polly"
 )
 
@@ -190,7 +191,7 @@ func TestStartSpeechSynthesisStreamValidationExceptionTaxonomy(t *testing.T) {
 			// "ValidationException: EngineNotSupportedException: voice ..."), so
 			// assert on the parsed field rather than searching the raw body.
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "ValidationException", out["__type"])
 		})
 	}
@@ -240,7 +241,7 @@ func TestStartSpeechSynthesisStreamRequiresGenerativeEngine(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var out map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, "ValidationException", out["__type"])
 		})
 	}
@@ -648,7 +649,7 @@ func TestSpeechMarksVisemeVariety(t *testing.T) {
 		}
 
 		var m map[string]any
-		require.NoError(t, json.Unmarshal(line, &m))
+		require.NoError(t, json.Unmarshal(line, &m, jsonx.V1()))
 
 		if m["type"] == "viseme" {
 			marks = append(marks, m)
@@ -780,7 +781,7 @@ func TestSpeechMarkCounts(t *testing.T) {
 					continue
 				}
 				var ev map[string]any
-				require.NoError(t, json.Unmarshal([]byte(line), &ev), "invalid JSON line: %s", line)
+				require.NoError(t, json.Unmarshal([]byte(line), &ev, jsonx.V1()), "invalid JSON line: %s", line)
 				typ, _ := ev["type"].(string)
 				counts[typ]++
 			}
@@ -836,7 +837,7 @@ func TestSpeechMarkTimeOrder(t *testing.T) {
 					continue
 				}
 				var ev map[string]any
-				require.NoError(t, json.Unmarshal([]byte(line), &ev))
+				require.NoError(t, json.Unmarshal([]byte(line), &ev, jsonx.V1()))
 				timeVal, _ := ev["time"].(float64)
 				assert.GreaterOrEqual(t, timeVal, prevTime, "marks must be non-decreasing by time")
 				prevTime = timeVal

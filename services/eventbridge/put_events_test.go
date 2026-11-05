@@ -2,7 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
@@ -255,14 +256,14 @@ func TestPutEvents_FailedEntryCount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			body, err := json.Marshal(map[string]any{"Entries": tt.entries})
+			body, err := json.Marshal(map[string]any{"Entries": tt.entries}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeRequest(t, tt.action, string(body))
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var got putEventsResult
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 
 			assert.Equal(t, tt.wantFailedCount, got.FailedEntryCount)
 

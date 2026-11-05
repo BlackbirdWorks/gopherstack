@@ -2,7 +2,7 @@ package ses_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ses"
 )
 
@@ -94,7 +95,7 @@ func deliver(t *testing.T, dns ses.InboundTXTResolver, mailFrom, msg string) ver
 		} `json:"receipt"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n))
+	require.NoError(t, json.Unmarshal([]byte(snsF.msgs["arn:t"][0]), &n, jsonx.V1()))
 
 	return verdictSet{spf: n.Receipt.SPF.Status, dmarc: n.Receipt.DMARC.Status}
 }

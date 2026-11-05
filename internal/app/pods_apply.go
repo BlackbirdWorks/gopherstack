@@ -2,13 +2,14 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/pods"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -32,7 +33,7 @@ func podApplyHTTPError(err error) error {
 // validateSnaps rejects any section that is not well-formed JSON.
 func validateSnaps(snaps map[string][]byte) error {
 	for n, d := range snaps {
-		if !json.Valid(d) {
+		if !jsontext.Value(d).IsValid(jsonx.V1()) {
 			return podInvalidError{fmt.Errorf("%w: service %q section is not valid JSON", pods.ErrCorrupt, n)}
 		}
 	}

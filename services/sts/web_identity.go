@@ -2,13 +2,15 @@ package sts
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // webIdentitySubjectPlaceholder is returned when the sub claim cannot be extracted from the token.
@@ -479,7 +481,7 @@ func (b *InMemoryBackend) GetWebIdentityToken(
 		claims[jwtClaimTags] = tagMap
 	}
 
-	payload, err := json.Marshal(claims)
+	payload, err := json.Marshal(claims, jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("build token payload: %w", err)
 	}

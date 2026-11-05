@@ -1,7 +1,7 @@
 package oam_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/oam"
 )
 
@@ -23,11 +24,11 @@ func allowPolicy(account, condition string) string {
 
 	if condition != "" {
 		var c any
-		_ = json.Unmarshal([]byte(condition), &c)
+		_ = json.Unmarshal([]byte(condition), &c, jsonx.V1())
 		stmt["Condition"] = c
 	}
 
-	b, _ := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": []any{stmt}})
+	b, _ := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": []any{stmt}}, jsonx.V1())
 
 	return string(b)
 }

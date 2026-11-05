@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func createMembership(t *testing.T, e *echo.Echo, colID string, queryLog string) (map[string]any, string) {
@@ -19,7 +21,7 @@ func createMembership(t *testing.T, e *echo.Echo, colID string, queryLog string)
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	mem := resp["membership"].(map[string]any)
 
@@ -35,7 +37,7 @@ func createBaseCollaboration(t *testing.T, e *echo.Echo, name string) string {
 	})
 	var colResp map[string]any
 	rec := doRequest(t, e, "GET", "/collaborations", nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp, jsonx.V1()))
 
 	return colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 }
@@ -135,7 +137,7 @@ func TestMemberships_List(t *testing.T) {
 			require.Equal(t, tt.wants.status, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			summaries := listResp["membershipSummaries"].([]any)
 			require.Len(t, summaries, 2)
 			summary := summaries[0].(map[string]any)

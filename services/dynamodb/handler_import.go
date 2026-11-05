@@ -7,12 +7,13 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
@@ -146,7 +147,7 @@ type describeImportOutput struct {
 
 func (h *DynamoDBHandler) handleDescribeImport(ctx context.Context, body []byte) (any, error) {
 	var req describeImportInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -179,7 +180,7 @@ type importTableOutput struct {
 
 func (h *DynamoDBHandler) handleImportTable(ctx context.Context, body []byte) (any, error) {
 	var req importTableInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 
@@ -243,7 +244,7 @@ type listImportsInput struct {
 
 func (h *DynamoDBHandler) handleListImports(ctx context.Context, body []byte) (any, error) {
 	var req listImportsInput
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 

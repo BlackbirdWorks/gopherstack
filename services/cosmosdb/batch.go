@@ -2,7 +2,8 @@ package cosmosdb
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxBatchOperations is the Cosmos limit on operations in one transactional batch.
@@ -33,10 +35,10 @@ func isBatchRequest(r *http.Request) bool {
 }
 
 type batchOpWire struct {
-	OperationType string          `json:"operationType"`
-	ID            string          `json:"id"`
-	IfMatch       string          `json:"ifMatch"`
-	ResourceBody  json.RawMessage `json:"resourceBody"`
+	OperationType string         `json:"operationType"`
+	ID            string         `json:"id"`
+	IfMatch       string         `json:"ifMatch"`
+	ResourceBody  jsontext.Value `json:"resourceBody"`
 }
 
 // batchOp is a decoded batch operation.
@@ -59,8 +61,8 @@ type BatchResult struct {
 func parseBatchOps(raw []byte) ([]batchOp, error) {
 	var wire []batchOpWire
 
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&wire); err != nil || rejectTrailingJSON(dec) != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsonx.V1())
+	if err := json.UnmarshalDecode(dec, &wire, jsonx.V1()); err != nil || rejectTrailingJSON(dec) != nil {
 		return nil, fmt.Errorf("%w: the batch body is not a JSON array of operations", ErrInvalidDocument)
 	}
 
@@ -190,7 +192,7 @@ func (tx *containerTx) runBatchOp(pk string, op batchOp) (BatchResult, error) {
 	}
 
 	body := documentAsMap(info)
-	size, _ := json.Marshal(body)
+	size, _ := json.Marshal(body, jsonx.V1())
 
 	return BatchResult{
 		StatusCode: status, ETag: info.ETag, Body: body,

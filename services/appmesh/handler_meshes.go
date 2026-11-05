@@ -1,7 +1,7 @@
 package appmesh
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -71,10 +71,10 @@ func (h *Handler) handleMeshes(c *echo.Context, segs []string) error {
 
 func (h *Handler) handleCreateMesh(c *echo.Context) error {
 	var body struct {
-		MeshName    string          `json:"meshName"`
-		ClientToken string          `json:"clientToken"`
-		Spec        json.RawMessage `json:"spec"`
-		Tags        []tagInput      `json:"tags"`
+		MeshName    string         `json:"meshName"`
+		ClientToken string         `json:"clientToken"`
+		Spec        jsontext.Value `json:"spec"`
+		Tags        []tagInput     `json:"tags"`
 	}
 	if err := c.Bind(&body); err != nil || !isValidResourceName(body.MeshName) {
 		return c.JSON(
@@ -104,8 +104,8 @@ func (h *Handler) handleDescribeMesh(c *echo.Context, meshName string) error {
 
 func (h *Handler) handleUpdateMesh(c *echo.Context, meshName string) error {
 	var body struct {
-		ClientToken string          `json:"clientToken"`
-		Spec        json.RawMessage `json:"spec"`
+		ClientToken string         `json:"clientToken"`
+		Spec        jsontext.Value `json:"spec"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("BadRequestException", "invalid request body"))

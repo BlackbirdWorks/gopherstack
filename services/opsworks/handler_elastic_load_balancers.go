@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleAttachElasticLoadBalancer handles AttachElasticLoadBalancer requests.
@@ -13,7 +15,7 @@ func (h *Handler) handleAttachElasticLoadBalancer(_ context.Context, body []byte
 		LayerID                 string `json:"LayerId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -31,7 +33,7 @@ func (h *Handler) handleDetachElasticLoadBalancer(_ context.Context, body []byte
 		LayerID                 string `json:"LayerId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -50,7 +52,7 @@ func (h *Handler) handleDescribeElasticLoadBalancers(_ context.Context, body []b
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}

@@ -1,9 +1,10 @@
 package transfer
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -36,7 +37,7 @@ func validateListPaging(body []byte) error {
 func decodeListPaging(body []byte) (listPagingInput, bool) {
 	var in listPagingInput
 
-	err := json.Unmarshal(body, &in)
+	err := json.Unmarshal(body, &in, jsonx.V1())
 
 	return in, err == nil
 }

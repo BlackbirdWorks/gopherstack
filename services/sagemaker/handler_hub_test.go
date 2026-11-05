@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +11,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -55,7 +57,7 @@ func TestHandler_CreateHub(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp["HubArn"], "hub/my-hub")
 			}
 		})
@@ -95,7 +97,7 @@ func TestHandler_HubLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, "lifecycle-hub", desc["HubName"])
 	assert.Equal(t, "InService", desc["HubStatus"])
 	assert.Equal(t, "initial description", desc["HubDescription"])
@@ -117,7 +119,7 @@ func TestHandler_HubLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc2.Code)
 
 	var desc2 map[string]any
-	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &desc2))
+	require.NoError(t, json.Unmarshal(recDesc2.Body.Bytes(), &desc2, jsonx.V1()))
 	assert.Equal(t, "updated description", desc2["HubDescription"])
 	// Untouched field should be preserved.
 	assert.Equal(t, "Lifecycle Hub", desc2["HubDisplayName"])
@@ -164,7 +166,7 @@ func TestHandler_ListHubs(t *testing.T) {
 	var resp struct {
 		HubSummaries []map[string]any `json:"HubSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.HubSummaries, 3)
 
 	// NameContains filter.
@@ -174,7 +176,7 @@ func TestHandler_ListHubs(t *testing.T) {
 	var filtered struct {
 		HubSummaries []map[string]any `json:"HubSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &filtered))
+	require.NoError(t, json.Unmarshal(recFiltered.Body.Bytes(), &filtered, jsonx.V1()))
 	require.Len(t, filtered.HubSummaries, 1)
 	assert.Equal(t, "beta-hub", filtered.HubSummaries[0]["HubName"])
 }
@@ -363,7 +365,7 @@ func TestHandler_ImportHubContent(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["HubArn"])
 				assert.Contains(t, resp["HubContentArn"], "hub-content/content-hub/Model/my-model")
 			}
@@ -428,7 +430,7 @@ func TestHandler_DescribeHubContent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "my-model", resp["HubContentName"])
 	assert.Equal(t, "2.0.0", resp["HubContentVersion"])
 	assert.Equal(t, "Model", resp["HubContentType"])
@@ -486,7 +488,7 @@ func TestHandler_HubContent_ListsAndVersions(t *testing.T) {
 	var listResp struct {
 		HubContentSummaries []map[string]any `json:"HubContentSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp.HubContentSummaries, 2)
 
 	// ListHubContentVersions returns every version of one named content.
@@ -498,7 +500,7 @@ func TestHandler_HubContent_ListsAndVersions(t *testing.T) {
 	var versionsResp struct {
 		HubContentSummaries []map[string]any `json:"HubContentSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(recVersions.Body.Bytes(), &versionsResp))
+	require.NoError(t, json.Unmarshal(recVersions.Body.Bytes(), &versionsResp, jsonx.V1()))
 	require.Len(t, versionsResp.HubContentSummaries, 3)
 }
 
@@ -735,7 +737,7 @@ func TestHandler_HubContentReference_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recCreate.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotEmpty(t, createResp["HubArn"])
 	assert.Contains(t, createResp["HubContentArn"], "hub-content/ref-hub/ModelReference/huggingface-model")
 
@@ -746,7 +748,7 @@ func TestHandler_HubContentReference_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDesc.Code)
 
 	var desc map[string]any
-	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &desc))
+	require.NoError(t, json.Unmarshal(recDesc.Body.Bytes(), &desc, jsonx.V1()))
 	assert.Equal(t, publicArn, desc["SageMakerPublicHubContentArn"])
 
 	// Duplicate reference is rejected.
@@ -805,7 +807,7 @@ func TestHandler_CreateHubContentPresignedUrls(t *testing.T) {
 	var resp struct {
 		AuthorizedURLConfigs []map[string]string `json:"AuthorizedUrlConfigs"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.AuthorizedURLConfigs, 1)
 	assert.Contains(t, resp.AuthorizedURLConfigs[0]["Url"], "https://")
 	assert.NotEmpty(t, resp.AuthorizedURLConfigs[0]["LocalPath"])
@@ -919,7 +921,7 @@ func TestHandler_UpdateHubContent(t *testing.T) {
 		"HubName": "my-hub2", "HubContentName": "model-a", "HubContentType": "Model",
 	})
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recDescribe.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "new description", out["HubContentDescription"])
 }
 
@@ -942,7 +944,7 @@ func TestHandler_UpdateHubContentReference(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["HubContentArn"])
 }
 

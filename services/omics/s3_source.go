@@ -2,10 +2,12 @@ package omics
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -78,7 +80,7 @@ func (h *Handler) registryMapFromURI(ctx context.Context, m map[string]any, uri 
 	}
 
 	var out map[string]any
-	if err = json.Unmarshal(data, &out); err != nil || out == nil {
+	if err = json.Unmarshal(data, &out, jsonx.V1()); err != nil || out == nil {
 		return nil, fmt.Errorf("%w: containerRegistryMapUri must contain a JSON object", ErrValidation)
 	}
 
@@ -92,7 +94,7 @@ func (h *Handler) inlineSettingsFromURI(ctx context.Context, uri string) ([]inli
 	}
 
 	var out []inlineRunSettingWire
-	if err = json.Unmarshal(data, &out); err != nil {
+	if err = json.Unmarshal(data, &out, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf(
 			"%w: batchRunSettings.s3UriSettings must contain a JSON array of run settings",
 			ErrValidation,

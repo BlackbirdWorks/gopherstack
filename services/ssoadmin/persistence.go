@@ -2,11 +2,13 @@ package ssoadmin
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -74,7 +76,7 @@ func newDirtyDTORegistry() (
 // newer) build of this backend as though it were the current shape; see
 // Restore.
 type backendSnapshot struct {
-	Tables                  map[string]json.RawMessage                  `json:"tables"`
+	Tables                  map[string]jsontext.Value                   `json:"tables"`
 	Assignments             map[string][]*AccountAssignment             `json:"assignments"`
 	AssignmentCreationIDs   map[string]string                           `json:"assignmentCreationIDs"`
 	ProvisionedAt           map[string]time.Time                        `json:"provisionedAt"`
@@ -82,8 +84,8 @@ type backendSnapshot struct {
 	CustomerManagedPolicies map[string][]CustomerManagedPolicyReference `json:"customerManagedPolicies"`
 	ApplicationAssignments  map[string][]*ApplicationAssignment         `json:"applicationAssignments"`
 	ApplicationScopes       map[string]map[string][]string              `json:"applicationScopes"`
-	ApplicationAuthMethods  map[string]map[string]json.RawMessage       `json:"applicationAuthMethods"`
-	ApplicationGrants       map[string]map[string]json.RawMessage       `json:"applicationGrants"`
+	ApplicationAuthMethods  map[string]map[string]jsontext.Value        `json:"applicationAuthMethods"`
+	ApplicationGrants       map[string]map[string]jsontext.Value        `json:"applicationGrants"`
 	ApplicationAssignConfig map[string]bool                             `json:"applicationAssignConfig"`
 	ApplicationSessions     map[string]string                           `json:"applicationSessions"`
 	AccountID               string                                      `json:"accountID"`
@@ -140,7 +142,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                  b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "ssoadmin: failed to marshal snapshot", "error", err)
 
@@ -182,8 +184,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.customerManagedPolicies = make(map[string][]CustomerManagedPolicyReference)
 		b.applicationAssignments = make(map[string][]*ApplicationAssignment)
 		b.applicationScopes = make(map[string]map[string][]string)
-		b.applicationAuthMethods = make(map[string]map[string]json.RawMessage)
-		b.applicationGrants = make(map[string]map[string]json.RawMessage)
+		b.applicationAuthMethods = make(map[string]map[string]jsontext.Value)
+		b.applicationGrants = make(map[string]map[string]jsontext.Value)
 		b.applicationAssignConfig = make(map[string]bool)
 		b.applicationSessions = make(map[string]string)
 		b.seedDefaultInstance()
@@ -222,7 +224,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // permissionBoundaries) from tables via the ephemeral DTO registry,
 // converting each DTO back to its live type. The caller MUST hold b.mu for
 // writing.
-func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreDirtyTablesLocked(tables map[string]jsontext.Value) error {
 	dtoReg, acaDTOs, pbDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(tables); err != nil {

@@ -2,7 +2,7 @@ package dynamodbstreams_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -260,7 +261,7 @@ func TestHandler_GetRecords(t *testing.T) {
 			require.Equal(t, http.StatusOK, iterResp.Code)
 
 			var iterOut map[string]any
-			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 
 			shardIterRaw, ok := iterOut["ShardIterator"]
 			require.True(t, ok, "ShardIterator key expected in response")

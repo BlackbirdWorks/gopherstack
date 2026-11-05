@@ -1,8 +1,10 @@
 package athena
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // batchGetPreparedStatementInput's StatementNames field is tagged
@@ -49,7 +51,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 	return map[string]athenaActionFn{
 		"CreatePreparedStatement": func(b []byte) (any, error) {
 			var input createPreparedStatementInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -59,7 +61,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 		},
 		"BatchGetPreparedStatement": func(b []byte) (any, error) {
 			var input batchGetPreparedStatementInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -83,7 +85,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 		},
 		"DeletePreparedStatement": func(b []byte) (any, error) {
 			var input deletePreparedStatementInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -94,7 +96,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 		},
 		"GetPreparedStatement": func(b []byte) (any, error) {
 			var input getPreparedStatementInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -107,7 +109,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 		},
 		"ListPreparedStatements": func(b []byte) (any, error) {
 			var input listPreparedStatementsInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -129,7 +131,7 @@ func (h *Handler) preparedStatementOps() map[string]athenaActionFn {
 		},
 		"UpdatePreparedStatement": func(b []byte) (any, error) {
 			var input updatePreparedStatementInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

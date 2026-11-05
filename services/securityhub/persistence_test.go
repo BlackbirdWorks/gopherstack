@@ -1,12 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
@@ -285,12 +287,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "finding-metadata-uid-1", ticketV2.FindingMetadataUid)
 
 	var snapOut struct {
-		Tables map[string]json.RawMessage `json:"tables"`
+		Tables map[string]jsontext.Value `json:"tables"`
 	}
-	require.NoError(t, json.Unmarshal(snap, &snapOut))
+	require.NoError(t, json.Unmarshal(snap, &snapOut, jsonx.V1()))
 
 	var restoredTickets []securityhub.TicketV2
-	require.NoError(t, json.Unmarshal(snapOut.Tables["ticketsV2"], &restoredTickets))
+	require.NoError(t, json.Unmarshal(snapOut.Tables["ticketsV2"], &restoredTickets, jsonx.V1()))
 	require.Len(t, restoredTickets, 1)
 	assert.Equal(t, ticketV2.TicketId, restoredTickets[0].TicketId)
 	assert.Equal(t, connV2.ConnectorId, restoredTickets[0].ConnectorId)

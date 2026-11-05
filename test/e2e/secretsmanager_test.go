@@ -40,6 +40,7 @@ func TestSecretsManagerDashboard(t *testing.T) {
 	// Navigate to the Secrets Manager dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/secretsmanager")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the Secrets Manager heading.
 	err = page.Locator("h1").First().WaitFor(

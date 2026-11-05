@@ -1,7 +1,7 @@
 package gcpstorage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpstorage"
 )
 
@@ -146,7 +147,7 @@ func TestObjectEventData(t *testing.T) {
 	require.Len(t, rec.got, 1)
 
 	var data map[string]any
-	require.NoError(t, json.Unmarshal(rec.got[0].Data(), &data))
+	require.NoError(t, json.Unmarshal(rec.got[0].Data(), &data, jsonx.V1()))
 	assert.Equal(t, "ev-data", data["bucket"])
 	assert.Equal(t, "dir/a.txt", data["name"])
 	assert.Equal(t, "5", data["size"])

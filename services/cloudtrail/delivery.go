@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // logFileRecords is the top-level shape of a CloudTrail log file: a single
@@ -20,7 +23,7 @@ import (
 // User Guide "CloudTrail log file examples"), not part of the pinned SDK --
 // see PARITY.md.
 type logFileRecords struct {
-	Records []json.RawMessage `json:"Records"`
+	Records []jsontext.Value `json:"Records"`
 }
 
 // deliveryTarget is a snapshot of the fields deliverLogFile needs from one
@@ -107,7 +110,7 @@ var gzipWriterPool = sync.Pool{ //nolint:gochecknoglobals // sync.Pool requires 
 // logFileBody gzip-compresses a single-record CloudTrail log file body.
 func logFileBody(ev Event) ([]byte, error) {
 	encoded, err := json.Marshal(
-		logFileRecords{Records: []json.RawMessage{json.RawMessage(ev.CloudTrailEvent)}},
+		logFileRecords{Records: []jsontext.Value{jsontext.Value(ev.CloudTrailEvent)}}, jsonx.V1(),
 	)
 	if err != nil {
 		return nil, err

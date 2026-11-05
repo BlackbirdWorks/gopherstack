@@ -2,11 +2,13 @@ package dsql
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // dispatchClusterOps handles cluster CRUD and vpc-endpoint-service-name operations.
@@ -37,7 +39,7 @@ func (h *Handler) dispatchClusterOps(
 func (h *Handler) handleCreateCluster(ctx context.Context, c *echo.Context, body []byte) error {
 	var req createClusterRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeInvalidBody(c)
 		}
 	}
@@ -98,7 +100,7 @@ func (h *Handler) handleListClusters(c *echo.Context) error {
 func (h *Handler) handleUpdateCluster(c *echo.Context, identifier string, body []byte) error {
 	var req updateClusterRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return h.writeInvalidBody(c)
 		}
 	}

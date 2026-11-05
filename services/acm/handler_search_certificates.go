@@ -2,8 +2,10 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type dnsNameFilterWire struct {
@@ -291,7 +293,7 @@ type searchCertificatesOutput struct {
 
 func (h *Handler) jsonSearchCertificates(ctx context.Context, body []byte) (any, error) {
 	var input searchCertificatesInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

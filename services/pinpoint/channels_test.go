@@ -1,12 +1,14 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestChannel_PerTypeFields(t *testing.T) {
@@ -129,7 +131,7 @@ func TestChannel_PerTypeFields(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPut,
@@ -141,7 +143,7 @@ func TestChannel_PerTypeFields(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantEnabled, resp["Enabled"])
 			assert.NotEmpty(t, resp["CreationDate"])
@@ -160,7 +162,7 @@ func TestChannel_PerTypeFields(t *testing.T) {
 				"/v1/apps/"+appID+"/channels/"+tc.channelType, nil)
 			require.Equal(t, http.StatusOK, getRec.Code)
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, resp["Enabled"], getResp["Enabled"])
 			assert.Equal(t, resp["HasCredential"], getResp["HasCredential"])
 		})
@@ -175,7 +177,7 @@ func TestChannel_VersionIncrements(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	for i := 1; i <= 3; i++ {
@@ -184,7 +186,7 @@ func TestChannel_VersionIncrements(t *testing.T) {
 			map[string]any{"ApiKey": "key", "Enabled": true})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.InDelta(t, float64(i), resp["Version"], 0.001, "version should increment on each put")
 	}
 }
@@ -197,7 +199,7 @@ func TestChannel_CreationDatePreserved(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	rec1 := doPinpointRequest(t, h, http.MethodPut,
@@ -205,7 +207,7 @@ func TestChannel_CreationDatePreserved(t *testing.T) {
 		map[string]any{"ApiKey": "key", "Enabled": true})
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 	creationDate1 := r1["CreationDate"].(string)
 
 	rec2 := doPinpointRequest(t, h, http.MethodPut,
@@ -213,7 +215,7 @@ func TestChannel_CreationDatePreserved(t *testing.T) {
 		map[string]any{"ApiKey": "key-updated", "Enabled": true})
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 	creationDate2 := r2["CreationDate"].(string)
 
 	assert.Equal(t, creationDate1, creationDate2, "CreationDate should be preserved on update")
@@ -231,7 +233,7 @@ func TestChannel_AllChannelsListed(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	channelTypes := []string{"gcm", "email", "sms"}
@@ -250,7 +252,7 @@ func TestChannel_AllChannelsListed(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	channels, _ := listResp["Channels"].(map[string]any)
 	assert.Len(t, channels, 3)
@@ -324,7 +326,7 @@ func TestSMSChannel_Attributes(t *testing.T) {
 				"body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantEnabled, resp["Enabled"])
 
 			getRec := doPinpointRequest(t, h, http.MethodGet,
@@ -332,7 +334,7 @@ func TestSMSChannel_Attributes(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var gr map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &gr, jsonx.V1()))
 			chType, _ := gr["ChannelType"].(string)
 			assert.True(t, chType == "SMS" || chType == "sms", "expected SMS channel type, got %q", chType)
 		})
@@ -412,7 +414,7 @@ func TestEmailChannel_Identity(t *testing.T) {
 				"body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantEnabled, resp["Enabled"])
 			chType, _ := resp["ChannelType"].(string)
 			assert.True(t, chType == "EMAIL" || chType == "email", "expected EMAIL channel type, got %q", chType)
@@ -468,7 +470,7 @@ func TestChannel_Delete_ReturnsChannel(t *testing.T) {
 			require.Equal(t, http.StatusOK, delRec.Code)
 
 			var ch map[string]any
-			require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &ch))
+			require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &ch, jsonx.V1()))
 			assert.Equal(t, tc.channelType, ch["ChannelType"])
 		})
 	}
@@ -495,7 +497,7 @@ func TestGetChannels_IncludesExtraFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	channels, ok := resp["Channels"].(map[string]any)
 	require.True(t, ok, "Channels must be a map")

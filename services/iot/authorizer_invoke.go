@@ -7,7 +7,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/roleauth"
 )
 
@@ -99,11 +101,11 @@ type authorizerMQTTData struct {
 }
 
 type authorizerResponse struct {
-	DisconnectAfterInSeconds *int64            `json:"disconnectAfterInSeconds"`
-	RefreshAfterInSeconds    *int64            `json:"refreshAfterInSeconds"`
-	PrincipalID              string            `json:"principalId"`
-	PolicyDocuments          []json.RawMessage `json:"policyDocuments"`
-	IsAuthenticated          bool              `json:"isAuthenticated"`
+	DisconnectAfterInSeconds *int64           `json:"disconnectAfterInSeconds"`
+	RefreshAfterInSeconds    *int64           `json:"refreshAfterInSeconds"`
+	PrincipalID              string           `json:"principalId"`
+	PolicyDocuments          []jsontext.Value `json:"policyDocuments"`
+	IsAuthenticated          bool             `json:"isAuthenticated"`
 }
 
 // TestInvokeAuthorizer invokes the authorizer's Lambda function with the request.
@@ -166,7 +168,7 @@ func (b *InMemoryBackend) InvokeAuthorizer(
 		return nil, fmt.Errorf("%w: %w", errRuleActionDenied, err)
 	}
 
-	payload, err := json.Marshal(buildAuthorizerEvent(req, verified))
+	payload, err := json.Marshal(buildAuthorizerEvent(req, verified), jsonx.V1())
 	if err != nil {
 		return nil, fmt.Errorf("authorizer event: %w", err)
 	}
@@ -247,7 +249,7 @@ func verifyTokenSignature(keys map[string]string, req *AuthorizerRequest) bool {
 
 func parseAuthorizerResponse(raw []byte) (*TestInvokeAuthorizerOutput, error) {
 	var resp authorizerResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
+	if err := json.Unmarshal(raw, &resp, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: not a JSON object", ErrInvalidAuthorizerResponse)
 	}
 
@@ -269,7 +271,7 @@ func parseAuthorizerResponse(raw []byte) (*TestInvokeAuthorizerOutput, error) {
 		doc := string(d)
 
 		var asString string
-		if json.Unmarshal(d, &asString) == nil {
+		if json.Unmarshal(d, &asString, jsonx.V1()) == nil {
 			doc = asString
 		}
 

@@ -1,13 +1,16 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestBackend_CreateApp(t *testing.T) {
@@ -284,7 +287,7 @@ func TestAppNotFound_Returns404(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "NotFoundException", resp["__type"])
 		})
 	}
@@ -301,7 +304,7 @@ func TestCreateApp_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotEmpty(t, resp["Id"], "Id must be present")
 	assert.NotEmpty(t, resp["Arn"], "Arn must be present")
@@ -325,7 +328,7 @@ func TestGetApps_ReflectsCreatedApps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	item := resp["Item"].([]any)
 	assert.Len(t, item, len(names))
@@ -344,7 +347,7 @@ func TestDeleteApp_RemovesFromList(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	appID := created["Id"].(string)
 
 	doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "also-here"})
@@ -358,7 +361,7 @@ func TestDeleteApp_RemovesFromList(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	item := listResp["Item"].([]any)
 	assert.Len(t, item, 1)
 }
@@ -377,7 +380,7 @@ func TestHandlerReset(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp, jsonx.V1()))
 	items, _ := resp["Item"].([]any)
 	assert.Empty(t, items)
 }
@@ -439,7 +442,7 @@ func TestHandler_CreateApp(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.NotEmpty(t, resp["Arn"])
 			}
@@ -480,7 +483,7 @@ func TestHandler_GetApp(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				appID, _ = resp["Id"].(string)
 			} else {
@@ -527,7 +530,7 @@ func TestHandler_DeleteApp(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 				appID, _ = resp["Id"].(string)
 			} else {
@@ -580,7 +583,7 @@ func TestHandler_GetApps(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			assert.Len(t, items, tt.wantCount)
@@ -649,7 +652,7 @@ func TestHandler_GetAppsPagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, ok := resp["Item"].([]any)
 			if tt.wantCount > 0 {
@@ -679,7 +682,7 @@ func TestHandler_GetAppsContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&resp1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &resp1, jsonx.V1()))
 
 	page1, ok := resp1["Item"].([]any)
 	require.True(t, ok, "expected Item array in first-page response")
@@ -695,7 +698,7 @@ func TestHandler_GetAppsContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp2, jsonx.V1()))
 
 	page2, ok := resp2["Item"].([]any)
 	require.True(t, ok, "expected Item array in second-page response")
@@ -740,7 +743,7 @@ func TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			created[resp["Id"].(string)] = true
 		}
 
@@ -752,7 +755,7 @@ func TestHandler_GetApps_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			for _, item := range items {

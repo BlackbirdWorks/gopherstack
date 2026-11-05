@@ -12,7 +12,8 @@ package sns_test
 // To regenerate: SNS_GOLDEN_UPDATE=1 go test -run TestGolden ./services/sns/...
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -94,7 +96,7 @@ func redactDeliveredEnvelope(t *testing.T, body []byte) []byte {
 	t.Helper()
 
 	var env map[string]any
-	require.NoError(t, json.Unmarshal(body, &env))
+	require.NoError(t, json.Unmarshal(body, &env, jsonx.V1()))
 
 	for _, k := range []string{"MessageId", "Timestamp", "Signature", "UnsubscribeURL"} {
 		if _, ok := env[k]; ok {
@@ -102,7 +104,7 @@ func redactDeliveredEnvelope(t *testing.T, body []byte) []byte {
 		}
 	}
 
-	out, err := json.MarshalIndent(env, "", "  ")
+	out, err := json.Marshal(env, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 	require.NoError(t, err)
 
 	return out

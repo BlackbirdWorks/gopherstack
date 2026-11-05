@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ssmParameterPolicyEventSource/DetailType are the real AWS wire values SSM
@@ -35,7 +37,7 @@ func (b *InMemoryBackend) NotifyParameterPolicyAction(
 	detail, err := json.Marshal(ssmParameterPolicyEventDetail{
 		ParameterName: parameterName,
 		PolicyType:    policyType,
-	})
+	}, jsonx.V1())
 	if err != nil {
 		return err
 	}

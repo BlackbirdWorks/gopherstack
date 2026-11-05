@@ -1,13 +1,15 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_RegisterScalableTarget(t *testing.T) {
@@ -42,7 +44,7 @@ func TestHandler_RegisterScalableTarget(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, tt.wantKey)
 			assert.Contains(t, resp[tt.wantKey].(string), "arn:aws:application-autoscaling:")
 		})
@@ -65,7 +67,7 @@ func TestHandler_RegisterScalableTarget_Upsert(t *testing.T) {
 	rec1 := doRequest(t, h, "RegisterScalableTarget", body)
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var resp1 map[string]string
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	// Update (upsert) - should update, not error
 	body["MaxCapacity"] = int32(20)
@@ -76,7 +78,7 @@ func TestHandler_RegisterScalableTarget_Upsert(t *testing.T) {
 	descRec := doRequest(t, h, "DescribeScalableTargets", map[string]any{"ServiceNamespace": "ecs"})
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	targets := descResp["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 	target := targets[0].(map[string]any)
@@ -171,7 +173,7 @@ func TestHandler_RegisterScalableTarget_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var regResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp, jsonx.V1()))
 	targetARN, _ := regResp["ScalableTargetARN"].(string)
 	require.NotEmpty(t, targetARN)
 
@@ -180,7 +182,7 @@ func TestHandler_RegisterScalableTarget_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, ok := tagResp["Tags"].(map[string]any)
 	require.True(t, ok, "expected Tags in response")
 	assert.Equal(t, "prod", tags["env"])
@@ -207,7 +209,7 @@ func TestHandler_RegisterScalableTarget_WithRoleARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	targets, ok := descResp["ScalableTargets"].([]any)
 	require.True(t, ok)
 	require.Len(t, targets, 1)
@@ -239,7 +241,7 @@ func TestHandler_RegisterScalableTarget_WithSuspendedState(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, ok := resp["ScalableTargets"].([]any)
 	require.True(t, ok)
 	require.Len(t, targets, 1)
@@ -283,7 +285,7 @@ func TestHandler_RegisterScalableTarget_UpdateSuspendedState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, _ := resp["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 
@@ -435,7 +437,7 @@ func TestRegisterDeregisterLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, descRec.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	targets := descOut["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 	t0 := targets[0].(map[string]any)
@@ -454,7 +456,7 @@ func TestRegisterDeregisterLifecycle(t *testing.T) {
 		"ServiceNamespace": ns,
 	})
 	var afterOut map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut, jsonx.V1()))
 	assert.Empty(t, afterOut["ScalableTargets"])
 }
 
@@ -493,7 +495,7 @@ func TestHandler_RegisterScalableTarget_UpdateOmittedCapacityPreserved(t *testin
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &resp, jsonx.V1()))
 	targets, _ := resp["ScalableTargets"].([]any)
 	require.Len(t, targets, 1)
 	target := targets[0].(map[string]any)

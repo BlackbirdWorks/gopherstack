@@ -3,7 +3,7 @@ package container_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"strings"
 	"testing"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/image"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type authRecordingAPI struct {
@@ -54,7 +55,7 @@ func TestPullImageWithCredentials(t *testing.T) {
 
 			var got map[string]string
 
-			require.NoError(t, json.Unmarshal(raw, &got))
+			require.NoError(t, json.Unmarshal(raw, &got, jsonx.V1()))
 			assert.Equal(t, "puller", got["username"])
 			assert.Equal(t, "s3cret", got["password"])
 			assert.Contains(t, got["serveraddress"], strings.TrimPrefix(tc.wantServer, "docker.io"))

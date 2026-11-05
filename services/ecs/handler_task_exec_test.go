@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -25,7 +26,7 @@ func TestECS_StopTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp, jsonx.V1()))
 
 	taskArn := runResp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
@@ -36,7 +37,7 @@ func TestECS_StopTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	task := resp2["task"].(map[string]any)
 	assert.Equal(t, "STOPPED", task["lastStatus"])
@@ -59,7 +60,7 @@ func TestECS_ListTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns := resp["taskArns"].([]any)
 	assert.Len(t, arns, 3)
@@ -82,7 +83,7 @@ func TestECS_ListTasks_DesiredStatusDefaultsToRunning(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runResp, jsonx.V1()))
 	tasks := runResp["tasks"].([]any)
 	require.Len(t, tasks, 2)
 	stoppedArn := tasks[0].(map[string]any)["taskArn"].(string)
@@ -94,14 +95,14 @@ func TestECS_ListTasks_DesiredStatusDefaultsToRunning(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arns := resp["taskArns"].([]any)
 	assert.Len(t, arns, 1, "omitted desiredStatus must default to RUNNING only")
 	assert.NotContains(t, arns, stoppedArn)
 
 	rec = doECSRequest(t, h, "ListTasks", map[string]any{"desiredStatus": "STOPPED"})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	arns = resp["taskArns"].([]any)
 	assert.Equal(t, []any{stoppedArn}, arns)
 }
@@ -208,7 +209,7 @@ func TestECS_ListTasks_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp, jsonx.V1()))
 
 			arns := resp["taskArns"].([]any)
 			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
@@ -238,7 +239,7 @@ func TestECS_ListTasks_TokenChaining(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 
 	arns1 := page1["taskArns"].([]any)
 	assert.Len(t, arns1, 2)
@@ -252,7 +253,7 @@ func TestECS_ListTasks_TokenChaining(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 
 	arns2 := page2["taskArns"].([]any)
 	assert.GreaterOrEqual(t, len(arns2), 1)
@@ -287,7 +288,7 @@ func TestECSExec_Basic(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, runResp.Code)
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 	tasks := runOut["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	taskArn := tasks[0].(map[string]any)["taskArn"].(string)
@@ -320,7 +321,7 @@ func TestECSExec_NonInteractive(t *testing.T) {
 		"enableExecuteCommand": true,
 	})
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 	taskArn := runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 	execResp := doECSRequest(t, h, "ExecuteCommand", map[string]any{
@@ -351,7 +352,7 @@ func TestTaskProtection_Enable_Disable(t *testing.T) {
 		"count":          1,
 	})
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 	taskArn := runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 	// Enable protection
@@ -365,7 +366,7 @@ func TestTaskProtection_Enable_Disable(t *testing.T) {
 	require.Equal(t, http.StatusOK, protResp.Code)
 
 	var protOut map[string]any
-	require.NoError(t, json.Unmarshal(protResp.Body.Bytes(), &protOut))
+	require.NoError(t, json.Unmarshal(protResp.Body.Bytes(), &protOut, jsonx.V1()))
 	prot := protOut["protectedTasks"].([]any)[0].(map[string]any)
 	assert.Equal(t, true, prot["protectionEnabled"])
 
@@ -376,7 +377,7 @@ func TestTaskProtection_Enable_Disable(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, getResp.Code)
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getResp.Body.Bytes(), &getOut, jsonx.V1()))
 	protTasks := getOut["protectedTasks"].([]any)
 	assert.Len(t, protTasks, 1)
 	assert.Equal(t, true, protTasks[0].(map[string]any)["protectionEnabled"])
@@ -411,7 +412,7 @@ func TestStartTask_MultipleInstances(t *testing.T) {
 			),
 		})
 		var ciOut map[string]any
-		require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+		require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 		ciArns[i] = ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 	}
 
@@ -423,7 +424,7 @@ func TestStartTask_MultipleInstances(t *testing.T) {
 	require.Equal(t, http.StatusOK, startResp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &out, jsonx.V1()))
 	tasks := out["tasks"].([]any)
 	assert.Len(t, tasks, 3)
 }
@@ -453,7 +454,7 @@ func TestECS_ExecuteCommand(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				taskArn := resp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
@@ -486,7 +487,7 @@ func TestECS_ExecuteCommand(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				taskArn := resp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
@@ -518,7 +519,7 @@ func TestECS_ExecuteCommand(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				assert.NotEmpty(t, resp["clusterArn"])
 				assert.NotEmpty(t, resp["taskArn"])
@@ -552,7 +553,7 @@ func TestTask_EnableExecuteCommand_RunTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, runResp.Code)
 
 	var runOut map[string]any
-	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+	require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 	tasks := runOut["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, true, tasks[0].(map[string]any)["enableExecuteCommand"])
@@ -586,7 +587,7 @@ func TestTask_EnableExecuteCommand_ServicePropagation(t *testing.T) {
 		listResp := doECSRequest(t, h2, "ListTasks", map[string]any{"cluster": "svc-exec-cluster"})
 		require.Equal(t, http.StatusOK, listResp.Code)
 		var listOut map[string]any
-		require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+		require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 		arns := listOut["taskArns"].([]any)
 		require.NotEmpty(t, arns)
 		taskArn := arns[0].(string)
@@ -597,7 +598,7 @@ func TestTask_EnableExecuteCommand_ServicePropagation(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, descResp.Code)
 		var descOut map[string]any
-		require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+		require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 		tasks := descOut["tasks"].([]any)
 		require.Len(t, tasks, 1)
 		assert.Equal(t, true, tasks[0].(map[string]any)["enableExecuteCommand"])
@@ -643,7 +644,7 @@ func TestECS_TaskProtection(t *testing.T) {
 			require.Equal(t, http.StatusOK, runRec.Code)
 
 			var runResp map[string]any
-			require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp))
+			require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp, jsonx.V1()))
 			tasks := runResp["tasks"].([]any)
 			require.Len(t, tasks, 1)
 			taskArn := tasks[0].(map[string]any)["taskArn"].(string)
@@ -657,7 +658,7 @@ func TestECS_TaskProtection(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			protectedTasks, ok := resp["protectedTasks"].([]any)
 			require.True(t, ok)
@@ -674,7 +675,7 @@ func TestECS_TaskProtection(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			protTasks, ok := getResp["protectedTasks"].([]any)
 			require.True(t, ok)
@@ -749,7 +750,7 @@ func TestECS_StartTask_WithSetup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	taskList, ok := resp["tasks"].([]any)
 	require.True(t, ok)
@@ -782,7 +783,7 @@ func TestECS_ListTasksFiltered(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns, ok := resp["taskArns"].([]any)
 	require.True(t, ok)
@@ -796,7 +797,7 @@ func TestECS_ListTasksFiltered(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	arns2, ok := resp2["taskArns"].([]any)
 	require.True(t, ok)
@@ -827,7 +828,7 @@ func TestECS_StartTask_StartedBy(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	tasks, ok := resp["tasks"].([]any)
 	require.True(t, ok)
@@ -876,7 +877,7 @@ func TestECS_ListTasksFiltered_ContainerInstance(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arns, ok := resp["taskArns"].([]any)
 	require.True(t, ok)
@@ -924,7 +925,7 @@ func TestExecuteCommand_RequiresFlag(t *testing.T) {
 			require.Equal(t, http.StatusOK, runResp.Code)
 
 			var runOut map[string]any
-			require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut))
+			require.NoError(t, json.Unmarshal(runResp.Body.Bytes(), &runOut, jsonx.V1()))
 			taskArn := runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 			execResp := doECSRequest(t, h, "ExecuteCommand", map[string]any{

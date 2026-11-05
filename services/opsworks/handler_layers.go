@@ -2,9 +2,11 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleCreateLayer handles CreateLayer requests.
@@ -17,7 +19,7 @@ func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error)
 		LayerSettings
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -37,7 +39,7 @@ func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, err
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -59,7 +61,7 @@ func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error)
 		LayerSettings
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -76,7 +78,7 @@ func (h *Handler) handleDeleteLayer(_ context.Context, body []byte) (any, error)
 		LayerID string `json:"LayerId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -121,9 +123,9 @@ func layersToJSON(layers []*Layer) []map[string]any {
 			"Attributes":           attrs,
 		}
 
-		if raw, err := json.Marshal(l.Settings); err == nil {
+		if raw, err := json.Marshal(l.Settings, jsonx.V1()); err == nil {
 			var extra map[string]any
-			if json.Unmarshal(raw, &extra) == nil {
+			if json.Unmarshal(raw, &extra, jsonx.V1()) == nil {
 				maps.Copy(m, extra)
 			}
 		}

@@ -7,12 +7,13 @@ import (
 
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -110,7 +111,7 @@ func policyGrants(policy, account string) bool {
 			Effect    string `json:"Effect"`
 		} `json:"Statement"`
 	}
-	if json.Unmarshal([]byte(policy), &doc) != nil {
+	if json.Unmarshal([]byte(policy), &doc, jsonx.V1()) != nil {
 		return false
 	}
 

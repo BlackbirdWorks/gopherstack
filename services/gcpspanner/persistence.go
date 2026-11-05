@@ -2,7 +2,7 @@ package gcpspanner
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"cloud.google.com/go/iam/apiv1/iampb"
@@ -20,21 +20,21 @@ import (
 const snapshotVersion = 1
 
 type dbSnap struct {
-	Database json.RawMessage `json:"database"`
-	DDL      []string        `json:"ddl,omitempty"`
+	Database jsontext.Value `json:"database"`
+	DDL      []string       `json:"ddl,omitempty"`
 }
 
 type instSnap struct {
 	Databases map[string]dbSnap `json:"databases,omitempty"`
-	Instance  json.RawMessage   `json:"instance"`
-	Policy    json.RawMessage   `json:"policy,omitempty"`
+	Instance  jsontext.Value    `json:"instance"`
+	Policy    jsontext.Value    `json:"policy,omitempty"`
 }
 
 type backendSnapshot struct {
-	Instances  map[string]instSnap        `json:"instances"`
-	Operations map[string]json.RawMessage `json:"operations"`
-	Version    int                        `json:"version"`
-	EtagSeq    uint64                     `json:"etagSeq"`
+	Instances  map[string]instSnap       `json:"instances"`
+	Operations map[string]jsontext.Value `json:"operations"`
+	Version    int                       `json:"version"`
+	EtagSeq    uint64                    `json:"etagSeq"`
 }
 
 // Snapshot serialises instances, policies, databases and their DDL. Table data lives in the emulator and is not

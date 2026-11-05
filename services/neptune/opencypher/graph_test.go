@@ -1,12 +1,13 @@
 package opencypher_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -22,7 +23,7 @@ func run(t *testing.T, g *opencypher.Graph, q string, params map[string]any) (st
 		return "", err
 	}
 
-	b, err := json.Marshal(res)
+	b, err := json.Marshal(res, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b), nil
@@ -149,7 +150,7 @@ func TestNodeAndRelationshipShapes(t *testing.T) {
 
 	var rows []map[string]map[string]any
 
-	require.NoError(t, json.Unmarshal([]byte(got), &rows))
+	require.NoError(t, json.Unmarshal([]byte(got), &rows, jsonx.V1()))
 	require.Len(t, rows, 1)
 
 	a, r := rows[0]["a"], rows[0]["r"]

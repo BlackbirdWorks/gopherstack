@@ -2,8 +2,10 @@ package xray
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type telemetryRecordInput struct {
@@ -21,7 +23,7 @@ type putTelemetryRecordsInput struct {
 func (h *Handler) handlePutTelemetryRecords(_ context.Context, body []byte) ([]byte, error) {
 	var in putTelemetryRecordsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
@@ -47,5 +49,5 @@ func (h *Handler) handlePutTelemetryRecords(_ context.Context, body []byte) ([]b
 		h.Backend.PutTelemetryRecords(records)
 	}
 
-	return json.Marshal(map[string]any{})
+	return json.Marshal(map[string]any{}, jsonx.V1())
 }

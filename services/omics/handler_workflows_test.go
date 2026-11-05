@@ -1,12 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestOmics_Workflow(t *testing.T) {
@@ -29,7 +31,7 @@ func TestOmics_Workflow(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:omics:")
 				assert.NotEmpty(t, resp["id"])
 				assert.Equal(t, "CREATING", resp["status"])
@@ -50,7 +52,7 @@ func TestOmics_Workflow(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotNil(t, resp["items"])
 			},
 		},
@@ -90,7 +92,7 @@ func TestWorkflowStartsAsCreating(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "CREATING", resp["status"])
 }
 
@@ -107,7 +109,7 @@ func TestCreateWorkflowReturnsPartialResponse(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["arn"])
 	assert.NotEmpty(t, resp["id"])
 	assert.Nil(t, resp["name"], "full workflow object must not be returned")
@@ -127,14 +129,14 @@ func TestWorkflowHasTypeField(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	wfID := createResp["id"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/workflow/"+wfID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "PRIVATE", getResp["type"])
 }
 
@@ -151,7 +153,7 @@ func TestUpdateWorkflowReturnsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	wfID := createResp["id"].(string)
 
 	updateRec := doRequest(t, h, http.MethodPost, "/workflow/"+wfID, map[string]any{
@@ -161,7 +163,7 @@ func TestUpdateWorkflowReturnsWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated-name", updateResp["name"])
 	assert.Equal(t, "new description", updateResp["description"])
 }
@@ -191,7 +193,7 @@ func TestCreateWorkflow_ResponseIncludesUUID(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["uuid"], "CreateWorkflowOutput.uuid must be populated")
 }
 
@@ -208,7 +210,7 @@ func TestListWorkflows_FiltersByNameAndType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	workflows, ok := resp["items"].([]any)
 	require.True(t, ok)
 	require.Len(t, workflows, 1)
@@ -220,7 +222,7 @@ func TestListWorkflows_FiltersByNameAndType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	workflows2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, workflows2)
@@ -237,7 +239,7 @@ func TestListWorkflowVersions_FiltersByType(t *testing.T) {
 	require.Equal(t, http.StatusCreated, wfRec.Code)
 
 	var wf map[string]any
-	require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf))
+	require.NoError(t, json.Unmarshal(wfRec.Body.Bytes(), &wf, jsonx.V1()))
 	wfID := wf["id"].(string)
 
 	verRec := doRequest(t, h, http.MethodPost, "/workflow/"+wfID+"/version", map[string]any{"versionName": "v1"})
@@ -249,7 +251,7 @@ func TestListWorkflowVersions_FiltersByType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versions, ok := resp["items"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, versions)
@@ -258,7 +260,7 @@ func TestListWorkflowVersions_FiltersByType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	versions2, ok := resp2["items"].([]any)
 	require.True(t, ok)
 	assert.Len(t, versions2, 1)

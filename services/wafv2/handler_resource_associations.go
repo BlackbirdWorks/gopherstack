@@ -2,9 +2,11 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // associateWebACLRequest is the request body for AssociateWebACL.
@@ -15,7 +17,7 @@ type associateWebACLRequest struct {
 
 func (h *Handler) handleAssociateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req associateWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -84,7 +86,7 @@ type disassociateWebACLRequest struct {
 
 func (h *Handler) handleDisassociateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req disassociateWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -106,7 +108,7 @@ type getWebACLForResourceRequest struct {
 
 func (h *Handler) handleGetWebACLForResource(ctx context.Context, body []byte) ([]byte, error) {
 	var req getWebACLForResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -130,7 +132,7 @@ type listResourcesForWebACLRequest struct {
 
 func (h *Handler) handleListResourcesForWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req listResourcesForWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -156,7 +158,7 @@ func (h *Handler) handleListResourcesForWebACL(ctx context.Context, body []byte)
 		}
 	}
 
-	return json.Marshal(map[string]any{"ResourceArns": filtered})
+	return json.Marshal(map[string]any{"ResourceArns": filtered}, jsonx.V1())
 }
 
 const (

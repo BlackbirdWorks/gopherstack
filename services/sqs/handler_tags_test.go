@@ -1,12 +1,14 @@
 package sqs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSQSHandler_UntagQueue_InvalidJSON(t *testing.T) {
@@ -132,7 +134,7 @@ func TestHandlerActions_TagOps(t *testing.T) {
 		var resp struct {
 			Tags map[string]string `json:"Tags"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.NotNil(t, resp.Tags)
 	})
 

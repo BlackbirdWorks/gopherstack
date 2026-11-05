@@ -2,7 +2,11 @@ package ecs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const cpuUnitsPerVCPU = 1024.0
@@ -66,7 +70,7 @@ func (r *realDockerRunner) TaskUsage(ctx context.Context, taskArn string) (float
 
 		var sample dockerStatsSample
 
-		decodeErr := json.NewDecoder(body).Decode(&sample)
+		decodeErr := json.UnmarshalDecode(jsontext.NewDecoder(body), &sample, jsonx.V1())
 		_ = body.Close()
 
 		if decodeErr != nil {
@@ -83,7 +87,7 @@ func (r *realDockerRunner) TaskUsage(ctx context.Context, taskArn string) (float
 }
 
 // ContainerStatsJSON returns one raw Docker stats sample for containerID.
-func (r *realDockerRunner) ContainerStatsJSON(ctx context.Context, containerID string) (json.RawMessage, error) {
+func (r *realDockerRunner) ContainerStatsJSON(ctx context.Context, containerID string) (jsontext.Value, error) {
 	body, err := r.cli.ContainerStats(ctx, containerID)
 	if err != nil {
 		return nil, err
@@ -91,8 +95,8 @@ func (r *realDockerRunner) ContainerStatsJSON(ctx context.Context, containerID s
 
 	defer body.Close()
 
-	var raw json.RawMessage
-	if decErr := json.NewDecoder(body).Decode(&raw); decErr != nil {
+	var raw jsontext.Value
+	if decErr := json.UnmarshalDecode(jsontext.NewDecoder(body), &raw, jsonx.V1()); decErr != nil {
 		return nil, decErr
 	}
 

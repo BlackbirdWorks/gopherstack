@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -135,7 +136,7 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
-			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			dlRec := doRequest(
@@ -146,7 +147,7 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, dlRec.Code)
 			var dlResp map[string]any
-			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp, jsonx.V1()))
 			dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 			rec := doRequest(t, h, "CreateFirewallRule", tt.body(groupID, dlID))
@@ -154,7 +155,7 @@ func TestFirewallRule_BlockOverrideFields(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.checkFn != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				rule := resp["FirewallRule"].(map[string]any)
 				tt.checkFn(t, rule)
 			}
@@ -215,13 +216,13 @@ func TestUpdateFirewallRule_ExtendedFields(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, grpRec2.Code)
 			var grpR2 map[string]any
-			require.NoError(t, json.Unmarshal(grpRec2.Body.Bytes(), &grpR2))
+			require.NoError(t, json.Unmarshal(grpRec2.Body.Bytes(), &grpR2, jsonx.V1()))
 			gID := grpR2["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			dlRec2 := doRequest(t, h2, "CreateFirewallDomainList", map[string]any{"Name": "upd-dl"})
 			require.Equal(t, http.StatusOK, dlRec2.Code)
 			var dlR2 map[string]any
-			require.NoError(t, json.Unmarshal(dlRec2.Body.Bytes(), &dlR2))
+			require.NoError(t, json.Unmarshal(dlRec2.Body.Bytes(), &dlR2, jsonx.V1()))
 			dID := dlR2["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 			createRec2 := doRequest(t, h2, "CreateFirewallRule", map[string]any{
@@ -240,7 +241,7 @@ func TestUpdateFirewallRule_ExtendedFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			rule := resp["FirewallRule"].(map[string]any)
 			tt.checkFn(t, rule)
 		})
@@ -257,13 +258,13 @@ func TestFirewallRule_MetadataFields(t *testing.T) {
 	grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "meta-grp"})
 	require.Equal(t, http.StatusOK, grpRec.Code)
 	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 	groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "meta-dl"})
 	require.Equal(t, http.StatusOK, dlRec.Code)
 	var dlResp map[string]any
-	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp, jsonx.V1()))
 	dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 	createRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
@@ -277,7 +278,7 @@ func TestFirewallRule_MetadataFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["FirewallRule"].(map[string]any)
 
 	assert.Equal(t, "req-fw-rule-1", rule["CreatorRequestId"])
@@ -347,7 +348,7 @@ func TestFirewallRule_BlockResponseStoredOnCreate(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, grpRec.Code)
 			var grpResp map[string]any
-			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 			groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			dlRec := doRequest(
@@ -358,7 +359,7 @@ func TestFirewallRule_BlockResponseStoredOnCreate(t *testing.T) {
 			)
 			require.Equal(t, http.StatusOK, dlRec.Code)
 			var dlResp map[string]any
-			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+			require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp, jsonx.V1()))
 			dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 			body := map[string]any{
@@ -377,7 +378,7 @@ func TestFirewallRule_BlockResponseStoredOnCreate(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.blockResponse != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				rule := resp["FirewallRule"].(map[string]any)
 				assert.Equal(t, tt.blockResponse, rule["BlockResponse"])
 			}
@@ -414,7 +415,7 @@ func TestCreateFirewallRule_ActionValidation(t *testing.T) {
 			require.Equal(t, http.StatusOK, grpRec.Code)
 
 			var grpResp map[string]any
-			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+			require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 			grpID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 			rec := doRequest(t, h, "CreateFirewallRule", map[string]any{
@@ -447,13 +448,13 @@ func TestCreateFirewallRule_NoIdOrArnInOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, grpRec.Code)
 
 	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 	grpID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 	dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "id-test-dl"})
 	require.Equal(t, http.StatusOK, dlRec.Code)
 	var dlResp map[string]any
-	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+	require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp, jsonx.V1()))
 	dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 	ruleRec := doRequest(t, h, "CreateFirewallRule", map[string]any{
@@ -466,7 +467,7 @@ func TestCreateFirewallRule_NoIdOrArnInOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, ruleRec.Code)
 
 	var ruleResp map[string]any
-	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
+	require.NoError(t, json.Unmarshal(ruleRec.Body.Bytes(), &ruleResp, jsonx.V1()))
 	rule, ok := ruleResp["FirewallRule"].(map[string]any)
 	require.True(t, ok)
 	_, hasID := rule["Id"]
@@ -488,7 +489,7 @@ func TestCreateFirewallRule_IncrementsRuleCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, grpRec.Code)
 
 	var grpResp map[string]any
-	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+	require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 	grp := grpResp["FirewallRuleGroup"].(map[string]any)
 	grpID := grp["Id"].(string)
 	assert.InDelta(t, 0, grp["RuleCount"], 0)
@@ -526,13 +527,13 @@ func TestCreateFirewallRule(t *testing.T) {
 				grpRec := doRequest(t, h, "CreateFirewallRuleGroup", map[string]any{"Name": "grp-rule"})
 				require.Equal(t, http.StatusOK, grpRec.Code)
 				var grpResp map[string]any
-				require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp))
+				require.NoError(t, json.Unmarshal(grpRec.Body.Bytes(), &grpResp, jsonx.V1()))
 				groupID := grpResp["FirewallRuleGroup"].(map[string]any)["Id"].(string)
 
 				dlRec := doRequest(t, h, "CreateFirewallDomainList", map[string]any{"Name": "dl-for-rule"})
 				require.Equal(t, http.StatusOK, dlRec.Code)
 				var dlResp map[string]any
-				require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp))
+				require.NoError(t, json.Unmarshal(dlRec.Body.Bytes(), &dlResp, jsonx.V1()))
 				dlID := dlResp["FirewallDomainList"].(map[string]any)["Id"].(string)
 
 				return groupID, dlID
@@ -600,7 +601,7 @@ func TestCreateFirewallRule(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				rule, ok := resp["FirewallRule"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantAction, rule["Action"])

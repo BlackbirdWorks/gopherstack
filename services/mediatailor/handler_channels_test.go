@@ -1,13 +1,14 @@
 package mediatailor_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -35,7 +36,7 @@ func TestChannel_CreateAndDescribe(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "my-channel", resp["ChannelName"])
 				assert.Contains(t, resp["Arn"], "arn:aws:mediatailor:us-east-1:000000000000:channel/my-channel")
 				assert.Equal(t, "STOPPED", resp["ChannelState"])
@@ -80,7 +81,7 @@ func TestChannel_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/channel/test-channel", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "test-channel", descResp["ChannelName"])
 	assert.Equal(t, "STOPPED", descResp["ChannelState"])
 
@@ -92,14 +93,14 @@ func TestChannel_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Len(t, updateResp["Outputs"], 1)
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/channels", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["Items"], 1)
 
 	// Delete
@@ -126,7 +127,7 @@ func TestChannel_StartStop(t *testing.T) {
 	// Verify running
 	rec = doRequest(t, h, http.MethodGet, "/channel/ch1", nil)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "RUNNING", descResp["ChannelState"])
 
 	// Start again is idempotent
@@ -139,7 +140,7 @@ func TestChannel_StartStop(t *testing.T) {
 
 	// Verify stopped
 	rec = doRequest(t, h, http.MethodGet, "/channel/ch1", nil)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "STOPPED", descResp["ChannelState"])
 
 	// Stop again is idempotent
@@ -201,7 +202,7 @@ func TestChannel_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["Items"])
 }
 
@@ -227,7 +228,7 @@ func TestListChannels_WithItems(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["Items"].([]any)
 	assert.Len(t, items, 2)
 }
@@ -252,7 +253,7 @@ func TestChannelOutput_WithHLS(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	outputs, _ := resp["Outputs"].([]any)
 	require.Len(t, outputs, 1)
 	out, _ := outputs[0].(map[string]any)
@@ -308,7 +309,7 @@ func TestCreateChannel_ReturnsTier(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "BASIC", resp["Tier"], "Tier must default to BASIC")
 }
 
@@ -362,7 +363,7 @@ func TestCreateChannel_FillerSlate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	fs, ok := resp["FillerSlate"].(map[string]any)
 	require.True(t, ok, "FillerSlate must be present in response")
@@ -387,7 +388,7 @@ func TestCreateChannel_TagsSurviveDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	createdTags, _ := created["tags"].(map[string]any)
 	assert.Equal(t, "prod", createdTags["env"], "tags must be present in the create response")
 
@@ -395,7 +396,7 @@ func TestCreateChannel_TagsSurviveDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described, jsonx.V1()))
 	describedTags, _ := described["tags"].(map[string]any)
 	assert.Equal(t, "prod", describedTags["env"], "tags set at creation must survive to DescribeChannel")
 }
@@ -417,7 +418,7 @@ func TestChannel_AudiencesAndTimeShift(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	audiences, _ := resp["Audiences"].([]any)
 	assert.ElementsMatch(t, []any{"aud1", "aud2"}, audiences)
 	ts, ok := resp["TimeShiftConfiguration"].(map[string]any)
@@ -430,7 +431,7 @@ func TestChannel_AudiencesAndTimeShift(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	updateResp := map[string]any{}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	audiences, _ = updateResp["Audiences"].([]any)
 	assert.ElementsMatch(t, []any{"aud3"}, audiences)
 	assert.Nil(t, updateResp["TimeShiftConfiguration"], "UpdateChannel omitting TimeShiftConfiguration must clear it")
@@ -466,7 +467,7 @@ func TestCreateChannel_Tier(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantTier, resp["Tier"])
 			}
 		})

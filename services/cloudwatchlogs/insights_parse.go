@@ -1,12 +1,14 @@
 package cloudwatchlogs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // parseParseCommand parses "parse [source] <"glob"|/regex/> [as f1, f2, ...]".
@@ -199,7 +201,7 @@ func resolveJSONField(message, name string) cwValue {
 	}
 
 	var root any
-	if err := json.Unmarshal([]byte(message), &root); err != nil {
+	if err := json.Unmarshal([]byte(message), &root, jsonx.V1()); err != nil {
 		return cwValue{}
 	}
 
@@ -273,7 +275,7 @@ func jsonScalar(v any) cwValue {
 	case nil:
 		return cwValue{}
 	default:
-		if b, err := json.Marshal(t); err == nil {
+		if b, err := json.Marshal(t, jsonx.V1()); err == nil {
 			return literalString(string(b))
 		}
 

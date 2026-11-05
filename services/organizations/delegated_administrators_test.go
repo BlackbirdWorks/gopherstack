@@ -1,7 +1,8 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -90,7 +92,7 @@ func TestDelegatedServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createResp, jsonx.V1()))
 	accountID := createResp["CreateAccountStatus"].(map[string]any)["AccountId"].(string)
 
 	rec := doRequest(t, h, "EnableAWSServiceAccess", map[string]any{
@@ -111,7 +113,7 @@ func TestDelegatedServices(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	services, ok := resp["DelegatedServices"].([]any)
 	require.True(t, ok)
 	require.Len(t, services, 1)
@@ -407,7 +409,7 @@ func TestRegisterDelegatedAdmin_ViaHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	statusObj := createResp["CreateAccountStatus"].(map[string]any)
 	accountID := statusObj["AccountId"].(string)
 

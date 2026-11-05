@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // updateScheduledActionRequest is the JSON request body for
@@ -30,7 +31,7 @@ func (h *Handler) handleUpdateScheduledAction(w http.ResponseWriter, r *http.Req
 
 	var req updateScheduledActionRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return

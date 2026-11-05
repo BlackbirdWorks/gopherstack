@@ -1,7 +1,7 @@
 package ocifunctions
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"time"
 )
@@ -104,8 +104,8 @@ type Function struct {
 	Image         string            `json:"image"`
 	ImageDigest   string            `json:"imageDigest,omitempty"`
 	Etag          string            `json:"etag"`
-	Success       json.RawMessage   `json:"successDestination,omitempty"`
-	Failure       json.RawMessage   `json:"failureDestination,omitempty"`
+	Success       jsontext.Value    `json:"successDestination,omitempty"`
+	Failure       jsontext.Value    `json:"failureDestination,omitempty"`
 	Memory        int64             `json:"memoryInMBs"`
 	Seq           int64             `json:"seq"`
 	Timeout       int               `json:"timeoutInSeconds"`

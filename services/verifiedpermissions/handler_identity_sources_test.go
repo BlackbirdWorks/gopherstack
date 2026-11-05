@@ -1,13 +1,15 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -105,7 +107,7 @@ func TestVPHandler_IdentitySource(t *testing.T) {
 
 			if tt.check != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -138,7 +140,7 @@ func TestVPHandler_GetIdentitySource(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var isResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp, jsonx.V1()))
 
 				return storeID, isResp["identitySourceId"].(string)
 			},
@@ -206,7 +208,7 @@ func TestVPHandler_DeleteIdentitySource(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var isResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp, jsonx.V1()))
 
 				return storeID, isResp["identitySourceId"].(string)
 			},
@@ -285,7 +287,7 @@ func TestVPHandler_ListIdentitySources(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			sources := resp["identitySources"].([]any)
 			assert.Len(t, sources, tt.wantCount)
 		})
@@ -348,7 +350,7 @@ func TestVPHandler_CreateIdentitySource_OIDCIdentityTokenClientIDs(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotContains(t, createResp, "configuration",
 		"CreateIdentitySourceOutput has no configuration field in the real SDK")
 
@@ -361,7 +363,7 @@ func TestVPHandler_CreateIdentitySource_OIDCIdentityTokenClientIDs(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	oidc := resp["configuration"].(map[string]any)["openIdConnectConfiguration"].(map[string]any)
 	tokenSelection := oidc["tokenSelection"].(map[string]any)
@@ -396,7 +398,7 @@ func TestVPHandler_CreateIdentitySource_CognitoIssuer(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotContains(t, createResp, "configuration",
 		"CreateIdentitySourceOutput has no configuration field in the real SDK")
 
@@ -409,7 +411,7 @@ func TestVPHandler_CreateIdentitySource_CognitoIssuer(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	cognito := resp["configuration"].(map[string]any)["cognitoUserPoolConfiguration"].(map[string]any)
 	assert.Equal(t, "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test", cognito["issuer"])
@@ -446,7 +448,7 @@ func TestVPHandler_ListIdentitySources_FilterByPrincipalEntityType(t *testing.T)
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	sources := resp["identitySources"].([]any)
 	require.Len(t, sources, 1)
 	assert.Equal(t, "MyCorp::User", sources[0].(map[string]any)["principalEntityType"])
@@ -535,7 +537,7 @@ func TestVPHandler_UpdateIdentitySource(t *testing.T) {
 			require.Equal(t, http.StatusOK, psRec.Code)
 
 			var psResp map[string]any
-			require.NoError(t, json.NewDecoder(psRec.Body).Decode(&psResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(psRec.Body), &psResp, jsonx.V1()))
 
 			psID := psResp["policyStoreId"].(string)
 
@@ -551,7 +553,7 @@ func TestVPHandler_UpdateIdentitySource(t *testing.T) {
 			require.Equal(t, http.StatusOK, isRec.Code)
 
 			var isResp map[string]any
-			require.NoError(t, json.NewDecoder(isRec.Body).Decode(&isResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(isRec.Body), &isResp, jsonx.V1()))
 
 			isID := isResp["identitySourceId"].(string)
 
@@ -588,7 +590,7 @@ func TestVPHandler_CreateUpdateIdentitySource_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotContains(t, createResp, "principalEntityType")
 	assert.NotContains(t, createResp, "configuration")
 	assert.NotEmpty(t, createResp["identitySourceId"])
@@ -608,7 +610,7 @@ func TestVPHandler_CreateUpdateIdentitySource_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code, "body: %s", updateRec.Body.String())
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotContains(t, updateResp, "principalEntityType")
 	assert.NotContains(t, updateResp, "configuration")
 	assert.Equal(t, createResp["identitySourceId"], updateResp["identitySourceId"])

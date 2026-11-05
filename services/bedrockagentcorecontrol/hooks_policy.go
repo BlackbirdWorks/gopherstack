@@ -1,7 +1,7 @@
 package bedrockagentcorecontrol
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -310,7 +311,7 @@ func (b *InMemoryBackend) managedSecret(sc scope, kind, name, member string, val
 		return b.managedSecretARN(sc, kind, name, member)
 	}
 
-	payload, _ := json.Marshal(map[string]string{member: text})
+	payload, _ := json.Marshal(map[string]string{member: text}, jsonx.V1())
 	secretName := fmt.Sprintf("%s%s/%s/%s", managedSecretName, kind, name, member)
 
 	if secretARN, err := st.PutSecret(sc.account, sc.region, secretName, string(payload)); err == nil {

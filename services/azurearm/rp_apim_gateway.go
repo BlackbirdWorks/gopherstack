@@ -1,7 +1,8 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -160,7 +162,10 @@ func gatewayTarget(r *http.Request) (string, string, bool) {
 func writeGW(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set(apimCContentType, "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{apimCStatusCode: status, fieldMessage: msg})
+	_ = json.MarshalEncode(
+		jsontext.NewEncoder(w, jsonx.V1()),
+		map[string]any{apimCStatusCode: status, fieldMessage: msg},
+	)
 }
 
 // ServeGateway answers a request addressed to a service's gateway (Host <name>.azure-api.net, or the path prefix

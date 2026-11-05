@@ -1,11 +1,13 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *echo.Context, body []byte) error {
@@ -20,7 +22,7 @@ func (h *Handler) handleCreateInstanceAccessControlAttributeConfiguration(c *ech
 			} `json:"AccessControlAttributes"`
 		} `json:"InstanceAccessControlAttributeConfiguration"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -52,7 +54,7 @@ func (h *Handler) handleDeleteInstanceAccessControlAttributeConfiguration(c *ech
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if err := h.Backend.DeleteInstanceAccessControlAttributeConfiguration(req.InstanceArn); err != nil {
@@ -66,7 +68,7 @@ func (h *Handler) handleDescribeInstanceAccessControlAttributeConfiguration(c *e
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	cfg, err := h.Backend.DescribeInstanceAccessControlAttributeConfiguration(req.InstanceArn)
@@ -105,7 +107,7 @@ func (h *Handler) handleUpdateInstanceAccessControlAttributeConfiguration(c *ech
 			} `json:"AccessControlAttributes"`
 		} `json:"InstanceAccessControlAttributeConfiguration"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

@@ -1,12 +1,15 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateIdentityPool_OIDCProviderARNs(t *testing.T) {
@@ -54,12 +57,12 @@ func TestCreateIdentityPool_OIDCProviderARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body.String())
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 			// Verify ARNs in CreateIdentityPool response.
-			raw, _ := json.Marshal(created["OpenIdConnectProviderARNs"])
+			raw, _ := json.Marshal(created["OpenIdConnectProviderARNs"], jsonx.V1())
 			var gotARNs []string
-			_ = json.Unmarshal(raw, &gotARNs)
+			_ = json.Unmarshal(raw, &gotARNs, jsonx.V1())
 			assert.Equal(t, tt.wantARNs, gotARNs, "create response OpenIdConnectProviderARNs mismatch")
 
 			poolID, _ := created["IdentityPoolId"].(string)
@@ -72,11 +75,11 @@ func TestCreateIdentityPool_OIDCProviderARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, descRec.Code)
 
 			var desc map[string]any
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc, jsonx.V1()))
 
-			raw, _ = json.Marshal(desc["OpenIdConnectProviderARNs"])
+			raw, _ = json.Marshal(desc["OpenIdConnectProviderARNs"], jsonx.V1())
 			var descARNs []string
-			_ = json.Unmarshal(raw, &descARNs)
+			_ = json.Unmarshal(raw, &descARNs, jsonx.V1())
 			assert.Equal(t, tt.wantARNs, descARNs, "describe response OpenIdConnectProviderARNs mismatch")
 		})
 	}
@@ -118,11 +121,11 @@ func TestCreateIdentityPool_SAMLProviderARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
-			raw, _ := json.Marshal(created["SamlProviderARNs"])
+			raw, _ := json.Marshal(created["SamlProviderARNs"], jsonx.V1())
 			var gotARNs []string
-			_ = json.Unmarshal(raw, &gotARNs)
+			_ = json.Unmarshal(raw, &gotARNs, jsonx.V1())
 			assert.Equal(t, tt.wantARNs, gotARNs, "SamlProviderARNs mismatch in create response")
 		})
 	}
@@ -177,7 +180,7 @@ func TestUpdateIdentityPool_OIDCAndSAMLARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			poolID, _ := created["IdentityPoolId"].(string)
 			require.NotEmpty(t, poolID)
 
@@ -191,16 +194,16 @@ func TestUpdateIdentityPool_OIDCAndSAMLARNs(t *testing.T) {
 			require.Equal(t, http.StatusOK, updRec.Code, "update: %s", updRec.Body.String())
 
 			var updated map[string]any
-			require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updated))
+			require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updated, jsonx.V1()))
 
-			raw, _ := json.Marshal(updated["OpenIdConnectProviderARNs"])
+			raw, _ := json.Marshal(updated["OpenIdConnectProviderARNs"], jsonx.V1())
 			var gotOIDC []string
-			_ = json.Unmarshal(raw, &gotOIDC)
+			_ = json.Unmarshal(raw, &gotOIDC, jsonx.V1())
 			assert.Equal(t, tt.wantOIDC, gotOIDC, "OIDC ARNs after update")
 
-			raw, _ = json.Marshal(updated["SamlProviderARNs"])
+			raw, _ = json.Marshal(updated["SamlProviderARNs"], jsonx.V1())
 			var gotSAML []string
-			_ = json.Unmarshal(raw, &gotSAML)
+			_ = json.Unmarshal(raw, &gotSAML, jsonx.V1())
 			assert.Equal(t, tt.wantSAML, gotSAML, "SAML ARNs after update")
 		})
 	}
@@ -267,7 +270,7 @@ func TestListIdentityPools_Pagination(t *testing.T) {
 					IdentityPools []any  `json:"IdentityPools"`
 					NextToken     string `json:"NextToken"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				pageCounts = append(pageCounts, len(out.IdentityPools))
 				token = out.NextToken
@@ -304,7 +307,7 @@ func TestListIdentityPools_TokenPastEnd(t *testing.T) {
 		IdentityPools []any  `json:"IdentityPools"`
 		NextToken     string `json:"NextToken"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Empty(t, out.IdentityPools, "token past last pool must return empty list, not first page")
 	assert.Empty(t, out.NextToken)
@@ -344,7 +347,7 @@ func TestHandler_CreateIdentityPool(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.poolName, out["IdentityPoolName"])
 				assert.NotEmpty(t, out["IdentityPoolId"])
 			}
@@ -380,7 +383,7 @@ func TestHandler_DeleteIdentityPool(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				poolID = out["IdentityPoolId"].(string)
 			} else {
 				poolID = "us-east-1:nonexistent"
@@ -407,7 +410,7 @@ func TestHandler_DescribeIdentityPool(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -415,7 +418,7 @@ func TestHandler_DescribeIdentityPool(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "desc-pool", out["IdentityPoolName"])
 }
 
@@ -438,7 +441,7 @@ func TestHandler_ListIdentityPools(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	pools, ok := out["IdentityPools"].([]any)
 	require.True(t, ok)
@@ -457,7 +460,7 @@ func TestHandler_UpdateIdentityPool(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
 		"IdentityPoolId":                 created["IdentityPoolId"],
@@ -467,7 +470,7 @@ func TestHandler_UpdateIdentityPool(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, false, out["AllowUnauthenticatedIdentities"])
 }
 
@@ -514,7 +517,7 @@ func TestHandler_WithProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "provider-pool", out["IdentityPoolName"])
 
 	providers, ok := out["CognitoIdentityProviders"].([]any)
@@ -541,7 +544,7 @@ func TestSortedListIdentityPools(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	pools, _ := out["IdentityPools"].([]any)
 	require.Len(t, pools, 3)
@@ -571,7 +574,7 @@ func TestTagsInIdentityPoolOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	// Tags should be in the CreateIdentityPool response.
 	tags, _ := created["IdentityPoolTags"].(map[string]any)
@@ -585,7 +588,7 @@ func TestTagsInIdentityPoolOutput(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	descTags, _ := descOut["IdentityPoolTags"].(map[string]any)
 	assert.Equal(t, "test", descTags["env"])
@@ -603,7 +606,7 @@ func TestDeleteIdentityPool_CleansTagsAndPrincipalTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 	arn := "arn:aws:cognito-identity:us-east-1:000000000000:identitypool/" + poolID
 
@@ -648,7 +651,7 @@ func TestHandler_DeveloperProviderName_InCreateAndDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	assert.Equal(t, "developer.myapp.com", created["DeveloperProviderName"])
 
 	descRec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
@@ -657,7 +660,7 @@ func TestHandler_DeveloperProviderName_InCreateAndDescribe(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "developer.myapp.com", descOut["DeveloperProviderName"])
 }
 
@@ -674,7 +677,7 @@ func TestHandler_UpdateIdentityPool_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	updateRec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
@@ -686,7 +689,7 @@ func TestHandler_UpdateIdentityPool_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updated map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updated, jsonx.V1()))
 	tags, _ := updated["IdentityPoolTags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "backend", tags["team"])
@@ -744,7 +747,7 @@ func TestHandler_ListIdentityPools_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&out1))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &out1, jsonx.V1()))
 	assert.Len(t, out1["IdentityPools"], 2)
 	nextToken, _ := out1["NextToken"].(string)
 	assert.NotEmpty(t, nextToken)
@@ -757,6 +760,6 @@ func TestHandler_ListIdentityPools_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&out2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &out2, jsonx.V1()))
 	assert.Len(t, out2["IdentityPools"], 1)
 }

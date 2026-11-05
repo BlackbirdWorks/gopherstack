@@ -2,10 +2,12 @@ package cloudcontrol
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Provisioner creates, changes and destroys the real resource behind a Cloud
@@ -96,7 +98,7 @@ func (h *provisionedHandler) stored(identifier string) (map[string]any, error) {
 	}
 
 	var model map[string]any
-	if err := json.Unmarshal([]byte(r.Properties), &model); err != nil {
+	if err := json.Unmarshal([]byte(r.Properties), &model, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: stored model is not a JSON object", ErrValidation)
 	}
 

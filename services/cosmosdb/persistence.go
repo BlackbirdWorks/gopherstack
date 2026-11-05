@@ -2,7 +2,7 @@ package cosmosdb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"sort"
 
@@ -21,7 +21,7 @@ const cosmosdbSnapshotVersion = 1
 type backendSnapshot struct {
 	Databases map[string]*storedDatabase `json:"databases"`
 	Regions   *AccountRegions            `json:"regions,omitempty"`
-	TableAPI  json.RawMessage            `json:"tableApi,omitempty"`
+	TableAPI  jsontext.Value             `json:"tableApi,omitempty"`
 	Version   int                        `json:"version"`
 }
 
@@ -107,7 +107,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 }
 
 // restoreTableAPI restores the attached Table API state; a snapshot without it empties the Table API.
-func (b *InMemoryBackend) restoreTableAPI(ctx context.Context, data json.RawMessage) error {
+func (b *InMemoryBackend) restoreTableAPI(ctx context.Context, data jsontext.Value) error {
 	if b.tableAPI == nil {
 		return nil
 	}

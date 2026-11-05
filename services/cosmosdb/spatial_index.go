@@ -1,10 +1,13 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Spatial index types (azcosmos SpatialType, azcosmos v1.5.0 spatial_type.go; Learn "Indexing policies").
@@ -30,12 +33,12 @@ func (b boundingBox) valid() bool {
 }
 
 // geospatialType is the container's geospatial data type; Geography unless the config says Geometry.
-func geospatialType(raw json.RawMessage) string {
+func geospatialType(raw jsontext.Value) string {
 	var cfg struct {
 		Type string `json:"type"`
 	}
 
-	if json.Unmarshal(raw, &cfg) == nil && cfg.Type == geoTypeGeometry {
+	if json.Unmarshal(raw, &cfg, jsonx.V1()) == nil && cfg.Type == geoTypeGeometry {
 		return geoTypeGeometry
 	}
 

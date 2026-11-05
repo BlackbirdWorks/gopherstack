@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net"
 	"net/http"
@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
@@ -157,7 +158,7 @@ func jsonAt(t *testing.T, raw *string, path ...string) any {
 	t.Helper()
 
 	var cur any
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(raw)), &cur))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(raw)), &cur, jsonx.V1()))
 
 	for _, p := range path {
 		m, ok := cur.(map[string]any)

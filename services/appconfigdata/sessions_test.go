@@ -1,7 +1,7 @@
 package appconfigdata_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfigdata"
 )
 
@@ -122,7 +123,7 @@ func TestHandler_StartConfigurationSession(t *testing.T) {
 
 			if tt.wantToken {
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["InitialConfigurationToken"])
 			}
 		})
@@ -169,7 +170,7 @@ func TestHandler_PollIntervalValidation(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "p",
 				"RequiredMinimumPollIntervalInSeconds": tt.interval,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/configurationsessions", bodyJSON)
@@ -221,14 +222,14 @@ func TestHandler_PollIntervalHonored(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "profile",
 				"RequiredMinimumPollIntervalInSeconds": tt.interval,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			sessionRec := doRequest(t, h, http.MethodPost, "/configurationsessions", sessionBody)
 			require.Equal(t, http.StatusCreated, sessionRec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(sessionRec.Body.Bytes(), &resp, jsonx.V1()))
 			token := resp["InitialConfigurationToken"]
 
 			cfgRec := doRequest(t, h, http.MethodGet, "/configuration?configuration_token="+token, nil)
@@ -257,7 +258,7 @@ func TestHandler_StartSession_IdentifierLength(t *testing.T) {
 					"ApplicationIdentifier":          longID,
 					"EnvironmentIdentifier":          "env",
 					"ConfigurationProfileIdentifier": "p",
-				})
+				}, jsonx.V1())
 
 				return b
 			}(),
@@ -269,7 +270,7 @@ func TestHandler_StartSession_IdentifierLength(t *testing.T) {
 					"ApplicationIdentifier":          "app",
 					"EnvironmentIdentifier":          longID,
 					"ConfigurationProfileIdentifier": "p",
-				})
+				}, jsonx.V1())
 
 				return b
 			}(),
@@ -281,7 +282,7 @@ func TestHandler_StartSession_IdentifierLength(t *testing.T) {
 					"ApplicationIdentifier":          "app",
 					"EnvironmentIdentifier":          "env",
 					"ConfigurationProfileIdentifier": longID,
-				})
+				}, jsonx.V1())
 
 				return b
 			}(),
@@ -329,7 +330,7 @@ func TestHandler_StartSession_MaxPollInterval(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "p",
 				"RequiredMinimumPollIntervalInSeconds": tt.interval,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/configurationsessions", bodyJSON)
@@ -405,7 +406,7 @@ func TestHandler_StartSession_ExactMaxIdentifierLength(t *testing.T) {
 			"ApplicationIdentifier":          validID,
 			"EnvironmentIdentifier":          validID,
 			"ConfigurationProfileIdentifier": validID,
-		})
+		}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost, "/configurationsessions", bodyJSON)
@@ -419,7 +420,7 @@ func TestHandler_StartSession_ExactMaxIdentifierLength(t *testing.T) {
 			"ApplicationIdentifier":          invalidID,
 			"EnvironmentIdentifier":          "env",
 			"ConfigurationProfileIdentifier": "p",
-		})
+		}, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doRequest(t, h, http.MethodPost, "/configurationsessions", bodyJSON)
@@ -462,7 +463,7 @@ func TestHandler_StartSession_PollInterval_Boundary(t *testing.T) {
 				"EnvironmentIdentifier":                "env",
 				"ConfigurationProfileIdentifier":       "p",
 				"RequiredMinimumPollIntervalInSeconds": tt.interval,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/configurationsessions", bodyJSON)

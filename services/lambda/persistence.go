@@ -2,10 +2,12 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -160,7 +162,7 @@ type backendSnapshot struct {
 	// b.ephemeralRegistry (codeSigningConfigs,
 	// provisionedConcurrencies) are deliberately NOT included here -- they
 	// were never persisted before this refactor and must stay that way.
-	Tables map[string]json.RawMessage `json:"tables"`
+	Tables map[string]jsontext.Value `json:"tables"`
 	// The fields below have no pure, self-contained identity (see
 	// store_setup.go's exclusion list) so they cannot become store.Tables, but
 	// they WERE persisted before this refactor and must remain so.
@@ -258,7 +260,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Region:                  b.region,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "persistence: snapshot marshal failed", "service", "lambda", "error", err)
 
@@ -382,7 +384,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // restoreFunctionsFromDTO restores b.functions from its "functions" DTO
 // entry in tables (gopherstack-rluhj; b.functions is not on b.registry, see
 // store_setup.go's package doc and functionConfigurationSnapshot above).
-func (b *InMemoryBackend) restoreFunctionsFromDTO(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreFunctionsFromDTO(tables map[string]jsontext.Value) error {
 	funcDTOReg := store.NewRegistry()
 	funcDTOs := store.Register(funcDTOReg, "functions", store.New(functionConfigurationSnapshotKey))
 
@@ -403,7 +405,7 @@ func (b *InMemoryBackend) restoreFunctionsFromDTO(tables map[string]json.RawMess
 // restorePermissionsFromDTO restores b.permissions from its "permissions"
 // DTO entry in tables (b.permissions is not on b.registry, see
 // store_setup.go's package doc).
-func (b *InMemoryBackend) restorePermissionsFromDTO(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restorePermissionsFromDTO(tables map[string]jsontext.Value) error {
 	permDTOReg := store.NewRegistry()
 	permDTOs := store.Register(permDTOReg, "permissions", store.New(permissionSnapshotKey))
 

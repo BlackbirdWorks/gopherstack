@@ -1,13 +1,15 @@
 package ssm_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -49,10 +51,10 @@ func TestClientTokenMemoIsBounded(t *testing.T) {
 			}
 
 			var snap struct {
-				Idempotency map[string]map[string]json.RawMessage `json:"idempotency"`
+				Idempotency map[string]map[string]jsontext.Value `json:"idempotency"`
 			}
 
-			require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &snap))
+			require.NoError(t, json.Unmarshal(b.Snapshot(t.Context()), &snap, jsonx.V1()))
 
 			for _, recs := range snap.Idempotency {
 				assert.LessOrEqual(t, len(recs), 1024)

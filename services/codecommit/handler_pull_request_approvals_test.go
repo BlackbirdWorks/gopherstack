@@ -1,13 +1,15 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetPullRequestApprovalStates(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_GetPullRequestApprovalStates(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["approvals"])
 }
 
@@ -109,7 +111,7 @@ func TestHandler_GetPullRequestApprovalStates_TableDriven(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			approvals := resp["approvals"].([]any)
 			// Each UpdatePullRequestApprovalState with the same (empty) userARN just overwrites, so max 1.
 			if tt.approveUsers > 0 {
@@ -148,7 +150,7 @@ func TestHandler_GetPullRequestOverrideState(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, false, resp["overridden"])
 }
 
@@ -166,7 +168,7 @@ func TestHandler_GetPullRequestOverrideState_AfterOverride(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, false, resp["overridden"])
 
 	// Override it.
@@ -182,7 +184,7 @@ func TestHandler_GetPullRequestOverrideState_AfterOverride(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, true, resp["overridden"])
 }
 
@@ -214,7 +216,7 @@ func TestHandler_CreatePullRequestApprovalRule(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["approvalRule"].(map[string]any)
 	assert.Equal(t, "my-rule", rule["approvalRuleName"])
 }
@@ -270,7 +272,7 @@ func TestHandler_DescribePullRequestEvents(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["pullRequestEvents"])
 }
 
@@ -343,7 +345,7 @@ func TestHandler_DescribePullRequestEvents_TableDriven(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			events := resp["pullRequestEvents"].([]any)
 			assert.Len(t, events, tt.wantEvents)
 		})
@@ -369,7 +371,7 @@ func TestHandler_EvaluatePullRequestApprovalRules(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	eval := resp["evaluation"].(map[string]any)
 	satisfied := eval["approvalRulesSatisfied"].([]any)
 	require.Len(t, satisfied, 1)
@@ -404,7 +406,7 @@ func TestHandler_EvaluatePullRequestApprovalRules_WithRules(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	eval := resp["evaluation"].(map[string]any)
 	satisfied := eval["approvalRulesSatisfied"].([]any)
 	assert.Len(t, satisfied, 2)
@@ -425,7 +427,7 @@ func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["approvalRule"].(map[string]any)
 	assert.Equal(t, "my-rule", rule["approvalRuleName"])
 	assert.NotEmpty(t, rule["approvalRuleId"])
@@ -445,7 +447,7 @@ func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	eval := resp["evaluation"].(map[string]any)
 	assert.Len(t, eval["approvalRulesSatisfied"].([]any), 1)
 
@@ -463,7 +465,7 @@ func TestHandler_PullRequestApprovalRule_Lifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	eval = resp["evaluation"].(map[string]any)
 	assert.Empty(t, eval["approvalRulesSatisfied"])
 }

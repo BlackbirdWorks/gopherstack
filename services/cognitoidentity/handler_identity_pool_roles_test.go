@@ -1,12 +1,15 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
@@ -21,7 +24,7 @@ func TestHandler_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	setRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
@@ -45,7 +48,7 @@ func TestHandler_SetGetIdentityPoolRoles_WithRoleMappings(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	roles, ok := out["Roles"].(map[string]any)
 	require.True(t, ok)
@@ -73,7 +76,7 @@ func TestHandler_SetGetIdentityPoolRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	setRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -90,7 +93,7 @@ func TestHandler_SetGetIdentityPoolRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 
 	roles, ok := out["Roles"].(map[string]any)
 	require.True(t, ok)
@@ -186,7 +189,7 @@ func TestHandler_GetPrincipalTagAttributeMap(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID = created["IdentityPoolId"].(string)
 			}
 
@@ -199,7 +202,7 @@ func TestHandler_GetPrincipalTagAttributeMap(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantDefaults, out["UseDefaults"])
 			}
 		})
@@ -244,7 +247,7 @@ func TestHandler_SetPrincipalTagAttributeMap(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 				poolID := created["IdentityPoolId"].(string)
 
 				body = map[string]any{
@@ -262,7 +265,7 @@ func TestHandler_SetPrincipalTagAttributeMap(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, false, out["UseDefaults"])
 
 				tags, _ := out["PrincipalTags"].(map[string]any)
@@ -284,7 +287,7 @@ func TestHandler_SetGetPrincipalTagAttributeMap_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	providerName := "cognito-idp.us-east-1.amazonaws.com/us-east-1_Pool1"
@@ -307,7 +310,7 @@ func TestHandler_SetGetPrincipalTagAttributeMap_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, poolID, out["IdentityPoolId"])
 	assert.Equal(t, providerName, out["IdentityProviderName"])
 	assert.Equal(t, false, out["UseDefaults"])
@@ -329,7 +332,7 @@ func TestHandler_SetIdentityPoolRoles_SingleRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -352,7 +355,7 @@ func TestHandler_GetPrincipalTagAttributeMap_EmptyProvider_Returns400(t *testing
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetPrincipalTagAttributeMap", map[string]any{
 		"IdentityPoolId":       created["IdentityPoolId"],
@@ -384,7 +387,7 @@ func TestHandler_GetIdentityPoolRoles_OmitsEmptyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	poolID := createOut["IdentityPoolId"].(string)
 
 	setRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
@@ -401,7 +404,7 @@ func TestHandler_GetIdentityPoolRoles_OmitsEmptyRoles(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 	roles := out["Roles"].(map[string]any)
 
 	assert.Contains(t, roles, "authenticated")
@@ -420,7 +423,7 @@ func TestHandler_SetIdentityPoolRoles_PreservesExistingRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 	poolID := createOut["IdentityPoolId"].(string)
 
 	// Set both roles.
@@ -446,7 +449,7 @@ func TestHandler_SetIdentityPoolRoles_PreservesExistingRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &out, jsonx.V1()))
 	roles := out["Roles"].(map[string]any)
 
 	assert.Equal(t, "arn:aws:iam::000000000000:role/AuthV2", roles["authenticated"])

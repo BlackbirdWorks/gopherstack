@@ -2,13 +2,15 @@ package scheduler_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
@@ -39,7 +41,7 @@ func TestSchedulerHandler_ListSchedules(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp, "Schedules")
 	schedules, ok := resp["Schedules"].([]any)
 	require.True(t, ok)
@@ -64,7 +66,7 @@ func TestListSchedules_FilterByGroupName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schedules := resp["Schedules"].([]any)
 	require.Len(t, schedules, 1)
@@ -84,7 +86,7 @@ func TestListSchedules_FilterByNamePrefix(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schedules := resp["Schedules"].([]any)
 	assert.Len(t, schedules, 2)
@@ -108,7 +110,7 @@ func TestListSchedules_FilterByState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schedules := resp["Schedules"].([]any)
 	require.Len(t, schedules, 1)
@@ -128,7 +130,7 @@ func TestListSchedules_Sorted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schedules := resp["Schedules"].([]any)
 	require.Len(t, schedules, 3)
@@ -152,7 +154,7 @@ func TestListSchedules_IncludesGroupNameAndDates(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	schedules := resp["Schedules"].([]any)
 	require.Len(t, schedules, 1)
@@ -174,13 +176,13 @@ func TestListSchedules_TimestampsAreEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		Schedules []map[string]json.RawMessage `json:"Schedules"`
+		Schedules []map[string]jsontext.Value `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Schedules)
 
 	var cd float64
-	require.NoError(t, json.Unmarshal(out.Schedules[0]["CreationDate"], &cd))
+	require.NoError(t, json.Unmarshal(out.Schedules[0]["CreationDate"], &cd, jsonx.V1()))
 	assert.Greater(t, cd, float64(0))
 }
 
@@ -198,7 +200,7 @@ func TestListSchedules_NextTokenOmittedWhenComplete(t *testing.T) {
 		NextToken string `json:"NextToken"`
 		Schedules []any  `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	// NextToken should be empty when all results fit.
 	assert.Empty(t, out.NextToken)
 }
@@ -217,26 +219,26 @@ func TestListSchedules_MaxResultsPagination(t *testing.T) {
 	rec1 := doSchedulerRequest(t, h, "ListSchedules", map[string]any{"MaxResults": "2"})
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	var page1 map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+	var page1 map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1, jsonx.V1()))
 
-	var schedules1 []json.RawMessage
-	require.NoError(t, json.Unmarshal(page1["Schedules"], &schedules1))
+	var schedules1 []jsontext.Value
+	require.NoError(t, json.Unmarshal(page1["Schedules"], &schedules1, jsonx.V1()))
 	require.Len(t, schedules1, 2)
 
 	var nextToken string
-	require.NoError(t, json.Unmarshal(page1["NextToken"], &nextToken))
+	require.NoError(t, json.Unmarshal(page1["NextToken"], &nextToken, jsonx.V1()))
 	assert.NotEmpty(t, nextToken)
 
 	// Get second page using the token.
 	rec2 := doSchedulerRequest(t, h, "ListSchedules", map[string]any{"MaxResults": "2", "NextToken": nextToken})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
-	var page2 map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	var page2 map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2, jsonx.V1()))
 
-	var schedules2 []json.RawMessage
-	require.NoError(t, json.Unmarshal(page2["Schedules"], &schedules2))
+	var schedules2 []jsontext.Value
+	require.NoError(t, json.Unmarshal(page2["Schedules"], &schedules2, jsonx.V1()))
 	assert.Len(t, schedules2, 2)
 }
 
@@ -254,11 +256,11 @@ func TestListSchedules_NoTokenReturnsAll(t *testing.T) {
 	rec := doSchedulerRequest(t, h, "ListSchedules", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var out map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	var out map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
-	var schedules []json.RawMessage
-	require.NoError(t, json.Unmarshal(out["Schedules"], &schedules))
+	var schedules []jsontext.Value
+	require.NoError(t, json.Unmarshal(out["Schedules"], &schedules, jsonx.V1()))
 	assert.Len(t, schedules, 3)
 	assert.Nil(t, out["NextToken"])
 }
@@ -286,9 +288,9 @@ func TestListSchedules_IncludesTargetSummary(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		Schedules []map[string]json.RawMessage `json:"Schedules"`
+		Schedules []map[string]jsontext.Value `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Schedules, 1)
 
 	item := out.Schedules[0]
@@ -298,13 +300,13 @@ func TestListSchedules_IncludesTargetSummary(t *testing.T) {
 	var target struct {
 		Arn string `json:"Arn"`
 	}
-	require.NoError(t, json.Unmarshal(targetRaw, &target))
+	require.NoError(t, json.Unmarshal(targetRaw, &target, jsonx.V1()))
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123:function:fn", target.Arn)
 
 	// Real AWS's TargetSummary has no RoleArn field; assert gopherstack doesn't
 	// invent one on the wire.
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(targetRaw, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(targetRaw, &raw, jsonx.V1()))
 	_, hasRoleArn := raw["RoleArn"]
 	assert.False(t, hasRoleArn, "ListSchedules Target summary must not include RoleArn (not in real TargetSummary)")
 }
@@ -338,7 +340,7 @@ func TestListSchedules_TargetMatchesGetSchedule(t *testing.T) {
 			} `json:"Target"`
 		} `json:"Schedules"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Schedules, 1)
 	assert.Equal(t, targetArn, listOut.Schedules[0].Target.Arn)
 }

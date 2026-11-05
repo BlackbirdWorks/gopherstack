@@ -1,7 +1,7 @@
 package emr_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	emrtypes "github.com/aws/aws-sdk-go-v2/service/emr/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestWireShape_ListClusters_IncludesTimeline verifies ListClusters' per-cluster
@@ -39,7 +41,7 @@ func TestWireShape_ListClusters_IncludesTimeline(t *testing.T) {
 			} `json:"Status"`
 		} `json:"Clusters"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Clusters, 1)
 	assert.NotZero(t, out.Clusters[0].Status.Timeline.CreationDateTime)
 	assert.NotZero(t, out.Clusters[0].Status.Timeline.ReadyDateTime)
@@ -60,7 +62,7 @@ func TestWireShape_ModifyInstanceFleet_AppliesCapacities(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	addRec := doEMRRequest(t, h, "AddInstanceFleet", map[string]any{
 		"ClusterId": create.JobFlowID,
@@ -76,7 +78,7 @@ func TestWireShape_ModifyInstanceFleet_AppliesCapacities(t *testing.T) {
 	var added struct {
 		InstanceFleetID string `json:"InstanceFleetId"`
 	}
-	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &added))
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &added, jsonx.V1()))
 
 	modRec := doEMRRequest(t, h, "ModifyInstanceFleet", map[string]any{
 		"ClusterId": create.JobFlowID,
@@ -100,7 +102,7 @@ func TestWireShape_ModifyInstanceFleet_AppliesCapacities(t *testing.T) {
 			ProvisionedSpotCapacity     int    `json:"ProvisionedSpotCapacity"`
 		} `json:"InstanceFleets"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.InstanceFleets, 1)
 	f := out.InstanceFleets[0]
 	assert.Equal(t, 8, f.TargetOnDemandCapacity)
@@ -134,7 +136,7 @@ func TestWireShape_CancelSteps_RealEnumValues(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	listRec := doEMRRequest(t, h, "ListSteps", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, listRec.Code)
@@ -144,7 +146,7 @@ func TestWireShape_CancelSteps_RealEnumValues(t *testing.T) {
 			ID string `json:"Id"`
 		} `json:"Steps"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.NotEmpty(t, listOut.Steps)
 
 	stepID := listOut.Steps[0].ID
@@ -162,7 +164,7 @@ func TestWireShape_CancelSteps_RealEnumValues(t *testing.T) {
 			Status string `json:"Status"`
 		} `json:"CancelStepsInfoList"`
 	}
-	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstOut))
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstOut, jsonx.V1()))
 	require.Len(t, firstOut.CancelStepsInfoList, 1)
 	assert.Equal(t, "SUBMITTED", firstOut.CancelStepsInfoList[0].Status)
 
@@ -180,7 +182,7 @@ func TestWireShape_CancelSteps_RealEnumValues(t *testing.T) {
 			Reason string `json:"Reason"`
 		} `json:"CancelStepsInfoList"`
 	}
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondOut))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondOut, jsonx.V1()))
 	require.Len(t, secondOut.CancelStepsInfoList, 1)
 	assert.Equal(t, "FAILED", secondOut.CancelStepsInfoList[0].Status)
 	assert.NotEmpty(t, secondOut.CancelStepsInfoList[0].Reason)
@@ -207,7 +209,7 @@ func TestWireShape_NotebookExecution_EpochTimestamps(t *testing.T) {
 	var started struct {
 		NotebookExecutionID string `json:"NotebookExecutionId"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeNotebookExecution", map[string]any{
 		"NotebookExecutionId": started.NotebookExecutionID,
@@ -219,7 +221,7 @@ func TestWireShape_NotebookExecution_EpochTimestamps(t *testing.T) {
 			StartTime float64 `json:"StartTime"`
 		} `json:"NotebookExecution"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotZero(t, out.NotebookExecution.StartTime)
 }
 
@@ -239,7 +241,7 @@ func TestWireShape_GetOnClusterAppUIPresignedURL_FieldName(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "GetOnClusterAppUIPresignedURL", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -248,13 +250,13 @@ func TestWireShape_GetOnClusterAppUIPresignedURL_FieldName(t *testing.T) {
 		PresignedURL      string `json:"PresignedURL"`
 		PresignedURLReady bool   `json:"PresignedURLReady"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.PresignedURL)
 	assert.True(t, out.PresignedURLReady)
 
 	// The old, wrong field name must not be the only thing populated.
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "URL")
 }
 
@@ -274,7 +276,7 @@ func TestWireShape_GetPersistentAppUIPresignedURL_ReadyFlag(t *testing.T) {
 		PresignedURL      string `json:"PresignedURL"`
 		PresignedURLReady bool   `json:"PresignedURLReady"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.PresignedURL)
 	assert.True(t, out.PresignedURLReady)
 }
@@ -297,7 +299,7 @@ func TestWireShape_RunJobFlow_JobFlowRole(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -309,7 +311,7 @@ func TestWireShape_RunJobFlow_JobFlowRole(t *testing.T) {
 			} `json:"Ec2InstanceAttributes"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "EMR_EC2_DefaultRole", out.Cluster.Ec2InstanceAttributes.IamInstanceProfile)
 }
 
@@ -338,7 +340,7 @@ func TestWireShape_RunJobFlow_InlinePolicies(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	msRec := doEMRRequest(t, h, "GetManagedScalingPolicy", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, msRec.Code)
@@ -350,7 +352,7 @@ func TestWireShape_RunJobFlow_InlinePolicies(t *testing.T) {
 			} `json:"ComputeLimits"`
 		} `json:"ManagedScalingPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(msRec.Body.Bytes(), &msOut))
+	require.NoError(t, json.Unmarshal(msRec.Body.Bytes(), &msOut, jsonx.V1()))
 	assert.Equal(t, 10, msOut.ManagedScalingPolicy.ComputeLimits.MaximumCapacityUnits)
 
 	atRec := doEMRRequest(t, h, "GetAutoTerminationPolicy", map[string]any{"ClusterId": create.JobFlowID})
@@ -361,7 +363,7 @@ func TestWireShape_RunJobFlow_InlinePolicies(t *testing.T) {
 			IdleTimeout int64 `json:"IdleTimeout"`
 		} `json:"AutoTerminationPolicy"`
 	}
-	require.NoError(t, json.Unmarshal(atRec.Body.Bytes(), &atOut))
+	require.NoError(t, json.Unmarshal(atRec.Body.Bytes(), &atOut, jsonx.V1()))
 	assert.Equal(t, int64(3600), atOut.AutoTerminationPolicy.IdleTimeout)
 }
 
@@ -382,13 +384,13 @@ func TestWireShape_GetManagedScalingPolicy_OmitsFieldWhenUnset(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "GetManagedScalingPolicy", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "ManagedScalingPolicy")
 }
 
@@ -406,13 +408,13 @@ func TestWireShape_GetAutoTerminationPolicy_OmitsFieldWhenUnset(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "GetAutoTerminationPolicy", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotContains(t, raw, "AutoTerminationPolicy")
 }
 
@@ -436,7 +438,7 @@ func TestWireShape_AddTags_StudioResource(t *testing.T) {
 	var created struct {
 		StudioID string `json:"StudioId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	addRec := doEMRRequest(t, h, "AddTags", map[string]any{
 		"ResourceId": created.StudioID,
@@ -453,7 +455,7 @@ func TestWireShape_AddTags_StudioResource(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.Tags, 1)
 	assert.Equal(t, "env", listOut.Tags[0].Key)
 	assert.Equal(t, "prod", listOut.Tags[0].Value)
@@ -470,7 +472,7 @@ func TestWireShape_AddTags_StudioResource(t *testing.T) {
 	var listOut2 struct {
 		Tags []struct{} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listOut2, jsonx.V1()))
 	assert.Empty(t, listOut2.Tags)
 }
 
@@ -501,7 +503,7 @@ func TestWireShape_RunJobFlow_InstanceFleets(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -511,7 +513,7 @@ func TestWireShape_RunJobFlow_InstanceFleets(t *testing.T) {
 			InstanceCollectionType string `json:"InstanceCollectionType"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 	assert.Equal(t, "INSTANCE_FLEET", descOut.Cluster.InstanceCollectionType)
 
 	listRec := doEMRRequest(t, h, "ListInstanceFleets", map[string]any{"ClusterId": create.JobFlowID})
@@ -523,7 +525,7 @@ func TestWireShape_RunJobFlow_InstanceFleets(t *testing.T) {
 			TargetOnDemandCapacity int    `json:"TargetOnDemandCapacity"`
 		} `json:"InstanceFleets"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.InstanceFleets, 1)
 	assert.Equal(t, "primary", listOut.InstanceFleets[0].Name)
 	assert.Equal(t, 1, listOut.InstanceFleets[0].TargetOnDemandCapacity)
@@ -553,7 +555,7 @@ func TestWireShape_RunJobFlow_KerberosAttributesAndPlacementGroups(t *testing.T)
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -569,7 +571,7 @@ func TestWireShape_RunJobFlow_KerberosAttributesAndPlacementGroups(t *testing.T)
 			} `json:"PlacementGroups"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "EC2.INTERNAL", out.Cluster.KerberosAttributes.Realm)
 	require.Len(t, out.Cluster.PlacementGroups, 1)
 	assert.Equal(t, "MASTER", out.Cluster.PlacementGroups[0].InstanceRole)
@@ -607,7 +609,7 @@ func TestWireShape_RunJobFlow_OptionalClusterFields(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -629,7 +631,7 @@ func TestWireShape_RunJobFlow_OptionalClusterFields(t *testing.T) {
 			} `json:"MonitoringConfiguration"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/abc", out.Cluster.LogEncryptionKmsKeyID)
 	assert.Equal(t, "NONE", out.Cluster.RepoUpgradeOnBoot)
@@ -664,7 +666,7 @@ func TestWireShape_RunJobFlow_AutoTerminate(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create, jsonx.V1()))
 
 	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
 	require.Equal(t, http.StatusOK, descRec.Code)
@@ -675,7 +677,7 @@ func TestWireShape_RunJobFlow_AutoTerminate(t *testing.T) {
 			KeepJobFlowAliveWhenNoSteps bool `json:"KeepJobFlowAliveWhenNoSteps"`
 		} `json:"Cluster"`
 	}
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 	assert.True(t, out.Cluster.KeepJobFlowAliveWhenNoSteps)
 	assert.False(t, out.Cluster.AutoTerminate)
 }
@@ -702,7 +704,7 @@ func TestWireShape_ListClusters_NoFabricatedReleaseLabel(t *testing.T) {
 	var raw struct {
 		Clusters []map[string]any `json:"Clusters"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.Clusters, 1)
 
 	_, hasReleaseLabel := raw.Clusters[0]["ReleaseLabel"]

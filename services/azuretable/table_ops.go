@@ -1,13 +1,14 @@
 package azuretable
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/odatatable"
 )
 
@@ -32,7 +33,7 @@ func (h *Handler) createTable(c *echo.Context) error {
 	}
 
 	var req createTableBody
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInput", "The input is not valid.")
 	}
 

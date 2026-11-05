@@ -1,7 +1,7 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -294,7 +295,7 @@ type createNodegroupBody struct {
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
 	var in createNodegroupBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "invalid request body"))
 	}
 
@@ -448,7 +449,7 @@ func (h *Handler) handleUpdateNodegroupConfig(
 ) error {
 	var in updateNodegroupConfigInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}
@@ -524,7 +525,7 @@ type updateNodegroupVersionBody struct {
 func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nodegroupName string, body []byte) error {
 	var in updateNodegroupVersionBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 		}
 	}

@@ -3,13 +3,15 @@ package ociregistry
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrNotFound is returned when a repository, manifest or blob does not exist.
@@ -140,7 +142,7 @@ func (c Client) pages(ctx context.Context, base string, pick func(listResponse) 
 		}
 
 		var lr listResponse
-		if err = json.Unmarshal(rec.body.Bytes(), &lr); err != nil {
+		if err = json.Unmarshal(rec.body.Bytes(), &lr, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("ociregistry: decode list: %w", err)
 		}
 

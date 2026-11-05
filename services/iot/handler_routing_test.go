@@ -2,7 +2,7 @@ package iot_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -40,7 +41,7 @@ func TestHandler_Operations(t *testing.T) {
 			validateOutput: func(t *testing.T, body []byte) {
 				t.Helper()
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(body, &out))
+				require.NoError(t, json.Unmarshal(body, &out, jsonx.V1()))
 				assert.Equal(t, "my-thing", out["thingName"])
 			},
 		},
@@ -101,7 +102,7 @@ func TestHandler_Operations(t *testing.T) {
 			var reqBody []byte
 			if tt.body != nil {
 				var err error
-				reqBody, err = json.Marshal(tt.body)
+				reqBody, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			}
 
@@ -372,7 +373,7 @@ func TestHandler_NewOperations(t *testing.T) {
 			var reqBody []byte
 			if tt.body != nil {
 				var err error
-				reqBody, err = json.Marshal(tt.body)
+				reqBody, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			}
 

@@ -1,12 +1,13 @@
 package iotwireless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -124,7 +125,7 @@ type startSingleWirelessDeviceImportTaskResponse struct {
 
 func (h *Handler) associateWirelessGatewayWithCertificate(c *echo.Context, gatewayID string, body []byte) error {
 	var req associateWirelessGatewayWithCertificateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
@@ -168,7 +169,7 @@ func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	task, err := h.Backend.StartWirelessDeviceImportTask(
 		h.AccountID, h.DefaultRegion, req.DestinationName, req.Positioning, req.Sidewalk.toModel(),
@@ -202,7 +203,7 @@ func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	details := SingleImportDetails{DeviceName: req.DeviceName, Positioning: req.Positioning}
 	if req.Sidewalk != nil {
@@ -293,7 +294,7 @@ func (h *Handler) updateWirelessDeviceImportTask(c *echo.Context, id string) err
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.UpdateWirelessDeviceImportTask(id, req.Sidewalk.toModel()); err != nil {
 		return handleError(c, err)

@@ -1,11 +1,14 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Conflict resolution modes (azcosmos ConflictResolutionMode) and the default last-writer-wins path.
@@ -24,11 +27,11 @@ type conflictPolicy struct {
 	Procedure string `json:"conflictResolutionProcedure"`
 }
 
-func parseConflictPolicy(raw json.RawMessage) conflictPolicy {
+func parseConflictPolicy(raw jsontext.Value) conflictPolicy {
 	p := conflictPolicy{Mode: conflictModeLWW, Path: conflictPathTS}
 
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &p)
+		_ = json.Unmarshal(raw, &p, jsonx.V1())
 	}
 
 	if p.Mode == "" {
@@ -76,7 +79,7 @@ func conflictValue(d *storedDocument, path string) float64 {
 	}
 
 	switch n := cur.(type) {
-	case json.Number:
+	case jsonx.Number:
 		if f, err := n.Float64(); err == nil {
 			return f
 		}
@@ -279,13 +282,13 @@ func (b *InMemoryBackend) resolveRegion(region string) string {
 
 // validateConflictPolicy checks a container's conflictResolutionPolicy: mode LastWriterWins or Custom, a path that
 // starts with /.
-func validateConflictPolicy(raw json.RawMessage) error {
+func validateConflictPolicy(raw jsontext.Value) error {
 	if len(raw) == 0 || isJSONNull(raw) {
 		return nil
 	}
 
 	var p conflictPolicy
-	if err := json.Unmarshal(raw, &p); err != nil {
+	if err := json.Unmarshal(raw, &p, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: conflictResolutionPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
@@ -304,7 +307,7 @@ func validateConflictPolicy(raw json.RawMessage) error {
 
 // conflictPolicyChanged reports whether a replace request names a policy different from the stored one; the policy
 // can only be set at container creation (Learn, "Manage conflicts between regions").
-func conflictPolicyChanged(stored, requested json.RawMessage) bool {
+func conflictPolicyChanged(stored, requested jsontext.Value) bool {
 	return len(requested) > 0 && !isJSONNull(requested) &&
 		parseConflictPolicy(stored) != parseConflictPolicy(requested)
 }

@@ -2,9 +2,10 @@ package secretsmanager
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -12,7 +13,7 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"TagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input TagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -26,7 +27,7 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 		},
 		"UntagResource": func(ctx context.Context, _ string, b []byte) (any, error) {
 			var input UntagResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

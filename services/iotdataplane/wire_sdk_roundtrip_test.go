@@ -1,7 +1,7 @@
 package iotdataplane_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -112,7 +113,7 @@ func TestShadowLifecycle_SDKRoundTrip(t *testing.T) {
 		Version   int64 `json:"version"`
 		Timestamp int64 `json:"timestamp"`
 	}
-	require.NoError(t, json.Unmarshal(deleted.Payload, &deleteBody))
+	require.NoError(t, json.Unmarshal(deleted.Payload, &deleteBody, jsonx.V1()))
 
 	_, err = client.GetThingShadow(t.Context(), &iotdataplanesdk.GetThingShadowInput{
 		ThingName: aws.String(thingName),

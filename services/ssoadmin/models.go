@@ -1,7 +1,7 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"regexp"
 	"time"
 )
@@ -348,12 +348,12 @@ type ScopeDetails struct {
 
 // AuthMethod holds a typed authentication method with its full structured body.
 type AuthMethod struct {
-	AuthMethodType string          `json:"AuthenticationMethodType"`
-	Body           json.RawMessage `json:"AuthenticationMethod"`
+	AuthMethodType string         `json:"AuthenticationMethodType"`
+	Body           jsontext.Value `json:"AuthenticationMethod"`
 }
 
 // ApplicationGrant holds a typed grant with its structured body.
 type ApplicationGrant struct {
-	GrantType string          `json:"GrantType"`
-	Grant     json.RawMessage `json:"Grant"`
+	GrantType string         `json:"GrantType"`
+	Grant     jsontext.Value `json:"Grant"`
 }

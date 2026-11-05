@@ -1,7 +1,7 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -49,7 +50,7 @@ func Test_StartTrigger_OnDemand_StaysCreatedAndFiresJobRun(t *testing.T) {
 			JobRunState string `json:"JobRunState"`
 		} `json:"JobRuns"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runsOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &runsOut, jsonx.V1()))
 	require.Len(t, runsOut.JobRuns, 1)
 	assert.NotEmpty(t, runsOut.JobRuns[0].JobRunState)
 }
@@ -158,7 +159,7 @@ func Test_Job_MaxCapacity(t *testing.T) {
 					MaxCapacity float64 `json:"MaxCapacity"`
 				} `json:"Job"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.InDelta(t, tc.body["MaxCapacity"], out.Job.MaxCapacity, 0.0001)
 		})
 	}
@@ -448,7 +449,7 @@ func TestJobLifecycle(t *testing.T) {
 
 			if tt.check != nil && rec.Code == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.check(t, out)
 			}
 		})
@@ -534,7 +535,7 @@ func TestBatchStopJobRun(t *testing.T) {
 			runRec := doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "j"})
 
 			var runOut map[string]any
-			require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+			require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 			runID := runOut["JobRunId"].(string)
 
 			doGlueRequest(t, h, "BatchStopJobRun", map[string]any{
@@ -547,7 +548,7 @@ func TestBatchStopJobRun(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			errs, _ := out["Errors"].([]any)
 			assert.Len(t, errs, tt.wantErrors)
 		})
@@ -606,7 +607,7 @@ func TestUpdateJobFromSourceControl_ValidatesJob(t *testing.T) {
 			} `json:"SourceControlDetails"`
 		} `json:"Job"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "GITHUB", out.Job.SourceControlDetails.Provider)
 	assert.Equal(t, "my-repo", out.Job.SourceControlDetails.Repository)
 	assert.Equal(t, "main", out.Job.SourceControlDetails.Branch)
@@ -699,7 +700,7 @@ func TestHandlerJobRuns_StartJobRun(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["JobRunId"])
 			}
 		})
@@ -749,7 +750,7 @@ func TestHandlerJobRuns_GetJobRun(t *testing.T) {
 				rec := doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "my-job"})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				runID = out["JobRunId"]
 			}
 
@@ -758,7 +759,7 @@ func TestHandlerJobRuns_GetJobRun(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotNil(t, out["JobRun"])
 			}
 		})
@@ -805,7 +806,7 @@ func TestHandlerJobRuns_GetJobRuns(t *testing.T) {
 
 			require.Equal(t, tt.wantCode, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			runs, ok := out["JobRuns"].([]any)
 			require.True(t, ok)
 			assert.Len(t, runs, tt.numRuns)
@@ -855,7 +856,7 @@ func TestHandlerJobRuns_BatchStopJobRun(t *testing.T) {
 			startRec := doGlueRequest(t, h, "StartJobRun", map[string]any{"JobName": "my-job"})
 			require.Equal(t, http.StatusOK, startRec.Code)
 			var startOut map[string]string
-			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 			realRunID := startOut["JobRunId"]
 
 			stopIDs := []string{realRunID}
@@ -867,7 +868,7 @@ func TestHandlerJobRuns_BatchStopJobRun(t *testing.T) {
 
 			require.Equal(t, tt.wantCode, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			errs, _ := out["Errors"].([]any)
 			assert.Len(t, errs, tt.wantErrors)
 		})
@@ -910,7 +911,7 @@ func TestHandlerJobRuns_GetJobBookmark(t *testing.T) {
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.NotNil(t, out["JobBookmarkEntry"])
 		})
 	}

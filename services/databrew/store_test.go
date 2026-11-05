@@ -3,7 +3,8 @@ package databrew_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
@@ -43,7 +45,7 @@ func databrewReq(t *testing.T, h *databrew.Handler, method, path string, body an
 
 	var buf bytes.Buffer
 	if body != nil {
-		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		require.NoError(t, json.MarshalEncode(jsontext.NewEncoder(&buf, jsonx.V1()), body))
 	}
 
 	req := httptest.NewRequest(method, path, &buf)
@@ -198,7 +200,7 @@ func TestHandlerDescribe_NoAccountIDLeak(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, hasAccountID := resp["AccountId"]
 			assert.False(t, hasAccountID, "Describe leaked AccountId; the real Describe*Output has no AccountId member")
 		})
@@ -224,7 +226,7 @@ func TestHandlerDescribeProject_NoSessionStatusFabrication(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasSessionStatus := resp["SessionStatus"]
 	assert.False(t, hasSessionStatus, "DescribeProject fabricated SessionStatus; types.Project has no such member")
 }

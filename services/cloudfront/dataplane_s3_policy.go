@@ -1,9 +1,12 @@
 package cloudfront
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -39,7 +42,7 @@ const (
 )
 
 type policyDoc struct {
-	Statement json.RawMessage `json:"Statement"`
+	Statement jsontext.Value `json:"Statement"`
 }
 
 type policyStatement struct {
@@ -52,17 +55,17 @@ type policyStatement struct {
 
 func parseStatements(policyJSON string) []policyStatement {
 	var doc policyDoc
-	if err := json.Unmarshal([]byte(policyJSON), &doc); err != nil {
+	if err := json.Unmarshal([]byte(policyJSON), &doc, jsonx.V1()); err != nil {
 		return nil
 	}
 
 	var many []policyStatement
-	if err := json.Unmarshal(doc.Statement, &many); err == nil {
+	if err := json.Unmarshal(doc.Statement, &many, jsonx.V1()); err == nil {
 		return many
 	}
 
 	var one policyStatement
-	if err := json.Unmarshal(doc.Statement, &one); err == nil {
+	if err := json.Unmarshal(doc.Statement, &one, jsonx.V1()); err == nil {
 		return []policyStatement{one}
 	}
 

@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -128,7 +130,7 @@ func (g *ModelPackageGroup) MarshalJSON() ([]byte, error) {
 	}{
 		alias:        (*alias)(g),
 		CreationTime: epochSeconds(g.CreationTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ModelPackageGroup.MarshalJSON], read by
@@ -141,7 +143,7 @@ func (g *ModelPackageGroup) UnmarshalJSON(data []byte) error {
 		CreationTime float64 `json:"CreationTime"`
 	}{alias: (*alias)(g)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -405,16 +407,16 @@ type CreateModelPackageOptions struct {
 	ApprovalStatus                    string
 	Tags                              map[string]string
 	CustomerMetadataProperties        map[string]string
-	InferenceSpecification            json.RawMessage
-	SourceAlgorithmSpecification      json.RawMessage
-	ValidationSpecification           json.RawMessage
-	DriftCheckBaselines               json.RawMessage
-	ModelMetrics                      json.RawMessage
-	ModelCard                         json.RawMessage
-	ModelLifeCycle                    json.RawMessage
-	MetadataProperties                json.RawMessage
-	SecurityConfig                    json.RawMessage
-	AdditionalInferenceSpecifications json.RawMessage
+	InferenceSpecification            jsontext.Value
+	SourceAlgorithmSpecification      jsontext.Value
+	ValidationSpecification           jsontext.Value
+	DriftCheckBaselines               jsontext.Value
+	ModelMetrics                      jsontext.Value
+	ModelCard                         jsontext.Value
+	ModelLifeCycle                    jsontext.Value
+	MetadataProperties                jsontext.Value
+	SecurityConfig                    jsontext.Value
+	AdditionalInferenceSpecifications jsontext.Value
 	CertifyForMarketplace             bool
 }
 
@@ -698,10 +700,10 @@ type UpdateModelPackageOptions struct {
 	SourceURI                              string
 	CustomerMetadataProperties             map[string]string
 	CustomerMetadataPropertiesToRemove     []string
-	InferenceSpecification                 json.RawMessage
-	ModelCard                              json.RawMessage
-	ModelLifeCycle                         json.RawMessage
-	AdditionalInferenceSpecificationsToAdd json.RawMessage
+	InferenceSpecification                 jsontext.Value
+	ModelCard                              jsontext.Value
+	ModelLifeCycle                         jsontext.Value
+	AdditionalInferenceSpecificationsToAdd jsontext.Value
 }
 
 // UpdateModelPackage updates a model package identified by its ARN (the sole
@@ -776,22 +778,22 @@ func (b *InMemoryBackend) UpdateModelPackage(
 // the existing array". Both are opaque json.RawMessage passthrough (see
 // ModelPackage's own doc comment), so this manipulates them as raw JSON
 // arrays rather than unmarshaling into a typed element.
-func appendInferenceSpecifications(existing, toAdd json.RawMessage) json.RawMessage {
-	var newItems []json.RawMessage
-	if err := json.Unmarshal(toAdd, &newItems); err != nil {
+func appendInferenceSpecifications(existing, toAdd jsontext.Value) jsontext.Value {
+	var newItems []jsontext.Value
+	if err := json.Unmarshal(toAdd, &newItems, jsonx.V1()); err != nil {
 		return existing
 	}
 
-	existingItems := make([]json.RawMessage, 0, len(newItems))
+	existingItems := make([]jsontext.Value, 0, len(newItems))
 	if len(existing) > 0 {
-		if err := json.Unmarshal(existing, &existingItems); err != nil {
+		if err := json.Unmarshal(existing, &existingItems, jsonx.V1()); err != nil {
 			return existing
 		}
 	}
 
 	existingItems = append(existingItems, newItems...)
 
-	out, err := json.Marshal(existingItems)
+	out, err := json.Marshal(existingItems, jsonx.V1())
 	if err != nil {
 		return existing
 	}

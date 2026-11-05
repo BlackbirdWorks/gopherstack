@@ -1,12 +1,13 @@
 package organizations_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
 
@@ -245,7 +246,7 @@ func TestPersistence_EnsureNonNilMaps(t *testing.T) {
 
 			// After EnsureNonNilMaps all maps in the snapshot should be non-nil.
 			// We can verify via round-trip: marshal+unmarshal should not panic.
-			data, err := json.Marshal(snap)
+			data, err := json.Marshal(snap, jsonx.V1())
 			require.NoError(t, err)
 			assert.NotNil(t, data, tt.name)
 		})

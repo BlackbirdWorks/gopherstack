@@ -2,7 +2,7 @@ package support
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -152,7 +153,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req extractSupportResourceInput
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if req.CaseID != "" {
 		return req.CaseID
@@ -231,7 +232,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // handleError writes an AWS JSON-1.1 error envelope: the "__type" field is
@@ -256,7 +257,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	payload, marshalErr := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
 		Message: errorMessage(errType, err),
-	})
+	}, jsonx.V1())
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
@@ -269,9 +270,6 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 // resolveErrorType maps a backend error to the wire "__type" exception name
 // and HTTP status a real AWS Support (awsjson1.1) response would carry.
 func resolveErrorType(err error) (string, int) {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return "CaseIdNotFound", http.StatusBadRequest
@@ -294,7 +292,7 @@ func resolveErrorType(err error) (string, int) {
 	case errors.Is(err, ErrDescribeAttachmentLimitExceeded):
 		return "DescribeAttachmentLimitExceeded", http.StatusBadRequest
 	case errors.Is(err, ErrValidation), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		return "ValidationException", http.StatusBadRequest
 	default:
 		return "InternalServerError", http.StatusInternalServerError

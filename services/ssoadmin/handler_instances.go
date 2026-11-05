@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type instanceView struct {
@@ -34,7 +36,7 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 	}
 	// Body is optional for ListInstances; ignore unmarshal errors on empty/garbage.
 	if len(body) > 0 {
-		_ = json.Unmarshal(body, &req)
+		_ = json.Unmarshal(body, &req, jsonx.V1())
 	}
 
 	instances := h.Backend.ListInstances()
@@ -78,7 +80,7 @@ func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 		ClientToken     string    `json:"ClientToken"`
 		Tags            []tagView `json:"Tags"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -105,7 +107,7 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -162,7 +164,7 @@ func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {
@@ -186,7 +188,7 @@ func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
 		InstanceArn string `json:"InstanceArn"`
 		Name        string `json:"Name"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.InstanceArn == "" {

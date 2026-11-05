@@ -1,12 +1,14 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -90,7 +92,7 @@ func TestRenderJSON_Deterministic(t *testing.T) {
 	assert.Equal(t, first, second)
 
 	var roundTrip map[string][]string
-	require.NoError(t, json.Unmarshal(first, &roundTrip))
+	require.NoError(t, json.Unmarshal(first, &roundTrip, jsonx.V1()))
 	assert.Equal(t, table, roundTrip)
 }
 

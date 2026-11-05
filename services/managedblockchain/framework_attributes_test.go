@@ -1,12 +1,14 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_CreateNetwork_FrameworkConfiguration verifies CreateNetwork's
@@ -73,7 +75,7 @@ func TestHandler_CreateNetwork_FrameworkConfiguration(t *testing.T) {
 			var createResp struct {
 				NetworkID string `json:"NetworkId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			rec = doRequest(t, h, http.MethodGet, "/networks/"+createResp.NetworkID, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -89,7 +91,7 @@ func TestHandler_CreateNetwork_FrameworkConfiguration(t *testing.T) {
 					VpcEndpointServiceName string `json:"VpcEndpointServiceName"`
 				} `json:"Network"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			assert.NotEmpty(t, getResp.Network.VpcEndpointServiceName,
 				"VpcEndpointServiceName must be populated regardless of FrameworkConfiguration")
@@ -294,7 +296,7 @@ func TestHandler_CreateMember_FrameworkAttributesRoundTrip(t *testing.T) {
 			var createResp struct {
 				MemberID string `json:"MemberId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			rec = doRequest(t, h, http.MethodGet, "/networks/"+networkID+"/members/"+createResp.MemberID, nil)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -310,7 +312,7 @@ func TestHandler_CreateMember_FrameworkAttributesRoundTrip(t *testing.T) {
 					} `json:"FrameworkAttributes"`
 				} `json:"Member"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			assert.Equal(t, "admin", getResp.Member.FrameworkAttributes.Fabric.AdminUsername)
 			assert.NotEmpty(t, getResp.Member.FrameworkAttributes.Fabric.CaEndpoint)
@@ -364,7 +366,7 @@ func TestHandler_CreateNode_FrameworkAttributesRoundTrip(t *testing.T) {
 			var createResp struct {
 				NodeID string `json:"NodeId"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			rec = doRequest(t, h, http.MethodGet,
 				"/networks/"+networkID+"/nodes/"+createResp.NodeID+"?memberId="+memberID, nil)
@@ -382,7 +384,7 @@ func TestHandler_CreateNode_FrameworkAttributesRoundTrip(t *testing.T) {
 					} `json:"FrameworkAttributes"`
 				} `json:"Node"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 
 			assert.Equal(t, tt.wantStateDB, getResp.Node.StateDB)
 			assert.Equal(t, "AWS Owned KMS Key", getResp.Node.KmsKeyArn,

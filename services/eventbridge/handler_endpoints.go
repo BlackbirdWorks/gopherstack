@@ -2,7 +2,9 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // createEndpointOutput matches real CreateEndpointOutput
@@ -76,7 +78,7 @@ func (h *Handler) endpointActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input CreateEndpointInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			ep, err := h.Backend.CreateEndpoint(ctx, input)
@@ -104,7 +106,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -114,7 +116,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 			var input struct {
 				Name string `json:"Name"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			ep, err := h.Backend.DescribeEndpoint(ctx, input.Name)
@@ -130,7 +132,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 				NextToken  string `json:"NextToken"`
 				MaxResults int    `json:"MaxResults"`
 			}
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			eps, next, err := h.Backend.ListEndpoints(ctx, input.NamePrefix, input.NextToken, input.MaxResults)
@@ -150,7 +152,7 @@ func (h *Handler) extendedEndpointActions() map[string]actionFn {
 		},
 		"UpdateEndpoint": func(ctx context.Context, b []byte) (any, error) {
 			var input UpdateEndpointInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 			ep, err := h.Backend.UpdateEndpoint(ctx, input)

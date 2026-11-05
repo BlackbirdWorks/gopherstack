@@ -1,10 +1,12 @@
 package eks
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -148,7 +150,7 @@ func (a activationExpiry) Time() time.Time { return time.Time(a) }
 func (a activationExpiry) IsZero() bool { return time.Time(a).IsZero() }
 
 func (a activationExpiry) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Time(a))
+	return json.Marshal(time.Time(a), jsonx.V1())
 }
 
 func (a *activationExpiry) UnmarshalJSON(data []byte) error {
@@ -157,14 +159,14 @@ func (a *activationExpiry) UnmarshalJSON(data []byte) error {
 	}
 
 	var t time.Time
-	if err := json.Unmarshal(data, &t); err == nil {
+	if err := json.Unmarshal(data, &t, jsonx.V1()); err == nil {
 		*a = activationExpiry(t)
 
 		return nil
 	}
 
 	var epochSeconds float64
-	if err := json.Unmarshal(data, &epochSeconds); err != nil {
+	if err := json.Unmarshal(data, &epochSeconds, jsonx.V1()); err != nil {
 		return fmt.Errorf("activationExpiry: unsupported JSON value %s: %w", data, err)
 	}
 
@@ -201,23 +203,23 @@ type Cluster struct {
 	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
 	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
 	// ConfigBlocks holds the opaque create/update config members keyed by wire name.
-	ConfigBlocks             map[string]json.RawMessage `json:"configBlocks,omitempty"`
-	ARN                      string                     `json:"arn"`
-	Name                     string                     `json:"name"`
-	Endpoint                 string                     `json:"endpoint,omitempty"`
-	OIDCIssuer               string                     `json:"oidcIssuer,omitempty"`
-	Version                  string                     `json:"version"`
-	Status                   string                     `json:"status"`
-	RoleARN                  string                     `json:"roleArn,omitempty"`
-	AccountID                string                     `json:"accountId"`
-	Region                   string                     `json:"region"`
-	PlatformVersion          string                     `json:"platformVersion,omitempty"`
-	CreatorARN               string                     `json:"creatorArn,omitempty"`
-	CertificateAuthority     string                     `json:"certificateAuthority,omitempty"`
-	UpgradePolicySupportType string                     `json:"upgradePolicySupportType,omitempty"`
-	ClusterLogging           []ClusterLogEntry          `json:"clusterLogging,omitempty"`
-	EncryptionConfig         []EncryptionConfig         `json:"encryptionConfig,omitempty"`
-	DeletionProtection       bool                       `json:"deletionProtection,omitempty"`
+	ConfigBlocks             map[string]jsontext.Value `json:"configBlocks,omitempty"`
+	ARN                      string                    `json:"arn"`
+	Name                     string                    `json:"name"`
+	Endpoint                 string                    `json:"endpoint,omitempty"`
+	OIDCIssuer               string                    `json:"oidcIssuer,omitempty"`
+	Version                  string                    `json:"version"`
+	Status                   string                    `json:"status"`
+	RoleARN                  string                    `json:"roleArn,omitempty"`
+	AccountID                string                    `json:"accountId"`
+	Region                   string                    `json:"region"`
+	PlatformVersion          string                    `json:"platformVersion,omitempty"`
+	CreatorARN               string                    `json:"creatorArn,omitempty"`
+	CertificateAuthority     string                    `json:"certificateAuthority,omitempty"`
+	UpgradePolicySupportType string                    `json:"upgradePolicySupportType,omitempty"`
+	ClusterLogging           []ClusterLogEntry         `json:"clusterLogging,omitempty"`
+	EncryptionConfig         []EncryptionConfig        `json:"encryptionConfig,omitempty"`
+	DeletionProtection       bool                      `json:"deletionProtection,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.

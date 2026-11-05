@@ -2,8 +2,10 @@ package opsworks
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleCreateStack handles CreateStack requests.
@@ -36,7 +38,7 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 		Name                      string              `json:"Name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -114,7 +116,7 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 		CloneAppIDs               []string            `json:"CloneAppIds"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -164,7 +166,7 @@ func (h *Handler) handleDescribeStacks(_ context.Context, body []byte) (any, err
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -206,7 +208,7 @@ func (h *Handler) handleUpdateStack(_ context.Context, body []byte) (any, error)
 		StackID                   string              `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -252,7 +254,7 @@ func (h *Handler) handleDeleteStack(_ context.Context, body []byte) (any, error)
 		StackID string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -269,7 +271,7 @@ func (h *Handler) handleStartStack(_ context.Context, body []byte) (any, error) 
 		StackID string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -286,7 +288,7 @@ func (h *Handler) handleStopStack(_ context.Context, body []byte) (any, error) {
 		StackID string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -303,7 +305,7 @@ func (h *Handler) handleGetHostnameSuggestion(_ context.Context, body []byte) (a
 		LayerID string `json:"LayerId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -321,7 +323,7 @@ func (h *Handler) handleDescribeStackSummary(_ context.Context, body []byte) (an
 		StackID string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -339,7 +341,7 @@ func (h *Handler) handleDescribeStackProvisioningParameters(_ context.Context, b
 		StackID string `json:"StackId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

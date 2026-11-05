@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocilogging"
 )
 
@@ -49,7 +50,7 @@ func newLoggingDashboard(t *testing.T) (*dashboard.DashboardHandler, string, str
 	}
 
 	require.NoError(t, json.Unmarshal(logSeed(t, e, http.MethodGet,
-		"/20200531/logGroups?compartmentId="+logComp, ""), &groups))
+		"/20200531/logGroups?compartmentId="+logComp, ""), &groups, jsonx.V1()))
 	require.Len(t, groups, 1)
 
 	logSeed(t, e, http.MethodPost, "/20200531/logGroups/"+groups[0].ID+"/logs",
@@ -60,7 +61,7 @@ func newLoggingDashboard(t *testing.T) (*dashboard.DashboardHandler, string, str
 	}
 
 	require.NoError(t, json.Unmarshal(logSeed(t, e, http.MethodGet,
-		"/20200531/logGroups/"+groups[0].ID+"/logs", ""), &logs))
+		"/20200531/logGroups/"+groups[0].ID+"/logs", ""), &logs, jsonx.V1()))
 	require.Len(t, logs, 1)
 
 	return dashboard.NewHandler(dashboard.Config{OCILoggingOps: ops}), groups[0].ID, logs[0].ID

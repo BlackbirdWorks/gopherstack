@@ -2,7 +2,7 @@ package support
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -382,7 +384,7 @@ func pageOffset(token string) (int, error) {
 	}
 
 	var t pageTokenJSON
-	if unmarshalErr := json.Unmarshal(decoded, &t); unmarshalErr != nil || t.Offset < 0 {
+	if unmarshalErr := json.Unmarshal(decoded, &t, jsonx.V1()); unmarshalErr != nil || t.Offset < 0 {
 		return 0, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
@@ -390,7 +392,7 @@ func pageOffset(token string) (int, error) {
 }
 
 func encodePageToken(offset int) string {
-	data, _ := json.Marshal(pageTokenJSON{Offset: offset})
+	data, _ := json.Marshal(pageTokenJSON{Offset: offset}, jsonx.V1())
 
 	return base64.RawURLEncoding.EncodeToString(data)
 }

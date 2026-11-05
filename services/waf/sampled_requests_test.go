@@ -1,12 +1,14 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestWAF_GetSampledRequests_EmptyStub(t *testing.T) {
@@ -31,7 +33,7 @@ func TestWAF_GetSampledRequests_EmptyStub(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	samples := resp["SampledRequests"].([]any)
 	assert.Empty(t, samples)
 	assert.EqualValues(t, 0, resp["PopulationSize"])
@@ -105,7 +107,7 @@ func TestGetSampledRequests_ReturnsTimeWindow(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			tw, ok := resp["TimeWindow"].(map[string]any)
 			require.True(t, ok, "TimeWindow must be present in response")

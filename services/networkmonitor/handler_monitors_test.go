@@ -1,13 +1,16 @@
 package networkmonitor_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerCreateMonitor(t *testing.T) {
@@ -185,7 +188,7 @@ func TestHandlerListMonitors(t *testing.T) {
 	}
 
 	var resp map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
@@ -271,9 +274,9 @@ func TestHandlerGetMonitorProbeTimestampsEpochFloat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		Probes []map[string]json.RawMessage `json:"probes"`
+		Probes []map[string]jsontext.Value `json:"probes"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Probes, 1, "expected one probe in GetMonitor response")
 
 	createdAtRaw, hasCreatedAt := out.Probes[0]["createdAt"]
@@ -281,7 +284,7 @@ func TestHandlerGetMonitorProbeTimestampsEpochFloat(t *testing.T) {
 
 	if hasCreatedAt {
 		var asFloat float64
-		require.NoError(t, json.Unmarshal(createdAtRaw, &asFloat),
+		require.NoError(t, json.Unmarshal(createdAtRaw, &asFloat, jsonx.V1()),
 			"probe createdAt in GetMonitor must be JSON number, got: %s", string(createdAtRaw))
 		assert.Greater(t, asFloat, float64(0))
 	}
@@ -310,15 +313,15 @@ func TestHandlerGetMonitorTimestampsEpochFloat(t *testing.T) {
 			rec := doNMRequest(t, h, http.MethodGet, "/monitors/epoch-mon", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			fieldRaw, ok := raw[tt.field]
 			assert.True(t, ok, "%s must be present", tt.field)
 
 			if ok {
 				var asFloat float64
-				require.NoError(t, json.Unmarshal(fieldRaw, &asFloat),
+				require.NoError(t, json.Unmarshal(fieldRaw, &asFloat, jsonx.V1()),
 					"%s must be JSON number, got: %s", tt.field, string(fieldRaw))
 				assert.Greater(t, asFloat, float64(0))
 			}
@@ -382,7 +385,7 @@ func TestHandlerListMonitorsPagination(t *testing.T) {
 					NextToken string `json:"nextToken"`
 					Monitors  []any  `json:"monitors"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				pageCounts = append(pageCounts, len(out.Monitors))
 				token = out.NextToken
@@ -412,7 +415,7 @@ func TestHandlerListMonitorsTokenPastEnd(t *testing.T) {
 		NextToken string `json:"nextToken"`
 		Monitors  []any  `json:"monitors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	assert.Empty(t, out.Monitors, "token past last item must return empty list, not first page")
 	assert.Empty(t, out.NextToken)

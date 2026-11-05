@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -20,7 +21,7 @@ func servicediscoveryRequest(t *testing.T, op string, body any) *http.Response {
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -71,7 +72,7 @@ func TestIntegration_ServiceDiscovery_NamespaceLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	opID, ok := createResult["OperationId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, opID)
@@ -82,7 +83,7 @@ func TestIntegration_ServiceDiscovery_NamespaceLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, opResp.StatusCode, "body: %s", opBody)
 
 	var opResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult))
+	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult, jsonx.V1()))
 	operation := opResult["Operation"].(map[string]any)
 	targets := operation["Targets"].(map[string]any)
 	nsID, ok := targets["NAMESPACE"].(string)
@@ -114,7 +115,7 @@ func TestIntegration_ServiceDiscovery_ServiceLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	svcData := createResult["Service"].(map[string]any)
 	svcID, ok := svcData["Id"].(string)
 	require.True(t, ok)
@@ -162,14 +163,14 @@ func TestIntegration_ServiceDiscovery_UpdateHttpNamespace(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	opID := createResult["OperationId"].(string)
 
 	// Get the operation to find the namespace ID.
 	opResp := servicediscoveryRequest(t, "GetOperation", map[string]any{"OperationId": opID})
 	opBody := servicediscoveryReadBody(t, opResp)
 	var opResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult))
+	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult, jsonx.V1()))
 	nsID := opResult["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	// Update the namespace.
@@ -193,13 +194,13 @@ func TestIntegration_ServiceDiscovery_UpdatePrivateDnsNamespace(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	opID := createResult["OperationId"].(string)
 
 	opResp := servicediscoveryRequest(t, "GetOperation", map[string]any{"OperationId": opID})
 	opBody := servicediscoveryReadBody(t, opResp)
 	var opResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult))
+	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult, jsonx.V1()))
 	nsID := opResult["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	updateResp := servicediscoveryRequest(t, "UpdatePrivateDnsNamespace", map[string]any{
@@ -222,13 +223,13 @@ func TestIntegration_ServiceDiscovery_UpdatePublicDnsNamespace(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	opID := createResult["OperationId"].(string)
 
 	opResp := servicediscoveryRequest(t, "GetOperation", map[string]any{"OperationId": opID})
 	opBody := servicediscoveryReadBody(t, opResp)
 	var opResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult))
+	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult, jsonx.V1()))
 	nsID := opResult["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	updateResp := servicediscoveryRequest(t, "UpdatePublicDnsNamespace", map[string]any{
@@ -251,7 +252,7 @@ func TestIntegration_ServiceDiscovery_UpdateService(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	svcID := createResult["Service"].(map[string]any)["Id"].(string)
 
 	updateResp := servicediscoveryRequest(t, "UpdateService", map[string]any{
@@ -281,7 +282,7 @@ func TestIntegration_ServiceDiscovery_ServiceAttributesLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	svcID := createResult["Service"].(map[string]any)["Id"].(string)
 
 	// UpdateServiceAttributes.
@@ -332,7 +333,7 @@ func TestIntegration_ServiceDiscovery_UpdateInstanceCustomHealthStatus(t *testin
 	require.Equal(t, http.StatusOK, createResp.StatusCode, "body: %s", createBody)
 
 	var createResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult))
+	require.NoError(t, json.Unmarshal([]byte(createBody), &createResult, jsonx.V1()))
 	svcID := createResult["Service"].(map[string]any)["Id"].(string)
 
 	regResp := servicediscoveryRequest(t, "RegisterInstance", map[string]any{
@@ -374,13 +375,13 @@ func TestIntegration_ServiceDiscovery_DiscoverInstancesRevision(t *testing.T) {
 	require.Equal(t, http.StatusOK, createNsResp.StatusCode, "body: %s", createNsBody)
 
 	var createNsResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(createNsBody), &createNsResult))
+	require.NoError(t, json.Unmarshal([]byte(createNsBody), &createNsResult, jsonx.V1()))
 	opID := createNsResult["OperationId"].(string)
 
 	opResp := servicediscoveryRequest(t, "GetOperation", map[string]any{"OperationId": opID})
 	opBody := servicediscoveryReadBody(t, opResp)
 	var opResult map[string]any
-	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult))
+	require.NoError(t, json.Unmarshal([]byte(opBody), &opResult, jsonx.V1()))
 	nsID := opResult["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	createSvcResp := servicediscoveryRequest(t, "CreateService", map[string]any{

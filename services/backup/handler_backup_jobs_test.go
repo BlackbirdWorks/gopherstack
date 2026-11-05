@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -51,14 +52,14 @@ func TestDescribeBackupJobProgressFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, startResp.Code)
 
 	var startData map[string]any
-	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData))
+	require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData, jsonx.V1()))
 	jobID := startData["BackupJobId"].(string)
 
 	descResp := doRequest(t, h, http.MethodGet, "/backup-jobs/"+jobID, "")
 	require.Equal(t, http.StatusOK, descResp.Code)
 
 	var descData map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descData))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descData, jsonx.V1()))
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

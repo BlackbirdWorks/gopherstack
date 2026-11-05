@@ -42,6 +42,7 @@ func TestRedshiftDashboard(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/redshift")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
@@ -76,6 +77,7 @@ func TestRedshiftDashboard_Empty(t *testing.T) {
 
 	_, err = page.Goto(server.URL + "/dashboard/redshift")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),

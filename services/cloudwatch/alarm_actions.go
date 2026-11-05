@@ -2,12 +2,13 @@ package cloudwatch
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
 
 	arnpkg "github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -53,7 +54,7 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 		"StateChangeTime":   time.Now().UTC().Format(time.RFC3339),
 	}
 	// map[string]string marshaling cannot fail; error is intentionally ignored.
-	bs, _ := json.Marshal(data)
+	bs, _ := json.Marshal(data, jsonx.V1())
 
 	return bs
 }

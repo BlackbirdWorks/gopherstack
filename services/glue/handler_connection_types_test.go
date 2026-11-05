@@ -1,12 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDeleteConnectionType verifies real state mutation: built-in types are
@@ -75,7 +77,7 @@ func TestDeleteConnectionType_CustomRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, regRec.Code)
 
 	var regOut map[string]any
-	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regOut))
+	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regOut, jsonx.V1()))
 	assert.NotEmpty(t, regOut["ConnectionTypeArn"], "RegisterConnectionType must return ConnectionTypeArn")
 
 	delRec := doGlueRequest(t, h, "DeleteConnectionType", map[string]any{"ConnectionType": "MyCustomConn"})

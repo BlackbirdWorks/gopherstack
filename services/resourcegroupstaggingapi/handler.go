@@ -2,7 +2,7 @@ package resourcegroupstaggingapi
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -140,13 +141,10 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	code := http.StatusInternalServerError
 	errType := "InternalFailure"
 
@@ -166,7 +164,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrPaginationTokenExpired):
 		code = http.StatusBadRequest
 		errType = "PaginationTokenExpiredException"
-	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case jsonx.IsSyntaxError(err), jsonx.IsTypeError(err):
 		// Malformed request bodies are a protocol-level failure, not a modeled
 		// operation error; the AWS JSON 1.1 protocol reports these as
 		// SerializationException (matches services/organizations' convention for
@@ -178,7 +176,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	payload, _ := json.Marshal(service.JSONErrorResponse{
 		Type:    errType,
 		Message: err.Error(),
-	})
+	}, jsonx.V1())
 
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
 

@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -34,7 +35,7 @@ func TestECS_DescribeServiceRevisions(t *testing.T) {
 	require.Equal(t, http.StatusOK, svcRec.Code)
 
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 
 	svc := svcResp["service"].(map[string]any)
 	deployments := svc["deployments"].([]any)
@@ -93,7 +94,7 @@ func TestECS_DescribeServiceRevisions(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			revs, _ := resp["serviceRevisions"].([]any)
 			failures, _ := resp["failures"].([]any)
@@ -158,7 +159,7 @@ func TestECS_DescribeServiceRevisions_TracksUpdate(t *testing.T) {
 	})
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	revs, _ := resp["serviceRevisions"].([]any)
 	assert.Len(t, revs, 2, "both the original and rotated revision remain describable")
 }
@@ -177,7 +178,7 @@ func TestECS_DiscoverPollEndpoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp["endpoint"], testRegion)
 	assert.Contains(t, resp["serviceConnectEndpoint"], testRegion)
@@ -202,7 +203,7 @@ func TestECS_SubmitTaskStateChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, runRec.Code)
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp, jsonx.V1()))
 	tasks := runResp["tasks"].([]any)
 	require.Len(t, tasks, 1)
 	task := tasks[0].(map[string]any)
@@ -220,7 +221,7 @@ func TestECS_SubmitTaskStateChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ACK", resp["acknowledgment"])
 
 	descRec := doECSRequest(t, h, "DescribeTasks", map[string]any{
@@ -230,7 +231,7 @@ func TestECS_SubmitTaskStateChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	descTasks := descResp["tasks"].([]any)
 	require.Len(t, descTasks, 1)
 
@@ -259,7 +260,7 @@ func TestECS_SubmitTaskStateChange_UnknownTaskIsNoop(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ACK", resp["acknowledgment"])
 }
 
@@ -278,7 +279,7 @@ func TestECS_SubmitContainerStateChange(t *testing.T) {
 	})
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp, jsonx.V1()))
 	taskArn := runResp["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 
 	rec := doECSRequest(t, h, "SubmitContainerStateChange", map[string]any{
@@ -299,7 +300,7 @@ func TestECS_SubmitContainerStateChange(t *testing.T) {
 	})
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	updated := descResp["tasks"].([]any)[0].(map[string]any)
 	container := updated["containers"].([]any)[0].(map[string]any)
 
@@ -326,7 +327,7 @@ func TestECS_SubmitAttachmentStateChanges(t *testing.T) {
 	})
 
 	var runResp map[string]any
-	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp))
+	require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runResp, jsonx.V1()))
 	task := runResp["tasks"].([]any)[0].(map[string]any)
 	taskArn := task["taskArn"].(string)
 	attachments, _ := task["attachments"].([]any)
@@ -347,7 +348,7 @@ func TestECS_SubmitAttachmentStateChanges(t *testing.T) {
 	})
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp, jsonx.V1()))
 	updated := descResp["tasks"].([]any)[0].(map[string]any)
 	updatedAttachments := updated["attachments"].([]any)
 	require.NotEmpty(t, updatedAttachments)
@@ -392,7 +393,7 @@ func TestHandler_DiscoverPollEndpoint(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantEndpointPfx, out["endpoint"])
 			if tt.wantTelemetry {
 				assert.NotEmpty(t, out["telemetryEndpoint"])
@@ -477,7 +478,7 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 				require.Equal(t, http.StatusOK, runRec.Code)
 
 				var runOut map[string]any
-				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 				tasks := runOut["tasks"].([]any)
 				require.NotEmpty(t, tasks)
 				taskArn = tasks[0].(map[string]any)["taskArn"].(string)
@@ -488,7 +489,7 @@ func TestHandler_SubmitTaskStateChange(t *testing.T) {
 
 			if tt.wantACK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "ACK", out["acknowledgment"])
 			}
 		})
@@ -574,7 +575,7 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, runRec.Code)
 				var runOut map[string]any
-				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut))
+				require.NoError(t, json.Unmarshal(runRec.Body.Bytes(), &runOut, jsonx.V1()))
 				taskArn = runOut["tasks"].([]any)[0].(map[string]any)["taskArn"].(string)
 			}
 
@@ -588,7 +589,7 @@ func TestHandler_SubmitContainerStateChange(t *testing.T) {
 
 			if tt.wantACK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "ACK", out["acknowledgment"])
 			}
 		})
@@ -664,7 +665,7 @@ func TestHandler_SubmitAttachmentStateChanges(t *testing.T) {
 
 			if tt.wantACK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "ACK", out["acknowledgment"])
 			}
 		})
@@ -695,7 +696,7 @@ func TestHandler_DescribeServiceRevisions(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				svc := out["service"].(map[string]any)
 
 				return svc["serviceArn"].(string)
@@ -749,7 +750,7 @@ func TestHandler_DescribeServiceRevisions(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			revs, _ := out["serviceRevisions"].([]any)
 			assert.Len(t, revs, tt.wantRevCount)
@@ -798,7 +799,7 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	revs := out2["serviceRevisions"].([]any)
 	require.Len(t, revs, 1, "expected one revision after CreateService")
 	rev := revs[0].(map[string]any)
@@ -828,7 +829,7 @@ func TestHandler_DescribeServiceRevisions_CreateAndUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var out3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &out3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &out3, jsonx.V1()))
 	revs3 := out3["serviceRevisions"].([]any)
 	assert.Len(t, revs3, 1, "expected one revision after UpdateService")
 }

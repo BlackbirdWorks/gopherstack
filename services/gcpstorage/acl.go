@@ -1,11 +1,13 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ACLEntry is one access-control entry; the derived fields (email, domain, projectTeam) are rendered from Entity.
@@ -239,7 +241,7 @@ func (b *Bucket) ubla() bool {
 	}
 
 	raw, ok := b.Config["iamConfiguration"]
-	if !ok || json.Unmarshal(raw, &cfg) != nil {
+	if !ok || json.Unmarshal(raw, &cfg, jsonx.V1()) != nil {
 		return false
 	}
 

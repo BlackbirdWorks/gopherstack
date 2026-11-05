@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 )
 
@@ -148,7 +149,7 @@ func TestAzureMonitorProxy(t *testing.T) {
 				} `json:"innererror"`
 			} `json:"error"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 		assert.Equal(t, "BadArgumentError", body.Error.Code)
 		assert.Equal(t, "SemanticError", body.Error.Innererror.Code)
 		assert.NotEmpty(t, body.Error.Innererror.Innererror.Message)

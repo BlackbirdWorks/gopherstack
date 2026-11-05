@@ -6,7 +6,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -174,7 +176,7 @@ func (c Client) PushImage(repo, tag string) Image {
 	cfg, err := json.Marshal(map[string]any{
 		"architecture": "amd64", "os": "linux",
 		"rootfs": map[string]any{"type": "layers", "diff_ids": []string{layerDigest}},
-	})
+	}, jsonx.V1())
 	require.NoError(c.T, err)
 
 	cfgDigest := c.PushBlob(repo, cfg, configChunks)
@@ -188,7 +190,7 @@ func (c Client) PushImage(repo, tag string) Image {
 			keyMediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip", "size": len(layer),
 			"digest": layerDigest,
 		}},
-	})
+	}, jsonx.V1())
 	require.NoError(c.T, err)
 
 	put := c.Do(
@@ -215,11 +217,11 @@ func (c Client) Names(path, field string, n int) []string {
 		resp := c.Do(http.MethodGet, next, nil, nil)
 		require.Equal(c.T, http.StatusOK, resp.Status, string(resp.Body))
 
-		var doc map[string]json.RawMessage
-		require.NoError(c.T, json.Unmarshal(resp.Body, &doc))
+		var doc map[string]jsontext.Value
+		require.NoError(c.T, json.Unmarshal(resp.Body, &doc, jsonx.V1()))
 
 		var page []string
-		require.NoError(c.T, json.Unmarshal(doc[field], &page))
+		require.NoError(c.T, json.Unmarshal(doc[field], &page, jsonx.V1()))
 
 		all = append(all, page...)
 

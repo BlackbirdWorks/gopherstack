@@ -1,7 +1,7 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -278,7 +279,7 @@ func TestGetVocabulary_DownloadUri(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotEmpty(t, raw["DownloadUri"], "DownloadUri must be present in GetVocabulary response")
 }
 
@@ -301,7 +302,7 @@ func TestGetVocabulary_LastModifiedTime(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.NotNil(t, raw["LastModifiedTime"], "LastModifiedTime must be present in GetVocabulary response")
 }
 
@@ -464,7 +465,7 @@ func TestCreateVocabulary_LastModifiedTimeAndFailureReasonEchoed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasLastModified := raw["LastModifiedTime"]
 	assert.True(t, hasLastModified, "CreateVocabularyOutput must include LastModifiedTime")
@@ -488,6 +489,6 @@ func TestListVocabularies_EchoesStatusFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.Equal(t, "READY", raw["Status"])
 }

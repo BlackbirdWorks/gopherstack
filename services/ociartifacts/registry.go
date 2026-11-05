@@ -5,11 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
 )
 
@@ -28,7 +29,7 @@ type regErrorEntry struct {
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		status, raw = http.StatusInternalServerError, []byte(`{"errors":[{"code":"UNKNOWN","message":"encode"}]}`)
 	}

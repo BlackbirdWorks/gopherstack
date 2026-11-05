@@ -1,7 +1,7 @@
 package sns_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -742,7 +743,7 @@ func TestBatchMessageStructureJSON(t *testing.T) {
 	case raw := <-received:
 		// The delivered body should be the http-protocol-specific value.
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "http-specific", env.Message)
 		} else {
 			assert.Equal(t, "http-specific", raw)
@@ -784,7 +785,7 @@ func TestBatchMessageStructureDefault(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "plain-text", env.Message)
 		} else {
 			assert.Equal(t, "plain-text", raw)
@@ -988,7 +989,7 @@ func TestMessageStructureJSONSinglePublish(t *testing.T) {
 	select {
 	case raw := <-received:
 		var env snsNotificationEnvelope
-		if json.Unmarshal([]byte(raw), &env) == nil {
+		if json.Unmarshal([]byte(raw), &env, jsonx.V1()) == nil {
 			assert.Equal(t, "http-only", env.Message)
 		}
 	case <-time.After(2 * time.Second):

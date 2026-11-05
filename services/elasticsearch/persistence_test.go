@@ -2,12 +2,13 @@ package elasticsearch_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/elasticsearch"
 )
 
@@ -519,7 +520,7 @@ func TestElasticsearch_SnapshotWarnOnEmptyState(t *testing.T) {
 	require.NotNil(t, snap)
 
 	var v map[string]any
-	require.NoError(t, json.Unmarshal(snap, &v))
+	require.NoError(t, json.Unmarshal(snap, &v, jsonx.V1()))
 }
 
 // TestElasticsearch_PersistenceReservedAndVpcAccessCombined verifies that VPC

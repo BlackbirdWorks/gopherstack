@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -42,7 +43,7 @@ func TestCloudControlProvisionedType_Lifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	var props map[string]any
-	require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props))
+	require.NoError(t, json.Unmarshal([]byte(aws.ToString(got.ResourceDescription.Properties)), &props, jsonx.V1()))
 	assert.Equal(t, "cc-prov-user", props["UserName"])
 
 	listed, err := cc.ListResources(t.Context(), &cloudcontrol.ListResourcesInput{TypeName: aws.String(typeName)})

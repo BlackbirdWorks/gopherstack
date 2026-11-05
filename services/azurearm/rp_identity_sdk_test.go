@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -387,7 +388,7 @@ func TestIdentitySDK_WebSiteLegacySnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	var snap map[string]any
-	require.NoError(t, json.Unmarshal(s.handler.Snapshot(t.Context()), &snap))
+	require.NoError(t, json.Unmarshal(s.handler.Snapshot(t.Context()), &snap, jsonx.V1()))
 
 	sites, _ := snap["web"].(map[string]any)["sites"].(map[string]any)
 	require.Len(t, sites, 1)
@@ -398,7 +399,7 @@ func TestIdentitySDK_WebSiteLegacySnapshot(t *testing.T) {
 		m["identity"] = map[string]any{"type": "SystemAssigned"}
 	}
 
-	legacy, err := json.Marshal(snap)
+	legacy, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	dst := newCmpStack(t)

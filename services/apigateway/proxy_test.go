@@ -2,7 +2,7 @@ package apigateway_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -70,7 +71,7 @@ func setupProxyAPIViaHandler(
 	require.Equal(tb, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(tb, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(tb, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiID := createResp["id"].(string)
 
 	// Get root resource.
@@ -78,7 +79,7 @@ func setupProxyAPIViaHandler(
 	require.Equal(tb, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(tb, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(tb, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create child resource.
@@ -87,7 +88,7 @@ func setupProxyAPIViaHandler(
 	require.Equal(tb, http.StatusCreated, childRec.Code)
 
 	var childResp map[string]any
-	require.NoError(tb, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	require.NoError(tb, json.Unmarshal(childRec.Body.Bytes(), &childResp, jsonx.V1()))
 	childID := childResp["id"].(string)
 
 	// PutMethod.
@@ -270,18 +271,18 @@ func setupVTLAPI(t *testing.T) (*apigateway.Handler, *echo.Echo, string) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiID := createResp["id"].(string)
 
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 	childRec := postWithHandler(t, h, e, "CreateResource",
 		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"transform"}`)
 	var childResp map[string]any
-	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp, jsonx.V1()))
 	childID := childResp["id"].(string)
 
 	postWithHandler(t, h, e, "PutMethod",
@@ -332,7 +333,7 @@ func TestHandleAWSIntegration(t *testing.T) {
 			checkCapture: func(t *testing.T, captured []byte) {
 				t.Helper()
 				var got map[string]any
-				require.NoError(t, json.Unmarshal(captured, &got))
+				require.NoError(t, json.Unmarshal(captured, &got, jsonx.V1()))
 				assert.Equal(t, "alice", got["name"])
 			},
 		},
@@ -484,14 +485,14 @@ func setupProxyAPIWithResource(
 	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"path-api","description":"test"}`)
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	apiID := createResp["id"].(string)
 
 	// Get root resource ID by finding the resource with path "/".
 	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 	items, _ := listResp["item"].([]any)
 	var parentID string
@@ -519,7 +520,7 @@ func setupProxyAPIWithResource(
 				`{"restApiId":"`+apiID+`","parentId":"`+parentID+`","pathPart":"`+part+`"}`)
 			require.Equal(t, http.StatusCreated, r.Code)
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1()))
 			parentID = resp["id"].(string)
 		}
 	}
@@ -635,7 +636,7 @@ func TestPathVariableMatching(t *testing.T) {
 			checkEvent: func(t *testing.T, payload []byte) {
 				t.Helper()
 				var event map[string]any
-				require.NoError(t, json.Unmarshal(payload, &event))
+				require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 				params, _ := event["pathParameters"].(map[string]any)
 				assert.Equal(t, "42", params["id"])
 			},
@@ -648,7 +649,7 @@ func TestPathVariableMatching(t *testing.T) {
 			checkEvent: func(t *testing.T, payload []byte) {
 				t.Helper()
 				var event map[string]any
-				require.NoError(t, json.Unmarshal(payload, &event))
+				require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 				params, _ := event["pathParameters"].(map[string]any)
 				assert.Equal(t, "/a/b/c", params["proxy"])
 			},
@@ -891,20 +892,20 @@ func TestHandleProxyRequest_RequiresDeployedStage(t *testing.T) {
 			createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"gate-api"}`)
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			apiID := createResp["id"].(string)
 
 			listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 			rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
 
 			childRec := postWithHandler(t, h, e, "CreateResource",
 				`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"items"}`)
 			require.Equal(t, http.StatusCreated, childRec.Code)
 			var childResp map[string]any
-			require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+			require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp, jsonx.V1()))
 			childID := childResp["id"].(string)
 
 			methodRec := postWithHandler(t, h, e, "PutMethod",

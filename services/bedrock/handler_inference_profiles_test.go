@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -49,7 +50,7 @@ func TestAccuracy_InferenceProfile_CreateResponseShape(t *testing.T) {
 
 			if tt.wantARN {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["inferenceProfileArn"])
 				assert.Equal(t, tt.wantProfileStatus, out["status"])
 			}
@@ -141,7 +142,7 @@ func TestAccuracy_InferenceProfile_GetReturnsAllFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.Equal(t, p.InferenceProfileArn, out["inferenceProfileArn"])
 			assert.Equal(t, p.InferenceProfileID, out["inferenceProfileId"])
@@ -198,7 +199,7 @@ func TestAccuracy_InferenceProfile_ListContainsCreated(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			summaries := out["inferenceProfileSummaries"].([]any)
 			assert.Len(t, summaries, len(tt.profileNames))
@@ -246,7 +247,7 @@ func TestAccuracy_InferenceProfile_ListTypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			summaries := out["inferenceProfileSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantLen)
 		})
@@ -270,7 +271,7 @@ func TestAccuracy_InferenceProfile_DeleteRemovesFromList(t *testing.T) {
 	recList := doRequest(t, h, http.MethodGet, "/inference-profiles", nil)
 	require.Equal(t, http.StatusOK, recList.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut["inferenceProfileSummaries"].([]any))
 }
 
@@ -344,7 +345,7 @@ func TestHandler_InferenceProfileLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	profileARN := createOut["inferenceProfileArn"].(string)
 
 	// List profiles.
@@ -352,7 +353,7 @@ func TestHandler_InferenceProfileLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.NotEmpty(t, listOut["inferenceProfileSummaries"])
 
 	// Get profile.

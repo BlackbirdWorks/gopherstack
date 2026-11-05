@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"sort"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -45,7 +47,7 @@ type MonitoringScheduleConfig struct {
 	ScheduleConfig              *MonitoringScheduleSchedule `json:"ScheduleConfig,omitempty"`
 	MonitoringJobDefinitionName string                      `json:"MonitoringJobDefinitionName,omitempty"`
 	MonitoringType              string                      `json:"MonitoringType,omitempty"`
-	MonitoringJobDefinition     json.RawMessage             `json:"MonitoringJobDefinition,omitempty"`
+	MonitoringJobDefinition     jsontext.Value              `json:"MonitoringJobDefinition,omitempty"`
 }
 
 // MonitoringSchedule represents a SageMaker monitoring schedule.
@@ -67,7 +69,7 @@ func cloneMonitoringSchedule(ms *MonitoringSchedule) *MonitoringSchedule {
 	if ms.MonitoringScheduleConfig != nil {
 		cfg := *ms.MonitoringScheduleConfig
 		cfg.MonitoringJobDefinition = append(
-			json.RawMessage(nil),
+			jsontext.Value(nil),
 			ms.MonitoringScheduleConfig.MonitoringJobDefinition...)
 
 		if ms.MonitoringScheduleConfig.ScheduleConfig != nil {
@@ -106,7 +108,7 @@ func (ms *MonitoringSchedule) MarshalJSON() ([]byte, error) {
 		CreationTime:     epochSeconds(ms.CreationTime),
 		LastModifiedTime: epochSeconds(ms.LastModifiedTime),
 		MonitoringType:   monitoringType,
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [MonitoringSchedule.MarshalJSON], read by
@@ -120,7 +122,7 @@ func (ms *MonitoringSchedule) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(ms)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -141,7 +143,7 @@ func (ms *MonitoringSchedule) UnmarshalJSON(data []byte) error {
 // raw is empty, unparseable, or has no endpoint input (e.g. a batch
 // transform monitoring job, or a schedule referencing a job definition by
 // name only).
-func monitoringEndpointNameFromJobDefinition(raw json.RawMessage) string {
+func monitoringEndpointNameFromJobDefinition(raw jsontext.Value) string {
 	var doc struct {
 		MonitoringInputs []struct {
 			EndpointInput *struct {
@@ -150,7 +152,7 @@ func monitoringEndpointNameFromJobDefinition(raw json.RawMessage) string {
 		} `json:"MonitoringInputs"`
 	}
 
-	if len(raw) == 0 || json.Unmarshal(raw, &doc) != nil {
+	if len(raw) == 0 || json.Unmarshal(raw, &doc, jsonx.V1()) != nil {
 		return ""
 	}
 

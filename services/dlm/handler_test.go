@@ -2,7 +2,7 @@ package dlm_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dlm"
 )
 
@@ -30,7 +31,7 @@ func doRequest(t *testing.T, h *dlm.Handler, method, path string, body any) *htt
 	if body != nil {
 		var marshalErr error
 
-		bodyBytes, marshalErr = json.Marshal(body)
+		bodyBytes, marshalErr = json.Marshal(body, jsonx.V1())
 		require.NoError(t, marshalErr)
 	}
 
@@ -57,7 +58,7 @@ func createPolicy(t *testing.T, h *dlm.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	policyID, ok := resp["PolicyId"].(string)
 	require.True(t, ok, "PolicyId missing from response")
@@ -90,7 +91,7 @@ func TestDLM_LifecyclePolicy(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.Contains(t, resp["PolicyId"], "policy-")
 			},
 		},
@@ -105,7 +106,7 @@ func TestDLM_LifecyclePolicy(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				policies, ok := resp["Policies"].([]any)
 				require.True(t, ok)
 				assert.Len(t, policies, 1)
@@ -124,7 +125,7 @@ func TestDLM_LifecyclePolicy(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				policy, ok := resp["Policy"].(map[string]any)
 				require.True(t, ok)
 				assert.Contains(t, policy["PolicyId"], "policy-")
@@ -220,7 +221,7 @@ func TestDLM_Tags(t *testing.T) {
 				policyID := createPolicy(t, h)
 				rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				policy := resp["Policy"].(map[string]any)
 				arn := policy["PolicyArn"].(string)
 
@@ -239,7 +240,7 @@ func TestDLM_Tags(t *testing.T) {
 				policyID := createPolicy(t, h)
 				rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				policy := resp["Policy"].(map[string]any)
 				arn := policy["PolicyArn"].(string)
 				doRequest(t, h, http.MethodPost, fmt.Sprintf("/tags/%s", arn), map[string]any{
@@ -255,7 +256,7 @@ func TestDLM_Tags(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				tags, ok := resp["Tags"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "prod", tags["env"])
@@ -268,7 +269,7 @@ func TestDLM_Tags(t *testing.T) {
 				policyID := createPolicy(t, h)
 				rec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				policy := resp["Policy"].(map[string]any)
 				arn := policy["PolicyArn"].(string)
 				doRequest(t, h, http.MethodPost, fmt.Sprintf("/tags/%s", arn), map[string]any{
@@ -359,7 +360,7 @@ func TestHandler_Reset(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			policies := resp["Policies"].([]any)
 			assert.Empty(t, policies)
 		})
@@ -585,7 +586,7 @@ func TestHandler_MapError_InternalError(t *testing.T) {
 
 			var bodyBytes []byte
 			if tc.method == http.MethodPost {
-				bodyBytes, _ = json.Marshal(map[string]any{"Tags": map[string]string{"k": "v"}})
+				bodyBytes, _ = json.Marshal(map[string]any{"Tags": map[string]string{"k": "v"}}, jsonx.V1())
 			}
 
 			req := httptest.NewRequest(tc.method, tc.path, bytes.NewReader(bodyBytes))
@@ -599,7 +600,7 @@ func TestHandler_MapError_InternalError(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tc.wantType, resp["__type"])
 		})
 	}

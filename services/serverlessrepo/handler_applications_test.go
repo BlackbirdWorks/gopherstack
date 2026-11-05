@@ -1,13 +1,14 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -73,7 +74,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 
 			if tt.wantARN {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["applicationId"])
 				assert.Equal(t, tt.body["name"], resp["name"])
 			}
@@ -104,7 +105,7 @@ func TestCreateApplication_MissingAuthor(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["message"], "Author is required")
 }
 
@@ -119,7 +120,7 @@ func TestCreateApplication_MissingDescription(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["message"], "Description is required")
 }
 
@@ -136,7 +137,7 @@ func TestCreateApplication_WithLabels(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	labels, ok := resp["labels"].([]any)
 	require.True(t, ok)
@@ -156,7 +157,7 @@ func TestCreateApplication_WithHomePageURL(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "https://github.com/example/my-app", resp["homePageUrl"])
 }
 
@@ -193,7 +194,7 @@ func TestApplicationResponse_LabelsField(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	// SAR uses "labels" ([]string), not "tags" (map[string]string)
 	labels, ok := resp["labels"].([]any)
@@ -214,7 +215,7 @@ func TestApplication_ARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	appID := resp["applicationId"].(string)
 	assert.Contains(t, appID, "arn:aws:serverlessrepo:")
 	assert.Contains(t, appID, ":applications/arn-check-app")
@@ -234,7 +235,7 @@ func TestCreateApplication_TemplateURLOnly_CreatesVersion(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	version := resp["version"].(map[string]any)
 	assert.Equal(t, "s3://bucket/template.yaml", version["templateUrl"])
 	assert.Equal(t, "1.0.0", version["semanticVersion"])
@@ -256,7 +257,7 @@ func TestCreateApplication_InlineVersion_FullResponseFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Equal(t, "MIT", resp["spdxLicenseId"])
 	version, ok := resp["version"].(map[string]any)
@@ -339,7 +340,7 @@ func TestApplicationMetadata(t *testing.T) {
 			assert.Contains(t, []int{http.StatusCreated, http.StatusOK}, rec.Code)
 
 			var response map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response, jsonx.V1()))
 			tt.check(t, response)
 		})
 	}
@@ -393,7 +394,7 @@ func TestHandler_GetApplication(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "existing-app", resp["name"])
 			}
 		})
@@ -429,7 +430,7 @@ func TestGetApplication_WithSemanticVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	versionObj, ok := resp["version"].(map[string]any)
 	require.True(t, ok, "version field must be present when semanticVersion is requested")
 	assert.Equal(t, "1.2.3", versionObj["semanticVersion"])
@@ -464,7 +465,7 @@ func TestGetApplication_VersionEmbedFromStore_IncludesTemplateURL(t *testing.T) 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	version := resp["version"].(map[string]any)
 	assert.Equal(t, "1.5.0", version["semanticVersion"])
 	assert.Equal(t, "s3://my-bucket/tmpl.yaml", version["templateUrl"])
@@ -491,7 +492,7 @@ func TestGetApplication_ResponseFieldCompleteness(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "full-resp-app", resp["name"])
 	assert.Equal(t, "A full response app", resp["description"])
 	assert.Equal(t, "test-author", resp["author"])
@@ -576,7 +577,7 @@ func TestUpdateApplication_EmbedCurrentVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	version, ok := resp["version"].(map[string]any)
 	require.True(t, ok, "version must be embedded in UpdateApplication response when current version exists")
@@ -597,7 +598,7 @@ func TestUpdateApplication_NoVersionWhenNoneCreated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Nil(t, resp["version"], "version should be absent when no version has been created")
 }
 
@@ -768,7 +769,7 @@ func TestApplication_ARNFormRouting(t *testing.T) {
 
 			if tt.check != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -867,7 +868,7 @@ func TestCreateApplication_BodyVariants(t *testing.T) {
 
 			if tt.check != nil {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				tt.check(t, resp)
 			}
 		})
@@ -910,7 +911,7 @@ func TestUpdateApplication_ReadmeBody(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["readmeUrl"])
 			}
 		})

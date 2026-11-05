@@ -4,13 +4,14 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 	"github.com/blackbirdworks/gopherstack/services/sts"
 )
@@ -83,7 +84,7 @@ type iamPayload struct {
 // parseIAMPayload decodes the JSON sent by the aws-msk-iam-auth clients (version 2020_10_22).
 func parseIAMPayload(raw []byte) (*iamPayload, error) {
 	var kv map[string]string
-	if err := json.Unmarshal(raw, &kv); err != nil {
+	if err := json.Unmarshal(raw, &kv, jsonx.V1()); err != nil {
 		return nil, errIAMMalformed
 	}
 

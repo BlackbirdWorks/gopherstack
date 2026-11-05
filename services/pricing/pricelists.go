@@ -1,11 +1,13 @@
 package pricing
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -213,7 +215,7 @@ func RenderFile(code, ver, region, kind string) ([]byte, string, bool) {
 		}
 	}
 
-	raw, _ := json.Marshal(f)
+	raw, _ := json.Marshal(f, jsonx.V1())
 
 	return raw, "application/json", true
 }

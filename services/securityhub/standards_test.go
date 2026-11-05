@@ -1,7 +1,7 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -30,7 +31,7 @@ func TestBatchEnableStandardsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	subs, _ := resp["StandardsSubscriptions"].([]any)
 	assert.Len(t, subs, 1)
@@ -55,7 +56,7 @@ func TestBatchEnableStandardsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 	gotSubs, _ := getResp["StandardsSubscriptions"].([]any)
 	require.Len(t, gotSubs, 1)
@@ -76,7 +77,7 @@ func TestBatchDisableStandardsPath(t *testing.T) {
 	})
 
 	var enableResp map[string]any
-	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp))
+	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp, jsonx.V1()))
 
 	subs, _ := enableResp["StandardsSubscriptions"].([]any)
 	require.Len(t, subs, 1)
@@ -89,7 +90,7 @@ func TestBatchDisableStandardsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	disabledSubs, _ := resp["StandardsSubscriptions"].([]any)
 	assert.Len(t, disabledSubs, 1)
@@ -113,7 +114,7 @@ func TestGetEnabledStandardsIsPOSTStandardsGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "StandardsSubscriptions")
 }
@@ -128,7 +129,7 @@ func TestDescribeStandardsIsGETStandards(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	standards, _ := resp["Standards"].([]any)
 	assert.NotEmpty(t, standards, "DescribeStandards must return built-in standards")
@@ -157,7 +158,7 @@ func TestDescribeStandardsControlsPath(t *testing.T) {
 	})
 
 	var enableResp map[string]any
-	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp))
+	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp, jsonx.V1()))
 
 	subs, _ := enableResp["StandardsSubscriptions"].([]any)
 	subArn, _ := subs[0].(map[string]any)["StandardsSubscriptionArn"].(string)
@@ -166,7 +167,7 @@ func TestDescribeStandardsControlsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	controls, _ := resp["Controls"].([]any)
 	assert.NotEmpty(t, controls)
@@ -192,7 +193,7 @@ func TestUpdateStandardsControlPath(t *testing.T) {
 	})
 
 	var enableResp map[string]any
-	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp))
+	require.NoError(t, json.Unmarshal(enableRec.Body.Bytes(), &enableResp, jsonx.V1()))
 
 	subs, _ := enableResp["StandardsSubscriptions"].([]any)
 	subArn, _ := subs[0].(map[string]any)["StandardsSubscriptionArn"].(string)
@@ -253,7 +254,7 @@ func TestListStandardsControlAssociationsIsGETAssociations(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assocs, _ := resp["StandardsControlAssociationSummaries"].([]any)
 	assert.NotEmpty(t, assocs)
@@ -282,7 +283,7 @@ func TestBatchGetStdCtlAssociationsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "StandardsControlAssociationDetails")
 	assert.Contains(t, resp, "UnprocessedAssociations")
@@ -308,7 +309,7 @@ func TestBatchUpdateStdCtlAssociationsPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "UnprocessedAssociationUpdates")
 }
@@ -332,7 +333,7 @@ func TestBatchDisableStandards_StatusIsDeleting(t *testing.T) {
 	require.Equal(t, http.StatusOK, enRec.Code)
 
 	var enResp map[string]any
-	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp))
+	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp, jsonx.V1()))
 
 	subs, _ := enResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, subs)
@@ -346,7 +347,7 @@ func TestBatchDisableStandards_StatusIsDeleting(t *testing.T) {
 	require.Equal(t, http.StatusOK, disRec.Code)
 
 	var disResp map[string]any
-	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp))
+	require.NoError(t, json.Unmarshal(disRec.Body.Bytes(), &disResp, jsonx.V1()))
 
 	disabledSubs, _ := disResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, disabledSubs)
@@ -375,7 +376,7 @@ func TestUpdateStandardsControl_StatusValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, enRec.Code)
 
 	var enResp map[string]any
-	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp))
+	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp, jsonx.V1()))
 
 	subs, _ := enResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, subs)
@@ -454,7 +455,7 @@ func TestBatchUpdateStdCtlAssociations_Persisted(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 	unprocessed, _ := updateResp["UnprocessedAssociationUpdates"].([]any)
 	assert.Empty(t, unprocessed, "update must succeed without unprocessed items")
 
@@ -470,7 +471,7 @@ func TestBatchUpdateStdCtlAssociations_Persisted(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	details, _ := getResp["StandardsControlAssociationDetails"].([]any)
 	require.Len(t, details, 1)
 
@@ -503,7 +504,7 @@ func TestStandardsSubscriptions_IncludesStandardsStatusReason(t *testing.T) {
 	require.Equal(t, http.StatusOK, enRec.Code)
 
 	var enResp map[string]any
-	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp))
+	require.NoError(t, json.Unmarshal(enRec.Body.Bytes(), &enResp, jsonx.V1()))
 
 	subs, _ := enResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, subs)
@@ -516,7 +517,7 @@ func TestStandardsSubscriptions_IncludesStandardsStatusReason(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	getSubs, _ := getResp["StandardsSubscriptions"].([]any)
 	require.NotEmpty(t, getSubs)
 	_, hasStatusReasonGet := getSubs[0].(map[string]any)["StandardsStatusReason"]
@@ -544,7 +545,7 @@ func TestBatchGetStdCtlAssociations_MissingFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 	details, _ := resp["StandardsControlAssociationDetails"].([]any)
 	require.Len(t, details, 1)
 

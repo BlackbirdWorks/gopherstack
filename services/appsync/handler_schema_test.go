@@ -2,13 +2,15 @@ package appsync_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -61,7 +63,7 @@ func TestHandler_StartSchemaCreation(t *testing.T) {
 
 			if tt.wantStatus2 != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus2, resp["status"])
 			}
 		})
@@ -79,7 +81,7 @@ func TestHandler_GetSchemaCreationStatus(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, string(appsync.SchemaStatusActive), resp["status"])
 }
 
@@ -149,10 +151,10 @@ func TestHandler_GetIntrospectionSchema_Format(t *testing.T) {
 			checkBody: func(t *testing.T, body string) {
 				t.Helper()
 
-				require.True(t, json.Valid([]byte(body)))
+				require.True(t, jsontext.Value([]byte(body)).IsValid(jsonx.V1()))
 
 				var doc map[string]any
-				require.NoError(t, json.Unmarshal([]byte(body), &doc))
+				require.NoError(t, json.Unmarshal([]byte(body), &doc, jsonx.V1()))
 
 				data, ok := doc["data"].(map[string]any)
 				require.True(t, ok)
@@ -207,7 +209,7 @@ func TestHandler_GetIntrospectionSchema_InvalidSchema_JSON(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "GraphQLSchemaException", resp["code"])
 }
 

@@ -1,12 +1,14 @@
 package elasticsearch_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestElasticsearchHandler_CreateDomain_VPCOptions verifies VPCOptions
@@ -401,7 +403,7 @@ func TestElasticsearchBackend_CreateDomain_InvalidAutoTuneDesiredState(t *testin
 	body := []byte(`{"DomainName":"raw-autotune","AutoTuneOptions":{"DesiredState":"BOGUS"}}`)
 
 	var decoded map[string]any
-	require.NoError(t, json.Unmarshal(body, &decoded))
+	require.NoError(t, json.Unmarshal(body, &decoded, jsonx.V1()))
 
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", decoded)
 	defer resp.Body.Close()

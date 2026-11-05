@@ -2,12 +2,14 @@ package rds
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -47,7 +49,7 @@ func (s *dumpStore) save(key string, at time.Time, d engineData) error {
 
 	rec := dumpRecord{At: at, Key: key, Dump: d.dump, Password: d.password, DBName: d.dbName}
 
-	raw, err := json.Marshal(rec) //nolint:gosec // the master password must come back with the restored data
+	raw, err := json.Marshal(rec, jsonx.V1())
 	if err != nil {
 		return fmt.Errorf("marshal dump: %w", err)
 	}
@@ -102,7 +104,7 @@ func (s *dumpStore) load() []dumpRecord {
 		}
 
 		var rec dumpRecord
-		if json.Unmarshal(raw, &rec) == nil && rec.Key != "" {
+		if json.Unmarshal(raw, &rec, jsonx.V1()) == nil && rec.Key != "" {
 			out = append(out, rec)
 		}
 	}

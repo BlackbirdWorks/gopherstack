@@ -1,7 +1,7 @@
 package codeartifact_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestDomainOwnerQuery(t *testing.T) {
@@ -64,7 +65,7 @@ func TestPackageVersionErrors_CarryMessage(t *testing.T) {
 		} `json:"failedVersions"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Contains(t, out.Failed, "99.0.0")
 	assert.Equal(t, "NOT_FOUND", out.Failed["99.0.0"].Code)
 	assert.Contains(t, out.Failed["99.0.0"].Message, "99.0.0")

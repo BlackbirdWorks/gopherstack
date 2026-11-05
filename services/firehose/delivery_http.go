@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"mime"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -60,7 +62,10 @@ func buildHTTPEndpointBody(requestID string, records [][]byte) ([]byte, error) {
 		httpRecords = append(httpRecords, httpRecord{Data: base64.StdEncoding.EncodeToString(rec)})
 	}
 
-	return json.Marshal(httpPayload{RequestID: requestID, Timestamp: time.Now().UnixMilli(), Records: httpRecords})
+	return json.Marshal(
+		httpPayload{RequestID: requestID, Timestamp: time.Now().UnixMilli(), Records: httpRecords},
+		jsonx.V1(),
+	)
 }
 
 // buildHTTPEndpointRequest constructs one POST with the documented Firehose request headers.
@@ -97,7 +102,7 @@ func buildHTTPEndpointRequest(
 				attrs[a.AttributeName] = a.AttributeValue
 			}
 
-			if raw, mErr := json.Marshal(map[string]any{"commonAttributes": attrs}); mErr == nil {
+			if raw, mErr := json.Marshal(map[string]any{"commonAttributes": attrs}, jsonx.V1()); mErr == nil {
 				req.Header.Set("X-Amz-Firehose-Common-Attributes", string(raw))
 			}
 		}
@@ -219,10 +224,10 @@ func validateHTTPResponse(resp *http.Response, raw []byte, requestID string) err
 	}
 
 	var out struct {
-		Timestamp *json.RawMessage `json:"timestamp"`
-		RequestID string           `json:"requestId"`
+		Timestamp *jsontext.Value `json:"timestamp"`
+		RequestID string          `json:"requestId"`
 	}
-	if err := json.Unmarshal(raw, &out); err != nil || out.RequestID != requestID || out.Timestamp == nil {
+	if err := json.Unmarshal(raw, &out, jsonx.V1()); err != nil || out.RequestID != requestID || out.Timestamp == nil {
 		return errHTTPResponse
 	}
 
@@ -233,7 +238,7 @@ func endpointErrorMessage(raw []byte, status int) string {
 	var out struct {
 		ErrorMessage string `json:"errorMessage"`
 	}
-	if json.Unmarshal(raw, &out) == nil && out.ErrorMessage != "" {
+	if json.Unmarshal(raw, &out, jsonx.V1()) == nil && out.ErrorMessage != "" {
 		return out.ErrorMessage
 	}
 

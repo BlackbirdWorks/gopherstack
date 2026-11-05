@@ -2,7 +2,7 @@ package lambda_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -21,7 +22,7 @@ func doFnRequest(t *testing.T, h *lambda.Handler, method, path string, body any)
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -148,7 +149,7 @@ func TestLambda_GetFunction_ByQualifier(t *testing.T) {
 					Version     string `json:"Version"`
 				} `json:"Configuration"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.Equal(t, tc.wantVersion, out.Configuration.Version)
 			require.Contains(t, out.Configuration.FunctionArn, tc.wantArnSfx)
 		})
@@ -172,7 +173,7 @@ func TestLambda_GetFunctionConfiguration_ByQualifier(t *testing.T) {
 		FunctionArn string `json:"FunctionArn"`
 		Version     string `json:"Version"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 	require.Equal(t, "1", cfg.Version)
 	require.Contains(t, cfg.FunctionArn, ":function:cfgfn:1")
 }

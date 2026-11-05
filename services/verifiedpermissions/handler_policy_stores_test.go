@@ -1,7 +1,7 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"net/http"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -55,7 +56,7 @@ func TestVPHandler_CreatePolicyStore(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Contains(t, resp, tt.wantKey)
 		})
 	}
@@ -81,7 +82,7 @@ func TestVPHandler_GetPolicyStore(t *testing.T) {
 					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["policyStoreId"].(string)
 			},
@@ -148,7 +149,7 @@ func TestVPHandler_ListPolicyStores(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			stores := resp["policyStores"].([]any)
 			assert.Len(t, stores, tt.numStores)
 		})
@@ -175,7 +176,7 @@ func TestVPHandler_DeletePolicyStore(t *testing.T) {
 					map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["policyStoreId"].(string)
 			},
@@ -225,7 +226,7 @@ func TestVPHandler_UpdatePolicyStore(t *testing.T) {
 					map[string]any{"description": "original", "validationSettings": map[string]any{"mode": "OFF"}},
 				)
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				return resp["policyStoreId"].(string)
 			},
@@ -302,7 +303,7 @@ func TestVPHandler_CreatePolicyStore_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["policyStoreId"])
 	assert.NotEmpty(t, resp["arn"])
 }
@@ -353,14 +354,14 @@ func TestVPHandler_DeletePolicyStore_DeletionProtection_InvalidStateException(t 
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	storeID := createResp["policyStoreId"].(string)
 
 	rec := doVPRequest(t, h, "DeletePolicyStore", map[string]any{"policyStoreId": storeID})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "InvalidStateException", resp["__type"])
 }
 
@@ -409,7 +410,7 @@ func TestVPHandler_CreatePolicyStore_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotContains(t, resp, "validationSettings")
 	assert.NotEmpty(t, resp["policyStoreId"])
@@ -432,7 +433,7 @@ func TestVPHandler_GetPolicyStore_CedarVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "CEDAR_4", resp["cedarVersion"])
 }
 
@@ -451,7 +452,7 @@ func TestVPHandler_ListPolicyStores_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	items, _ := resp["policyStores"].([]any)
 	require.NotEmpty(t, items)
@@ -479,7 +480,7 @@ func TestVPHandler_UpdatePolicyStore_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotContains(t, resp, "validationSettings")
 	assert.NotEmpty(t, resp["createdDate"], "createdDate is a required UpdatePolicyStoreOutput field")
@@ -554,7 +555,7 @@ func TestVPHandler_CreatePolicyStoreAlias(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantType != "" {
 				assert.Equal(t, tt.wantType, resp["__type"])
@@ -591,13 +592,13 @@ func TestVPHandler_CreatePolicyStoreAlias_IdempotentAndConflict(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	rec2 := doVPRequest(t, h, "CreatePolicyStoreAlias", body)
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Equal(t, resp1["createdAt"], resp2["createdAt"], "same (aliasName, policyStoreId) replays, no duplicate")
 
 	rec3 := doVPRequest(t, h, "CreatePolicyStoreAlias", map[string]any{
@@ -606,7 +607,7 @@ func TestVPHandler_CreatePolicyStoreAlias_IdempotentAndConflict(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec3.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errResp["__type"])
 }
 
@@ -657,7 +658,7 @@ func TestVPHandler_GetPolicyStoreAlias(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "Active", resp["state"])
 			assert.Equal(t, aliasName, resp["aliasName"])
 		})
@@ -700,7 +701,7 @@ func TestVPHandler_ListPolicyStoreAliases(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			items, _ := resp["policyStoreAliases"].([]any)
 			assert.Len(t, items, tt.wantCount)
 		})
@@ -756,7 +757,7 @@ func TestVPHandler_DeletePolicyStoreAlias(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantState, resp["state"])
 		})
 	}
@@ -802,7 +803,7 @@ func TestVPHandler_DeletePolicyStore_CascadesAliases(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items, _ := resp["policyStoreAliases"].([]any)
 	assert.Empty(t, items, "dangling alias row survived policy store delete")
 
@@ -872,7 +873,7 @@ func TestVPHandler_ResolvePolicyStoreID_AcceptsAlias(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, storeID, resp["policyStoreId"], "response echoes the real ID, not the alias")
 		})
 	}
@@ -923,13 +924,13 @@ func TestVPHandler_CreatePolicyStore_ClientTokenIdempotency(t *testing.T) {
 	rec1 := doVPRequest(t, h, "CreatePolicyStore", body("first"))
 	require.Equal(t, http.StatusOK, rec1.Code)
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	// Same token, same parameters: replays the original policy store.
 	rec2 := doVPRequest(t, h, "CreatePolicyStore", body("first"))
 	require.Equal(t, http.StatusOK, rec2.Code)
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	assert.Equal(t, resp1["policyStoreId"], resp2["policyStoreId"])
 	assert.Equal(t, resp1["createdDate"], resp2["createdDate"])
 
@@ -938,7 +939,7 @@ func TestVPHandler_CreatePolicyStore_ClientTokenIdempotency(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec3.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errResp["__type"])
 
 	// A different token creates a genuinely new policy store.
@@ -949,6 +950,6 @@ func TestVPHandler_CreatePolicyStore_ClientTokenIdempotency(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec4.Code)
 	var resp4 map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4, jsonx.V1()))
 	assert.NotEqual(t, resp1["policyStoreId"], resp4["policyStoreId"])
 }

@@ -2,7 +2,7 @@ package ssoadmin
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -94,7 +95,7 @@ func listApplicationItems[T any](
 		ApplicationArn string `json:"ApplicationArn"`
 		NextToken      string `json:"NextToken"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -232,7 +233,7 @@ func listProvisioningStatusMetadata[T any](
 		NextToken  string `json:"NextToken"`
 		MaxResults int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -268,7 +269,7 @@ func listPermissionSetSubItems[T any](
 		NextToken        string `json:"NextToken"`
 		MaxResults       int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -427,7 +428,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	var req struct {
 		InstanceArn string `json:"InstanceArn"`
 	}
-	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 		return ""
 	}
 
@@ -736,13 +737,11 @@ func toPermissionSetProvisioningStatusMetadataView(s *ProvisioningStatus) permis
 }
 
 func writeJSON(c *echo.Context, status int, v any) error {
-	data, err := json.Marshal(v)
+	data, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return err
 	}
-	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
-	c.Response().WriteHeader(status)
-	_, _ = c.Response().Write(data)
+	httputils.WriteAmzJSON11Bytes(c.Response(), status, data)
 
 	return nil
 }
@@ -754,7 +753,7 @@ func checkPaging(body []byte) string {
 		NextToken  *string `json:"NextToken"`
 	}
 
-	if json.Unmarshal(body, &req) != nil {
+	if json.Unmarshal(body, &req, jsonx.V1()) != nil {
 		return ""
 	}
 

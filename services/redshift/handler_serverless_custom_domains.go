@@ -1,10 +1,12 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Create/Get/UpdateCustomDomainAssociationResponse all serialize the
@@ -22,7 +24,7 @@ func (h *ServerlessHandler) handleCreateCustomDomainAssociation(c *echo.Context,
 		WorkgroupName              string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -46,7 +48,7 @@ func (h *ServerlessHandler) handleGetCustomDomainAssociation(c *echo.Context, bo
 		WorkgroupName    string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -67,7 +69,7 @@ func (h *ServerlessHandler) handleListCustomDomainAssociations(c *echo.Context, 
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}
@@ -91,7 +93,7 @@ func (h *ServerlessHandler) handleUpdateCustomDomainAssociation(c *echo.Context,
 		WorkgroupName              string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -115,7 +117,7 @@ func (h *ServerlessHandler) handleDeleteCustomDomainAssociation(c *echo.Context,
 		WorkgroupName    string `json:"workgroupName"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 

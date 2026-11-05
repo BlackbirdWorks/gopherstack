@@ -1,12 +1,14 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestVPHandler_PolicyTemplateCRUD(t *testing.T) {
@@ -38,7 +40,7 @@ func TestVPHandler_PolicyTemplateCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var storeResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 			storeID := storeResp["policyStoreId"].(string)
 
 			// Create template
@@ -50,7 +52,7 @@ func TestVPHandler_PolicyTemplateCRUD(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var tplResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tplResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tplResp, jsonx.V1()))
 			templateID := tplResp["policyTemplateId"].(string)
 			assert.NotEmpty(t, templateID)
 
@@ -195,7 +197,7 @@ func TestVPHandler_UpdatePolicyTemplate_NotFound(t *testing.T) {
 		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 	)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 	storeID := storeResp["policyStoreId"].(string)
 
 	rec = doVPRequest(t, h, "UpdatePolicyTemplate", map[string]any{
@@ -219,7 +221,7 @@ func TestVPHandler_DeletePolicyTemplate_NotFound(t *testing.T) {
 		map[string]any{"description": "test", "validationSettings": map[string]any{"mode": "OFF"}},
 	)
 	var storeResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &storeResp, jsonx.V1()))
 	storeID := storeResp["policyStoreId"].(string)
 
 	rec = doVPRequest(t, h, "DeletePolicyTemplate", map[string]any{

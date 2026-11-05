@@ -1,7 +1,7 @@
 package fsx_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fsx"
 )
 
@@ -74,7 +75,7 @@ func TestFSx_Volume(t *testing.T) {
 
 			if !tc.wantErr {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				v := out["Volume"].(map[string]any)
 				assert.Contains(t, v["VolumeId"].(string), "fsvol-")
 				assert.Equal(t, "AVAILABLE", v["Lifecycle"])
@@ -102,7 +103,7 @@ func TestFSx_VolumeLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var dr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr, jsonx.V1()))
 		assert.Len(t, dr["Volumes"].([]any), 1)
 
 		// update
@@ -112,14 +113,14 @@ func TestFSx_VolumeLifecycle(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur, jsonx.V1()))
 		assert.Equal(t, "vol-renamed", ur["Volume"].(map[string]any)["Name"])
 
 		// delete
 		rec3 := doFSxRequest(t, h, "DeleteVolume", map[string]any{"VolumeId": volID})
 		require.Equal(t, http.StatusOK, rec3.Code)
 		var del map[string]any
-		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del))
+		require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &del, jsonx.V1()))
 		assert.Equal(t, volID, del["VolumeId"])
 		assert.Equal(t, "DELETING", del["Lifecycle"])
 		assert.Equal(t, 0, fsx.VolumeCount(b))
@@ -142,7 +143,7 @@ func TestFSx_CreateVolumeFromBackup(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, svmRec.Code)
 		var svmOut map[string]any
-		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut))
+		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut, jsonx.V1()))
 		svmID := svmOut["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
 
 		rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
@@ -155,7 +156,7 @@ func TestFSx_CreateVolumeFromBackup(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		v := out["Volume"].(map[string]any)
 		assert.Contains(t, v["VolumeId"].(string), "fsvol-")
 		assert.Equal(t, "restored-vol", v["Name"])
@@ -176,7 +177,7 @@ func TestFSx_CreateVolumeFromBackup(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, svmRec.Code)
 		var svmOut map[string]any
-		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut))
+		require.NoError(t, json.Unmarshal(svmRec.Body.Bytes(), &svmOut, jsonx.V1()))
 		svmID := svmOut["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"].(string)
 
 		rec := doFSxRequest(t, h, "CreateVolumeFromBackup", map[string]any{
@@ -219,7 +220,7 @@ func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var cr map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 		snapID := cr["Snapshot"].(map[string]any)["SnapshotId"].(string)
 
 		// restore
@@ -229,7 +230,7 @@ func TestFSx_RestoreVolumeFromSnapshot(t *testing.T) {
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 		assert.Equal(t, volID, out["VolumeId"])
 		assert.NotEmpty(t, out["Lifecycle"])
 		actions := out["AdministrativeActions"].([]any)

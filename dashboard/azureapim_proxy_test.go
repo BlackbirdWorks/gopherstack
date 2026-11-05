@@ -2,7 +2,8 @@ package dashboard_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -56,7 +58,10 @@ func newAPIMDashboard(t *testing.T) *apimEnv {
 	be := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Echo-Key", r.Header.Get("Ocp-Apim-Subscription-Key"))
-		_ = json.NewEncoder(w).Encode(map[string]any{"path": r.URL.Path, "header": r.Header, "query": r.URL.RawQuery})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]any{"path": r.URL.Path, "header": r.Header, "query": r.URL.RawQuery},
+		)
 	}))
 	t.Cleanup(be.Close)
 
@@ -99,7 +104,7 @@ func newAPIMDashboard(t *testing.T) *apimEnv {
 		Secondary string `json:"secondaryKey"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &keys))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &keys, jsonx.V1()))
 	require.NotEmpty(t, keys.Primary)
 
 	dash := echo.New()
@@ -222,7 +227,7 @@ func TestAzureAPIMTryIt(t *testing.T) {
 		var o out
 
 		if rec.Code == http.StatusOK {
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &o))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &o, jsonx.V1()))
 		}
 
 		return rec, o

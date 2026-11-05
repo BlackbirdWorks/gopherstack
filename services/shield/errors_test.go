@@ -1,7 +1,7 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -20,7 +21,7 @@ func wireErrorType(t *testing.T, body []byte) string {
 	var env struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(body, &env))
+	require.NoError(t, json.Unmarshal(body, &env, jsonx.V1()))
 
 	return env.Type
 }

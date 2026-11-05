@@ -1,12 +1,14 @@
 package workspaces_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDirectoryModifyOps exercises the directory-scoped property-modify
@@ -193,7 +195,7 @@ func TestDirectoryModifyOps_RejectsLegacyDirectoryIdKey(t *testing.T) {
 				"DirectoryId": tc.body["DirectoryId"],
 			})
 
-			rawBody, marshalErr := json.Marshal(tc.body)
+			rawBody, marshalErr := json.Marshal(tc.body, jsonx.V1())
 			require.NoError(t, marshalErr)
 			require.NotContains(
 				t, string(rawBody), `"ResourceId"`,

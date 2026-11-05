@@ -2,7 +2,7 @@ package stepfunctions
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -63,7 +65,7 @@ func streamString(src any) string {
 		return s
 	}
 
-	b, _ := json.Marshal(src)
+	b, _ := json.Marshal(src, jsonx.V1())
 
 	return string(b)
 }

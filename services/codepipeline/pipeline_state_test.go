@@ -2,13 +2,14 @@ package codepipeline_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codepipeline"
 )
 
@@ -321,7 +322,7 @@ func TestHandler_DisableStageTransition_StageValidation(t *testing.T) {
 
 			if tt.wantType != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantType, out["__type"])
 			}
 		})
@@ -524,7 +525,7 @@ func TestHandler_GetPipelineState_ActionStates(t *testing.T) {
 
 			if tt.checkFn != nil {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.checkFn(t, out)
 			}
 		})
@@ -611,7 +612,7 @@ func TestHandler_GetPipelineState_LatestExecution(t *testing.T) {
 
 			if tt.checkFn != nil {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				tt.checkFn(t, out)
 			}
 		})
@@ -655,7 +656,7 @@ func TestGetPipelineState_PipelineVersion(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.InDelta(t, tt.wantVersion, out["pipelineVersion"], 0, "pipelineVersion mismatch")
 		})
 	}

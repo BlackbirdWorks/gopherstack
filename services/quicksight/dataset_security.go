@@ -1,8 +1,10 @@
 package quicksight
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const dataSetUseAsRLSRules = "RLS_RULES"
@@ -32,13 +34,13 @@ func validateDataSetSecurity(s DataSetSecurity, allowUseAs bool) error {
 }
 
 func cloneJSONValue[T any](v T) T {
-	raw, err := json.Marshal(v)
+	raw, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	var out T
-	if json.Unmarshal(raw, &out) != nil {
+	if json.Unmarshal(raw, &out, jsonx.V1()) != nil {
 		return v
 	}
 

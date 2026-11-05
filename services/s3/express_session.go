@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // s3ExpressSessionTTL matches real S3 Express One Zone: CreateSession
@@ -254,7 +256,7 @@ func validateSessionEncryptionContext(encoded, bucket string) error {
 	}
 
 	var kv map[string]string
-	if err = json.Unmarshal(raw, &kv); err != nil {
+	if err = json.Unmarshal(raw, &kv, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: encryption context must be a JSON object of strings", ErrInvalidArgument)
 	}
 

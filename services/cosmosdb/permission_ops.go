@@ -1,7 +1,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"net/http"
 	"time"
 
@@ -10,10 +10,10 @@ import (
 
 // permissionWire is the request body of a permission create or replace.
 type permissionWire struct {
-	ID           string          `json:"id"`
-	Mode         string          `json:"permissionMode"`
-	Resource     string          `json:"resource"`
-	PartitionKey json.RawMessage `json:"resourcePartitionKey"`
+	ID           string         `json:"id"`
+	Mode         string         `json:"permissionMode"`
+	Resource     string         `json:"resource"`
+	PartitionKey jsontext.Value `json:"resourcePartitionKey"`
 }
 
 func (h *Handler) handlePermissions(c *echo.Context, dbID, userID string) error {

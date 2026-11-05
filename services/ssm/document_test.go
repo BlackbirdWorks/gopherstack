@@ -2,7 +2,8 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -458,7 +460,7 @@ func TestGetCalendarState_WithCalendarDocument(t *testing.T) {
 	// GetCalendarState with the calendar name should succeed.
 	body, _ := json.Marshal(map[string]any{
 		"CalendarNames": []string{"MyCalendar"},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "GetCalendarState", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "OPEN")
@@ -478,7 +480,7 @@ func TestGetCalendarState_NonCalendarDocumentReturnsError(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"CalendarNames": []string{"NotACalendar"},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "GetCalendarState", string(body))
 	assert.NotEqual(t, http.StatusOK, rec.Code, "non-ChangeCalendar doc should return error")
 }
@@ -495,7 +497,7 @@ func TestHandler_CreateDocument_Duplicate(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
 
 	var errResp map[string]string
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &errResp, jsonx.V1()))
 	assert.Contains(t, errResp["__type"], "DocumentAlreadyExists")
 }
 func TestHandler_GetDocument(t *testing.T) {
@@ -549,7 +551,7 @@ func TestHandler_GetDocument(t *testing.T) {
 
 			if tt.wantDoc != "" {
 				var out ssm.GetDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantDoc, out.Name)
 			}
 		})
@@ -596,7 +598,7 @@ func TestHandler_DescribeDocument(t *testing.T) {
 
 			if tt.wantDoc != "" {
 				var out ssm.DescribeDocumentOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantDoc, out.Document.Name)
 			}
 		})
@@ -643,7 +645,7 @@ func TestHandler_ListDocuments(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var out ssm.ListDocumentsOutput
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(out.DocumentIdentifiers), tt.wantMin)
 		})
 	}

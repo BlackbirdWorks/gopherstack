@@ -1,10 +1,12 @@
 package redshift
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // slTableRestoreStatusWire is the wire shape for ServerlessTableRestoreStatus
@@ -73,7 +75,7 @@ func (r slTableRestoreReq) toParams() RestoreTableFromSnapshotParams {
 func (h *ServerlessHandler) handleRestoreTableFromSnapshot(c *echo.Context, body []byte) error {
 	var req slTableRestoreReq
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -96,7 +98,7 @@ func (h *ServerlessHandler) handleRestoreTableFromSnapshot(c *echo.Context, body
 func (h *ServerlessHandler) handleRestoreTableFromRecoveryPoint(c *echo.Context, body []byte) error {
 	var req slTableRestoreReq
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -121,7 +123,7 @@ func (h *ServerlessHandler) handleGetTableRestoreStatus(c *echo.Context, body []
 		TableRestoreRequestID string `json:"tableRestoreRequestId"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
@@ -146,7 +148,7 @@ func (h *ServerlessHandler) handleListTableRestoreStatus(c *echo.Context, body [
 	}
 
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return slBadRequest(c, "invalid request body")
 		}
 	}

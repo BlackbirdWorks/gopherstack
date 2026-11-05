@@ -2,7 +2,7 @@ package mediatailor_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediatailor"
 )
 
@@ -32,7 +33,7 @@ func doRequest(t *testing.T, h *mediatailor.Handler, method, path string, body a
 	if body != nil {
 		var err error
 
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -528,7 +529,7 @@ func TestHandler_TagsWireKey(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		// A PascalCase "Tags" key must NOT be how tags are surfaced.
 		_, wrongKeyPresent := resp["Tags"]
@@ -550,7 +551,7 @@ func TestHandler_TagsWireKey(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		tags, ok := resp["tags"].(map[string]any)
 		require.True(t, ok, "response must carry tags under lowercase 'tags' key")
@@ -568,7 +569,7 @@ func TestHandler_TagsWireKey(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		tags, ok := resp["tags"].(map[string]any)
 		require.True(t, ok, "response must carry tags under lowercase 'tags' key")
@@ -591,7 +592,7 @@ func TestHandler_ChannelTimestamps_EpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	creationTime, ok := resp["CreationTime"].(float64)
 	require.True(t, ok, "CreationTime must decode as a JSON number, got %T", resp["CreationTime"])
@@ -625,7 +626,7 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, _ := resp["Items"].([]any)
 		assert.Len(t, items, 1, "lowercase maxResults query param must limit the page size")
 		assert.NotEmpty(t, resp["NextToken"], "a NextToken must be returned when more pages remain")
@@ -643,7 +644,7 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, _ := resp["Items"].([]any)
 		assert.Len(t, items, 1, "PascalCase MaxResults query param must limit the page size")
 		assert.NotEmpty(t, resp["NextToken"], "a NextToken must be returned when more pages remain")
@@ -661,7 +662,7 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, _ := resp["Items"].([]any)
 		assert.Len(t, items, 1, "ListFunctions must actually paginate, not return every function")
 		assert.NotEmpty(t, resp["NextToken"], "a NextToken must be returned when more pages remain")
@@ -695,7 +696,7 @@ func TestHandler_PaginationQueryParamCasing(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		items, _ := resp["Items"].([]any)
 		assert.Len(t, items, 1, "GetChannelSchedule must actually paginate, not return every program")
 		assert.NotEmpty(t, resp["NextToken"], "a NextToken must be returned when more pages remain")

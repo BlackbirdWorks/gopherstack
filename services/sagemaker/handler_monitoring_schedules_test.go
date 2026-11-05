@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateMonitoringSchedule(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_CreateMonitoringSchedule(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["MonitoringScheduleArn"], "my-schedule")
 }
 
@@ -53,7 +55,7 @@ func TestHandler_DescribeMonitoringSchedule(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "sched-1", resp["MonitoringScheduleName"])
 	assert.Equal(t, "Scheduled", resp["MonitoringScheduleStatus"])
 	assert.Contains(t, resp, "MonitoringScheduleConfig")
@@ -73,7 +75,7 @@ func TestHandler_StopMonitoringSchedule(t *testing.T) {
 
 	rec = doSageMakerRequest(t, h, "DescribeMonitoringSchedule", map[string]any{"MonitoringScheduleName": "sched-stop"})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Stopped", resp["MonitoringScheduleStatus"])
 }
 
@@ -97,7 +99,7 @@ func TestHandler_StartMonitoringSchedule(t *testing.T) {
 		map[string]any{"MonitoringScheduleName": "sched-start"},
 	)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "Scheduled", resp["MonitoringScheduleStatus"])
 }
 
@@ -135,7 +137,7 @@ func TestHandler_ListMonitoringSchedules(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["MonitoringScheduleSummaries"].([]any)
 	assert.Len(t, items, 2)
 }

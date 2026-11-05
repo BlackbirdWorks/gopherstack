@@ -1,7 +1,7 @@
 package azurearm_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,6 +12,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/apimanagement/armapimanagement/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func serviceBody(sku string, capacity int) string {
@@ -26,7 +28,7 @@ func decodeProps(t *testing.T, body string) map[string]any {
 		Properties map[string]any `json:"properties"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(body), &out), body)
+	require.NoError(t, json.Unmarshal([]byte(body), &out, jsonx.V1()), body)
 
 	return out.Properties
 }
@@ -122,7 +124,10 @@ func TestAPIMLimits_PolicySize(t *testing.T) {
 			s.putAPI(t, "echo", "echo", "")
 
 			doc := "<policies><inbound>" + strings.Repeat("<base />", tc.bases) + "</inbound></policies>"
-			b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": doc}})
+			b, err := json.Marshal(
+				map[string]any{"properties": map[string]any{"format": "xml", "value": doc}},
+				jsonx.V1(),
+			)
 			require.NoError(t, err)
 
 			status, body, _ := s.raw(t, http.MethodPut, s.armPath("/apis/echo/policies/policy"), string(b), nil)
@@ -581,7 +586,10 @@ func TestAPIMPolicy_ReferenceRules(t *testing.T) {
 			s.devService(t)
 			s.putAPI(t, "echo", "echo", "")
 
-			b, err := json.Marshal(map[string]any{"properties": map[string]any{"format": "xml", "value": tc.doc}})
+			b, err := json.Marshal(
+				map[string]any{"properties": map[string]any{"format": "xml", "value": tc.doc}},
+				jsonx.V1(),
+			)
 			require.NoError(t, err)
 
 			status, body, _ := s.raw(t, http.MethodPut, s.armPath(tc.scope+"/policies/policy"), string(b), nil)

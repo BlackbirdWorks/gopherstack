@@ -1,7 +1,7 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -24,7 +25,7 @@ func TestHandler_DeploymentStrategy_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var strategy appconfig.DeploymentStrategy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strategy))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strategy, jsonx.V1()))
 	assert.Equal(t, "my-strategy", strategy.Name)
 
 	// Get.
@@ -88,14 +89,14 @@ func TestHandler_UpdateDeploymentStrategy_OmittedDescriptionPreserved(t *testing
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var strat appconfig.DeploymentStrategy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strat, jsonx.V1()))
 
 	rec = doRequest(t, h, http.MethodPatch, "/deploymentstrategies/"+strat.ID,
 		[]byte(`{"GrowthFactor":50}`))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updated appconfig.DeploymentStrategy
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated, jsonx.V1()))
 	assert.InDelta(t, float32(50), updated.GrowthFactor, 0.001)
 	assert.Equal(t, "keep-me", updated.Description, "omitted Description must be preserved")
 }
@@ -137,14 +138,14 @@ func TestHandler_CreateDeploymentStrategy_TagsAppliedInline(t *testing.T) {
 				"GrowthType":                  "LINEAR",
 				"ReplicateTo":                 "NONE",
 				"Tags":                        tt.tags,
-			})
+			}, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doRequest(t, h, http.MethodPost, "/deploymentstrategies", body)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var strategy appconfig.DeploymentStrategy
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strategy))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &strategy, jsonx.V1()))
 
 			resourceArn := "arn:aws:appconfig:us-east-1:123456789012:deploymentstrategy/" + strategy.ID
 			tagsRec := doRequest(t, h, http.MethodGet, "/tags/"+resourceArn, nil)
@@ -153,7 +154,7 @@ func TestHandler_CreateDeploymentStrategy_TagsAppliedInline(t *testing.T) {
 			var tagsResp struct {
 				Tags map[string]string `json:"Tags"`
 			}
-			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 
 			if len(tt.tags) == 0 {
 				assert.Empty(t, tagsResp.Tags)

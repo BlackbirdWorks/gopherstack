@@ -1,6 +1,12 @@
 package appconfig
 
-import "encoding/json"
+import (
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
+)
 
 // featureFlagDocument mirrors the parts of the real AWS.AppConfig.FeatureFlags
 // JSON schema this backend needs in order to validate CreateExperimentDefinition's
@@ -19,7 +25,7 @@ import "encoding/json"
 // feature flags), so it is documented and field-diffed against AWS's public
 // user-guide schema page directly rather than SDK-generated code.
 type featureFlagDocument struct {
-	Flags map[string]json.RawMessage `json:"flags"`
+	Flags map[string]jsontext.Value `json:"flags"`
 }
 
 // parseFeatureFlagKeys attempts to parse content as a real
@@ -39,7 +45,7 @@ func parseFeatureFlagKeys(content []byte) (map[string]struct{}, bool) {
 	}
 
 	var doc featureFlagDocument
-	if err := json.Unmarshal(content, &doc); err != nil || doc.Flags == nil {
+	if err := json.Unmarshal(content, &doc, jsonx.V1()); err != nil || doc.Flags == nil {
 		return nil, false
 	}
 

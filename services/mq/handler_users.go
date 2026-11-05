@@ -1,13 +1,14 @@
 package mq
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -27,7 +28,7 @@ type createUserBody struct {
 
 func (h *Handler) handleCreateUser(c *echo.Context, brokerID, username string, body []byte) error {
 	var in createUserBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -83,7 +84,7 @@ type updateUserBody struct {
 
 func (h *Handler) handleUpdateUser(c *echo.Context, brokerID, username string, body []byte) error {
 	var in updateUserBody
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

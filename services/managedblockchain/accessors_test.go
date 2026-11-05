@@ -2,7 +2,8 @@ package managedblockchain_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/managedblockchain"
 )
 
@@ -70,7 +72,7 @@ func TestHandler_CreateAccessor(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantKey != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, tt.wantKey)
 			}
 		})
@@ -111,7 +113,7 @@ func TestHandler_GetAccessor(t *testing.T) {
 			var out struct {
 				AccessorID string `json:"AccessorId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &out, jsonx.V1()))
 
 			id := tt.accessorID
 			if id == "" {
@@ -123,7 +125,7 @@ func TestHandler_GetAccessor(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "Accessor")
 			}
 		})
@@ -155,7 +157,7 @@ func TestHandler_DeleteAccessor(t *testing.T) {
 			var out struct {
 				AccessorID string `json:"AccessorId"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &out, jsonx.V1()))
 
 			rec := doRequest(t, h, http.MethodDelete, "/accessors/"+out.AccessorID, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -171,7 +173,7 @@ func TestHandler_DeleteAccessor(t *testing.T) {
 					Status string `json:"Status"`
 				} `json:"Accessor"`
 			}
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 			assert.Equal(t, "PENDING_DELETION", getOut.Accessor.Status)
 		})
 	}
@@ -208,7 +210,7 @@ func TestHandler_ListAccessors(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			accessors, ok := resp["Accessors"].([]any)
 			require.True(t, ok)
@@ -246,7 +248,7 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 				BillingToken string `json:"BillingToken"`
 				NetworkType  string `json:"NetworkType"`
 			}
-			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(createRec.Body), &createOut, jsonx.V1()))
 			assert.NotEmpty(t, createOut.AccessorID)
 			assert.NotEmpty(t, createOut.BillingToken)
 			assert.Equal(t, "ETHEREUM_MAINNET", createOut.NetworkType)
@@ -258,7 +260,7 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 			var getOut struct {
 				Accessor map[string]any `json:"Accessor"`
 			}
-			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 			assert.Equal(t, "AVAILABLE", getOut.Accessor["Status"])
 
 			// List.
@@ -268,7 +270,7 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 			var listOut struct {
 				Accessors []map[string]any `json:"Accessors"`
 			}
-			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 			assert.Len(t, listOut.Accessors, 1)
 
 			// Delete.
@@ -284,7 +286,7 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 			var listOut2 struct {
 				Accessors []map[string]any `json:"Accessors"`
 			}
-			require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec2.Body), &listOut2, jsonx.V1()))
 			require.Len(t, listOut2.Accessors, 1)
 			assert.Equal(t, "PENDING_DELETION", listOut2.Accessors[0]["Status"])
 		})
@@ -359,7 +361,7 @@ func TestHandler_ListAccessorsFilters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			accessors := resp["Accessors"].([]any)
 			assert.Len(t, accessors, tt.wantCount)
@@ -474,7 +476,7 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 			accessorID, _ := createResp["AccessorId"].(string)
 			require.NotEmpty(t, accessorID)
@@ -485,7 +487,7 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 
 			accessor := getResp["Accessor"].(map[string]any)
 			assert.Equal(t, accessorID, accessor["Id"])
@@ -496,7 +498,7 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec3.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp, jsonx.V1()))
 			accessors := listResp["Accessors"].([]any)
 			assert.Len(t, accessors, 1)
 
@@ -511,7 +513,7 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec5.Code)
 
 			var getResp5 map[string]any
-			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &getResp5))
+			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &getResp5, jsonx.V1()))
 			accessor5 := getResp5["Accessor"].(map[string]any)
 			assert.Equal(t, "PENDING_DELETION", accessor5["Status"])
 		})

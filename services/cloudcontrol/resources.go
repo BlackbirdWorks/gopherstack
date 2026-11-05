@@ -1,7 +1,7 @@
 package cloudcontrol
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"sort"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -122,7 +123,7 @@ func (b *InMemoryBackend) ListResources(
 	var modelFilter map[string]any
 
 	if resourceModel != "" {
-		if err := json.Unmarshal([]byte(resourceModel), &modelFilter); err != nil {
+		if err := json.Unmarshal([]byte(resourceModel), &modelFilter, jsonx.V1()); err != nil {
 			return []*Resource{}, ""
 		}
 	}
@@ -433,7 +434,7 @@ func extractIdentifier(desiredState string) string {
 	}
 
 	var props map[string]any
-	if err := json.Unmarshal([]byte(desiredState), &props); err != nil {
+	if err := json.Unmarshal([]byte(desiredState), &props, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -462,7 +463,7 @@ func matchesResourceModel(properties string, modelFilter map[string]any) bool {
 	}
 
 	var props map[string]any
-	if err := json.Unmarshal([]byte(properties), &props); err != nil {
+	if err := json.Unmarshal([]byte(properties), &props, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -472,8 +473,8 @@ func matchesResourceModel(properties string, modelFilter map[string]any) bool {
 			return false
 		}
 
-		wantJSON, errW := json.Marshal(want)
-		gotJSON, errG := json.Marshal(got)
+		wantJSON, errW := json.Marshal(want, jsonx.V1())
+		gotJSON, errG := json.Marshal(got, jsonx.V1())
 
 		if errW != nil || errG != nil || string(wantJSON) != string(gotJSON) {
 			return false
@@ -508,13 +509,13 @@ type patchOperation struct {
 // unchanged with no error (also pre-existing).
 func applyPatch(document, patchDocument string) (string, error) {
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(document), &doc); err != nil {
+	if err := json.Unmarshal([]byte(document), &doc, jsonx.V1()); err != nil {
 		//nolint:nilerr // malformed document: return it unchanged, not an error (pre-existing behavior)
 		return document, nil
 	}
 
 	var ops []patchOperation
-	if err := json.Unmarshal([]byte(patchDocument), &ops); err != nil {
+	if err := json.Unmarshal([]byte(patchDocument), &ops, jsonx.V1()); err != nil {
 		//nolint:nilerr // malformed patch JSON: return document unchanged, not an error (pre-existing behavior)
 		return document, nil
 	}
@@ -528,7 +529,7 @@ func applyPatch(document, patchDocument string) (string, error) {
 		}
 	}
 
-	out, err := json.Marshal(doc)
+	out, err := json.Marshal(doc, jsonx.V1())
 	if err != nil {
 		//nolint:nilerr // doc built entirely from valid JSON decodes, so this can't actually fail; fail closed anyway
 		return document, nil
@@ -705,8 +706,8 @@ func deepCopyJSON(v any) any {
 // comparing equal -- both decode to the same float64 and marshal back
 // identically) -- same convention as matchesResourceModel above.
 func jsonValuesEqual(a, b any) bool {
-	aJSON, errA := json.Marshal(a)
-	bJSON, errB := json.Marshal(b)
+	aJSON, errA := json.Marshal(a, jsonx.V1())
+	bJSON, errB := json.Marshal(b, jsonx.V1())
 
 	return errA == nil && errB == nil && string(aJSON) == string(bJSON)
 }

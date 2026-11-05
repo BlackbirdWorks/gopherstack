@@ -1,13 +1,14 @@
 package athena_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/athena"
 )
 
@@ -24,7 +25,7 @@ func listPage(t *testing.T, h *athena.Handler, maxResults int, token string) ([]
 		NextToken         string   `json:"NextToken"`
 		QueryExecutionIDs []string `json:"QueryExecutionIds"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp.QueryExecutionIDs, resp.NextToken
 }
@@ -53,7 +54,7 @@ func itoa(n int) string {
 }
 
 func jsonString(s string) string {
-	b, _ := json.Marshal(s)
+	b, _ := json.Marshal(s, jsonx.V1())
 
 	return string(b)
 }
@@ -142,7 +143,7 @@ func TestPagination_ForgedTokenRejected(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", errResp["__type"])
 		})
 	}

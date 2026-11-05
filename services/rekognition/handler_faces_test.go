@@ -1,13 +1,15 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rekognition"
 )
 
@@ -33,7 +35,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				records, _ := resp["FaceRecords"].([]any)
 				assert.Len(t, records, 1)
 			},
@@ -46,7 +48,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 			},
 		},
@@ -62,7 +64,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				faces, _ := resp["Faces"].([]any)
 				assert.Len(t, faces, 1)
 			},
@@ -82,7 +84,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotNil(t, resp["DeletedFaces"])
 			},
 		},
@@ -100,7 +102,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterException", resp["__type"])
 			},
 		},
@@ -116,7 +118,7 @@ func TestRekognition_Faces(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				matches, _ := resp["FaceMatches"].([]any)
 				assert.Len(t, matches, 1)
 			},
@@ -167,7 +169,7 @@ func TestListFaces_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1, jsonx.V1()))
 
 	faces1, _ := page1["Faces"].([]any)
 	require.Len(t, faces1, 2)
@@ -183,7 +185,7 @@ func TestListFaces_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var page2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page2, jsonx.V1()))
 
 	faces2, _ := page2["Faces"].([]any)
 	require.Len(t, faces2, 1)
@@ -216,7 +218,7 @@ func TestSearchFaces_RealFaceId_ReturnsMatches(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var idx1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx1, jsonx.V1()))
 	records, _ := idx1["FaceRecords"].([]any)
 	require.Len(t, records, 1)
 	rec1, _ := records[0].(map[string]any)
@@ -241,7 +243,7 @@ func TestSearchFaces_RealFaceId_ReturnsMatches(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var sf map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sf))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &sf, jsonx.V1()))
 	matches, _ := sf["FaceMatches"].([]any)
 	assert.Len(t, matches, 2)
 	assert.Equal(t, faceID, sf["SearchedFaceId"])
@@ -264,7 +266,7 @@ func TestSearchFaces_UnknownFaceId_Returns404(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -286,7 +288,7 @@ func TestDeleteFaces_BySpecificIDs(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var idx map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx, jsonx.V1()))
 		records, _ := idx["FaceRecords"].([]any)
 		rec0, _ := records[0].(map[string]any)
 		face, _ := rec0["Face"].(map[string]any)
@@ -301,7 +303,7 @@ func TestDeleteFaces_BySpecificIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp, jsonx.V1()))
 	deleted, _ := delResp["DeletedFaces"].([]any)
 	assert.Len(t, deleted, 2)
 
@@ -310,7 +312,7 @@ func TestDeleteFaces_BySpecificIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var lf map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lf))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lf, jsonx.V1()))
 	remaining, _ := lf["Faces"].([]any)
 	require.Len(t, remaining, 1)
 	remainFace, _ := remaining[0].(map[string]any)
@@ -329,7 +331,7 @@ func TestListFaces_UnknownCollection_Returns400(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 }
 
@@ -346,14 +348,14 @@ func TestListFaces_EmptyCollection_ReturnsNonNullSlice(t *testing.T) {
 	rec := doRequest(t, h, "ListFaces", map[string]any{"CollectionId": "empty-faces-coll"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasFaces := raw["Faces"]
 	assert.True(t, hasFaces, "Faces field must be present")
 
 	var faces []any
-	require.NoError(t, json.Unmarshal(raw["Faces"], &faces))
+	require.NoError(t, json.Unmarshal(raw["Faces"], &faces, jsonx.V1()))
 	assert.NotNil(t, faces, "Faces must not be null")
 }
 
@@ -374,7 +376,7 @@ func TestIndexFaces_ExternalImageId_RoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var idx map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx, jsonx.V1()))
 	records, _ := idx["FaceRecords"].([]any)
 	require.Len(t, records, 1)
 	rec0, _ := records[0].(map[string]any)
@@ -386,7 +388,7 @@ func TestIndexFaces_ExternalImageId_RoundTrips(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var lf map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &lf))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &lf, jsonx.V1()))
 	faces, _ := lf["Faces"].([]any)
 	require.Len(t, faces, 1)
 	f0, _ := faces[0].(map[string]any)
@@ -404,7 +406,7 @@ func decodeFaceIDs(t *testing.T, body []byte) []string {
 			} `json:"Face"`
 		} `json:"FaceRecords"`
 	}
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 
 	ids := make([]string, 0, len(resp.FaceRecords))
 	for _, r := range resp.FaceRecords {
@@ -437,7 +439,7 @@ func TestIndexFaces_ConfidenceDeterministicAndPlausible(t *testing.T) {
 				} `json:"Face"`
 			} `json:"FaceRecords"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		require.Len(t, resp.FaceRecords, 1)
 
 		conf := resp.FaceRecords[0].Face.Confidence
@@ -487,7 +489,7 @@ func TestSearchFaces_SimilarityDeterministic(t *testing.T) {
 				Similarity float64 `json:"Similarity"`
 			} `json:"FaceMatches"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		require.Len(t, resp.FaceMatches, 1)
 
 		return resp.FaceMatches[0].Similarity
@@ -522,7 +524,7 @@ func TestSearchFaces_SameExternalImageId_ScoresExactMatch(t *testing.T) {
 			Similarity float64 `json:"Similarity"`
 		} `json:"FaceMatches"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.FaceMatches, 1)
 	assert.InDelta(t, 100.0, resp.FaceMatches[0].Similarity, 1e-9,
 		"faces sharing an ExternalImageId must score an exact match")
@@ -549,7 +551,7 @@ func TestSearchFacesByImage_SimilarityDependsOnImage(t *testing.T) {
 				Similarity float64 `json:"Similarity"`
 			} `json:"FaceMatches"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		require.Len(t, resp.FaceMatches, 1)
 
 		return resp.FaceMatches[0].Similarity
@@ -587,7 +589,7 @@ func TestFaceRoundTrip_IndexSearchListDelete(t *testing.T) {
 			FaceID string `json:"FaceId"`
 		} `json:"Faces"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list, jsonx.V1()))
 	require.Len(t, list.Faces, 2)
 
 	// SearchFaces from id1 finds id2. FaceMatchThreshold explicitly 0: this
@@ -608,7 +610,7 @@ func TestFaceRoundTrip_IndexSearchListDelete(t *testing.T) {
 			} `json:"Face"`
 		} `json:"FaceMatches"`
 	}
-	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &search))
+	require.NoError(t, json.Unmarshal(searchRec.Body.Bytes(), &search, jsonx.V1()))
 	require.Len(t, search.FaceMatches, 1)
 	assert.Equal(t, id2, search.FaceMatches[0].Face.FaceID)
 
@@ -621,9 +623,9 @@ func TestFaceRoundTrip_IndexSearchListDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, searchRec2.Code)
 
 	var search2 struct {
-		FaceMatches []json.RawMessage `json:"FaceMatches"`
+		FaceMatches []jsontext.Value `json:"FaceMatches"`
 	}
-	require.NoError(t, json.Unmarshal(searchRec2.Body.Bytes(), &search2))
+	require.NoError(t, json.Unmarshal(searchRec2.Body.Bytes(), &search2, jsonx.V1()))
 	assert.Empty(t, search2.FaceMatches)
 
 	// SearchFaces for the deleted id returns ResourceNotFoundException.
@@ -647,7 +649,7 @@ func TestImageAnalysis_CompareFaces(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["FaceMatches"])
 	assert.NotNil(t, resp["SourceImageFace"])
 }
@@ -660,7 +662,7 @@ func TestImageAnalysis_DetectFaces(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["FaceDetails"])
 }
 
@@ -713,7 +715,7 @@ func TestImageAnalysis_EnumValidation(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", resp["__type"])
 		})
 	}
@@ -779,7 +781,7 @@ func TestAsyncVideoJobs_Faces(t *testing.T) { //nolint:paralleltest // stateful 
 			checkGet: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "SUCCEEDED", resp["JobStatus"])
 				assert.NotNil(t, resp["Faces"])
 			},
@@ -791,7 +793,7 @@ func TestAsyncVideoJobs_Faces(t *testing.T) { //nolint:paralleltest // stateful 
 			checkGet: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "SUCCEEDED", resp["JobStatus"])
 				assert.NotNil(t, resp["Persons"])
 			},
@@ -805,7 +807,7 @@ func TestAsyncVideoJobs_Faces(t *testing.T) { //nolint:paralleltest // stateful 
 			require.Equal(t, http.StatusOK, rec.Code, flow.startAction)
 
 			var startResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 			jobID, ok := startResp["JobId"].(string)
 			require.True(t, ok)
 			assert.NotEmpty(t, jobID)
@@ -815,7 +817,7 @@ func TestAsyncVideoJobs_Faces(t *testing.T) { //nolint:paralleltest // stateful 
 			require.Equal(t, http.StatusOK, rec.Code, flow.getAction)
 
 			var firstResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 			assert.Equal(t, "IN_PROGRESS", firstResp["JobStatus"])
 
 			// Second poll returns SUCCEEDED

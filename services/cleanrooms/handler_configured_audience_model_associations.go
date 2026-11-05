@@ -2,9 +2,11 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
@@ -15,7 +17,7 @@ func (h *Handler) handleGetCollaborationConfiguredAudienceModelAssociation(
 		CollaborationIdentifier                      string `json:"collaborationIdentifier"`
 		ConfiguredAudienceModelAssociationIdentifier string `json:"configuredAudienceModelAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.GetCollaborationConfiguredAudienceModelAssociation(
 		req.CollaborationIdentifier,
 		req.ConfiguredAudienceModelAssociationIdentifier,
@@ -35,7 +37,7 @@ func (h *Handler) handleListCollaborationConfiguredAudienceModelAssociations(
 	var req struct {
 		CollaborationIdentifier string `json:"collaborationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListCollaborationConfiguredAudienceModelAssociations(
 		req.CollaborationIdentifier,
 		qp(c, "maxResults"),
@@ -68,7 +70,7 @@ func (h *Handler) handleCreateConfiguredAudienceModelAssociation(
 		Description            string `json:"description"`
 		ManageResourcePolicies bool   `json:"manageResourcePolicies"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.CreateConfiguredAudienceModelAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredAudienceModelArn,
@@ -92,7 +94,7 @@ func (h *Handler) handleGetConfiguredAudienceModelAssociation(
 		MembershipIdentifier                         string `json:"membershipIdentifier"`
 		ConfiguredAudienceModelAssociationIdentifier string `json:"configuredAudienceModelAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.GetConfiguredAudienceModelAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredAudienceModelAssociationIdentifier,
@@ -112,7 +114,7 @@ func (h *Handler) handleListConfiguredAudienceModelAssociations(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListConfiguredAudienceModelAssociations(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -139,7 +141,7 @@ func (h *Handler) handleUpdateConfiguredAudienceModelAssociation(
 		Name                                         string `json:"name"`
 		Description                                  string `json:"description"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.UpdateConfiguredAudienceModelAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredAudienceModelAssociationIdentifier,
@@ -161,7 +163,7 @@ func (h *Handler) handleDeleteConfiguredAudienceModelAssociation(
 		MembershipIdentifier                         string `json:"membershipIdentifier"`
 		ConfiguredAudienceModelAssociationIdentifier string `json:"configuredAudienceModelAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteConfiguredAudienceModelAssociation(
 		req.MembershipIdentifier,

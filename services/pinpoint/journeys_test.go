@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +13,8 @@ import (
 	pinpointtypes "github.com/aws/aws-sdk-go-v2/service/pinpoint/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestJourneyFullDTO_Create(t *testing.T) {
@@ -146,7 +149,7 @@ func TestJourneyFullDTO_Create(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys", tc.body)
@@ -157,7 +160,7 @@ func TestJourneyFullDTO_Create(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotEmpty(t, resp["Id"])
 			assert.Equal(t, appID, resp["ApplicationId"])
@@ -285,14 +288,14 @@ func TestJourneyStateValidation(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys",
 				map[string]any{"Name": "j"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			journeyID := created["Id"].(string)
 
 			for _, state := range tc.setupTransitions {
@@ -318,14 +321,14 @@ func TestJourneyUpdate_BlockedWhenActive(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys",
 		map[string]any{"Name": "j"})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	journeyID := created["Id"].(string)
 
 	// Activate the journey.
@@ -346,7 +349,7 @@ func TestJourneyUpdate_BlockedWhenActive(t *testing.T) {
 	require.Equal(t, http.StatusConflict, updateRec.Code, updateRec.Body.String())
 
 	var errResp map[string]string
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ConflictException", errResp["__type"])
 }
 
@@ -469,14 +472,14 @@ func TestJourneyUpdate_RoundTrip(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/journeys",
 				map[string]any{"Name": "j"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			journeyID := created["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPut,
@@ -484,7 +487,7 @@ func TestJourneyUpdate_RoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.NotNil(t, resp[tc.checkField], "%s field must be non-nil after update", tc.checkField)
 		})
@@ -503,7 +506,7 @@ func TestJourney_MultipleActivities_RoundTrip(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	activities := map[string]any{
@@ -538,7 +541,7 @@ func TestJourney_MultipleActivities_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	returnedActivities, _ := resp["Activities"].(map[string]any)
 	assert.Len(t, returnedActivities, 3, "all 3 activities round-trip")
@@ -565,7 +568,7 @@ func TestPagination_Journeys_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, p1Rec.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1, jsonx.V1()))
 
 	items1, _ := p1["Item"].([]any)
 	assert.Len(t, items1, 2)
@@ -576,7 +579,7 @@ func TestPagination_Journeys_NextToken(t *testing.T) {
 	p2Rec := doPinpointRequest(t, h, http.MethodGet,
 		"/v1/apps/"+appID+"/journeys?page-size=2&token="+tok, nil)
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2, jsonx.V1()))
 
 	items2, _ := p2["Item"].([]any)
 	assert.Len(t, items2, 1, "last page returns remaining journey")
@@ -599,7 +602,7 @@ func TestJourneyCRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	journeyID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, journeyID)
 
@@ -695,7 +698,7 @@ func TestJourneyARNPresent(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.NotContains(t, resp, "Arn")
 }
 
@@ -737,7 +740,7 @@ func TestHandler_CreateJourney(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.Equal(t, appID, resp["ApplicationId"])
 				assert.Equal(t, "DRAFT", resp["State"])
@@ -770,7 +773,7 @@ func TestHandler_GetJourneys_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			created[resp["Id"].(string)] = true
 		}
 
@@ -782,7 +785,7 @@ func TestHandler_GetJourneys_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			for _, item := range items {

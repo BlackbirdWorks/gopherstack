@@ -1,8 +1,10 @@
 package pipes
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // epochSecondsPtr converts *time.Time into the epoch-seconds-with-millisecond-
@@ -44,7 +46,7 @@ func (k KinesisStreamSourceParameters) MarshalJSON() ([]byte, error) {
 	}{
 		StartingPositionTimestamp: epochSecondsPtr(k.StartingPositionTimestamp),
 		alias:                     alias(k),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of MarshalJSON. Without it, a real client's
@@ -59,7 +61,7 @@ func (k *KinesisStreamSourceParameters) UnmarshalJSON(data []byte) error {
 		*alias
 	}{alias: (*alias)(k)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -1,7 +1,7 @@
 package waf_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/waf"
 )
 
@@ -24,7 +25,7 @@ func wafCreateRule(t *testing.T, h *waf.Handler, name string) string {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ruleMap := resp["Rule"].(map[string]any)
 	id := ruleMap["RuleId"].(string)
 	require.NotEmpty(t, id)
@@ -45,7 +46,7 @@ func TestWAF_Rule_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["Rule"].(map[string]any)
 	assert.Equal(t, "my-rule", rule["Name"])
 	assert.Equal(t, id, rule["RuleId"])
@@ -55,7 +56,7 @@ func TestWAF_Rule_CreateGetDeleteList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	rules := listResp["Rules"].([]any)
 	assert.Len(t, rules, 1)
 
@@ -97,7 +98,7 @@ func TestWAF_Rule_UpdatePredicates_InsertDelete(t *testing.T) {
 	// Verify predicate
 	rec = wafDo(t, h, "GetRule", map[string]any{"RuleId": id})
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule := resp["Rule"].(map[string]any)
 	predicates := rule["Predicates"].([]any)
 	require.Len(t, predicates, 1)
@@ -124,7 +125,7 @@ func TestWAF_Rule_UpdatePredicates_InsertDelete(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = wafDo(t, h, "GetRule", map[string]any{"RuleId": id})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	rule = resp["Rule"].(map[string]any)
 	predicates = rule["Predicates"].([]any)
 	assert.Empty(t, predicates)

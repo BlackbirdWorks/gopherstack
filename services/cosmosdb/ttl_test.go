@@ -1,7 +1,6 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -143,7 +143,7 @@ func TestTTL_ExpiredReadsAsAbsentForWrites(t *testing.T) {
 
 	info, err := b.GetDocument("d", "c", `"a"`, "x")
 	require.NoError(t, err)
-	assert.Equal(t, json.Number("2"), info.Body["v"])
+	assert.Equal(t, jsonx.Number("2"), info.Body["v"])
 }
 
 func TestTTL_SweepRemovesExpired(t *testing.T) {

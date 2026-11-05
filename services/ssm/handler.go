@@ -2,7 +2,7 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -132,7 +133,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -185,7 +186,7 @@ type ssmActionFn func(context.Context, []byte) (any, error)
 func jsonOp[I, O any](fn func(context.Context, *I) (O, error), checks ...func(*I) error) ssmActionFn {
 	return func(ctx context.Context, b []byte) (any, error) {
 		var input I
-		if err := json.Unmarshal(b, &input); err != nil {
+		if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 
@@ -239,7 +240,7 @@ func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
 		"AddTagsToResource": func(ctx context.Context, b []byte) (any, error) {
 			var input AddTagsToResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -247,7 +248,7 @@ func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 		},
 		"RemoveTagsFromResource": func(ctx context.Context, b []byte) (any, error) {
 			var input RemoveTagsFromResourceInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -316,7 +317,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(response)
+	return json.Marshal(response, jsonx.V1())
 }
 
 // classifySSMError maps a backend error to an HTTP status code and error type string.
@@ -562,7 +563,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		Message: reqErr.Error(),
 	}
 
-	payload, _ := json.Marshal(errResp)
+	payload, _ := json.Marshal(errResp, jsonx.V1())
 
 	return c.JSONBlob(statusCode, payload)
 }

@@ -1,7 +1,7 @@
 package gcplogging
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"hash/fnv"
 	"math"
 	"net/url"
@@ -13,6 +13,8 @@ import (
 	ltype "google.golang.org/genproto/googleapis/logging/type"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // entryDoc lazily renders a log entry as JSON-shaped data for filter evaluation.
@@ -42,7 +44,7 @@ func (d *entryDoc) doc() map[string]any {
 		raw, _ = protojson.Marshal(stripped)
 	}
 
-	_ = json.Unmarshal(raw, &d.m)
+	_ = json.Unmarshal(raw, &d.m, jsonx.V1())
 
 	return d.m
 }
@@ -199,7 +201,7 @@ func scalarString(v any) string {
 		return ""
 	}
 
-	b, _ := json.Marshal(v)
+	b, _ := json.Marshal(v, jsonx.V1())
 
 	return string(b)
 }

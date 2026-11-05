@@ -2,7 +2,8 @@ package gcpfunctions
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpevents"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpscale"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -303,7 +305,11 @@ func (b *InMemoryBackend) serveEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var env pushEnvelope
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEventBytes)).Decode(&env); err != nil {
+	if err := json.UnmarshalDecode(
+		jsontext.NewDecoder(http.MaxBytesReader(w, r.Body, maxEventBytes)),
+		&env,
+		jsonx.V1(),
+	); err != nil {
 		http.Error(w, "invalid push envelope: "+err.Error(), http.StatusBadRequest)
 
 		return
@@ -315,7 +321,7 @@ func (b *InMemoryBackend) serveEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := json.Marshal(env)
+	body, err := json.Marshal(env, jsonx.V1())
 	if err != nil {
 		http.Error(w, "encode event: "+err.Error(), http.StatusInternalServerError)
 

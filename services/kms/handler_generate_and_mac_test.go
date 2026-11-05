@@ -2,7 +2,7 @@ package kms_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"strings"
@@ -38,12 +39,12 @@ func TestVerifyMac_Handler(t *testing.T) {
 		"MacAlgorithm": "HMAC_SHA_256",
 		"Message":      msg,
 		"Mac":          macOut.Mac,
-	})
+	}, jsonx.V1())
 	rec := sendKMSOp(t, h, "VerifyMac", string(bodyBytes))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var verOut kms.VerifyMacOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verOut, jsonx.V1()))
 	assert.True(t, verOut.MacValid)
 }
 
@@ -63,10 +64,10 @@ func TestKMSHandlerGenerateDataKey(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(createReq, createRec)))
 
 	var createOut kms.CreateKeyOutput
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut.KeyMetadata.KeyID
 
-	body, _ := json.Marshal(map[string]string{"KeyID": keyID, "KeySpec": "AES_256"})
+	body, _ := json.Marshal(map[string]string{"KeyID": keyID, "KeySpec": "AES_256"}, jsonx.V1())
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
 	req.Header.Set("X-Amz-Target", "TrentService.GenerateDataKey")
 	rec := httptest.NewRecorder()
@@ -74,7 +75,7 @@ func TestKMSHandlerGenerateDataKey(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out kms.GenerateDataKeyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Len(t, out.Plaintext, 32)
 	assert.NotEmpty(t, out.CiphertextBlob)
 }
@@ -90,11 +91,11 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	require.NoError(t, err)
 	keyID := keyOut.KeyMetadata.KeyID
 
-	body, _ := json.Marshal(map[string]string{"KeyId": keyID, "KeySpec": "AES_256"})
+	body, _ := json.Marshal(map[string]string{"KeyId": keyID, "KeySpec": "AES_256"}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "GenerateDataKeyWithoutPlaintext", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var out kms.GenerateDataKeyWithoutPlaintextOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.CiphertextBlob)
 	assert.Equal(t, keyOut.KeyMetadata.Arn, out.KeyID)
 }
@@ -129,7 +130,7 @@ func TestKMS_InvalidKeySpec_Returns400UnsupportedOperationException(t *testing.T
 				body, err := json.Marshal(map[string]string{
 					"KeyId":       wrapKeyID,
 					"KeyPairSpec": "BOGUS_SPEC",
-				})
+				}, jsonx.V1())
 				require.NoError(t, err)
 
 				return "TrentService.GenerateDataKeyPair", string(body)
@@ -165,7 +166,7 @@ func TestKMS_InvalidKeySpec_Returns400UnsupportedOperationException(t *testing.T
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errResp kms.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, "UnsupportedOperationException", errResp.Type)
 		})
 	}

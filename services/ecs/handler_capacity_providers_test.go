@@ -1,13 +1,14 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -34,7 +35,7 @@ func TestCapacityProvider_ASGBacked_Roundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cp := out["capacityProvider"].(map[string]any)
 	require.Equal(t, "asg-cp", cp["name"])
 
@@ -69,7 +70,7 @@ func TestCapacityProvider_ASGBacked_NoManagedScaling(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cp := out["capacityProvider"].(map[string]any)
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
 	assert.Nil(t, asg["managedScaling"])
@@ -93,7 +94,7 @@ func TestCapacityProvider_FARGATE_Types(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	providers := out["capacityProviders"].([]any)
 	require.Len(t, providers, 2)
 
@@ -141,7 +142,7 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	cp := out["capacityProvider"].(map[string]any)
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
 	ms := asg["managedScaling"].(map[string]any)
@@ -160,7 +161,7 @@ func TestCapacityProvider_DeleteByARN(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createResp.Code)
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut, jsonx.V1()))
 	cpArn := createOut["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
 	require.NotEmpty(t, cpArn)
 
@@ -192,7 +193,7 @@ func TestCapacityProvider_FARGATE_BuiltIn_DescribeWithoutCreate(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	providers := out["capacityProviders"].([]any)
 	require.Len(t, providers, 1)
 	cp := providers[0].(map[string]any)
@@ -211,7 +212,7 @@ func TestCapacityProvider_FARGATE_SPOT_BuiltIn(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	providers := out["capacityProviders"].([]any)
 	require.Len(t, providers, 2)
 
@@ -242,7 +243,7 @@ func TestCapacityProvider_FARGATE_BuiltIn_WithCreated(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	providers := out["capacityProviders"].([]any)
 	require.Len(t, providers, 2)
 
@@ -267,7 +268,7 @@ func TestCapacityProvider_Unknown_ReturnsFailure(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["capacityProviders"])
 
 	failures := out["failures"].([]any)
@@ -322,7 +323,7 @@ func TestECS_CreateCapacityProvider(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cp, ok := resp["capacityProvider"].(map[string]any)
 			require.True(t, ok)
@@ -395,7 +396,7 @@ func TestECS_DeleteCapacityProvider(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cp, ok := resp["capacityProvider"].(map[string]any)
 			require.True(t, ok)
@@ -514,7 +515,7 @@ func TestECS_DescribeCapacityProviders(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			providers, ok := resp["capacityProviders"].([]any)
 			require.True(t, ok)
@@ -540,7 +541,7 @@ func TestECS_DescribeCapacityProviders_SortedByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	providers, ok := resp["capacityProviders"].([]any)
 	require.True(t, ok)
@@ -559,7 +560,7 @@ func TestECS_DescribeCapacityProviders_ByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	arn := createResp["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
 
@@ -572,7 +573,7 @@ func TestECS_DescribeCapacityProviders_ByARN(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	providers, ok := resp["capacityProviders"].([]any)
 	require.True(t, ok)
@@ -713,7 +714,7 @@ func TestDescribeCapacityProviders_Sorted(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			cps, ok := resp["capacityProviders"].([]any)
 			require.True(t, ok)
@@ -750,7 +751,7 @@ func TestDescribeCapacityProviders_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		cp := resp["capacityProviders"].([]any)[0].(map[string]any)
 		assert.Nil(t, cp["tags"])
 	})
@@ -765,7 +766,7 @@ func TestDescribeCapacityProviders_TagsRequireInclude(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		cp := resp["capacityProviders"].([]any)[0].(map[string]any)
 		tags := cp["tags"].([]any)
 		require.Len(t, tags, 1)
@@ -797,7 +798,7 @@ func TestDescribeCapacityProviders_ClusterFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cps := resp["capacityProviders"].([]any)
 	require.Len(t, cps, 2)
 
@@ -825,7 +826,7 @@ func TestDescribeCapacityProviders_ClusterFilter_UnknownCluster(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cps := resp["capacityProviders"].([]any)
 	assert.Empty(t, cps)
 }

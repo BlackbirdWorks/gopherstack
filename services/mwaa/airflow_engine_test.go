@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mwaa"
 )
 
@@ -414,7 +415,7 @@ func TestAirflowEngine_CLIAndTokens(t *testing.T) {
 
 	var tok map[string]string
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok, jsonx.V1()))
 	assert.NotEmpty(t, tok["CliToken"])
 
 	tests := []struct {
@@ -442,7 +443,7 @@ func TestAirflowEngine_CLIAndTokens(t *testing.T) {
 
 			var resp map[string]string
 
-			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(out.Body.Bytes(), &resp, jsonx.V1()))
 			stdout, err := base64.StdEncoding.DecodeString(resp["stdout"])
 			require.NoError(t, err)
 			stderr, err := base64.StdEncoding.DecodeString(resp["stderr"])
@@ -466,7 +467,7 @@ func TestAirflowEngine_WebLoginAndRest(t *testing.T) {
 
 	var tok map[string]string
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tok, jsonx.V1()))
 
 	env, err := rig.b.GetEnvironment(t.Context(), "web")
 	require.NoError(t, err)

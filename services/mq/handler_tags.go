@@ -1,10 +1,12 @@
 package mq
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListTags(c *echo.Context, resourceARN string) error {
@@ -22,7 +24,7 @@ type createTagsInput struct {
 
 func (h *Handler) handleCreateTags(c *echo.Context, resourceARN string, body []byte) error {
 	var in createTagsInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

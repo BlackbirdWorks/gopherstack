@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -24,7 +25,7 @@ type createTrialInput struct {
 func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, error) {
 	var req createTrialInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -41,7 +42,7 @@ func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, e
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: created trial", "name", t.TrialName)
 
-	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn})
+	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn}, jsonx.V1())
 }
 
 // describeTrialInput mirrors DescribeTrialInput (api_op_DescribeTrial.go:29-36).
@@ -52,7 +53,7 @@ type describeTrialInput struct {
 func (h *Handler) handleDescribeTrial(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeTrialInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -86,7 +87,7 @@ func (h *Handler) handleDescribeTrial(ctx context.Context, body []byte) ([]byte,
 		resp["LastModifiedBy"] = t.LastModifiedBy
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type trialSummary struct {
@@ -112,7 +113,7 @@ type listTrialsInput struct {
 func (h *Handler) handleListTrials(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTrialsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -142,7 +143,7 @@ func (h *Handler) handleListTrials(ctx context.Context, body []byte) ([]byte, er
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteTrialInput mirrors DeleteTrialInput (api_op_DeleteTrial.go:30-37).
@@ -153,7 +154,7 @@ type deleteTrialInput struct {
 func (h *Handler) handleDeleteTrial(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteTrialInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -168,7 +169,7 @@ func (h *Handler) handleDeleteTrial(ctx context.Context, body []byte) ([]byte, e
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: deleted trial", "name", req.TrialName)
 
-	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn})
+	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn}, jsonx.V1())
 }
 
 // updateTrialInput mirrors UpdateTrialInput (api_op_UpdateTrial.go:27-39).
@@ -180,7 +181,7 @@ type updateTrialInput struct {
 func (h *Handler) handleUpdateTrial(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateTrialInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -195,5 +196,5 @@ func (h *Handler) handleUpdateTrial(ctx context.Context, body []byte) ([]byte, e
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated trial", "name", t.TrialName)
 
-	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn})
+	return json.Marshal(map[string]string{keyTrialArn: t.TrialArn}, jsonx.V1())
 }

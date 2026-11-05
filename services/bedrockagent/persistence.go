@@ -2,7 +2,7 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -63,7 +63,7 @@ const bedrockagentSnapshotVersion = 3
 // too, or a restored backend would start minting IDs that collide with
 // pre-restore ones.
 type backendSnapshot struct {
-	Tables                map[string]json.RawMessage    `json:"tables"`
+	Tables                map[string]jsontext.Value     `json:"tables"`
 	AgentsByName          map[string]string             `json:"agentsByName"`
 	KBsByName             map[string]string             `json:"kbsByName"`
 	FlowsByName           map[string]string             `json:"flowsByName"`

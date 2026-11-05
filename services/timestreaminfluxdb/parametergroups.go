@@ -3,7 +3,7 @@ package timestreaminfluxdb
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -16,7 +16,7 @@ type GroupInput struct {
 	Tags        map[string]string
 	Name        string
 	Description string
-	Parameters  json.RawMessage
+	Parameters  jsontext.Value
 }
 
 // CreateDBParameterGroup creates a parameter group.

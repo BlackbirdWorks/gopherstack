@@ -12,8 +12,10 @@ import (
 	_ "crypto/sha512" // registers SHA-384/512 for crypto.Hash.New
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"hash"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -51,7 +53,7 @@ func aadBytes(aad map[string]string) []byte {
 		return nil
 	}
 
-	b, _ := json.Marshal(aad) //nolint:errchkjson // map[string]string always marshals; keys are sorted
+	b, _ := json.Marshal(aad, jsonx.V1()) //nolint:errchkjson // map[string]string always marshals; keys are sorted
 
 	return b
 }

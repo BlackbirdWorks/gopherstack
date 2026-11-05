@@ -1,13 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -61,7 +63,7 @@ func TestDeleteFunction_ClearsSideState(t *testing.T) {
 	require.Equal(t, http.StatusOK, aliasListRec.Code)
 
 	var aliasOut lambda.ListAliasesOutput
-	require.NoError(t, json.NewDecoder(aliasListRec.Body).Decode(&aliasOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(aliasListRec.Body), &aliasOut, jsonx.V1()))
 	assert.Empty(t, aliasOut.Aliases,
 		"recreated function must not inherit the deleted function's aliases")
 
@@ -70,7 +72,7 @@ func TestDeleteFunction_ClearsSideState(t *testing.T) {
 	require.Equal(t, http.StatusOK, concGetRec.Code)
 
 	var concOut map[string]any
-	require.NoError(t, json.NewDecoder(concGetRec.Body).Decode(&concOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(concGetRec.Body), &concOut, jsonx.V1()))
 	assert.NotContains(t, concOut, "ReservedConcurrentExecutions",
 		"recreated function must not inherit the deleted function's reserved concurrency")
 }

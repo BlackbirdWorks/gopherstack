@@ -2,7 +2,7 @@ package kinesisvideo
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 
@@ -29,8 +29,8 @@ const kinesisvideoSnapshotVersion = 1
 // one JSON-encoded array per registered table name (streams, channels -- see
 // store_setup.go), produced by b.registry.SnapshotAll().
 type backendSnapshot struct {
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 }
 
 // Snapshot serializes backend state to JSON.

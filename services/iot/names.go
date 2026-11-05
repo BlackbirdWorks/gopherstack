@@ -1,10 +1,13 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const maxEntityNameLen = 128
@@ -41,13 +44,13 @@ func malformedPolicy(format string, args ...any) error {
 
 // validatePolicyDocument checks the document is JSON with a Version and well-formed Statement entries.
 func validatePolicyDocument(doc string) error {
-	var v map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(doc), &v); err != nil {
+	var v map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(doc), &v, jsonx.V1()); err != nil {
 		return malformedPolicy("policy document is not valid JSON")
 	}
 
 	var version string
-	if raw, ok := v["Version"]; !ok || json.Unmarshal(raw, &version) != nil || version == "" {
+	if raw, ok := v["Version"]; !ok || json.Unmarshal(raw, &version, jsonx.V1()) != nil || version == "" {
 		return malformedPolicy("policy document must have a string Version")
 	}
 
@@ -56,15 +59,15 @@ func validatePolicyDocument(doc string) error {
 		return malformedPolicy("policy document must have a Statement")
 	}
 
-	var statements []map[string]json.RawMessage
+	var statements []map[string]jsontext.Value
 
-	if err := json.Unmarshal(raw, &statements); err != nil {
-		var single map[string]json.RawMessage
-		if json.Unmarshal(raw, &single) != nil {
+	if err := json.Unmarshal(raw, &statements, jsonx.V1()); err != nil {
+		var single map[string]jsontext.Value
+		if json.Unmarshal(raw, &single, jsonx.V1()) != nil {
 			return malformedPolicy("Statement must be an object or an array of objects")
 		}
 
-		statements = []map[string]json.RawMessage{single}
+		statements = []map[string]jsontext.Value{single}
 	}
 
 	for _, st := range statements {
@@ -76,9 +79,10 @@ func validatePolicyDocument(doc string) error {
 	return nil
 }
 
-func validatePolicyStatement(st map[string]json.RawMessage) error {
+func validatePolicyStatement(st map[string]jsontext.Value) error {
 	var effect string
-	if raw, ok := st["Effect"]; !ok || json.Unmarshal(raw, &effect) != nil || (effect != "Allow" && effect != "Deny") {
+	if raw, ok := st["Effect"]; !ok || json.Unmarshal(raw, &effect, jsonx.V1()) != nil ||
+		(effect != "Allow" && effect != "Deny") {
 		return malformedPolicy("statement Effect must be Allow or Deny")
 	}
 
@@ -91,17 +95,17 @@ func validatePolicyStatement(st map[string]json.RawMessage) error {
 	return nil
 }
 
-func stringOrList(raw json.RawMessage) bool {
+func stringOrList(raw jsontext.Value) bool {
 	if len(raw) == 0 {
 		return false
 	}
 
 	var one string
-	if json.Unmarshal(raw, &one) == nil {
+	if json.Unmarshal(raw, &one, jsonx.V1()) == nil {
 		return one != ""
 	}
 
 	var many []string
 
-	return json.Unmarshal(raw, &many) == nil && len(many) > 0
+	return json.Unmarshal(raw, &many, jsonx.V1()) == nil && len(many) > 0
 }

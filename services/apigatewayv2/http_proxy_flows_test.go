@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
@@ -39,7 +40,7 @@ func newFlowAPI(t *testing.T, cors map[string]any) *flowAPI {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	return &flowAPI{h: h, apiID: api.APIID}
 }
@@ -51,7 +52,7 @@ func (f *flowAPI) integration(t *testing.T, body map[string]any) string {
 	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	return integ.IntegrationID
 }
@@ -95,7 +96,7 @@ func (r *recordedEvents) last(t *testing.T) map[string]any {
 func recordingInvoker(rec *recordedEvents, response string) *mockLambdaInvoker {
 	return &mockLambdaInvoker{fn: func(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 		var ev map[string]any
-		if err := json.Unmarshal(payload, &ev); err == nil {
+		if err := json.Unmarshal(payload, &ev, jsonx.V1()); err == nil {
 			rec.mu.Lock()
 			rec.events = append(rec.events, ev)
 			rec.mu.Unlock()
@@ -359,7 +360,7 @@ func TestHTTPAPIProxy_JWTAuthorizerCognitoFlow(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var authz apigatewayv2.Authorizer
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authz))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authz, jsonx.V1()))
 
 			extra := map[string]any{"authorizationType": "JWT", "authorizerId": authz.AuthorizerID}
 			if tt.scopes != nil {
@@ -418,7 +419,7 @@ func TestHTTPAPIProxy_LambdaAuthorizerContext(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var authz apigatewayv2.Authorizer
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authz))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authz, jsonx.V1()))
 
 	f.lambdaRoute(t, "GET /secure", "2.0",
 		map[string]any{"authorizationType": "CUSTOM", "authorizerId": authz.AuthorizerID})

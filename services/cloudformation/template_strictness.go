@@ -2,12 +2,14 @@ package cloudformation
 
 import (
 	_ "embed"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 //go:embed cfn_resource_services.json
@@ -22,7 +24,7 @@ var (
 func knownResourceServices() map[string]struct{} {
 	cfnResourceServicesOnce.Do(func() {
 		var raw []string
-		if err := json.Unmarshal(cfnResourceServicesJSON, &raw); err != nil {
+		if err := json.Unmarshal(cfnResourceServicesJSON, &raw, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded cfn_resource_services.json: " + err.Error())
 		}
 
@@ -272,7 +274,7 @@ var (
 // every other type stays unchecked rather than guessed.
 func requiredResourceProperties() map[string][]string {
 	cfnRequiredPropertiesOnce.Do(func() {
-		if err := json.Unmarshal(cfnRequiredPropertiesJSON, &cfnRequiredProperties); err != nil {
+		if err := json.Unmarshal(cfnRequiredPropertiesJSON, &cfnRequiredProperties, jsonx.V1()); err != nil {
 			panic("cloudformation: invalid embedded cfn_required_properties.json: " + err.Error())
 		}
 	})

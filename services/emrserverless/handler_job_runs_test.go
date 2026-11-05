@@ -1,7 +1,7 @@
 package emrserverless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
 
@@ -31,7 +32,7 @@ func startJobRunWithMode(t *testing.T, h *emrserverless.Handler, appID, mode str
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	id := out["jobRunId"]
 	require.NotEmpty(t, id)
 
@@ -151,7 +152,7 @@ func TestHandler_StartJobRun_DefaultsModeToBATCH(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			jr, _ := out["jobRun"].(map[string]any)
 			assert.Equal(t, tt.expectedMode, jr["mode"])
 		})
@@ -423,7 +424,7 @@ func TestHandler_GetJobRun_HasAttemptAndReleaseLabel(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			jr, _ := out["jobRun"].(map[string]any)
 
 			attempt, hasAttempt := jr["attempt"]

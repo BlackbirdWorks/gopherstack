@@ -1,13 +1,14 @@
 package inspector2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/inspector2"
 )
 
@@ -29,7 +30,7 @@ func TestEnableDisable(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				accounts, ok := resp["accounts"].([]any)
 				require.True(t, ok)
 				require.Len(t, accounts, 1)
@@ -54,7 +55,7 @@ func TestEnableDisable(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				accounts, ok := resp["accounts"].([]any)
 				require.True(t, ok)
 				require.Len(t, accounts, 1)
@@ -98,7 +99,7 @@ func TestBatchGetAccountStatus(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				accounts, ok := resp["accounts"].([]any)
 				require.True(t, ok)
 				require.Len(t, accounts, 1)
@@ -119,7 +120,7 @@ func TestBatchGetAccountStatus(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				accounts := resp["accounts"].([]any)
 				acc := accounts[0].(map[string]any)
 				state := acc["state"].(map[string]any)
@@ -152,7 +153,7 @@ func TestConfigurationGetUpdate(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				_, hasEC2 := resp["ec2Configuration"]
 				assert.True(t, hasEC2)
 				_, hasECR := resp["ecrConfiguration"]
@@ -177,7 +178,7 @@ func TestConfigurationGetUpdate(t *testing.T) {
 				// Verify via get
 				getRec := auditDo(t, h, http.MethodPost, "/configuration/get", nil)
 				var getResp map[string]any
-				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+				require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 
 				ec2Cfg := getResp["ec2Configuration"].(map[string]any)
 				scanModeState := ec2Cfg["scanModeState"].(map[string]any)
@@ -219,7 +220,7 @@ func TestAccountPermissions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	perms, ok := resp["permissions"].([]any)
 	require.True(t, ok)
@@ -244,7 +245,7 @@ func TestAccountPermissionsFilteredByService(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	perms, ok := resp["permissions"].([]any)
 	require.True(t, ok)
@@ -367,7 +368,7 @@ func TestEnableDisablePerResourceType(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			accounts := resp["accounts"].([]any)
 			require.Len(t, accounts, 1)

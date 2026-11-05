@@ -2,7 +2,8 @@ package verifiedpermissions_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
@@ -33,7 +35,7 @@ func doVPRequest(
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -75,7 +77,7 @@ func createTestPolicyStore(t *testing.T, h *verifiedpermissions.Handler) string 
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["policyStoreId"].(string)
 }
@@ -235,7 +237,7 @@ func TestVPHandler_ExtractResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			e := echo.New()
@@ -315,7 +317,7 @@ func TestVPHandler_Snapshot_Restore(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			stores := resp["policyStores"].([]any)
 			assert.Len(t, stores, tt.numStores)
 		})
@@ -384,7 +386,7 @@ func TestVPHandler_Snapshot_Restore_WithNewResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var isResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &isResp, jsonx.V1()))
 	isID := isResp["identitySourceId"].(string)
 
 	// Put schema
@@ -414,7 +416,7 @@ func TestVPHandler_Snapshot_Restore_WithNewResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var schemaResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schemaResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &schemaResp, jsonx.V1()))
 	assert.JSONEq(t, `{"ns": "test"}`, schemaResp["schema"].(string))
 }
 
@@ -475,7 +477,7 @@ func TestVPHandler_HandleError_ValidationException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
@@ -515,7 +517,7 @@ func TestVPHandler_UnknownOp_ReturnsUnknownOperationException(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "UnknownOperationException", resp["__type"], "body: %s", rec.Body.String())
 		})
 	}

@@ -4,7 +4,7 @@
 	import './layout.css';
 	import { page } from '$app/state';
 	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '#lib/nav.ts';
-	import { goto } from '$app/navigation';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '#lib/theme.ts';
 	import ServiceIcon from '#lib/components/ServiceIcon.svelte';
 	import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
@@ -98,6 +98,14 @@
 			document.querySelector<HTMLInputElement>('#global-search')?.focus();
 		}
 	}
+
+	// Kit attaches its click router after the first render; the macrotask hop
+	// guarantees that has happened, so e2e can wait on this before clicking.
+	afterNavigate(() => {
+		setTimeout(() => {
+			document.documentElement.dataset.hydrated = 'true';
+		}, 0);
+	});
 
 	onMount(() => {
 		registerConfirmDialog(confirmHandler);

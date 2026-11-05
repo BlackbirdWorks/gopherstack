@@ -1,13 +1,15 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -53,7 +55,7 @@ func TestHandler_CreateDomainName(t *testing.T) {
 
 			if tt.wantDomainName != "" {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				cfg, ok := resp["domainNameConfig"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, tt.wantDomainName, cfg["domainName"])
@@ -147,7 +149,7 @@ func TestHandler_DomainNameCRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &listResp, jsonx.V1()))
 	dns := listResp["domainNameConfigs"].([]any)
 	assert.Len(t, dns, 1)
 
@@ -198,7 +200,7 @@ func TestHandler_DisassociateAPI(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec1.Code)
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec1.Body), &apiResp, jsonx.V1()))
 	apiID := apiResp["graphqlApi"].(map[string]any)["apiId"].(string)
 
 	doRequest(t, h, http.MethodPost, "/v1/domainnames/api.example.com/apiassociation",
@@ -228,7 +230,7 @@ func TestHandler_UpdateDomainName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	dn := resp["domainNameConfig"].(map[string]any)
 	assert.Equal(t, "updated description", dn["description"])
 }

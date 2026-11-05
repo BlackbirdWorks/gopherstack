@@ -1,12 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateBranch(t *testing.T) {
@@ -29,7 +31,7 @@ func TestHandler_CreateBranch(t *testing.T) {
 		require.Equal(t, http.StatusOK, commitRec.Code)
 
 		var commitResp map[string]any
-		require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
+		require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp, jsonx.V1()))
 		commitID := commitResp["commitId"].(string)
 
 		rec := doRequest(t, h, "CreateBranch", map[string]any{
@@ -108,7 +110,7 @@ func TestHandler_CreateBranch(t *testing.T) {
 		require.Equal(t, http.StatusOK, commitRec.Code)
 
 		var commitResp map[string]any
-		require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
+		require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp, jsonx.V1()))
 		commitID := commitResp["commitId"].(string)
 
 		doRequest(t, h, "CreateBranch", map[string]any{
@@ -142,7 +144,7 @@ func TestHandler_CreateBranch_CommitValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, commitRec.Code)
 
 	var commitResp map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitResp, jsonx.V1()))
 	realCommitID := commitResp["commitId"].(string)
 
 	tests := []struct {
@@ -181,7 +183,7 @@ func TestHandler_CreateBranch_CommitValidation(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, cr.Code)
 				var cr2 map[string]any
-				require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &cr2))
+				require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &cr2, jsonx.V1()))
 				tt.commitID = cr2["commitId"].(string)
 			}
 

@@ -1,7 +1,7 @@
 package fis_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
@@ -532,7 +533,7 @@ func TestListExperiments_FilterByStatus(t *testing.T) {
 			} `json:"experiments"`
 		}
 
-		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &gr))
+		require.NoError(t, json.Unmarshal(r.Body.Bytes(), &gr, jsonx.V1()))
 		assert.NotEmpty(t, gr.Experiments)
 	})
 }

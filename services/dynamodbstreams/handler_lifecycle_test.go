@@ -1,7 +1,7 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -77,7 +78,7 @@ func TestHandler_FullLifecycle_StreamsFlow(t *testing.T) {
 		fmt.Sprintf(`{"TableName":"%s"}`, tableName))
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	streams, ok := listOut["Streams"].([]any)
 	require.True(t, ok)
 	require.Len(t, streams, 1)
@@ -87,7 +88,7 @@ func TestHandler_FullLifecycle_StreamsFlow(t *testing.T) {
 		fmt.Sprintf(`{"StreamArn":"%s"}`, table.StreamARN))
 	require.Equal(t, http.StatusOK, descResp.Code)
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descResp.Body.Bytes(), &descOut, jsonx.V1()))
 	streamDesc := descOut["StreamDescription"].(map[string]any)
 	shards := streamDesc["Shards"].([]any)
 	require.NotEmpty(t, shards)
@@ -99,7 +100,7 @@ func TestHandler_FullLifecycle_StreamsFlow(t *testing.T) {
 			table.StreamARN, shardID))
 	require.Equal(t, http.StatusOK, iterResp.Code)
 	var iterOut map[string]any
-	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 	shardIter, ok := iterOut["ShardIterator"].(string)
 	require.True(t, ok)
 
@@ -108,7 +109,7 @@ func TestHandler_FullLifecycle_StreamsFlow(t *testing.T) {
 		fmt.Sprintf(`{"ShardIterator":"%s"}`, shardIter))
 	require.Equal(t, http.StatusOK, recResp.Code)
 	var recOut map[string]any
-	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 	records, ok := recOut["Records"].([]any)
 	require.True(t, ok)
 	require.Len(t, records, 3, "must return all 3 stream events")
@@ -124,7 +125,7 @@ func TestHandler_FullLifecycle_StreamsFlow(t *testing.T) {
 		fmt.Sprintf(`{"ShardIterator":"%s"}`, nextIter))
 	require.Equal(t, http.StatusOK, emptyResp.Code)
 	var emptyOut map[string]any
-	require.NoError(t, json.Unmarshal(emptyResp.Body.Bytes(), &emptyOut))
+	require.NoError(t, json.Unmarshal(emptyResp.Body.Bytes(), &emptyOut, jsonx.V1()))
 	emptyRecords, ok := emptyOut["Records"].([]any)
 	if ok {
 		assert.Empty(t, emptyRecords, "NextShardIterator must return no new records")

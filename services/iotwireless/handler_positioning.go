@@ -3,13 +3,15 @@ package iotwireless
 import (
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"net/http"
 	"net/netip"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // accuracyResponse mirrors types.Accuracy: a struct of two float fields, not
@@ -99,7 +101,7 @@ func (h *Handler) updatePosition(c *echo.Context, id string) error {
 	var req map[string]any
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	_ = h.Backend.UpdatePosition(id, req)
 
 	return stubNoContent(c)
@@ -126,7 +128,7 @@ func (h *Handler) putPositionConfiguration(c *echo.Context, id string) error {
 	}
 
 	body := readStubBody(c)
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	if err := h.Backend.PutPositionConfiguration(id, resourceType, req.Destination, req.Solvers); err != nil {
 		return handleError(c, err)
@@ -172,7 +174,7 @@ type getPositionEstimateRequest struct {
 func (h *Handler) getPositionEstimate(c *echo.Context) error {
 	var req getPositionEstimateRequest
 
-	_ = json.Unmarshal(readStubBody(c), &req)
+	_ = json.Unmarshal(readStubBody(c), &req, jsonx.V1())
 
 	if err := validatePositionEstimate(&req); err != nil {
 		return handleError(c, err)

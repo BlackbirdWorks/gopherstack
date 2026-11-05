@@ -3,7 +3,7 @@ package bedrockagentcorecontrol
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -122,7 +123,7 @@ func (b *InMemoryBackend) loadExamples(source map[string]any) ([]any, string) {
 		}
 
 		var m any
-		if err := json.Unmarshal([]byte(line), &m); err != nil {
+		if err := json.Unmarshal([]byte(line), &m, jsonx.V1()); err != nil {
 			return nil, fmt.Sprintf("line %d of the S3 object is not valid JSON", len(out)+1)
 		}
 

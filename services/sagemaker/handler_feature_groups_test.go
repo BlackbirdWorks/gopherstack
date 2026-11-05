@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_FeatureGroupLifecycle(t *testing.T) {
@@ -34,7 +36,7 @@ func TestHandler_FeatureGroupLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recCreate.Code, recCreate.Body.String())
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 	assert.NotEmpty(t, createOut["FeatureGroupArn"])
 
 	// Describe feature group.
@@ -48,7 +50,7 @@ func TestHandler_FeatureGroupLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["FeatureGroupSummaries"].([]any), 1)
 
 	// Delete feature group.
@@ -125,7 +127,7 @@ func TestHandler_UpdateFeatureGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.NotEmpty(t, updateResp["FeatureGroupArn"])
 
 	// Describe should show 2 features now
@@ -135,7 +137,7 @@ func TestHandler_UpdateFeatureGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	defs := descResp["FeatureDefinitions"].([]any)
 	assert.Len(t, defs, 2)
 }
@@ -170,7 +172,7 @@ func TestHandler_Tags_FeatureGroup(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	fgARN := createResp["FeatureGroupArn"]
 	require.NotEmpty(t, fgARN)
 
@@ -181,7 +183,7 @@ func TestHandler_Tags_FeatureGroup(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	tags := tagsResp["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
@@ -210,7 +212,7 @@ func TestHandler_CreateFeatureGroup_RoleArnAndDescription(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "arn:aws:iam::000000000000:role/FeatureStoreRole", descResp["RoleArn"])
 	assert.Equal(t, "A feature group with a role", descResp["Description"])
 }

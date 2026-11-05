@@ -1,13 +1,14 @@
 package verifiedpermissions_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
@@ -77,7 +78,7 @@ func TestVPHandler_PutSchema(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, storeID, resp["policyStoreId"])
 				assert.NotEmpty(t, resp["createdDate"])
 				assert.NotEmpty(t, resp["lastUpdatedDate"])
@@ -147,7 +148,7 @@ func TestVPHandler_GetSchema(t *testing.T) {
 
 			if hasPut && tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, storeID, resp["policyStoreId"])
 				assert.JSONEq(t, `{"namespace": "MyCorp"}`, resp["schema"].(string))
 			}
@@ -180,6 +181,6 @@ func TestVPHandler_PutSchema_UpdateSchema(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, `{"v": 2}`, resp["schema"])
 }

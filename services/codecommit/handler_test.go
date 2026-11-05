@@ -2,7 +2,7 @@ package codecommit_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
 )
@@ -29,7 +30,7 @@ func doRequest(t *testing.T, h *codecommit.Handler, action string, body any) *ht
 
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -74,7 +75,7 @@ func createBranchFromMain(t *testing.T, h *codecommit.Handler, repoName, branchN
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var branchResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &branchResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &branchResp, jsonx.V1()))
 	branchInfo, ok := branchResp["branch"].(map[string]any)
 	require.True(t, ok, "GetBranch response must include a branch object")
 	tipCommitID, _ := branchInfo["commitId"].(string)
@@ -111,7 +112,7 @@ func setupPR(t *testing.T, h *codecommit.Handler, repoName string) string {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	pr := resp["pullRequest"].(map[string]any)
 
@@ -578,7 +579,7 @@ func TestHandler_ErrorTypes(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -643,7 +644,7 @@ func TestHandler_NotFoundErrorTypes_AreResourceSpecific(t *testing.T) {
 			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}

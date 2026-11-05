@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -31,13 +32,13 @@ func TestHandler_ExportTask_CancelRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID, ok := createOut["taskId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, taskID)
 
 	// Cancel the task.
-	bodyBytes, err := json.Marshal(map[string]any{"taskId": taskID})
+	bodyBytes, err := json.Marshal(map[string]any{"taskId": taskID}, jsonx.V1())
 	require.NoError(t, err)
 	rec = doLogsRequest(t, h, e, "CancelExportTask", string(bodyBytes))
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -87,7 +88,7 @@ func TestHandler_DescribeExportTasks_WireShape(t *testing.T) {
 			TaskID string `json:"taskId"`
 		} `json:"exportTasks"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.ExportTasks, 1)
 
 	task := out.ExportTasks[0]
@@ -102,7 +103,7 @@ func TestHandler_DescribeExportTasks_WireShape(t *testing.T) {
 	// The raw JSON must not carry the old flat keys at the top level of an
 	// export task entry.
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 	rawTasks, ok := raw["exportTasks"].([]any)
 	require.True(t, ok)
 	require.Len(t, rawTasks, 1)
@@ -130,7 +131,7 @@ func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	importID, ok := createOut["importId"].(string)
 	require.True(t, ok)
 	require.NotEmpty(t, importID)
@@ -140,13 +141,13 @@ func TestHandler_ImportTask_CancelRoundTrip(t *testing.T) {
 	require.NotEmpty(t, importDestARN)
 
 	// Cancel the task.
-	bodyBytes, err := json.Marshal(map[string]any{"importId": importID})
+	bodyBytes, err := json.Marshal(map[string]any{"importId": importID}, jsonx.V1())
 	require.NoError(t, err)
 	rec = doLogsRequest(t, h, e, "CancelImportTask", string(bodyBytes))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cancelOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cancelOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cancelOut, jsonx.V1()))
 	assert.Equal(t, importID, cancelOut["importId"])
 	assert.Equal(t, "CANCELLED", cancelOut["importStatus"])
 }
@@ -254,7 +255,7 @@ func TestHandler_CancelExportTask_StateValidation(t *testing.T) {
 			e := echo.New()
 			h := cloudwatchlogs.NewHandler(backend)
 
-			bodyBytes, _ := json.Marshal(map[string]any{"taskId": taskID})
+			bodyBytes, _ := json.Marshal(map[string]any{"taskId": taskID}, jsonx.V1())
 			rec := doLogsRequest(t, h, e, "CancelExportTask", string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -313,7 +314,7 @@ func TestHandler_CancelImportTask_StateValidation(t *testing.T) {
 			e := echo.New()
 			h := cloudwatchlogs.NewHandler(backend)
 
-			bodyBytes, _ := json.Marshal(map[string]any{"importId": importID})
+			bodyBytes, _ := json.Marshal(map[string]any{"importId": importID}, jsonx.V1())
 			rec := doLogsRequest(t, h, e, "CancelImportTask", string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -490,7 +491,7 @@ func TestHandler_ExportImportTaskOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -498,7 +499,7 @@ func TestHandler_ExportImportTaskOperations(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK && tt.wantKey != "" {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				if tt.wantVal != "" {
 					assert.Equal(t, tt.wantVal, out[tt.wantKey])
 				} else {
@@ -533,7 +534,7 @@ func TestHandler_ImportTaskBatchesValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := makeLogsRequest(t, tt.action, string(bodyBytes))
@@ -541,7 +542,7 @@ func TestHandler_ImportTaskBatchesValidation(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				list, ok := resp[tt.wantListField].([]any)
 				require.True(t, ok, "expected list field %q in response", tt.wantListField)
 				assert.Empty(t, list)

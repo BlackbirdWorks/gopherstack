@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
@@ -117,7 +118,7 @@ func TestDNSResolverQueryLogging(t *testing.T) {
 			}
 
 			var rec map[string]any
-			require.NoError(t, json.Unmarshal([]byte(msgs[0]), &rec))
+			require.NoError(t, json.Unmarshal([]byte(msgs[0]), &rec, jsonx.V1()))
 			assert.Equal(t, vpc1, rec["vpc_id"])
 			assert.Equal(t, "q.example.", rec["query_name"])
 			assert.Equal(t, "A", rec["query_type"])

@@ -2,7 +2,9 @@ package acmpca
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type getPolicyInput struct {
@@ -28,7 +30,7 @@ type deletePolicyOutput struct{}
 
 func (h *Handler) jsonGetPolicy(ctx context.Context, body []byte) (any, error) {
 	var input getPolicyInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -42,7 +44,7 @@ func (h *Handler) jsonGetPolicy(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonPutPolicy(ctx context.Context, body []byte) (any, error) {
 	var input putPolicyInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 
@@ -55,7 +57,7 @@ func (h *Handler) jsonPutPolicy(ctx context.Context, body []byte) (any, error) {
 
 func (h *Handler) jsonDeletePolicy(ctx context.Context, body []byte) (any, error) {
 	var input deletePolicyInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidArn
 	}
 

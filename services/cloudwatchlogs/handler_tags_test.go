@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -33,7 +34,7 @@ func TestHandler_TagRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Equal(t, "prod", listResp["tags"]["env"])
 	assert.Equal(t, "ops", listResp["tags"]["team"])
 
@@ -42,7 +43,7 @@ func TestHandler_TagRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var listResp2 map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	assert.Len(t, listResp2["tags"], 2)
 
 	// Remove one tag.
@@ -53,7 +54,7 @@ func TestHandler_TagRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var listResp3 map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp3, jsonx.V1()))
 	assert.Len(t, listResp3["tags"], 1)
 	assert.Equal(t, "ops", listResp3["tags"]["team"])
 }
@@ -75,7 +76,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	rec = doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listOut map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Equal(t, "prod", listOut["tags"]["env"])
 	assert.Equal(t, "platform", listOut["tags"]["team"])
 
@@ -87,7 +88,7 @@ func TestHandler_TagResource_UntagResource(t *testing.T) {
 	// Verify env tag removed, team tag remains.
 	rec = doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut["tags"]["env"])
 	assert.Equal(t, "platform", listOut["tags"]["team"])
 }
@@ -111,7 +112,7 @@ func TestHandler_Reset_ClearsTags(t *testing.T) {
 		`{"resourceArn":"arn:aws:logs:us-east-1:123:log-group:/g"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listOut map[string]map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut["tags"])
 }
 
@@ -205,7 +206,7 @@ func TestHandler_TagOperations(t *testing.T) {
 				tt.setup(t, h, e)
 			}
 
-			bodyBytes, err := json.Marshal(tt.body)
+			bodyBytes, err := json.Marshal(tt.body, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
@@ -213,13 +214,13 @@ func TestHandler_TagOperations(t *testing.T) {
 
 			if tt.wantListField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Len(t, resp[tt.wantListField].([]any), tt.wantListLen)
 			}
 
 			if tt.wantNotEmptyField != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp[tt.wantNotEmptyField])
 			}
 		})

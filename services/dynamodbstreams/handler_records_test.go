@@ -1,7 +1,7 @@
 package dynamodbstreams_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 )
@@ -30,7 +31,7 @@ func TestHandler_ErrorPropagation_InvalidShardIterator(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var errBody map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.NotEmpty(t, errBody["__type"], "error response must include __type")
 }
 
@@ -49,7 +50,7 @@ func TestHandler_WireFormat_ApproximateCreationDateTimeIsFloat(t *testing.T) {
 	require.Equal(t, http.StatusOK, iterResp.Code)
 
 	var iterOut map[string]any
-	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 	shardIter, ok := iterOut["ShardIterator"].(string)
 	require.True(t, ok)
 
@@ -61,7 +62,7 @@ func TestHandler_WireFormat_ApproximateCreationDateTimeIsFloat(t *testing.T) {
 	// Parse raw JSON to verify ApproximateCreationDateTime is a number (float64),
 	// not a string. The DynamoDB Streams JSON 1.0 protocol encodes it as epoch seconds.
 	var rawOut map[string]any
-	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &rawOut))
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &rawOut, jsonx.V1()))
 
 	records, ok := rawOut["Records"].([]any)
 	require.True(t, ok)
@@ -139,7 +140,7 @@ func TestHandler_WireFormat_AttributeValueEncoding(t *testing.T) {
 	require.Equal(t, http.StatusOK, iterResp.Code)
 
 	var iterOut map[string]any
-	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 	shardIter, ok := iterOut["ShardIterator"].(string)
 	require.True(t, ok)
 
@@ -148,7 +149,7 @@ func TestHandler_WireFormat_AttributeValueEncoding(t *testing.T) {
 	require.Equal(t, http.StatusOK, recResp.Code)
 
 	var rawOut map[string]any
-	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &rawOut))
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &rawOut, jsonx.V1()))
 	records := rawOut["Records"].([]any)
 	require.Len(t, records, 1)
 
@@ -177,7 +178,7 @@ func TestHandler_OpaqueIterator_TokenNotDecodable(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out, jsonx.V1()))
 
 	token, ok := out["ShardIterator"].(string)
 	require.True(t, ok)
@@ -231,7 +232,7 @@ func TestHandler_GetShardIterator_UnknownShardId(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var errBody map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Contains(t, errBody["__type"], "ResourceNotFoundException")
 }
 
@@ -259,7 +260,7 @@ func TestHandler_GetRecords_EventFields(t *testing.T) {
 	iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
 	require.Equal(t, http.StatusOK, iterResp.Code)
 	var iterOut map[string]any
-	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 	shardIter := iterOut["ShardIterator"].(string)
 
 	recResp := doRequest(t, handler, "GetRecords",
@@ -267,7 +268,7 @@ func TestHandler_GetRecords_EventFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, recResp.Code)
 
 	var recOut map[string]any
-	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 	records := recOut["Records"].([]any)
 	require.NotEmpty(t, records)
 
@@ -339,13 +340,13 @@ func TestHandler_GetShardIterator_AtAfterSequenceNumber_ViaHTTP(t *testing.T) {
 	trimIterResp := doRequest(t, handler, "GetShardIterator", trimIterBody)
 	require.Equal(t, http.StatusOK, trimIterResp.Code)
 	var trimIterOut map[string]any
-	require.NoError(t, json.Unmarshal(trimIterResp.Body.Bytes(), &trimIterOut))
+	require.NoError(t, json.Unmarshal(trimIterResp.Body.Bytes(), &trimIterOut, jsonx.V1()))
 	trimIter := trimIterOut["ShardIterator"].(string)
 
 	allRecResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, trimIter))
 	require.Equal(t, http.StatusOK, allRecResp.Code)
 	var allRecOut map[string]any
-	require.NoError(t, json.Unmarshal(allRecResp.Body.Bytes(), &allRecOut))
+	require.NoError(t, json.Unmarshal(allRecResp.Body.Bytes(), &allRecOut, jsonx.V1()))
 	allRecords := allRecOut["Records"].([]any)
 	require.Len(t, allRecords, 3)
 	midSeq := allRecords[1].(map[string]any)["dynamodb"].(map[string]any)["SequenceNumber"].(string)
@@ -379,14 +380,14 @@ func TestHandler_GetShardIterator_AtAfterSequenceNumber_ViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, iterResp.Code)
 
 			var iterOut map[string]any
-			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 			shardIter := iterOut["ShardIterator"].(string)
 
 			recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, shardIter))
 			require.Equal(t, http.StatusOK, recResp.Code)
 
 			var recOut map[string]any
-			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 			records, _ := recOut["Records"].([]any)
 			assert.Len(t, records, tt.wantCount)
 		})
@@ -426,7 +427,7 @@ func TestHandler_GetShardIterator_AtAfterSequenceNumber_MissingSequenceNumber(t 
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 
 			var errBody map[string]string
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Contains(t, errBody["__type"], "ValidationException")
 			assert.Contains(t, errBody["__type"], "dynamodbstreams")
 		})
@@ -490,7 +491,7 @@ func TestHandler_ErrorPropagation_TrimmedDataAccess(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 
 	var errBody map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Contains(t, errBody["__type"], "TrimmedDataAccessException")
 	assert.Contains(t, errBody["__type"], "dynamodbstreams",
 		"error __type must use the dynamodbstreams namespace")
@@ -606,13 +607,13 @@ func TestHandler_GetRecords_StreamViewType_RecordShapes(t *testing.T) {
 			iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
 			require.Equal(t, http.StatusOK, iterResp.Code)
 			var iterOut map[string]any
-			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 			shardIter := iterOut["ShardIterator"].(string)
 
 			recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, shardIter))
 			require.Equal(t, http.StatusOK, recResp.Code)
 			var recOut map[string]any
-			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 			records := recOut["Records"].([]any)
 			require.Len(t, records, 2, "must have exactly INSERT + MODIFY records")
 
@@ -693,14 +694,14 @@ func TestHandler_GetRecords_Limit(t *testing.T) {
 	iterResp := doRequest(t, handler, "GetShardIterator", iterBody)
 	require.Equal(t, http.StatusOK, iterResp.Code)
 	var iterOut map[string]any
-	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+	require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 	shardIter := iterOut["ShardIterator"].(string)
 
 	// First page: Limit=2.
 	recResp := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s","Limit":2}`, shardIter))
 	require.Equal(t, http.StatusOK, recResp.Code)
 	var recOut map[string]any
-	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+	require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 	records := recOut["Records"].([]any)
 	require.Len(t, records, 2, "Limit must cap the number of records returned")
 
@@ -711,7 +712,7 @@ func TestHandler_GetRecords_Limit(t *testing.T) {
 	recResp2 := doRequest(t, handler, "GetRecords", fmt.Sprintf(`{"ShardIterator":"%s"}`, nextIter))
 	require.Equal(t, http.StatusOK, recResp2.Code)
 	var recOut2 map[string]any
-	require.NoError(t, json.Unmarshal(recResp2.Body.Bytes(), &recOut2))
+	require.NoError(t, json.Unmarshal(recResp2.Body.Bytes(), &recOut2, jsonx.V1()))
 	records2 := recOut2["Records"].([]any)
 	assert.Len(t, records2, 3, "remaining 3 records must be returned on the next page")
 }
@@ -792,7 +793,7 @@ func TestHandler_GetShardIterator_AllIteratorTypes_ViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, iterResp.Code)
 
 			var iterOut map[string]any
-			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut))
+			require.NoError(t, json.Unmarshal(iterResp.Body.Bytes(), &iterOut, jsonx.V1()))
 			shardIter := iterOut["ShardIterator"].(string)
 
 			recResp := doRequest(t, handler, "GetRecords",
@@ -800,7 +801,7 @@ func TestHandler_GetShardIterator_AllIteratorTypes_ViaHTTP(t *testing.T) {
 			require.Equal(t, http.StatusOK, recResp.Code)
 
 			var recOut map[string]any
-			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut))
+			require.NoError(t, json.Unmarshal(recResp.Body.Bytes(), &recOut, jsonx.V1()))
 			records, _ := recOut["Records"].([]any)
 			assert.Len(t, records, tt.wantCount)
 		})

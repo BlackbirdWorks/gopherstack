@@ -2,11 +2,13 @@ package kinesis
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -38,7 +40,7 @@ const kinesisSnapshotVersion = 1
 // persisted the same way it always was.
 type backendSnapshot struct {
 	MinimumThroughputBillingCommitment MinimumThroughputBillingCommitmentOutput `json:"minimumThroughputBillingCommitment"`
-	Tables                             map[string]json.RawMessage               `json:"tables"`
+	Tables                             map[string]jsontext.Value                `json:"tables"`
 	ResourcePolicies                   map[string]map[string]string             `json:"resourcePolicies,omitempty"`
 	ChannelBuffers                     map[string]channelBufferSnapshot         `json:"channelBuffers,omitempty"`
 	AccountID                          string                                   `json:"accountID"`
@@ -122,7 +124,7 @@ func (stream *Stream) MarshalJSON() ([]byte, error) {
 	stream.mu.RLock("Snapshot")
 	defer stream.mu.RUnlock()
 
-	return json.Marshal((*streamAlias)(stream))
+	return json.Marshal((*streamAlias)(stream), jsonx.V1())
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -150,7 +152,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		MinimumThroughputBillingCommitment: b.minimumThroughputBillingCommitment,
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "kinesis: snapshot serialization failed", "error", err)
 

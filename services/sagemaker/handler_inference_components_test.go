@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_InferenceComponentLifecycle(t *testing.T) {
@@ -32,7 +34,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		assert.Contains(t, createResp["InferenceComponentArn"], "my-component")
 
 		// Describe
@@ -42,7 +44,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var descResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "my-component", descResp["InferenceComponentName"])
 		assert.Equal(t, "my-endpoint", descResp["EndpointName"])
 		assert.Contains(t, descResp["EndpointArn"], "endpoint/my-endpoint")
@@ -62,7 +64,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeInferenceComponent", map[string]any{
 			"InferenceComponentName": "my-component",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "InService", descResp["InferenceComponentStatus"])
 
 		runtimeConfig, ok = descResp["RuntimeConfig"].(map[string]any)
@@ -74,7 +76,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		components := listResp["InferenceComponents"].([]any)
 		require.Len(t, components, 1)
 
@@ -91,7 +93,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 
 		var updateResp map[string]string
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 		assert.Contains(t, updateResp["InferenceComponentArn"], "my-component")
 
 		// Update component: DeploymentConfig is opaque and echoed back verbatim
@@ -110,7 +112,7 @@ func TestHandler_InferenceComponentLifecycle(t *testing.T) {
 		rec = doSageMakerRequest(t, h, "DescribeInferenceComponent", map[string]any{
 			"InferenceComponentName": "my-component",
 		})
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 		assert.Equal(t, "Updating", descResp["InferenceComponentStatus"])
 
 		lastDeploymentConfig, ok := descResp["LastDeploymentConfig"].(map[string]any)
@@ -203,7 +205,7 @@ func TestHandler_CreateInferenceComponent_SpecificationContainerImage(t *testing
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	spec, ok := resp["Specification"].(map[string]any)
 	require.True(t, ok)
@@ -255,7 +257,7 @@ func TestHandler_ListInferenceComponents_Filters(t *testing.T) {
 
 		rec := doSageMakerRequest(t, h, "ListInferenceComponents", map[string]any{"StatusEquals": "InService"})
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		components, _ := resp["InferenceComponents"].([]any)
 		require.Len(t, components, 2)
 
@@ -289,7 +291,7 @@ func TestHandler_ListInferenceComponents_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			components, _ := resp["InferenceComponents"].([]any)
 			assert.Len(t, components, tc.wantCount)
 		})
@@ -314,7 +316,7 @@ func TestHandler_ListInferenceComponents_SortByName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	components, ok := resp["InferenceComponents"].([]any)
 	require.True(t, ok)
 	require.Len(t, components, 2)
@@ -356,7 +358,7 @@ func TestHandler_ListInferenceComponents_EndpointFilter(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	components := resp["InferenceComponents"].([]any)
 	assert.Len(t, components, 1)
 }

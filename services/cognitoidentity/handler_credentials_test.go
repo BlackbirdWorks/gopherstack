@@ -1,13 +1,15 @@
 package cognitoidentity_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aws-sdk-go-v2's cognitoidentity deserializer parses Credentials.Expiration with
@@ -27,7 +29,7 @@ func TestGetCredentialsForIdentity_ExpirationIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -44,7 +46,7 @@ func TestGetCredentialsForIdentity_ExpirationIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, idRec.Code)
 
 	var idOut map[string]any
-	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetCredentialsForIdentity", map[string]any{
 		"IdentityId": idOut["IdentityId"],
@@ -52,7 +54,7 @@ func TestGetCredentialsForIdentity_ExpirationIsEpochSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	creds := out["Credentials"].(map[string]any)
 	expiration, ok := creds["Expiration"].(float64)
@@ -118,7 +120,7 @@ func TestGetCredentialsForIdentity_CustomRoleArn(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 			rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
 				"IdentityPoolId": created["IdentityPoolId"],
@@ -135,7 +137,7 @@ func TestGetCredentialsForIdentity_CustomRoleArn(t *testing.T) {
 			require.Equal(t, http.StatusOK, idRec.Code)
 
 			var idOut map[string]any
-			require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+			require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 			req := map[string]any{"IdentityId": idOut["IdentityId"]}
 			if tt.customRoleArn != "" {
@@ -166,7 +168,7 @@ func TestHandler_GetCredentialsForIdentity(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rolesRec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],
@@ -183,7 +185,7 @@ func TestHandler_GetCredentialsForIdentity(t *testing.T) {
 	require.Equal(t, http.StatusOK, idRec.Code)
 
 	var idOut map[string]any
-	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetCredentialsForIdentity", map[string]any{
 		"IdentityId": idOut["IdentityId"],
@@ -191,7 +193,7 @@ func TestHandler_GetCredentialsForIdentity(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["IdentityId"])
 
 	creds, ok := out["Credentials"].(map[string]any)
@@ -213,7 +215,7 @@ func TestHandler_GetOpenIDToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	idRec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
 		"AccountId":      "000000000000",
@@ -222,7 +224,7 @@ func TestHandler_GetOpenIDToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, idRec.Code)
 
 	var idOut map[string]any
-	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut))
+	require.NoError(t, json.Unmarshal(idRec.Body.Bytes(), &idOut, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetOpenIdToken", map[string]any{
 		"IdentityId": idOut["IdentityId"],
@@ -230,7 +232,7 @@ func TestHandler_GetOpenIDToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out["Token"])
 	assert.Equal(t, idOut["IdentityId"], out["IdentityId"])
 }
@@ -294,7 +296,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var created map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 				body = map[string]any{
 					"IdentityPoolId": created["IdentityPoolId"],
@@ -310,7 +312,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out["IdentityId"])
 				assert.NotEmpty(t, out["Token"])
 			}
@@ -331,7 +333,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity_ExistingIdentity(t *testing.
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	poolID := created["IdentityPoolId"].(string)
 
 	// First call creates a new identity.
@@ -344,7 +346,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity_ExistingIdentity(t *testing.
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 	identityID1 := out1["IdentityId"].(string)
 
 	// Second call with same logins should re-use the same identity.
@@ -357,7 +359,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity_ExistingIdentity(t *testing.
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 	identityID2 := out2["IdentityId"].(string)
 
 	assert.Equal(t, identityID1, identityID2)
@@ -375,7 +377,7 @@ func TestHandler_GetOpenIdTokenForDeveloperIdentity_InvalidDuration(t *testing.T
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 
 	rec := doCognitoIdentityRequest(t, h, "GetOpenIdTokenForDeveloperIdentity", map[string]any{
 		"IdentityPoolId": created["IdentityPoolId"],

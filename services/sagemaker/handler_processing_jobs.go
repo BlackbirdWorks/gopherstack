@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -248,7 +249,7 @@ type createProcessingJobRequest struct {
 
 func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createProcessingJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.ProcessingJobName == "" {
@@ -312,7 +313,7 @@ func (h *Handler) handleCreateProcessingJob(ctx context.Context, body []byte) ([
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: created processing job", "name", pj.ProcessingJobName)
 
-	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn})
+	return json.Marshal(map[string]string{keyProcessingJobArn: pj.ProcessingJobArn}, jsonx.V1())
 }
 
 type describeProcessingJobRequest struct {
@@ -321,7 +322,7 @@ type describeProcessingJobRequest struct {
 
 func (h *Handler) handleDescribeProcessingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeProcessingJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.ProcessingJobName == "" {
@@ -367,7 +368,7 @@ func (h *Handler) handleDescribeProcessingJob(ctx context.Context, body []byte) 
 		resp["Environment"] = pj.Environment
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type stopProcessingJobRequest struct {
@@ -376,7 +377,7 @@ type stopProcessingJobRequest struct {
 
 func (h *Handler) handleStopProcessingJob(ctx context.Context, body []byte) error {
 	var req stopProcessingJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.ProcessingJobName == "" {
@@ -399,7 +400,7 @@ type deleteProcessingJobRequest struct {
 
 func (h *Handler) handleDeleteProcessingJob(ctx context.Context, body []byte) error {
 	var req deleteProcessingJobRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 	if req.ProcessingJobName == "" {
@@ -440,7 +441,7 @@ type listProcessingJobsRequest struct {
 
 func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listProcessingJobsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -477,5 +478,5 @@ func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }

@@ -10,7 +10,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"maps"
 	"math/big"
@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -481,7 +482,7 @@ func TestSAMLFederation(t *testing.T) {
 			require.Equal(t, http.StatusOK, form.StatusCode, string(body))
 
 			var tok map[string]any
-			require.NoError(t, json.Unmarshal(body, &tok))
+			require.NoError(t, json.Unmarshal(body, &tok, jsonx.V1()))
 
 			claims := env.verifyAgainstJWKS(t, tok["id_token"].(string))
 			assert.Equal(t, fedProvider+"_"+samlNameID, claims["cognito:username"])
@@ -527,7 +528,7 @@ func TestSAMLMultiValuedAttributes(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 
 			var tok map[string]any
-			require.NoError(t, json.Unmarshal(body, &tok))
+			require.NoError(t, json.Unmarshal(body, &tok, jsonx.V1()))
 
 			claims := env.verifyAgainstJWKS(t, tok["id_token"].(string))
 			assert.Equal(t, tt.want, claims["email"])

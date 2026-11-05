@@ -1,12 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestServerless_TableRestore_FromSnapshotAndRecoveryPoint(t *testing.T) {
@@ -32,7 +35,7 @@ func TestServerless_TableRestore_FromSnapshotAndRecoveryPoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fromSnapResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fromSnapResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fromSnapResp, jsonx.V1()))
 	status1, _ := fromSnapResp["tableRestoreStatus"].(map[string]any)
 	require.NotNil(t, status1)
 	assert.Equal(t, "SUCCEEDED", status1["status"])
@@ -53,7 +56,7 @@ func TestServerless_TableRestore_FromSnapshotAndRecoveryPoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var fromRPResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fromRPResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &fromRPResp, jsonx.V1()))
 	status2, _ := fromRPResp["tableRestoreStatus"].(map[string]any)
 	require.NotNil(t, status2)
 	assert.Equal(t, recoveryPointID, status2["recoveryPointId"])
@@ -65,7 +68,7 @@ func TestServerless_TableRestore_FromSnapshotAndRecoveryPoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	got, _ := getResp["tableRestoreStatus"].(map[string]any)
 	require.NotNil(t, got)
 	assert.Equal(t, requestID1, got["tableRestoreRequestId"])
@@ -74,7 +77,7 @@ func TestServerless_TableRestore_FromSnapshotAndRecoveryPoint(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	list, _ := listResp["tableRestoreStatuses"].([]any)
 	assert.Len(t, list, 2)
 }
@@ -149,7 +152,7 @@ func TestServerless_TableRestore_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}

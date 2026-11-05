@@ -1,12 +1,14 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestHandler_ListWirelessDevices_Pagination locks in real cursor
@@ -47,7 +49,7 @@ func TestHandler_ListWirelessDevices_Pagination(t *testing.T) {
 		require.Equal(t, 200, rec.Code)
 
 		var resp listResp
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.LessOrEqual(t, len(resp.WirelessDeviceList), 2, "page size must respect maxResults")
 
 		for _, d := range resp.WirelessDeviceList {

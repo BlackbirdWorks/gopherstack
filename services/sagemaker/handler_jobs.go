@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aiAndGenericJobOpsSupported aggregates the operation lists for the four
@@ -87,7 +89,7 @@ type createJobInput struct {
 func (h *Handler) handleCreateJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -103,7 +105,7 @@ func (h *Handler) handleCreateJob(ctx context.Context, body []byte) ([]byte, err
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyJobArn: j.JobArn})
+	return json.Marshal(map[string]string{keyJobArn: j.JobArn}, jsonx.V1())
 }
 
 // describeJobInput mirrors DescribeJobInput (api_op_DescribeJob.go:27-38):
@@ -116,7 +118,7 @@ type describeJobInput struct {
 func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -139,13 +141,13 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 // had any tags at all. Round-trips through Job.MarshalJSON (for its
 // epoch-seconds time handling) then substitutes the Tags shape.
 func marshalJobResponse(j *Job) ([]byte, error) {
-	raw, err := json.Marshal(j)
+	raw, err := json.Marshal(j, jsonx.V1())
 	if err != nil {
 		return nil, err
 	}
 
 	var resp map[string]any
-	if unmarshalErr := json.Unmarshal(raw, &resp); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(raw, &resp, jsonx.V1()); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
 
@@ -155,7 +157,7 @@ func marshalJobResponse(j *Job) ([]byte, error) {
 		delete(resp, "Tags")
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteJobInput mirrors DeleteJobInput (api_op_DeleteJob.go:27-38): both
@@ -168,7 +170,7 @@ type deleteJobInput struct {
 func (h *Handler) handleDeleteJob(ctx context.Context, body []byte) error {
 	var req deleteJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -189,7 +191,7 @@ type stopJobInput struct {
 func (h *Handler) handleStopJob(ctx context.Context, body []byte) error {
 	var req stopJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -222,7 +224,7 @@ type listJobsInput struct {
 func (h *Handler) handleListJobs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listJobsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -278,7 +280,7 @@ type describeJobSchemaVersionInput struct {
 func (h *Handler) handleDescribeJobSchemaVersion(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeJobSchemaVersionInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -295,7 +297,7 @@ func (h *Handler) handleDescribeJobSchemaVersion(ctx context.Context, body []byt
 		"JobCategory":            req.JobCategory,
 		"JobConfigSchema":        info.JobConfigSchema,
 		"JobConfigSchemaVersion": info.JobConfigSchemaVersion,
-	})
+	}, jsonx.V1())
 }
 
 // listJobSchemaVersionsInput mirrors ListJobSchemaVersionsInput
@@ -310,7 +312,7 @@ type listJobSchemaVersionsInput struct {
 func (h *Handler) handleListJobSchemaVersions(ctx context.Context, body []byte) ([]byte, error) {
 	var req listJobSchemaVersionsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

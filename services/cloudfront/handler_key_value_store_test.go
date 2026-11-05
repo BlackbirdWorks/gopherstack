@@ -1,7 +1,7 @@
 package cloudfront_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
 )
 
@@ -412,7 +413,7 @@ func TestInMemoryBackend_KeyValueStore(t *testing.T) {
 					KeyValueStoreData map[string]map[string]string `json:"keyValueStoreData"`
 					KeyValueDataETags map[string]string            `json:"keyValueDataETags"`
 				}
-				require.NoError(t, json.Unmarshal(snap, &decoded))
+				require.NoError(t, json.Unmarshal(snap, &decoded, jsonx.V1()))
 				assert.NotContains(t, decoded.KeyValueStoreData, kvs.ID,
 					"deleted KVS's data-plane values must not survive in the persisted snapshot")
 				assert.NotContains(t, decoded.KeyValueDataETags, kvs.ID,

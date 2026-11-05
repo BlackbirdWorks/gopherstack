@@ -41,6 +41,7 @@ func TestKMSDashboard(t *testing.T) {
 	// Navigate to the KMS dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/kms")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the KMS Keys heading.
 	err = page.Locator("h1").First().WaitFor(

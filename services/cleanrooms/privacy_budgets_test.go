@@ -1,13 +1,15 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // setupTestEnvironment is a helper to bootstrap a collaboration and membership
@@ -22,7 +24,7 @@ func setupTestEnvironment(t *testing.T, e *echo.Echo) (string, string) {
 	})
 	rec := doRequest(t, e, http.MethodGet, "/collaborations", nil)
 	var colResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &colResp, jsonx.V1()))
 	colID := colResp["collaborationList"].([]any)[0].(map[string]any)["id"].(string)
 
 	// Create Membership
@@ -30,7 +32,7 @@ func setupTestEnvironment(t *testing.T, e *echo.Echo) (string, string) {
 		"collaborationIdentifier": colID, "queryLogStatus": "DISABLED",
 	})
 	var memResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp, jsonx.V1()))
 	mID := memResp["membership"].(map[string]any)["id"].(string)
 
 	return colID, mID
@@ -51,7 +53,7 @@ func createBudgetTemplate(t *testing.T, e *echo.Echo, mID string) string {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createResp map[string]map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	return createResp["privacyBudgetTemplate"]["id"].(string)
 }
@@ -319,7 +321,7 @@ func TestPreviewPrivacyImpact(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			impact := resp["privacyImpact"].(map[string]any)["differentialPrivacy"].(map[string]any)
 			aggs := impact["aggregations"].([]any)
 			require.Len(t, aggs, 5)
@@ -342,7 +344,7 @@ func TestListPrivacyBudgets(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	budgets := resp["privacyBudgetSummaries"].([]any)
 	require.Len(t, budgets, 1)
 

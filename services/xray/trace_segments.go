@@ -1,11 +1,13 @@
 package xray
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // PutTraceSegments stores raw segment JSON strings, parses them into typed Segment structs,
@@ -19,7 +21,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 
 	for _, seg := range segments {
 		var hdr segmentHeader
-		if err := json.Unmarshal([]byte(seg), &hdr); err != nil || hdr.TraceID == "" {
+		if err := json.Unmarshal([]byte(seg), &hdr, jsonx.V1()); err != nil || hdr.TraceID == "" {
 			unprocessed = append(unprocessed, uuid.NewString())
 
 			continue
@@ -46,7 +48,7 @@ func (b *InMemoryBackend) PutTraceSegments(segments []string) []string {
 
 		// Parse into typed Segment struct and index it.
 		var parsed Segment
-		if err := json.Unmarshal([]byte(seg), &parsed); err == nil {
+		if err := json.Unmarshal([]byte(seg), &parsed, jsonx.V1()); err == nil {
 			parsed.Document = seg
 
 			b.parsedSegments.Put(&parsed)

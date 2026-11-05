@@ -1,13 +1,15 @@
 package dmsengine
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrMapping reports an invalid table-mappings document.
@@ -30,15 +32,15 @@ const (
 type flexString string
 
 func (f *flexString) UnmarshalJSON(b []byte) error {
-	var n json.Number
-	if err := json.Unmarshal(b, &n); err == nil {
+	var n jsonx.Number
+	if err := json.Unmarshal(b, &n, jsonx.V1()); err == nil {
 		*f = flexString(n.String())
 
 		return nil
 	}
 
 	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
+	if err := json.Unmarshal(b, &s, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -75,7 +77,7 @@ func ParseMappings(doc string) (Mappings, error) {
 		return m, nil
 	}
 
-	if err := json.Unmarshal([]byte(doc), &m); err != nil {
+	if err := json.Unmarshal([]byte(doc), &m, jsonx.V1()); err != nil {
 		return m, fmt.Errorf("%w: %w", ErrMapping, err)
 	}
 

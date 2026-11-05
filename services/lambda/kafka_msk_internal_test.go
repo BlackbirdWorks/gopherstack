@@ -2,12 +2,14 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const mskTestARN = "arn:aws:kafka:us-east-1:000000000000:cluster/c/uuid"
@@ -82,7 +84,7 @@ func TestMSKESMFollowsClusterBroker(t *testing.T) {
 
 	var ev map[string]any
 
-	require.NoError(t, json.Unmarshal(<-deliveries, &ev))
+	require.NoError(t, json.Unmarshal(<-deliveries, &ev, jsonx.V1()))
 	assert.Equal(t, "aws:kafka", ev["eventSource"])
 	assert.Equal(t, mskTestARN, ev["eventSourceArn"])
 	assert.Equal(t, "127.0.0.1:19092", ev["bootstrapServers"])

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
@@ -194,7 +195,7 @@ func writeSSOTokenCache(t *testing.T, l ssoLogin, expiresAt time.Time) string {
 		"accessToken": l.accessToken, "expiresAt": expiresAt.UTC().Format(time.RFC3339),
 		"refreshToken": l.refreshToken, "clientId": l.clientID, "clientSecret": l.clientSecret,
 		"region": "us-east-1", "startUrl": ssoStartURL,
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 

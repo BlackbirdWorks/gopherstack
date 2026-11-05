@@ -1,13 +1,14 @@
 package mediapackage_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediapackage"
 )
 
@@ -34,7 +35,7 @@ func TestOriginEndpoint_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:mediapackage:us-east-1:000000000000:origin_endpoints/ep1")
 				assert.Equal(t, "ep1", resp["id"])
 				assert.Equal(t, "ch1", resp["channelId"])
@@ -89,7 +90,7 @@ func TestOriginEndpoint_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/origin_endpoints/"+epID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, epID, descResp["id"])
 	assert.Equal(t, channelID, descResp["channelId"])
 
@@ -100,7 +101,7 @@ func TestOriginEndpoint_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated endpoint", updateResp["description"])
 	assert.Equal(t, "DENY", updateResp["origination"])
 
@@ -108,7 +109,7 @@ func TestOriginEndpoint_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/origin_endpoints", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp["originEndpoints"], 1)
 
 	// Delete
@@ -158,7 +159,7 @@ func TestOriginEndpoint_DefaultOrigination(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ALLOW", resp["origination"])
 	assert.Equal(t, "index", resp["manifestName"])
 }
@@ -171,7 +172,7 @@ func TestOriginEndpoint_ListEmpty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["originEndpoints"])
 }
 
@@ -251,7 +252,7 @@ func TestHandler_OriginEndpoint_CreatedAtPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["createdAt"])
 }
 
@@ -277,7 +278,7 @@ func TestHandler_OriginEndpoint_PackagingConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	require.Contains(t, created, "authorization")
 	require.Contains(t, created, "hlsPackage")
 	assert.NotContains(t, created, "dashPackage", "unset packaging blocks should be omitted, not null-filled")
@@ -286,7 +287,7 @@ func TestHandler_OriginEndpoint_PackagingConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described, jsonx.V1()))
 	auth, ok := described["authorization"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/r", auth["secretsRoleArn"])
@@ -300,7 +301,7 @@ func TestHandler_OriginEndpoint_PackagingConfigRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	endpoints, ok := listResp["originEndpoints"].([]any)
 	require.True(t, ok)
 	require.Len(t, endpoints, 1)
@@ -364,7 +365,7 @@ func TestHandler_OriginEndpoint_MssPackage_FullDepthRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var described map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described, jsonx.V1()))
 
 	mss, ok := described["mssPackage"].(map[string]any)
 	require.True(t, ok)

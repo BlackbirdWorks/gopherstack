@@ -1,7 +1,8 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -48,7 +50,7 @@ func TestCodeSigningConfig_Lifecycle(t *testing.T) {
 
 			if tt.wantStatus == http.StatusCreated {
 				var out lambda.CreateCodeSigningConfigOutput
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				require.NotNil(t, out.CodeSigningConfig)
 				assert.NotEmpty(t, out.CodeSigningConfig.CodeSigningConfigArn)
 				assert.Equal(t, tt.wantDesc, out.CodeSigningConfig.Description)
@@ -73,7 +75,7 @@ func TestCodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut lambda.CreateCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 	cscARN := createOut.CodeSigningConfig.CodeSigningConfigArn
 
 	// Get
@@ -97,7 +99,7 @@ func TestCodeSigningConfig_GetDeleteUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListCodeSigningConfigsOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.CodeSigningConfigs, 1)
 
 	// Delete
@@ -128,7 +130,7 @@ func TestFunctionCodeSigningConfig(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createOut lambda.CreateCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createOut, jsonx.V1()))
 	cscARN := createOut.CodeSigningConfig.CodeSigningConfigArn
 
 	// Put function code signing config
@@ -138,7 +140,7 @@ func TestFunctionCodeSigningConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var putOut lambda.PutFunctionCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(putRec.Body).Decode(&putOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(putRec.Body), &putOut, jsonx.V1()))
 	assert.Equal(t, cscARN, putOut.CodeSigningConfigArn)
 	assert.Equal(t, "csc-test-fn", putOut.FunctionName)
 
@@ -148,7 +150,7 @@ func TestFunctionCodeSigningConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut lambda.GetFunctionCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec.Body), &getOut, jsonx.V1()))
 	assert.Equal(t, cscARN, getOut.CodeSigningConfigArn)
 
 	// List functions by code signing config
@@ -157,7 +159,7 @@ func TestFunctionCodeSigningConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut lambda.ListFunctionsByCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(listRec.Body), &listOut, jsonx.V1()))
 	assert.NotEmpty(t, listOut.FunctionArns)
 
 	// Delete function code signing config
@@ -171,7 +173,7 @@ func TestFunctionCodeSigningConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, getRec2.Code)
 
 	var getOut2 lambda.GetFunctionCodeSigningConfigOutput
-	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&getOut2))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(getRec2.Body), &getOut2, jsonx.V1()))
 	assert.Empty(t, getOut2.CodeSigningConfigArn)
 }
 
@@ -234,7 +236,7 @@ func TestCodeSigning(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var cscOut lambda.CreateCodeSigningConfigOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cscOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cscOut, jsonx.V1()))
 	require.NotNil(t, cscOut.CodeSigningConfig)
 	cscArn := cscOut.CodeSigningConfig.CodeSigningConfigArn
 	assert.NotEmpty(t, cscArn)
@@ -251,7 +253,7 @@ func TestCodeSigning(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut lambda.ListCodeSigningConfigsOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	require.Len(t, listOut.CodeSigningConfigs, 1)
 
 	// UpdateCodeSigningConfig.
@@ -280,7 +282,7 @@ func TestCodeSigning(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getCSCOut lambda.GetFunctionCodeSigningConfigOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCSCOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getCSCOut, jsonx.V1()))
 	assert.Equal(t, cscArn, getCSCOut.CodeSigningConfigArn)
 	assert.Equal(t, "csc-fn", getCSCOut.FunctionName)
 

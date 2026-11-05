@@ -1,10 +1,13 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -33,8 +36,8 @@ func cloudUnavailable(c *echo.Context, name string) error {
 
 // cloudJSONDecode reads a size-bounded JSON body into v; on failure it has already replied.
 func cloudJSONDecode(c *echo.Context, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, cloudJSONMaxBody))
-	if err := dec.Decode(v); err != nil {
+	dec := jsontext.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, cloudJSONMaxBody))
+	if err := json.UnmarshalDecode(dec, v, jsonx.V1()); err != nil {
 		_ = cloudJSONFail(c, http.StatusBadRequest, cloudStatusBadArg, "invalid request body")
 
 		return false

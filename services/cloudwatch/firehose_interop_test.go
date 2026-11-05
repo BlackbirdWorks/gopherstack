@@ -2,7 +2,7 @@ package cloudwatch_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"sync"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
@@ -110,7 +111,7 @@ func TestMetricStream_EndToEnd_RealFirehoseBackend(t *testing.T) {
 
 	body := s3mock.captured()[0]
 	var rec map[string]any
-	require.NoError(t, json.Unmarshal([]byte(firstLine(body)), &rec))
+	require.NoError(t, json.Unmarshal([]byte(firstLine(body)), &rec, jsonx.V1()))
 	assert.Equal(t, "CPUUtilization", rec["metric_name"])
 	assert.Equal(t, "AWS/EC2", rec["namespace"])
 }

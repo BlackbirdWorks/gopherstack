@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 var (
@@ -66,7 +67,7 @@ func (img *SMImage) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(img),
 		CreationTime:     epochSeconds(img.CreationTime),
 		LastModifiedTime: epochSeconds(img.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [SMImage.MarshalJSON], read by
@@ -80,7 +81,7 @@ func (img *SMImage) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(img)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -358,7 +359,7 @@ func (v *ImageVersion) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(v),
 		CreationTime:     epochSeconds(v.CreationTime),
 		LastModifiedTime: epochSeconds(v.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ImageVersion.MarshalJSON], read by
@@ -372,7 +373,7 @@ func (v *ImageVersion) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(v)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 

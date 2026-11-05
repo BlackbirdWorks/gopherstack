@@ -1,12 +1,15 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Mirrors the unexported limits in payload_size.go (7 MB / 4 MB / 15 KB from
@@ -28,7 +31,7 @@ func jsonBodyOfSize(t *testing.T, prefix, suffix string, targetLen int) []byte {
 
 	body := prefix + strings.Repeat("a", padLen) + suffix
 	require.Len(t, body, targetLen)
-	require.True(t, json.Valid([]byte(body)), "constructed body must be valid JSON")
+	require.True(t, jsontext.Value([]byte(body)).IsValid(jsonx.V1()), "constructed body must be valid JSON")
 
 	return []byte(body)
 }
@@ -37,7 +40,7 @@ func requirePayloadTooLarge(t *testing.T, body []byte) {
 	t.Helper()
 
 	var envelope map[string]any
-	require.NoError(t, json.Unmarshal(body, &envelope))
+	require.NoError(t, json.Unmarshal(body, &envelope, jsonx.V1()))
 	require.Equal(t, "PayloadTooLargeException", envelope["__type"])
 }
 

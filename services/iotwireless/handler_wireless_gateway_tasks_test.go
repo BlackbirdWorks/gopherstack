@@ -1,13 +1,15 @@
 package iotwireless_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GatewayTaskLifecycle(t *testing.T) {
@@ -20,7 +22,7 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var gwResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gwResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gwResp, jsonx.V1()))
 	gwID := gwResp["Id"].(string)
 
 	// Create task definition
@@ -29,7 +31,7 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var defResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defResp, jsonx.V1()))
 	defID := defResp["Id"].(string)
 	assert.NotEmpty(t, defID)
 
@@ -39,7 +41,7 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var taskResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &taskResp, jsonx.V1()))
 	assert.Equal(t, "PENDING", taskResp["Status"])
 
 	// Get task
@@ -47,7 +49,7 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var getTaskResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getTaskResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getTaskResp, jsonx.V1()))
 	assert.Equal(t, "PENDING", getTaskResp["Status"])
 
 	// List task definitions
@@ -68,7 +70,7 @@ func TestHandler_GatewayTaskLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var notFoundResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notFoundResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &notFoundResp, jsonx.V1()))
 	msg, _ := notFoundResp["Message"].(string)
 	assert.NotContains(t, msg, "ResourceNotFoundException")
 	assert.Contains(t, msg, "task")
@@ -130,7 +132,7 @@ func TestHandler_ListWirelessGatewayTaskDefinitions_ReturnsRealData(t *testing.T
 				require.Equal(t, http.StatusCreated, rec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 				id, _ := createResp["Id"].(string)
 				require.NotEmpty(t, id)
 				createdIDs = append(createdIDs, id)
@@ -140,7 +142,7 @@ func TestHandler_ListWirelessGatewayTaskDefinitions_ReturnsRealData(t *testing.T
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			defs, ok := resp["TaskDefinitions"].([]any)
 			require.True(t, ok, "TaskDefinitions should be array")
@@ -199,7 +201,7 @@ func TestHandler_GatewayTaskDefinitionCRUD(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			id := createResp["Id"].(string)
 			arn := createResp["Arn"].(string)
 			require.NotEmpty(t, id)
@@ -210,7 +212,7 @@ func TestHandler_GatewayTaskDefinitionCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			assert.Equal(t, tt.defName, getResp["Name"])
 
 			// Delete.
@@ -222,7 +224,7 @@ func TestHandler_GatewayTaskDefinitionCRUD(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			defs := listResp["TaskDefinitions"].([]any)
 			assert.Empty(t, defs)
 		})
@@ -252,7 +254,7 @@ func TestGetWirelessGatewayTaskDefinition_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	msg, _ := resp["Message"].(string)
 	assert.NotContains(t, msg, "ResourceNotFoundException")
@@ -276,7 +278,7 @@ func TestGetWirelessGatewayTaskDefinition_Found(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 	id, _ := created["Id"].(string)
 	require.NotEmpty(t, id)
 
@@ -284,7 +286,7 @@ func TestGetWirelessGatewayTaskDefinition_Found(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 	assert.Equal(t, "real-taskdef", got["Name"])
 	assert.Equal(t, true, got["AutoCreateTasks"])
 	assert.NotEmpty(t, got["Arn"])

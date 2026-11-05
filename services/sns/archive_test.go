@@ -1,7 +1,7 @@
 package sns_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -228,7 +229,7 @@ func TestReplayPolicyTriggersLambdaReplay(t *testing.T) {
 		// Verify all archived messages were replayed, in original publish order.
 		for i, invocation := range lambda.All() {
 			var envelope map[string]any
-			require.NoError(t, json.Unmarshal(invocation.Payload, &envelope))
+			require.NoError(t, json.Unmarshal(invocation.Payload, &envelope, jsonx.V1()))
 			records, _ := envelope["Records"].([]any)
 			require.Len(t, records, 1)
 			record, _ := records[0].(map[string]any)
@@ -316,7 +317,7 @@ func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 						require.Equal(t, 1, lambda.Count(), "lambda function was never invoked")
 
 						var envelope map[string]any
-						require.NoError(t, json.Unmarshal(lambda.Last().Payload, &envelope))
+						require.NoError(t, json.Unmarshal(lambda.Last().Payload, &envelope, jsonx.V1()))
 						records, _ := envelope["Records"].([]any)
 						require.Len(t, records, 1)
 						record, _ := records[0].(map[string]any)
@@ -345,7 +346,7 @@ func TestReplayPolicyDeliversToA2AProtocols(t *testing.T) {
 						require.Len(t, firehose.RecordsFor(streamName), 1, "firehose stream received no record")
 
 						var envelope map[string]any
-						require.NoError(t, json.Unmarshal(firehose.RecordsFor(streamName)[0], &envelope))
+						require.NoError(t, json.Unmarshal(firehose.RecordsFor(streamName)[0], &envelope, jsonx.V1()))
 						assert.Equal(t, archivedMessage, envelope["Message"])
 					},
 				}

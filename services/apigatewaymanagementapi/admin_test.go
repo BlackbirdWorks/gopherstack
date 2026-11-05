@@ -2,7 +2,7 @@ package apigatewaymanagementapi_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 )
 
@@ -34,7 +35,7 @@ func TestAdmin_ListConnections(t *testing.T) {
 		Connections []apigatewaymanagementapi.Connection `json:"connections"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Connections, 2)
 }
 
@@ -56,7 +57,7 @@ func TestAdmin_ListConnections_QueryFilter(t *testing.T) {
 		Connections []apigatewaymanagementapi.Connection `json:"connections"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Connections, 1)
 	assert.Equal(t, "beta-2", resp.Connections[0].ConnectionID)
 }
@@ -70,7 +71,7 @@ func TestAdmin_SimulateConnection(t *testing.T) {
 		"connectionId": "sim-1",
 		"sourceIp":     "1.2.3.4",
 		"userAgent":    "ua",
-	})
+	}, jsonx.V1())
 
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/connections", body)
 	assert.Equal(t, http.StatusCreated, rec.Code)
@@ -88,7 +89,7 @@ func TestAdmin_SimulateDuplicate(t *testing.T) {
 	_, err := h.Backend.CreateConnection("dupe", "1.1.1.1", "ua", nil)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]string{"connectionId": "dupe"})
+	body, _ := json.Marshal(map[string]string{"connectionId": "dupe"}, jsonx.V1())
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/connections", body)
 	assert.Equal(t, http.StatusConflict, rec.Code)
 }
@@ -98,7 +99,7 @@ func TestAdmin_SimulateEmptyConnectionID(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	body, _ := json.Marshal(map[string]string{"connectionId": ""})
+	body, _ := json.Marshal(map[string]string{"connectionId": ""}, jsonx.V1())
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/connections", body)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -123,7 +124,7 @@ func TestAdmin_GetMessages(t *testing.T) {
 		} `json:"messages"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Messages, 2)
 	assert.Equal(t, "hello", resp.Messages[0].Data)
 	assert.Equal(t, 5, resp.Messages[0].Bytes)
@@ -170,7 +171,7 @@ func TestAdmin_GetTimeline(t *testing.T) {
 		Events []apigatewaymanagementapi.LifecycleEvent `json:"events"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Events, 3)
 	assert.Equal(t, apigatewaymanagementapi.EventConnected, resp.Events[0].Type)
 	assert.Equal(t, apigatewaymanagementapi.EventMessage, resp.Events[1].Type)
@@ -208,7 +209,7 @@ func TestAdmin_Broadcast(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	body, _ := json.Marshal(map[string]string{"data": "broadcast-payload"})
+	body, _ := json.Marshal(map[string]string{"data": "broadcast-payload"}, jsonx.V1())
 
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/broadcast", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -217,7 +218,7 @@ func TestAdmin_Broadcast(t *testing.T) {
 		Delivered int `json:"delivered"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, 3, resp.Delivered)
 
 	for _, id := range []string{"a", "b", "c"} {
@@ -236,7 +237,7 @@ func TestAdmin_BroadcastTooLarge(t *testing.T) {
 	require.NoError(t, err)
 
 	big := bytes.Repeat([]byte("x"), 130*1024)
-	body, _ := json.Marshal(map[string]string{"data": string(big)})
+	body, _ := json.Marshal(map[string]string{"data": string(big)}, jsonx.V1())
 
 	rec := doRequest(t, h, http.MethodPost, "/_gopherstack/apigwmgmt/broadcast", body)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
@@ -255,7 +256,7 @@ func TestAdmin_Stats(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var stats apigatewaymanagementapi.Stats
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stats, jsonx.V1()))
 	assert.Equal(t, 1, stats.ActiveConnections)
 	assert.Equal(t, int64(1), stats.TotalConnections)
 	assert.Equal(t, int64(1), stats.TotalMessages)

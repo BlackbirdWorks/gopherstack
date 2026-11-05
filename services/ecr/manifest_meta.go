@@ -1,9 +1,12 @@
 package ecr
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"regexp"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -33,14 +36,14 @@ type manifestMeta struct {
 	Layers    []struct {
 		Size int64 `json:"size"`
 	} `json:"layers"`
-	Manifests []json.RawMessage `json:"manifests"`
+	Manifests []jsontext.Value `json:"manifests"`
 }
 
 // manifestMediaTypeAndSize reports the manifest's media type (declared, else
 // inferred from its shape) and its compressed size: config plus layer sizes.
 func manifestMediaTypeAndSize(manifest string) (string, int64) {
 	var m manifestMeta
-	if err := json.Unmarshal([]byte(manifest), &m); err != nil {
+	if err := json.Unmarshal([]byte(manifest), &m, jsonx.V1()); err != nil {
 		return "", 0
 	}
 

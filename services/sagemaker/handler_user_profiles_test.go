@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_UserProfileLifecycle(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_UserProfileLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	// Create user profile.
@@ -51,7 +53,7 @@ func TestHandler_UserProfileLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut["UserProfiles"].([]any), 1)
 
 	// Delete user profile.
@@ -75,7 +77,7 @@ func TestHandler_UserProfile_NotFound(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	for _, op := range []string{"DescribeUserProfile", "DeleteUserProfile"} {
@@ -104,7 +106,7 @@ func TestHandler_UpdateUserProfile(t *testing.T) {
 
 	var domainResp map[string]any
 	rec := doSageMakerRequest(t, h, "ListDomains", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &domainResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &domainResp, jsonx.V1()))
 	domains := domainResp["Domains"].([]any)
 	require.Len(t, domains, 1)
 	domainID := domains[0].(map[string]any)["DomainId"].(string)
@@ -121,7 +123,7 @@ func TestHandler_UpdateUserProfile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["UserProfileArn"])
 }
 
@@ -137,7 +139,7 @@ func TestHandler_ListUserProfiles_NameContainsAndMaxResults(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	for _, name := range []string{"alpha-user", "beta-user", "alpha-other"} {
@@ -158,7 +160,7 @@ func TestHandler_ListUserProfiles_NameContainsAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out["UserProfiles"].([]any), 2)
 	})
 
@@ -172,7 +174,7 @@ func TestHandler_ListUserProfiles_NameContainsAndMaxResults(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out["UserProfiles"].([]any), 1, "MaxResults must cap the page, not just be parsed and ignored")
 		assert.NotEmpty(t, out["NextToken"])
 	})
@@ -191,7 +193,7 @@ func TestHandler_CreateUserProfile_SSOFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recDomain.Code)
 
 	var domainOut map[string]any
-	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut))
+	require.NoError(t, json.Unmarshal(recDomain.Body.Bytes(), &domainOut, jsonx.V1()))
 	domainID := domainOut["DomainId"].(string)
 
 	rec := doSageMakerRequest(t, h, "CreateUserProfile", map[string]any{
@@ -209,7 +211,7 @@ func TestHandler_CreateUserProfile_SSOFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "UserName", out["SingleSignOnUserIdentifier"])
 	assert.Equal(t, "jdoe", out["SingleSignOnUserValue"])
 }

@@ -2,13 +2,14 @@ package stepfunctions_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -260,7 +261,7 @@ func runS3ArgumentsCase(t *testing.T, reader, writer, input, wantOutput string, 
 	}
 
 	var out mapExportOutput
-	require.NoError(t, json.Unmarshal([]byte(d.Output), &out))
+	require.NoError(t, json.Unmarshal([]byte(d.Output), &out, jsonx.V1()))
 	assert.Equal(t, "data-bucket", out.ResultWriterDetails.Bucket)
 	assert.NotEmpty(t, getS3ObjectBytes(t, s3Bk, "data-bucket", out.ResultWriterDetails.Key))
 }

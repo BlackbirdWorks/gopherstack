@@ -1,7 +1,7 @@
 package azuretable_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 )
 
@@ -42,7 +43,7 @@ func sdkEntity(t *testing.T, pk, rk string, extra map[string]any) []byte {
 	m := map[string]any{"PartitionKey": pk, "RowKey": rk}
 	maps.Copy(m, extra)
 
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(m, jsonx.V1())
 	require.NoError(t, err)
 
 	return b
@@ -224,7 +225,7 @@ func TestEdmDoubleRoundTripSDK(t *testing.T) {
 		PartitionKey: "p", RowKey: "r",
 		Properties: map[string]any{"D": 5.0},
 	}
-	raw, err := json.Marshal(ent)
+	raw, err := json.Marshal(ent, jsonx.V1())
 	require.NoError(t, err)
 	_, err = client.AddEntity(ctx, raw, nil)
 	require.NoError(t, err)
@@ -233,7 +234,7 @@ func TestEdmDoubleRoundTripSDK(t *testing.T) {
 	require.NoError(t, err)
 
 	var back aztables.EDMEntity
-	require.NoError(t, json.Unmarshal(got.Value, &back))
+	require.NoError(t, json.Unmarshal(got.Value, &back, jsonx.V1()))
 	assert.InDelta(t, 5.0, back.Properties["D"], 0)
 }
 

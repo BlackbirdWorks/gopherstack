@@ -2,11 +2,12 @@ package cloudformation
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 )
 
@@ -538,7 +539,7 @@ func nmCoreNetworkResource() nmResource {
 		create: func(bk *networkmanagerbackend.InMemoryBackend, c nmCreateCtx) (string, error) {
 			policy := c.str("PolicyDocument")
 			if doc, ok := c.props["PolicyDocument"].(map[string]any); ok {
-				raw, err := json.Marshal(resolveDeep(doc, c.params, c.physicalIDs))
+				raw, err := json.Marshal(resolveDeep(doc, c.params, c.physicalIDs), jsonx.V1())
 				if err != nil {
 					return "", err
 				}

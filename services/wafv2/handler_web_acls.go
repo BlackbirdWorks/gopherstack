@@ -2,25 +2,27 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // createWebACLRequest is the request body for CreateWebACL.
 type createWebACLRequest struct {
-	DefaultAction                json.RawMessage  `json:"DefaultAction"`
-	VisibilityConfig             json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies         json.RawMessage  `json:"CustomResponseBodies"`
-	AssociationConfig            json.RawMessage  `json:"AssociationConfig"`
-	CaptchaConfig                json.RawMessage  `json:"CaptchaConfig"`
-	ChallengeConfig              json.RawMessage  `json:"ChallengeConfig"`
-	MonetizationConfig           json.RawMessage  `json:"MonetizationConfig"`
-	DataProtectionConfig         json.RawMessage  `json:"DataProtectionConfig"`
-	ApplicationConfig            json.RawMessage  `json:"ApplicationConfig"`
-	OnSourceDDoSProtectionConfig json.RawMessage  `json:"OnSourceDDoSProtectionConfig"`
+	DefaultAction                jsontext.Value   `json:"DefaultAction"`
+	VisibilityConfig             jsontext.Value   `json:"VisibilityConfig"`
+	CustomResponseBodies         jsontext.Value   `json:"CustomResponseBodies"`
+	AssociationConfig            jsontext.Value   `json:"AssociationConfig"`
+	CaptchaConfig                jsontext.Value   `json:"CaptchaConfig"`
+	ChallengeConfig              jsontext.Value   `json:"ChallengeConfig"`
+	MonetizationConfig           jsontext.Value   `json:"MonetizationConfig"`
+	DataProtectionConfig         jsontext.Value   `json:"DataProtectionConfig"`
+	ApplicationConfig            jsontext.Value   `json:"ApplicationConfig"`
+	OnSourceDDoSProtectionConfig jsontext.Value   `json:"OnSourceDDoSProtectionConfig"`
 	Name                         string           `json:"Name"`
 	Scope                        string           `json:"Scope"`
 	Description                  string           `json:"Description"`
@@ -31,7 +33,7 @@ type createWebACLRequest struct {
 
 func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req createWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -108,17 +110,17 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 			keyLockToken:   w.LockToken,
 			keyDescription: w.Description,
 		},
-	})
+	}, jsonx.V1())
 }
 
 // validateDefaultAction validates that exactly one of Allow/Block is set in DefaultAction.
-func validateDefaultAction(raw json.RawMessage) error {
+func validateDefaultAction(raw jsontext.Value) error {
 	if len(raw) == 0 {
 		return nil
 	}
 
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &m, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: invalid DefaultAction JSON: %w", errInvalidRequest, err)
 	}
 
@@ -142,7 +144,7 @@ type getWebACLRequest struct {
 
 func (h *Handler) handleGetWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req getWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -196,11 +198,11 @@ func (h *Handler) marshalWebACL(ctx context.Context, w *WebACL) ([]byte, error) 
 
 	defaultActionJSON := w.DefaultAction
 	if len(defaultActionJSON) == 0 {
-		defaultActionJSON = json.RawMessage(`{"Allow":{}}`)
+		defaultActionJSON = jsontext.Value(`{"Allow":{}}`)
 	}
 
 	var defaultActionMap any
-	if err := json.Unmarshal(defaultActionJSON, &defaultActionMap); err != nil {
+	if err := json.Unmarshal(defaultActionJSON, &defaultActionMap, jsonx.V1()); err != nil {
 		defaultActionMap = map[string]any{"Allow": map[string]any{}}
 	}
 
@@ -231,7 +233,7 @@ func (h *Handler) marshalWebACL(ctx context.Context, w *WebACL) ([]byte, error) 
 	return json.Marshal(map[string]any{
 		"WebACL":     webACLMap,
 		keyLockToken: w.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // addOptionalWebACLConfigs unmarshals each opaque config field on w that is
@@ -240,7 +242,7 @@ func (h *Handler) marshalWebACL(ctx context.Context, w *WebACL) ([]byte, error) 
 func addOptionalWebACLConfigs(webACLMap map[string]any, w *WebACL) {
 	configs := []struct {
 		key string
-		raw json.RawMessage
+		raw jsontext.Value
 	}{
 		{"CustomResponseBodies", w.CustomResponseBodies},
 		{"AssociationConfig", w.AssociationConfig},
@@ -258,7 +260,7 @@ func addOptionalWebACLConfigs(webACLMap map[string]any, w *WebACL) {
 		}
 
 		var v any
-		if json.Unmarshal(c.raw, &v) == nil {
+		if json.Unmarshal(c.raw, &v, jsonx.V1()) == nil {
 			webACLMap[c.key] = v
 		}
 	}
@@ -266,16 +268,16 @@ func addOptionalWebACLConfigs(webACLMap map[string]any, w *WebACL) {
 
 // updateWebACLRequest is the request body for UpdateWebACL.
 type updateWebACLRequest struct {
-	DefaultAction                json.RawMessage  `json:"DefaultAction"`
-	VisibilityConfig             json.RawMessage  `json:"VisibilityConfig"`
-	CustomResponseBodies         json.RawMessage  `json:"CustomResponseBodies"`
-	AssociationConfig            json.RawMessage  `json:"AssociationConfig"`
-	CaptchaConfig                json.RawMessage  `json:"CaptchaConfig"`
-	ChallengeConfig              json.RawMessage  `json:"ChallengeConfig"`
-	MonetizationConfig           json.RawMessage  `json:"MonetizationConfig"`
-	DataProtectionConfig         json.RawMessage  `json:"DataProtectionConfig"`
-	ApplicationConfig            json.RawMessage  `json:"ApplicationConfig"`
-	OnSourceDDoSProtectionConfig json.RawMessage  `json:"OnSourceDDoSProtectionConfig"`
+	DefaultAction                jsontext.Value   `json:"DefaultAction"`
+	VisibilityConfig             jsontext.Value   `json:"VisibilityConfig"`
+	CustomResponseBodies         jsontext.Value   `json:"CustomResponseBodies"`
+	AssociationConfig            jsontext.Value   `json:"AssociationConfig"`
+	CaptchaConfig                jsontext.Value   `json:"CaptchaConfig"`
+	ChallengeConfig              jsontext.Value   `json:"ChallengeConfig"`
+	MonetizationConfig           jsontext.Value   `json:"MonetizationConfig"`
+	DataProtectionConfig         jsontext.Value   `json:"DataProtectionConfig"`
+	ApplicationConfig            jsontext.Value   `json:"ApplicationConfig"`
+	OnSourceDDoSProtectionConfig jsontext.Value   `json:"OnSourceDDoSProtectionConfig"`
 	ID                           string           `json:"Id"`
 	Name                         string           `json:"Name"`
 	Scope                        string           `json:"Scope"`
@@ -287,7 +289,7 @@ type updateWebACLRequest struct {
 
 func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -346,7 +348,7 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 
 	return json.Marshal(map[string]string{
 		keyNextLockToken: w.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // deleteWebACLRequest is the request body for DeleteWebACL.
@@ -359,7 +361,7 @@ type deleteWebACLRequest struct {
 
 func (h *Handler) handleDeleteWebACL(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteWebACLRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -405,7 +407,7 @@ type deleteFirewallManagerRuleGroupsRequest struct {
 
 func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteFirewallManagerRuleGroupsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -427,7 +429,7 @@ func (h *Handler) handleDeleteFirewallManagerRuleGroups(ctx context.Context, bod
 
 	return json.Marshal(map[string]string{
 		"NextWebACLLockToken": w.LockToken,
-	})
+	}, jsonx.V1())
 }
 
 // webACLDispatchOps returns the WebACL-family operation dispatch entries. Each entry is a

@@ -2,7 +2,7 @@ package sns
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -32,7 +32,7 @@ const snsSnapshotVersion = 1
 // type is not a pure keyed identity or is slice/scalar-valued -- see the
 // comment on registerAllTables in store_setup.go for why each one.
 type backendSnapshot struct {
-	Tables               map[string]json.RawMessage       `json:"tables"`
+	Tables               map[string]jsontext.Value        `json:"tables"`
 	TopicTags            map[string]*svcTags.Tags         `json:"topicTags"`
 	OptedOutPhoneNumbers map[string]bool                  `json:"optedOutPhoneNumbers,omitempty"`
 	SMSAttributes        map[string]string                `json:"smsAttributes,omitempty"`

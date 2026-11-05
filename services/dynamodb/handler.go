@@ -2,7 +2,7 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -458,7 +459,7 @@ func (h *DynamoDBHandler) ExtractResource(c *echo.Context) string {
 			TableName string `json:"TableName"`
 			BackupArn string `json:"BackupArn"`
 		}
-		if uerr := json.Unmarshal(body, &data); uerr != nil {
+		if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 			return ""
 		}
 
@@ -614,14 +615,14 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	var input WireIn
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
 
 	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
 	if debugEnabled {
-		inputJSON, _ := json.Marshal(input)
+		inputJSON, _ := json.Marshal(input, jsonx.V1())
 		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
 	}
 
@@ -637,7 +638,7 @@ func handleOpErr[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	wireOutput := fromSDK(sdkOutput)
 
 	if debugEnabled {
-		outputJSON, _ := json.Marshal(wireOutput)
+		outputJSON, _ := json.Marshal(wireOutput, jsonx.V1())
 		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
 	}
 
@@ -657,14 +658,14 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 
 	var input WireIn
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &input); err != nil {
+		if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 			return nil, err
 		}
 	}
 
 	debugEnabled := log.Enabled(ctx, slog.LevelDebug)
 	if debugEnabled {
-		inputJSON, _ := json.Marshal(input)
+		inputJSON, _ := json.Marshal(input, jsonx.V1())
 		log.DebugContext(ctx, "handler input", "action", action, "input", string(inputJSON))
 	}
 
@@ -677,7 +678,7 @@ func handleOp[WireIn any, SDKIn any, SDKOut any, WireOut any](
 	wireOutput := fromSDK(sdkOutput)
 
 	if debugEnabled {
-		outputJSON, _ := json.Marshal(wireOutput)
+		outputJSON, _ := json.Marshal(wireOutput, jsonx.V1())
 		log.DebugContext(ctx, "handler output", "action", action, "output", string(outputJSON))
 	}
 
@@ -877,7 +878,7 @@ func validateTableNameFromBody(body []byte) error {
 		TableName string `json:"TableName"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if req.TableName == "" {
 		return nil // missing table name is handled downstream
 	}
@@ -894,7 +895,7 @@ func validateTableNameFromBody(body []byte) error {
 // such response reached a client as smithy.GenericAPIError{Code:"UnknownError"}
 // (gopherstack-wlo1).
 func writeDynamoDBDispatchError(c *echo.Context, status int, errType, message string) error {
-	body, err := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+	body, err := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message}, jsonx.V1())
 	if err != nil {
 		return err
 	}
@@ -932,7 +933,7 @@ func (h *DynamoDBHandler) handleError(
 
 	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.0")
 
-	payload, _ := json.Marshal(awsErr)
+	payload, _ := json.Marshal(awsErr, jsonx.V1())
 	checksum := crc32.ChecksumIEEE(payload)
 	c.Response().Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 
@@ -955,9 +956,7 @@ func (h *DynamoDBHandler) classifyError(reqErr error) (int, *Error) {
 	}
 
 	// Fallback
-	var syntaxErr *json.SyntaxError
-	var unmarshalTypeError *json.UnmarshalTypeError
-	if errors.As(reqErr, &syntaxErr) || errors.As(reqErr, &unmarshalTypeError) {
+	if jsonx.IsSyntaxError(reqErr) || jsonx.IsTypeError(reqErr) {
 		return http.StatusBadRequest, NewValidationException(
 			"JSON Error: " + reqErr.Error(),
 		)

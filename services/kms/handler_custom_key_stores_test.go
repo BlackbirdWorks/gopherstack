@@ -3,7 +3,7 @@ package kms_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 )
 
@@ -31,7 +32,7 @@ func TestHandler_XKS_CreateDescribeViaHTTP(t *testing.T) {
 	var createResp struct {
 		CustomKeyStoreID string `json:"CustomKeyStoreId"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.NotEmpty(t, createResp.CustomKeyStoreID)
 
 	// Describe the XKS store
@@ -45,7 +46,7 @@ func TestHandler_XKS_CreateDescribeViaHTTP(t *testing.T) {
 			ConnectionState    string `json:"ConnectionState"`
 		} `json:"CustomKeyStores"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &descResp, jsonx.V1()))
 	require.Len(t, descResp.CustomKeyStores, 1)
 	assert.Equal(t, "EXTERNAL_KEY_STORE", descResp.CustomKeyStores[0].CustomKeyStoreType)
 	assert.Equal(t, kms.ConnectionStateDisconnected, descResp.CustomKeyStores[0].ConnectionState)
@@ -129,7 +130,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.CreateCustomKeyStoreOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.CustomKeyStoreID)
 			},
 		},
@@ -150,7 +151,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.DescribeCustomKeyStoresOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.CustomKeyStores, 1)
 			},
 		},
@@ -199,7 +200,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.GenerateRandomOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Plaintext, 32)
 			},
 		},
@@ -223,7 +224,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.GenerateMacOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.Mac)
 			},
 		},
@@ -241,7 +242,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.GenerateDataKeyPairOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.PublicKey)
 				assert.NotEmpty(t, out.PrivateKeyPlaintext)
 			},
@@ -260,7 +261,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.GenerateDataKeyPairWithoutPlaintextOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.PublicKey)
 				assert.NotEmpty(t, out.PrivateKeyCiphertextBlob)
 			},
@@ -282,7 +283,7 @@ func TestHandlerDispatchesCustomKeyStoreAndCryptoOps(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out kms.DeriveSharedSecretOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.SharedSecret)
 			},
 		},
@@ -349,7 +350,7 @@ func TestHandlerResetClearsCustomKeyStores(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out kms.DescribeCustomKeyStoresOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.CustomKeyStores)
 }
 
@@ -365,21 +366,21 @@ func TestCustomKeyStoreHandler_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut kms.CreateCustomKeyStoreOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	storeID := createOut.CustomKeyStoreID
 
 	// Connect via HTTP.
-	connectBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID})
+	connectBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID}, jsonx.V1())
 	rec = postKMSOp(t, h, "ConnectCustomKeyStore", string(connectBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Describe via HTTP – should be CONNECTED.
-	descBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID})
+	descBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID}, jsonx.V1())
 	rec = postKMSOp(t, h, "DescribeCustomKeyStores", string(descBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descOut kms.DescribeCustomKeyStoresOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descOut, jsonx.V1()))
 	require.Len(t, descOut.CustomKeyStores, 1)
 	assert.Equal(t, kms.ConnectionStateConnected, descOut.CustomKeyStores[0].ConnectionState)
 
@@ -388,7 +389,7 @@ func TestCustomKeyStoreHandler_ViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Delete via HTTP.
-	deleteBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID})
+	deleteBody, _ := json.Marshal(map[string]string{"CustomKeyStoreId": storeID}, jsonx.V1())
 	rec = postKMSOp(t, h, "DeleteCustomKeyStore", string(deleteBody))
 	require.Equal(t, http.StatusOK, rec.Code)
 }

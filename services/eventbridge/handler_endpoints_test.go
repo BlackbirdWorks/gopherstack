@@ -1,7 +1,8 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -65,14 +67,14 @@ func TestHandler_Endpoint_TimestampsAreEpochSeconds(t *testing.T) {
 	rec = auditMakeRequest(t, h, e, "DescribeEndpoint", map[string]any{"Name": "epoch-endpoint"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	creationRaw, ok := raw["CreationTime"]
 	require.True(t, ok, "CreationTime must be present")
 
 	var f float64
-	require.NoError(t, json.Unmarshal(creationRaw, &f),
+	require.NoError(t, json.Unmarshal(creationRaw, &f, jsonx.V1()),
 		"CreationTime must be a JSON number (epoch seconds), got: %s", string(creationRaw))
 	assert.Greater(t, f, float64(0))
 }

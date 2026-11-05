@@ -1,7 +1,7 @@
 package azureappconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/url"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const av = "api-version=2023-11-01"
@@ -22,7 +24,7 @@ func readJSON(t *testing.T, resp *http.Response) map[string]any {
 
 	var out map[string]any
 
-	require.NoError(t, json.Unmarshal(raw, &out), string(raw))
+	require.NoError(t, json.Unmarshal(raw, &out, jsonx.V1()), string(raw))
 
 	return out
 }

@@ -1,10 +1,12 @@
 package ssoadmin
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleDeleteApplicationAccessScope(c *echo.Context, body []byte) error {
@@ -12,7 +14,7 @@ func (h *Handler) handleDeleteApplicationAccessScope(c *echo.Context, body []byt
 		ApplicationArn string `json:"ApplicationArn"`
 		Scope          string `json:"Scope"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
@@ -29,7 +31,7 @@ func (h *Handler) handleListApplicationAccessScopes(c *echo.Context, body []byte
 		NextToken      string `json:"NextToken"`
 		MaxResults     int    `json:"MaxResults"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	scopes, err := h.Backend.ListApplicationAccessScopes(req.ApplicationArn)
@@ -53,7 +55,7 @@ func (h *Handler) handlePutApplicationAccessScope(c *echo.Context, body []byte) 
 		Scope             string   `json:"Scope"`
 		AuthorizedTargets []string `json:"AuthorizedTargets"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if err := h.Backend.PutApplicationAccessScope(req.ApplicationArn, req.Scope, req.AuthorizedTargets); err != nil {
@@ -68,7 +70,7 @@ func (h *Handler) handleGetApplicationAccessScope(c *echo.Context, body []byte) 
 		ApplicationArn string `json:"ApplicationArn"`
 		Scope          string `json:"Scope"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 	if req.ApplicationArn == "" {

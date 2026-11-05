@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -45,7 +46,7 @@ func TestGetTags_DomainNameAccessAssociation(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var tagsResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 	gotTags, _ := tagsResp["tags"].(map[string]any)
 	assert.Empty(t, gotTags)
 }
@@ -91,13 +92,13 @@ func TestResourceTags(t *testing.T) {
 				fmt.Sprintf(`{"name":"tagged-api","tags":%s}`, tt.initialTags))
 			require.Equal(t, http.StatusCreated, rec.Code)
 			var apiResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &apiResp, jsonx.V1()))
 			apiID := apiResp["id"].(string)
 
 			arn := fmt.Sprintf("arn:aws:apigateway:us-east-1::/restapis/%s", apiID)
 
 			// TagResource
-			tagsJSON, err := json.Marshal(tt.addTags)
+			tagsJSON, err := json.Marshal(tt.addTags, jsonx.V1())
 			require.NoError(t, err)
 			tagRec := postWithHandler(t, handler, e, "TagResource",
 				fmt.Sprintf(`{"resourceArn":%q,"tags":%s}`, arn, tagsJSON))
@@ -105,7 +106,7 @@ func TestResourceTags(t *testing.T) {
 
 			// UntagResource (if applicable)
 			if len(tt.removeTags) > 0 {
-				keysJSON, err2 := json.Marshal(tt.removeTags)
+				keysJSON, err2 := json.Marshal(tt.removeTags, jsonx.V1())
 				require.NoError(t, err2)
 				untagRec := postWithHandler(t, handler, e, "UntagResource",
 					fmt.Sprintf(`{"resourceArn":%q,"tagKeys":%s}`, arn, keysJSON))
@@ -117,7 +118,7 @@ func TestResourceTags(t *testing.T) {
 				fmt.Sprintf(`{"resourceArn":%q}`, arn))
 			assert.Equal(t, http.StatusOK, getRec.Code)
 			var tagsResp map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tagsResp))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &tagsResp, jsonx.V1()))
 			tagsMap, _ := tagsResp["tags"].(map[string]any)
 			for k, v := range tt.wantTagsAfter {
 				assert.Equal(t, v, tagsMap[k])

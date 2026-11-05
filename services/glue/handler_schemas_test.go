@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -123,7 +124,7 @@ func TestCheckSchemaVersionValidity(t *testing.T) {
 				Error string `json:"Error"`
 				Valid bool   `json:"Valid"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tc.wantValid, out.Valid)
 
 			if tc.wantError != "" {
@@ -187,7 +188,7 @@ func TestDeleteSchemaVersions(t *testing.T) {
 					VersionNumber int64 `json:"VersionNumber"`
 				} `json:"SchemaVersionErrors"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.SchemaVersionErrors, tc.wantErrCount)
 		})
 	}
@@ -219,7 +220,7 @@ func TestDeleteSchemaVersions_Stateful(t *testing.T) {
 			VersionNumber int64 `json:"VersionNumber"`
 		} `json:"SchemaVersionErrors"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	// Version 9 doesn't exist → 1 error.
 	require.Len(t, out.SchemaVersionErrors, 1)
@@ -413,7 +414,7 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, registerRec.Code)
 	var registerOut map[string]any
-	require.NoError(t, json.Unmarshal(registerRec.Body.Bytes(), &registerOut))
+	require.NoError(t, json.Unmarshal(registerRec.Body.Bytes(), &registerOut, jsonx.V1()))
 	assert.NotEmpty(t, registerOut["SchemaVersionId"])
 
 	getSchemaVersionRec := doGlueRequest(t, h, "GetSchemaVersion", map[string]any{
@@ -422,7 +423,7 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, getSchemaVersionRec.Code)
 	var getSchemaVersionOut map[string]any
-	require.NoError(t, json.Unmarshal(getSchemaVersionRec.Body.Bytes(), &getSchemaVersionOut))
+	require.NoError(t, json.Unmarshal(getSchemaVersionRec.Body.Bytes(), &getSchemaVersionOut, jsonx.V1()))
 	assert.EqualValues(t, 1, getSchemaVersionOut["VersionNumber"])
 
 	listSchemaVersionsRec := doGlueRequest(t, h, "ListSchemaVersions", map[string]any{
@@ -437,7 +438,7 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, checkValidityRec.Code)
 	var checkValidityOut map[string]any
-	require.NoError(t, json.Unmarshal(checkValidityRec.Body.Bytes(), &checkValidityOut))
+	require.NoError(t, json.Unmarshal(checkValidityRec.Body.Bytes(), &checkValidityOut, jsonx.V1()))
 	assert.True(t, checkValidityOut["Valid"].(bool))
 }
 
@@ -483,7 +484,7 @@ func TestCreateSchema_WithDefinition_PopulatesVersionFields(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			assert.InDelta(t, tt.wantLatest, out["LatestSchemaVersion"], 0)
 			assert.InDelta(t, tt.wantNext, out["NextSchemaVersion"], 0)
@@ -554,7 +555,7 @@ func setupTestSchema(t *testing.T, h *glue.Handler) string {
 	var sv1Out struct {
 		SchemaVersionID string `json:"SchemaVersionId"`
 	}
-	require.NoError(t, json.Unmarshal(reg1Rec.Body.Bytes(), &sv1Out))
+	require.NoError(t, json.Unmarshal(reg1Rec.Body.Bytes(), &sv1Out, jsonx.V1()))
 
 	reg2Rec := doGlueRequest(t, h, "RegisterSchemaVersion", map[string]any{
 		"SchemaId":         map[string]any{"RegistryName": "reg1", "SchemaName": "schema1"},
@@ -565,7 +566,7 @@ func setupTestSchema(t *testing.T, h *glue.Handler) string {
 	var sv2Out struct {
 		SchemaVersionID string `json:"SchemaVersionId"`
 	}
-	require.NoError(t, json.Unmarshal(reg2Rec.Body.Bytes(), &sv2Out))
+	require.NoError(t, json.Unmarshal(reg2Rec.Body.Bytes(), &sv2Out, jsonx.V1()))
 
 	return sv1Out.SchemaVersionID
 }
@@ -632,7 +633,7 @@ func TestSchemaVersionMetadata_Lifecycle(t *testing.T) {
 				} `json:"MetadataInfoMap"`
 				SchemaVersionID string `json:"SchemaVersionId"`
 			}
-			require.NoError(t, json.Unmarshal(queryRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(queryRec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, v1ID, out.SchemaVersionID)
 
 			got := make(map[string]string, len(out.MetadataInfo))
@@ -659,7 +660,7 @@ func TestSchemaVersionMetadata_EmptyQuery(t *testing.T) {
 	var out struct {
 		MetadataInfo map[string]any `json:"MetadataInfoMap"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out.MetadataInfo)
 }
 
@@ -714,7 +715,7 @@ func TestGetSchemaByDefinition_Stateful(t *testing.T) {
 					SchemaVersionID string `json:"SchemaVersionId"`
 					Status          string `json:"Status"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.SchemaVersionID)
 				assert.Equal(t, "AVAILABLE", out.Status)
 			}
@@ -764,7 +765,7 @@ func TestGetSchemaVersionsDiff_Stateful(t *testing.T) {
 			var out struct {
 				Diff string `json:"Diff"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 			if tc.wantDiff {
 				assert.NotEmpty(t, out.Diff)
@@ -884,7 +885,7 @@ func TestGetSchemaVersionsDiff(t *testing.T) {
 				var out struct {
 					Diff string `json:"Diff"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 				if tc.wantDiff {
 					assert.NotEmpty(t, out.Diff)
@@ -917,7 +918,7 @@ func TestListRegistries_OmitsGetOnlyFields(t *testing.T) {
 	var out struct {
 		Registries []map[string]any `json:"Registries"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Registries, 1)
 
 	item := out.Registries[0]
@@ -950,7 +951,7 @@ func TestListSchemas_OmitsGetOnlyFields(t *testing.T) {
 	var out struct {
 		Schemas []map[string]any `json:"Schemas"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Schemas, 1)
 
 	item := out.Schemas[0]
@@ -990,7 +991,7 @@ func TestListSchemaVersions_OmitsGetOnlyFields(t *testing.T) {
 	var out struct {
 		Schemas []map[string]any `json:"Schemas"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Schemas, 1)
 
 	item := out.Schemas[0]

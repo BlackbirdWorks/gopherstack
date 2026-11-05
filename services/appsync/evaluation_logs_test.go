@@ -1,12 +1,14 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // AppSync developer guide, "Logging utilities": $util.log.info/error output is
@@ -49,7 +51,7 @@ func TestEvaluateMappingTemplate_Logs(t *testing.T) {
 				Result string         `json:"evaluationResult"`
 				Logs   []string       `json:"logs"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantLogs, out.Logs)
 			assert.Equal(t, tt.wantErr, out.Error != nil)
 		})

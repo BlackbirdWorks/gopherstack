@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"os"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/registryauth"
 )
@@ -50,7 +51,7 @@ func decode(t *testing.T, enc string) map[string]string {
 	require.NoError(t, err)
 
 	m := map[string]string{}
-	require.NoError(t, json.Unmarshal(raw, &m))
+	require.NoError(t, json.Unmarshal(raw, &m, jsonx.V1()))
 
 	return m
 }

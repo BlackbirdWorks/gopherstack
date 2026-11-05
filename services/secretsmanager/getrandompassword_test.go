@@ -1,7 +1,7 @@
 package secretsmanager_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -381,7 +382,7 @@ func TestGetRandomPassword_Handler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.GetRandomPasswordOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, []rune(out.RandomPassword), 32)
 			},
 		},
@@ -392,7 +393,7 @@ func TestGetRandomPassword_Handler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.GetRandomPasswordOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, []rune(out.RandomPassword), 20)
 			},
 		},
@@ -403,7 +404,7 @@ func TestGetRandomPassword_Handler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var errResp secretsmanager.ErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "InvalidParameterException", errResp.Type)
 			},
 		},
@@ -414,7 +415,7 @@ func TestGetRandomPassword_Handler(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.GetRandomPasswordOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, []rune(out.RandomPassword), 50)
 				for _, ch := range out.RandomPassword {
 					assert.NotContains(t, "0123456789", string(ch))
@@ -497,7 +498,7 @@ func TestGetRandomPassword_RandomRunesOptimized(t *testing.T) {
 				RandomPassword string `json:"RandomPassword"`
 			}
 
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.GreaterOrEqual(t, len(out.RandomPassword), tt.minLen)
 		})
 	}

@@ -1,7 +1,7 @@
 package workmail_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/workmail"
 )
 
@@ -124,7 +125,7 @@ func TestGetAccessControlEffect_RuleEvaluation(t *testing.T) {
 		body["Name"] = name
 		body["Effect"] = effect
 
-		jsonBody, err := json.Marshal(body)
+		jsonBody, err := json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 
 		rec := doOp(t, h, "PutAccessControlRule", string(jsonBody))

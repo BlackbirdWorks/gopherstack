@@ -1,7 +1,8 @@
 package pinpoint_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/pinpoint"
 )
 
@@ -23,7 +25,7 @@ func createTestSegment(t *testing.T, h *pinpoint.Handler, appID, name string) st
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 	id, _ := resp["Id"].(string)
 	require.NotEmpty(t, id)
@@ -134,7 +136,7 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments", tc.body)
@@ -145,7 +147,7 @@ func TestSegmentFullDTO_Create(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantSegmentType, resp["SegmentType"])
 			assert.NotEmpty(t, resp["Id"])
@@ -223,21 +225,21 @@ func TestSegmentUpdate_DimensionsRoundTrip(t *testing.T) {
 			appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 			require.Equal(t, http.StatusCreated, appRec.Code)
 			var appResp map[string]any
-			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+			require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 			appID := appResp["Id"].(string)
 
 			createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
 				map[string]any{"Name": "seg"})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			segID := created["Id"].(string)
 
 			rec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/segments/"+segID, tc.updateBody)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tc.wantSegmentType, resp["SegmentType"])
 			assert.InDelta(t, tc.wantVersion, resp["Version"], 0.001)
@@ -258,14 +260,14 @@ func TestSegmentVersioning(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
 		map[string]any{"Name": "versioned-seg"})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	segID := created["Id"].(string)
 
 	// 2 updates.
@@ -278,7 +280,7 @@ func TestSegmentVersioning(t *testing.T) {
 	verRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/segments/"+segID+"/versions", nil)
 	require.Equal(t, http.StatusOK, verRec.Code)
 	var verResp map[string]any
-	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp))
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verResp, jsonx.V1()))
 	items, _ := verResp["Item"].([]any)
 	assert.Len(t, items, 3, "3 versions: 1 create + 2 updates")
 }
@@ -295,14 +297,14 @@ func TestSegment_VersionRetrieval(t *testing.T) {
 	appRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "app"})
 	require.Equal(t, http.StatusCreated, appRec.Code)
 	var appResp map[string]any
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp, jsonx.V1()))
 	appID := appResp["Id"].(string)
 
 	createRec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps/"+appID+"/segments",
 		map[string]any{"Name": "seg-v"})
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	segID := created["Id"].(string)
 
 	updateRec := doPinpointRequest(t, h, http.MethodPut, "/v1/apps/"+appID+"/segments/"+segID,
@@ -314,7 +316,7 @@ func TestSegment_VersionRetrieval(t *testing.T) {
 		"/v1/apps/"+appID+"/segments/"+segID+"/versions/1", nil)
 	require.Equal(t, http.StatusOK, v1Rec.Code)
 	var v1 map[string]any
-	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1))
+	require.NoError(t, json.Unmarshal(v1Rec.Body.Bytes(), &v1, jsonx.V1()))
 	assert.InDelta(t, float64(1), v1["Version"], 0.001)
 	assert.Equal(t, "seg-v", v1["Name"])
 }
@@ -366,7 +368,7 @@ func TestSegmentVersions_Deeper(t *testing.T) {
 				})
 			require.Equal(t, http.StatusCreated, createRec.Code)
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			segID := created["Id"].(string)
 
 			for i := range tc.updateCount {
@@ -381,7 +383,7 @@ func TestSegmentVersions_Deeper(t *testing.T) {
 			require.Equal(t, http.StatusOK, versionsRec.Code)
 
 			var versionsResp map[string]any
-			require.NoError(t, json.Unmarshal(versionsRec.Body.Bytes(), &versionsResp))
+			require.NoError(t, json.Unmarshal(versionsRec.Body.Bytes(), &versionsResp, jsonx.V1()))
 			items, _ := versionsResp["Item"].([]any)
 			assert.Len(t, items, tc.wantVersions, "wrong version count")
 
@@ -390,7 +392,7 @@ func TestSegmentVersions_Deeper(t *testing.T) {
 			require.Equal(t, http.StatusOK, vRec.Code)
 
 			var vResp map[string]any
-			require.NoError(t, json.Unmarshal(vRec.Body.Bytes(), &vResp))
+			require.NoError(t, json.Unmarshal(vRec.Body.Bytes(), &vResp, jsonx.V1()))
 			assert.InDelta(t, float64(tc.fetchVersion), vResp["Version"], 0.001)
 		})
 	}
@@ -435,7 +437,7 @@ func TestSegmentJobsDeeper(t *testing.T) {
 				map[string]any{"Name": "seg-for-jobs"})
 			require.Equal(t, http.StatusCreated, segRec.Code)
 			var segResp map[string]any
-			require.NoError(t, json.Unmarshal(segRec.Body.Bytes(), &segResp))
+			require.NoError(t, json.Unmarshal(segRec.Body.Bytes(), &segResp, jsonx.V1()))
 			segID := segResp["Id"].(string)
 
 			if tc.jobType == "export" {
@@ -462,7 +464,7 @@ func TestSegmentJobsDeeper(t *testing.T) {
 			require.Equal(t, http.StatusOK, jobsRec.Code)
 
 			var jobsResp map[string]any
-			require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp))
+			require.NoError(t, json.Unmarshal(jobsRec.Body.Bytes(), &jobsResp, jsonx.V1()))
 			assert.Contains(t, jobsResp, "Item")
 		})
 	}
@@ -522,7 +524,7 @@ func TestSegment_ImportType(t *testing.T) {
 			require.Equal(t, http.StatusCreated, jobRec.Code)
 
 			var jr map[string]any
-			require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr))
+			require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr, jsonx.V1()))
 			definition := jr["Definition"].(map[string]any)
 			segID := definition["SegmentId"].(string)
 			require.NotEmpty(t, segID)
@@ -532,7 +534,7 @@ func TestSegment_ImportType(t *testing.T) {
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var s map[string]any
-			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s))
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s, jsonx.V1()))
 
 			assert.Equal(t, "IMPORT", s["SegmentType"])
 
@@ -577,7 +579,7 @@ func TestSegment_DynamicWithSegmentGroups(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 
 	// No ImportDefinition → DIMENSIONAL type
 	assert.Equal(t, "DIMENSIONAL", cr["SegmentType"])
@@ -588,7 +590,7 @@ func TestSegment_DynamicWithSegmentGroups(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var s map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s, jsonx.V1()))
 
 	assert.Equal(t, "DIMENSIONAL", s["SegmentType"])
 
@@ -639,14 +641,14 @@ func TestSegment_DimensionsAttributes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	segID := cr["Id"].(string)
 
 	getRec := doPinpointRequest(t, h, http.MethodGet, "/v1/apps/"+appID+"/segments/"+segID, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var s map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s, jsonx.V1()))
 
 	d := s["Dimensions"].(map[string]any)
 
@@ -685,7 +687,7 @@ func TestSegment_UpdatePreservesType(t *testing.T) {
 	require.Equal(t, http.StatusCreated, jobRec.Code)
 
 	var jr map[string]any
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jr, jsonx.V1()))
 	segID := jr["Definition"].(map[string]any)["SegmentId"].(string)
 	require.NotEmpty(t, segID)
 
@@ -695,7 +697,7 @@ func TestSegment_UpdatePreservesType(t *testing.T) {
 	require.Equal(t, http.StatusOK, putRec.Code)
 
 	var ur map[string]any
-	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &ur))
+	require.NoError(t, json.Unmarshal(putRec.Body.Bytes(), &ur, jsonx.V1()))
 	assert.Equal(t, "IMPORT", ur["SegmentType"])
 	assert.Equal(t, "type-preserve-seg-v2", ur["Name"])
 
@@ -739,7 +741,7 @@ func TestSegment_SegmentGroups_UpdateReplaces(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr, jsonx.V1()))
 	segID := cr["Id"].(string)
 
 	v2Groups := map[string]any{
@@ -770,7 +772,7 @@ func TestSegment_SegmentGroups_UpdateReplaces(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var s map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &s, jsonx.V1()))
 
 	sg := s["SegmentGroups"].(map[string]any)
 	assert.Equal(t, "ANY", sg["Include"])
@@ -797,7 +799,7 @@ func TestPagination_Segments_NextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, p1Rec.Code)
 
 	var p1 map[string]any
-	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1))
+	require.NoError(t, json.Unmarshal(p1Rec.Body.Bytes(), &p1, jsonx.V1()))
 
 	items1, _ := p1["Item"].([]any)
 	assert.Len(t, items1, 2)
@@ -807,7 +809,7 @@ func TestPagination_Segments_NextToken(t *testing.T) {
 	p2Rec := doPinpointRequest(t, h, http.MethodGet,
 		"/v1/apps/"+appID+"/segments?page-size=2&token="+tok, nil)
 	var p2 map[string]any
-	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2))
+	require.NoError(t, json.Unmarshal(p2Rec.Body.Bytes(), &p2, jsonx.V1()))
 
 	items2, _ := p2["Item"].([]any)
 	assert.Len(t, items2, 2)
@@ -828,7 +830,7 @@ func TestSegmentCRUD(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	segmentID, _ := createResp["Id"].(string)
 	require.NotEmpty(t, segmentID)
 
@@ -910,7 +912,7 @@ func TestHandler_CreateSegment(t *testing.T) {
 
 			if tt.wantID {
 				var resp map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["Id"])
 				assert.NotEmpty(t, resp["Arn"])
 				assert.Equal(t, appID, resp["ApplicationId"])
@@ -945,7 +947,7 @@ func TestGetSegmentVersion_UnknownVersionNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(missingRec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(missingRec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "NotFoundException", errResp["__type"])
 }
 
@@ -973,7 +975,7 @@ func TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 			created[resp["Id"].(string)] = true
 		}
 
@@ -985,7 +987,7 @@ func TestHandler_GetSegments_DuplicateNames_NoDropOrDupAcrossPages(t *testing.T)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 			items, _ := resp["Item"].([]any)
 			for _, item := range items {

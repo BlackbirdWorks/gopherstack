@@ -2,8 +2,10 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // invitationObject is the JSON representation of a ResourceShareInvitation.
@@ -42,7 +44,7 @@ func (h *Handler) handleAcceptResourceShareInvitation(
 	body []byte,
 ) ([]byte, error) {
 	var req acceptResourceShareInvitationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -57,7 +59,7 @@ func (h *Handler) handleAcceptResourceShareInvitation(
 
 	return json.Marshal(acceptResourceShareInvitationResponse{
 		ResourceShareInvitation: toInvitationObject(inv),
-	})
+	}, jsonx.V1())
 }
 
 type rejectResourceShareInvitationRequest struct {
@@ -73,7 +75,7 @@ func (h *Handler) handleRejectResourceShareInvitation(
 	body []byte,
 ) ([]byte, error) {
 	var req rejectResourceShareInvitationRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -88,7 +90,7 @@ func (h *Handler) handleRejectResourceShareInvitation(
 
 	return json.Marshal(rejectResourceShareInvitationResponse{
 		ResourceShareInvitation: toInvitationObject(inv),
-	})
+	}, jsonx.V1())
 }
 
 type getResourceShareInvitationsRequest struct {
@@ -108,7 +110,7 @@ func (h *Handler) handleGetResourceShareInvitations(
 	body []byte,
 ) ([]byte, error) {
 	var req getResourceShareInvitationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -128,6 +130,6 @@ func (h *Handler) handleGetResourceShareInvitations(
 	}
 
 	return json.Marshal(
-		getResourceShareInvitationsResponse{NextToken: nextToken, ResourceShareInvitations: page},
+		getResourceShareInvitationsResponse{NextToken: nextToken, ResourceShareInvitations: page}, jsonx.V1(),
 	)
 }

@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -255,7 +256,7 @@ func executeGraphQL(
 		body["variables"] = variables
 	}
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, gqlEndpoint, bytes.NewReader(bodyBytes))
@@ -284,7 +285,7 @@ func executeGraphQL(
 	)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(respBytes, &result))
+	require.NoError(t, json.Unmarshal(respBytes, &result, jsonx.V1()))
 
 	return result
 }

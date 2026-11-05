@@ -8,11 +8,14 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type propertySpec struct {
@@ -53,7 +56,7 @@ func readJSON(path string, v any) error {
 		return err
 	}
 
-	return json.Unmarshal(data, v)
+	return json.Unmarshal(data, v, jsonx.V1())
 }
 
 func run(specPath, typesPath, outPath, reqPath string) error {
@@ -67,7 +70,12 @@ func run(specPath, typesPath, outPath, reqPath string) error {
 		return fmt.Errorf("load types: %w", err)
 	}
 
-	out, err := json.MarshalIndent(buildSchemas(&spec, types), "", "  ")
+	out, err := json.Marshal(
+		buildSchemas(&spec, types),
+		jsonx.V1(),
+		jsontext.Multiline(true),
+		jsontext.WithIndent("  "),
+	)
 	if err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
@@ -80,7 +88,12 @@ func run(specPath, typesPath, outPath, reqPath string) error {
 		return nil
 	}
 
-	req, err := json.MarshalIndent(buildRequired(&spec, types), "", "  ")
+	req, err := json.Marshal(
+		buildRequired(&spec, types),
+		jsonx.V1(),
+		jsontext.Multiline(true),
+		jsontext.WithIndent("  "),
+	)
 	if err != nil {
 		return fmt.Errorf("render required: %w", err)
 	}

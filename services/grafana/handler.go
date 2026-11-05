@@ -2,7 +2,7 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -378,7 +379,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		status, errType = http.StatusNotFound, "ResourceNotFoundException"
 	}
 
-	payload, _ := json.Marshal(body)
+	payload, _ := json.Marshal(body, jsonx.V1())
 
 	c.Response().Header().Set("X-Amzn-Errortype", errType)
 

@@ -2,12 +2,13 @@ package dms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/dmsengine"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -402,7 +403,7 @@ func buildTableStatistics(tableMappings string) []tableStatisticJSON {
 	}
 
 	var doc tableMappingsDoc
-	if err := json.Unmarshal([]byte(tableMappings), &doc); err != nil {
+	if err := json.Unmarshal([]byte(tableMappings), &doc, jsonx.V1()); err != nil {
 		return []tableStatisticJSON{}
 	}
 

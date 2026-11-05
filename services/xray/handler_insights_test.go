@@ -1,7 +1,7 @@
 package xray_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -45,7 +46,7 @@ func TestGetInsightSummaries_ALLState(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["InsightSummaries"].([]any)
 	require.True(t, ok)
@@ -117,7 +118,7 @@ func TestGetInsightSummariesStateFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, ok := resp["InsightSummaries"].([]any)
 			require.True(t, ok)
@@ -145,7 +146,7 @@ func TestGroupInsightsConfigurationRoundtrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	group, ok := resp["Group"].(map[string]any)
 	require.True(t, ok)
@@ -237,7 +238,7 @@ func TestHandler_GetInsight_ResponseFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	insight, ok := resp["Insight"].(map[string]any)
 	require.True(t, ok)
@@ -296,7 +297,7 @@ func TestHandler_GetInsightEvents(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				events, ok := resp["InsightEvents"].([]any)
 				require.True(t, ok)
@@ -362,7 +363,7 @@ func TestHandler_GetInsightImpactGraph(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				assert.Equal(t, "insight-xyz", resp["InsightId"])
 
@@ -426,7 +427,7 @@ func TestHandler_GetInsightSummaries(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, ok := resp["InsightSummaries"].([]any)
 			require.True(t, ok)
@@ -491,7 +492,7 @@ func TestHandler_GetInsightEvents_Pagination(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				nextToken, _ := resp["NextToken"].(string)
 				if tt.wantHasNext {
@@ -524,7 +525,7 @@ func TestHandler_GetInsightEvents_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1, jsonx.V1()))
 
 	events1, _ := resp1["InsightEvents"].([]any)
 	assert.Len(t, events1, 4)
@@ -540,7 +541,7 @@ func TestHandler_GetInsightEvents_NextTokenContinuation(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 
 	events2, _ := resp2["InsightEvents"].([]any)
 	assert.Len(t, events2, 2)
@@ -604,7 +605,7 @@ func TestHandler_GetInsightSummaries_Pagination(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			summaries, _ := resp["InsightSummaries"].([]any)
 			assert.Len(t, summaries, tt.wantCount)
@@ -630,7 +631,7 @@ func TestHandler_GetInsight_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	insightData, ok := resp["Insight"].(map[string]any)
 	require.True(t, ok)
@@ -657,7 +658,7 @@ func TestHandler_GetInsightSummaries_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	summaries, ok := resp["InsightSummaries"].([]any)
 	require.True(t, ok)
@@ -699,7 +700,7 @@ func TestGetInsightSummaries_LastUpdateTimeReflectsActivity(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	summaries, ok := resp["InsightSummaries"].([]any)
 	require.True(t, ok)
 	require.Len(t, summaries, 1)
@@ -717,7 +718,7 @@ func TestGetInsightSummaries_LastUpdateTimeReflectsActivity(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	insight, ok := getResp["Insight"].(map[string]any)
 	require.True(t, ok)
 	assert.NotContains(t, insight, "LastUpdateTime")
@@ -770,7 +771,7 @@ func TestGetInsight_FieldsReturned(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			insight, ok := resp["Insight"].(map[string]any)
 			require.True(t, ok)
@@ -813,7 +814,7 @@ func TestGetInsightEvents_ReturnsEventsForInsight(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	events, ok := resp["InsightEvents"].([]any)
 	require.True(t, ok)
@@ -868,7 +869,7 @@ func TestGetInsightImpactGraph_ReturnsInsightId(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, "i-impact-001", resp["InsightId"])
 			}
 		})
@@ -919,7 +920,7 @@ func TestGetInsightSummaries_StatesValidation(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantCount > 0 {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				summaries, ok := resp["InsightSummaries"].([]any)
 				require.True(t, ok)

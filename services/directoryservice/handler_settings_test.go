@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestSettings(t *testing.T) {
@@ -31,14 +33,14 @@ func TestSettings(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			assert.Equal(t, dirID, r1["DirectoryId"])
 
 			// DescribeSettings
 			rec2 := doRequest(t, h, "DescribeSettings", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			settings, _ := r2["SettingEntries"].([]any)
 			require.Len(t, settings, 1)
 			setting := settings[0].(map[string]any)
@@ -79,7 +81,7 @@ func TestUpdateDirectorySetup(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec2.Code)
 			var r2 map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &r2, jsonx.V1()))
 			entries, _ := r2["UpdateActivities"].([]any)
 			assert.Len(t, entries, 1)
 
@@ -107,7 +109,7 @@ func TestDirectoryDataAccess(t *testing.T) {
 			rec1 := doRequest(t, h, "DescribeDirectoryDataAccess", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec1.Code)
 			var r1 map[string]any
-			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1))
+			require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &r1, jsonx.V1()))
 			assert.Equal(t, "Disabled", r1["DataAccessStatus"])
 
 			// Enable
@@ -118,7 +120,7 @@ func TestDirectoryDataAccess(t *testing.T) {
 			rec3 := doRequest(t, h, "DescribeDirectoryDataAccess", map[string]any{"DirectoryId": dirID})
 			assert.Equal(t, http.StatusOK, rec3.Code)
 			var r3 map[string]any
-			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3))
+			require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &r3, jsonx.V1()))
 			assert.Equal(t, "Enabled", r3["DataAccessStatus"])
 
 			// Disable
@@ -153,7 +155,7 @@ func TestUpdateDirectorySetup_Validation(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.Equal(t, "InvalidParameterException", body["__type"])
 		})
 	}

@@ -1,13 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -137,7 +138,7 @@ func TestEngineAsync_ResultsAndNotifications(t *testing.T) {
 			assert.Contains(t, string(data), tt.wantOutValue)
 
 			var note map[string]any
-			require.NoError(t, json.Unmarshal([]byte(rig.sns.messages(tt.wantTopic)[0]), &note))
+			require.NoError(t, json.Unmarshal([]byte(rig.sns.messages(tt.wantTopic)[0]), &note, jsonx.V1()))
 			assert.Equal(t, tt.wantStatus, note["invocationStatus"])
 			assert.Equal(t, tt.req.InferenceID, note["inferenceId"])
 			assert.Equal(t, "us-east-1", note["awsRegion"])

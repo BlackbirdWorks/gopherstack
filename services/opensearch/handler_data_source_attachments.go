@@ -1,11 +1,12 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Sub-path segments for the four data source attachment routes under
@@ -104,7 +105,7 @@ func (h *Handler) readDataSourceAttachmentRequest(
 
 	var req dataSourceAttachmentRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return dataSourceAttachmentRequest{}, false
@@ -191,7 +192,7 @@ func (h *Handler) handleListDataSourceAttachments(w http.ResponseWriter, r *http
 
 	var req listDataSourceAttachmentsRequest
 	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &req, jsonx.V1()); unmarshalErr != nil {
 			h.writeError(r, w, http.StatusBadRequest, "ValidationException", "invalid JSON body")
 
 			return

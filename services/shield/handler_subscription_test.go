@@ -1,7 +1,7 @@
 package shield_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -79,7 +80,7 @@ func TestHandler_DescribeSubscription(t *testing.T) {
 
 			if tt.wantField != "" {
 				var result map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 				assert.Contains(t, result, tt.wantField)
 			}
 		})
@@ -102,7 +103,7 @@ func TestHandler_DescribeSubscription_TimeCommitmentInSeconds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 
 	sub, ok := result["Subscription"].(map[string]any)
 	require.True(t, ok, "response must include a Subscription object")
@@ -148,7 +149,7 @@ func TestHandler_GetSubscriptionState(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var result map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 			assert.Equal(t, tt.wantState, result["SubscriptionState"])
 		})
 	}
@@ -202,7 +203,7 @@ func TestHandler_DescribeSubscriptionFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	sub := resp["Subscription"].(map[string]any)
 	assert.NotNil(t, sub["ProactiveEngagementStatus"])
@@ -233,7 +234,7 @@ func TestHandler_SubscriptionLimitsStructure(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	sub := resp["Subscription"].(map[string]any)
 	limits := sub["SubscriptionLimits"].(map[string]any)
@@ -255,7 +256,7 @@ func TestHandler_SubscriptionTimestampIsFloat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	sub := raw["Subscription"].(map[string]any)
 	st, ok := sub["StartTime"].(float64)
@@ -275,7 +276,7 @@ func TestHandler_SubscriptionArnFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	sub := resp["Subscription"].(map[string]any)
 	arn := sub["SubscriptionArn"].(string)
@@ -397,7 +398,7 @@ func TestHandler_UpdateSubscriptionOmitAutoRenewPreservesExistingValue(t *testin
 	require.Equal(t, 200, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	sub, ok := result["Subscription"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, shield.AutoRenewDisabled, sub["AutoRenew"])
@@ -415,7 +416,7 @@ func TestHandler_DescribeSubscriptionIncludesArn(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 
 	var result map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result, jsonx.V1()))
 	sub, ok := result["Subscription"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, sub, "SubscriptionArn")

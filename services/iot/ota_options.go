@@ -1,9 +1,11 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -63,10 +65,10 @@ func otaJobInput(opts OTAUpdateOptions, roleARN string) *CreateJobInput {
 
 // remapJSON copies the keys src shares with dst's JSON tags; an unmarshal failure leaves dst as is.
 func remapJSON(src map[string]any, dst any) {
-	raw, err := json.Marshal(src)
+	raw, err := json.Marshal(src, jsonx.V1())
 	if err != nil {
 		return
 	}
 
-	_ = json.Unmarshal(raw, dst)
+	_ = json.Unmarshal(raw, dst, jsonx.V1())
 }

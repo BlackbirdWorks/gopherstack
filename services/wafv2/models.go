@@ -1,6 +1,8 @@
 package wafv2
 
-import "encoding/json"
+import (
+	"encoding/json/jsontext"
+)
 
 const (
 	// ScopeRegional is the REGIONAL WAFv2 scope.
@@ -53,16 +55,16 @@ type VisibilityConfig struct {
 type WebACL struct {
 	Tags                         map[string]string `json:"tags,omitempty"`
 	ARN                          string            `json:"arn,omitempty"`
-	DefaultAction                json.RawMessage   `json:"defaultAction,omitempty"`
-	VisibilityConfig             json.RawMessage   `json:"visibilityConfig,omitempty"`
-	CustomResponseBodies         json.RawMessage   `json:"customResponseBodies,omitempty"`
-	AssociationConfig            json.RawMessage   `json:"associationConfig,omitempty"`
-	CaptchaConfig                json.RawMessage   `json:"captchaConfig,omitempty"`
-	ChallengeConfig              json.RawMessage   `json:"challengeConfig,omitempty"`
-	MonetizationConfig           json.RawMessage   `json:"monetizationConfig,omitempty"`
-	DataProtectionConfig         json.RawMessage   `json:"dataProtectionConfig,omitempty"`
-	ApplicationConfig            json.RawMessage   `json:"applicationConfig,omitempty"`
-	OnSourceDDoSProtectionConfig json.RawMessage   `json:"onSourceDDoSProtectionConfig,omitempty"`
+	DefaultAction                jsontext.Value    `json:"defaultAction,omitempty"`
+	VisibilityConfig             jsontext.Value    `json:"visibilityConfig,omitempty"`
+	CustomResponseBodies         jsontext.Value    `json:"customResponseBodies,omitempty"`
+	AssociationConfig            jsontext.Value    `json:"associationConfig,omitempty"`
+	CaptchaConfig                jsontext.Value    `json:"captchaConfig,omitempty"`
+	ChallengeConfig              jsontext.Value    `json:"challengeConfig,omitempty"`
+	MonetizationConfig           jsontext.Value    `json:"monetizationConfig,omitempty"`
+	DataProtectionConfig         jsontext.Value    `json:"dataProtectionConfig,omitempty"`
+	ApplicationConfig            jsontext.Value    `json:"applicationConfig,omitempty"`
+	OnSourceDDoSProtectionConfig jsontext.Value    `json:"onSourceDDoSProtectionConfig,omitempty"`
 	ID                           string            `json:"id"`
 	Name                         string            `json:"name"`
 	Scope                        string            `json:"scope"`
@@ -106,8 +108,8 @@ type RuleGroup struct {
 	Scope                string            `json:"scope"`
 	Description          string            `json:"description"`
 	VisibilityConfig     string            `json:"visibilityConfig"`
-	CustomResponseBodies json.RawMessage   `json:"customResponseBodies,omitempty"`
-	MonetizationConfig   json.RawMessage   `json:"monetizationConfig,omitempty"`
+	CustomResponseBodies jsontext.Value    `json:"customResponseBodies,omitempty"`
+	MonetizationConfig   jsontext.Value    `json:"monetizationConfig,omitempty"`
 	LockToken            string            `json:"lockToken"`
 	Rules                []map[string]any  `json:"rules,omitempty"`
 	Capacity             int64             `json:"capacity"`

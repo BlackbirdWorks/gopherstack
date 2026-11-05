@@ -1,7 +1,7 @@
 package cloudwatchlogs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
@@ -41,7 +42,7 @@ func TestHandler_DescribeExportTasks_OmitsLogStreamNamePrefix(t *testing.T) {
 			var out struct {
 				ExportTasks []map[string]any `json:"exportTasks"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.Len(t, out.ExportTasks, 1)
 			assert.NotContains(t, out.ExportTasks[0], "logStreamNamePrefix")
 			assert.Equal(t, "/grp", out.ExportTasks[0]["logGroupName"])

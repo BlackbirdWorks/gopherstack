@@ -1,7 +1,7 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateAppImageConfig(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_CreateAppImageConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["AppImageConfigArn"], "my-config")
 }
 
@@ -37,7 +39,7 @@ func TestHandler_DescribeAppImageConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "aic-1", resp["AppImageConfigName"])
 }
 
@@ -64,7 +66,7 @@ func TestHandler_UpdateAppImageConfig(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["AppImageConfigArn"], "aic-upd")
 }
 
@@ -81,7 +83,7 @@ func TestHandler_ListAppImageConfigs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Empty(t, resp["AppImageConfigs"])
 
 	doSageMakerRequest(t, h, "CreateAppImageConfig", map[string]any{
@@ -89,7 +91,7 @@ func TestHandler_ListAppImageConfigs(t *testing.T) {
 	})
 
 	rec = doSageMakerRequest(t, h, "ListAppImageConfigs", map[string]any{})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	configs := resp["AppImageConfigs"].([]any)
 	assert.Len(t, configs, 1)
 	c := configs[0].(map[string]any)

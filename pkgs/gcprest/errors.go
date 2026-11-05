@@ -1,12 +1,15 @@
 package gcprest
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type codeInfo struct {
@@ -40,10 +43,10 @@ type errorBody struct {
 }
 
 type errorDetail struct {
-	Message string            `json:"message"`
-	Status  string            `json:"status"`
-	Details []json.RawMessage `json:"details"`
-	Code    int               `json:"code"`
+	Message string           `json:"message"`
+	Status  string           `json:"status"`
+	Details []jsontext.Value `json:"details"`
+	Code    int              `json:"code"`
 }
 
 // HTTPStatus maps a gRPC code to the HTTP status Google APIs use for it.
@@ -63,7 +66,7 @@ func writeError(w http.ResponseWriter, err error) {
 		info = codeInfo{"UNKNOWN", http.StatusInternalServerError}
 	}
 
-	details := make([]json.RawMessage, 0, len(st.Proto().GetDetails()))
+	details := make([]jsontext.Value, 0, len(st.Proto().GetDetails()))
 
 	for _, d := range st.Proto().GetDetails() {
 		if b, mErr := protojson.Marshal(d); mErr == nil {
@@ -77,7 +80,7 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 

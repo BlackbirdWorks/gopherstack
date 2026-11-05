@@ -8,10 +8,12 @@ import (
 	"database/sql/driver"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func strFn(n int32, f func(s string, a []driver.Value) (driver.Value, error)) udfDef {
@@ -379,7 +381,7 @@ func udfSplit(a []driver.Value) (driver.Value, error) {
 		parts = []string{""}
 	}
 
-	b, _ := json.Marshal(parts)
+	b, _ := json.Marshal(parts, jsonx.V1())
 
 	return string(b), nil
 }

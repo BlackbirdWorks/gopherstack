@@ -2,7 +2,7 @@ package transfer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 
@@ -31,7 +31,7 @@ const transferSnapshotVersion = 1
 // (and TagsStore is handled separately below) -- see store_setup.go and the
 // field comments on InMemoryBackend for why.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	TagsStore map[string]map[string]string `json:"tags_store"`
 	Version   int                          `json:"version"`
 }

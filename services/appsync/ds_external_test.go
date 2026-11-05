@@ -2,7 +2,8 @@ package appsync_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -142,7 +144,7 @@ func TestEventBridgeDataSource_Request(t *testing.T) {
 	assert.JSONEq(t, `{"k":"v"}`, eb.entries[0].Detail)
 	assert.Equal(t, []string{"r1"}, eb.entries[0].Resources)
 
-	raw, _ := json.Marshal(out["run"])
+	raw, _ := json.Marshal(out["run"], jsonx.V1())
 	assert.JSONEq(t, `{"Entries":[{"EventId":"ev-1"}],"FailedEntryCount":0}`, string(raw))
 }
 
@@ -165,7 +167,7 @@ func TestRDSHelpers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctxJSON, _ := json.Marshal(map[string]any{"result": result})
+			ctxJSON, _ := json.Marshal(map[string]any{"result": result}, jsonx.V1())
 			out, err := b.EvaluateMappingTemplate(tt.template, string(ctxJSON))
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, out)
@@ -218,16 +220,16 @@ export function response(ctx) { return ctx.result; }`
 		t.Run(tt.kind, func(t *testing.T) {
 			t.Parallel()
 
-			ctxJSON, _ := json.Marshal(map[string]any{"arguments": map[string]any{"kind": tt.kind}})
+			ctxJSON, _ := json.Marshal(map[string]any{"arguments": map[string]any{"kind": tt.kind}}, jsonx.V1())
 			out, err := b.EvaluateCode(code, string(ctxJSON), "request", "APPSYNC_JS")
 			require.NoError(t, err)
 
 			var got struct {
-				Version     string          `json:"version"`
-				Statements  json.RawMessage `json:"statements"`
-				VariableMap json.RawMessage `json:"variableMap"`
+				Version     string         `json:"version"`
+				Statements  jsontext.Value `json:"statements"`
+				VariableMap jsontext.Value `json:"variableMap"`
 			}
-			require.NoError(t, json.Unmarshal([]byte(out), &got))
+			require.NoError(t, json.Unmarshal([]byte(out), &got, jsonx.V1()))
 			assert.JSONEq(t, tt.wantStmts, string(got.Statements))
 			assert.JSONEq(t, tt.wantVars, string(got.VariableMap))
 			assert.Equal(t, "2018-05-29", got.Version)

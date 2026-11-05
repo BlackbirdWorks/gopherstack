@@ -2,9 +2,10 @@ package sts
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -45,7 +46,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		OpsGetFedToken:       b.cntGetFederationToken.Load(),
 	}
 
-	data, err := json.Marshal(snap)
+	data, err := json.Marshal(snap, jsonx.V1())
 	if err != nil {
 		logger.Load(ctx).WarnContext(ctx, "sts: failed to snapshot backend state", "error", err)
 

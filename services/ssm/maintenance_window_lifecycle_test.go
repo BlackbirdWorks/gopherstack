@@ -2,7 +2,7 @@ package ssm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -189,7 +190,7 @@ func TestStubOps_DeleteMaintenanceWindow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID})
+	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID}, jsonx.V1())
 	rec := doRequest(t, h, "DeleteMaintenanceWindow", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -208,7 +209,7 @@ func TestStubOps_GetMaintenanceWindow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID})
+	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID}, jsonx.V1())
 	rec := doRequest(t, h, "GetMaintenanceWindow", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -227,7 +228,7 @@ func TestStubOps_UpdateMaintenanceWindow(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID, "Name": "updated-window"})
+	body, _ := json.Marshal(map[string]any{"WindowId": mw.WindowID, "Name": "updated-window"}, jsonx.V1())
 	rec := doRequest(t, h, "UpdateMaintenanceWindow", string(body))
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -263,7 +264,7 @@ func TestCreateMaintenanceWindow_Success(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp ssm.CreateMaintenanceWindowOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.WindowID)
 			assert.True(t, strings.HasPrefix(resp.WindowID, "mw-"))
 			assert.Equal(t, 1, backend.MaintenanceWindowCount())
@@ -296,7 +297,7 @@ func TestMaintenanceWindow_ScheduleFieldsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var created ssm.CreateMaintenanceWindowOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created, jsonx.V1()))
 
 	out, err := b.GetMaintenanceWindow(context.Background(), &ssm.GetMaintenanceWindowInput{WindowID: created.WindowID})
 	require.NoError(t, err)
@@ -750,7 +751,7 @@ func TestMaintenanceWindowsForTarget_FindsByTarget(t *testing.T) {
 		"Targets": []map[string]any{
 			{"Key": "InstanceIds", "Values": []string{"i-aabbcc112233"}},
 		},
-	})
+	}, jsonx.V1())
 	rec := doRequest(t, h, "RegisterTargetWithMaintenanceWindow", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -760,7 +761,7 @@ func TestMaintenanceWindowsForTarget_FindsByTarget(t *testing.T) {
 		"Targets": []map[string]any{
 			{"Key": "InstanceIds", "Values": []string{"i-aabbcc112233"}},
 		},
-	})
+	}, jsonx.V1())
 	rec = doRequest(t, h, "DescribeMaintenanceWindowsForTarget", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), mw.WindowID)

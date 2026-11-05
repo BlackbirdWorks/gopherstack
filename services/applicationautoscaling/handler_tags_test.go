@@ -1,13 +1,15 @@
 package applicationautoscaling_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_TagResource(t *testing.T) {
@@ -24,7 +26,7 @@ func TestHandler_TagResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	resourceARN := createResp["ScalableTargetARN"]
 
 	tagRec := doRequest(t, h, "TagResource", map[string]any{
@@ -84,7 +86,7 @@ func TestHandler_TagResource_ExceedsLimit(t *testing.T) {
 	require.Equal(t, http.StatusOK, regRec.Code)
 
 	var regResp map[string]any
-	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regResp))
+	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regResp, jsonx.V1()))
 	targetARN, _ := regResp["ScalableTargetARN"].(string)
 	require.NotEmpty(t, targetARN)
 
@@ -110,7 +112,7 @@ func TestHandler_TagResource_ExceedsLimit(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, overRec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(overRec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(overRec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "TooManyTagsException", errBody["__type"])
 	assert.Equal(t, targetARN, errBody["ResourceName"])
 }
@@ -141,7 +143,7 @@ func TestHandler_RegisterScalableTarget_ExceedsTagLimit(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "LimitExceededException", errBody["__type"])
 }
 
@@ -187,7 +189,7 @@ func TestHandler_TagOps_NotFound_ResourceNotFoundException(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code)
 
 			var errBody map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", errBody["__type"])
 			assert.Equal(t, missingARN, errBody["ResourceName"])
 		})
@@ -208,7 +210,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	resourceARN := createResp["ScalableTargetARN"]
 
 	doRequest(t, h, "TagResource", map[string]any{
@@ -220,7 +222,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "prod", tags["env"])
@@ -234,7 +236,7 @@ func TestHandler_ListTagsForResource_EmptyARN(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errBody map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errBody["__type"],
 		"ListTagsForResource's own deserializeOpError switch types only ResourceNotFoundException")
 }
@@ -253,7 +255,7 @@ func TestHandler_UntagResource(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	resourceARN := createResp["ScalableTargetARN"]
 
 	doRequest(t, h, "TagResource", map[string]any{
@@ -269,7 +271,7 @@ func TestHandler_UntagResource(t *testing.T) {
 
 	listRec := doRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": resourceARN})
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags, ok := listResp["Tags"].(map[string]any)
 	require.True(t, ok)
 	_, hasEnv := tags["env"]
@@ -305,7 +307,7 @@ func TestHandler_TagResource_RoundTrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	tags := listOut["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "platform", tags["team"])
@@ -320,7 +322,7 @@ func TestHandler_TagResource_RoundTrip(t *testing.T) {
 		"ResourceARN": arn,
 	})
 	var afterOut map[string]any
-	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut))
+	require.NoError(t, json.Unmarshal(afterRec.Body.Bytes(), &afterOut, jsonx.V1()))
 	afterTags := afterOut["Tags"].(map[string]any)
 	assert.NotContains(t, afterTags, "env")
 	assert.Equal(t, "platform", afterTags["team"])

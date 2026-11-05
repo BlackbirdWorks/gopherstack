@@ -2,13 +2,14 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -31,7 +32,7 @@ func TestHandler_TagResource_Connection(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	tags, ok := out["Tags"].([]any)
 	require.True(t, ok)
 	require.Len(t, tags, 1)
@@ -93,7 +94,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	tags, ok := out["Tags"].([]any)
 	require.True(t, ok)
 	require.Len(t, tags, 1)
@@ -125,7 +126,7 @@ func TestSortedTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, recTags.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recTags.Body.Bytes(), &out, jsonx.V1()))
 	tags := out["Tags"].([]any)
 
 	keys := make([]string, len(tags))
@@ -178,7 +179,7 @@ func TestTagResourceOnHost(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 	tags := out["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "ci", tags[0].(map[string]any)["Value"].(string))
@@ -211,7 +212,7 @@ func TestUntagResourceRemovesKeys(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 	tags := out["Tags"].([]any)
 	require.Len(t, tags, 1)
 	assert.Equal(t, "keep", tags[0].(map[string]any)["Key"].(string))

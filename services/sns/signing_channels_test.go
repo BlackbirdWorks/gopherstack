@@ -7,7 +7,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"sync"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/events"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
@@ -66,7 +67,7 @@ func TestPublishSignaturesVerifyOnEveryChannel(t *testing.T) {
 				body, _ := io.ReadAll(r.Body)
 
 				var env snsNotificationEnvelope
-				if json.Unmarshal(body, &env) == nil {
+				if json.Unmarshal(body, &env, jsonx.V1()) == nil {
 					httpEnvs <- env
 				}
 

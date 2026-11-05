@@ -1,13 +1,14 @@
 package lakeformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -122,7 +123,7 @@ func TestHandler_CommitTransaction(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK && tt.wantStatus2 != "" {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Equal(t, tt.wantStatus2, resp["TransactionStatus"])
 			}
 		})
@@ -198,7 +199,7 @@ func TestCommitTransaction_ReturnsStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "COMMITTED", out["TransactionStatus"])
 }
 

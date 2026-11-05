@@ -39,6 +39,7 @@ func TestEC2Dashboard(t *testing.T) {
 	// Navigate to the EC2 dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/ec2")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the EC2 header to appear.
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

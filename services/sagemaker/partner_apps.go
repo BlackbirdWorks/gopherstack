@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -40,7 +40,7 @@ type PartnerApp struct {
 	Tier                          string                       `json:"Tier,omitempty"`
 	KmsKeyID                      string                       `json:"KmsKeyId,omitempty"`
 	BaseURL                       string                       `json:"-"`
-	ApplicationConfig             json.RawMessage              `json:"ApplicationConfig,omitempty"`
+	ApplicationConfig             jsontext.Value               `json:"ApplicationConfig,omitempty"`
 	EnableAutoMinorVersionUpgrade bool                         `json:"EnableAutoMinorVersionUpgrade,omitempty"`
 	EnableIamSessionBasedIdentity bool                         `json:"EnableIamSessionBasedIdentity,omitempty"`
 }
@@ -48,7 +48,7 @@ type PartnerApp struct {
 func clonePartnerApp(p *PartnerApp) *PartnerApp {
 	cp := *p
 	cp.Tags = maps.Clone(p.Tags)
-	cp.ApplicationConfig = append(json.RawMessage(nil), p.ApplicationConfig...)
+	cp.ApplicationConfig = append(jsontext.Value(nil), p.ApplicationConfig...)
 
 	if p.MaintenanceConfig != nil {
 		mc := *p.MaintenanceConfig
@@ -81,7 +81,7 @@ type CreatePartnerAppOptions struct {
 	AuthType                      string
 	Tier                          string
 	KmsKeyID                      string
-	ApplicationConfig             json.RawMessage
+	ApplicationConfig             jsontext.Value
 	EnableAutoMinorVersionUpgrade bool
 	EnableIamSessionBasedIdentity bool
 }
@@ -178,7 +178,7 @@ type UpdatePartnerAppOptions struct {
 	EnableIamSessionBasedIdentity *bool
 	Arn                           string
 	Tier                          string
-	ApplicationConfig             json.RawMessage
+	ApplicationConfig             jsontext.Value
 }
 
 // UpdatePartnerApp updates a partner app's mutable fields.

@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ToSQLite converts a stored value into the value bound into SQLite: scalars map to INTEGER, REAL or TEXT and
@@ -111,7 +114,7 @@ func writeJSONRecord(buf *bytes.Buffer, fields []Field, stored any) {
 			buf.WriteByte(',')
 		}
 
-		name, _ := json.Marshal(fl.Name)
+		name, _ := json.Marshal(fl.Name, jsonx.V1())
 		buf.Write(name)
 		buf.WriteByte(':')
 
@@ -133,7 +136,7 @@ func writeJSONScalar(buf *bytes.Buffer, k Kind, s string) {
 	case KindFloat:
 		f, _ := parseFloatText(s)
 		if math.IsNaN(f) || math.IsInf(f, 0) {
-			q, _ := json.Marshal(s)
+			q, _ := json.Marshal(s, jsonx.V1())
 			buf.Write(q)
 
 			return
@@ -142,7 +145,7 @@ func writeJSONScalar(buf *bytes.Buffer, k Kind, s string) {
 		buf.WriteString(strconv.FormatFloat(f, 'g', -1, bitSize))
 	case KindUnknown, KindString, KindBytes, KindTimestamp, KindDate, KindTime, KindDatetime, KindNumeric,
 		KindBigNumeric, KindJSON, KindGeography, KindStruct, KindArray:
-		q, _ := json.Marshal(s)
+		q, _ := json.Marshal(s, jsonx.V1())
 		buf.Write(q)
 	}
 }
@@ -177,11 +180,10 @@ func fromJSONText(f Field, v any) (any, error) {
 		return nil, valueErr("expected JSON text for %s, got %T", f.Name, v)
 	}
 
-	dec := json.NewDecoder(strings.NewReader(text))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(text))
 
 	var node any
-	if err := dec.Decode(&node); err != nil {
+	if err := json.UnmarshalDecode(dec, &node, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, valueErr("invalid JSON for %s: %v", f.Name, err)
 	}
 

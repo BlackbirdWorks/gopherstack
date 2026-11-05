@@ -2,7 +2,8 @@ package sesv2_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http/httptest"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sesv2"
 )
@@ -79,7 +81,7 @@ func doReq(
 	var bodyBytes []byte
 	if body != nil {
 		var err error
-		bodyBytes, err = json.Marshal(body)
+		bodyBytes, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -110,7 +112,7 @@ func doReqQuery(
 	var buf bytes.Buffer
 
 	if body != nil {
-		require.NoError(t, json.NewEncoder(&buf).Encode(body))
+		require.NoError(t, json.MarshalEncode(jsontext.NewEncoder(&buf, jsonx.V1()), body))
 	}
 
 	req := httptest.NewRequest(method, path, &buf)
@@ -140,7 +142,7 @@ func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &m, jsonx.V1()))
 
 	return m
 }

@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -93,10 +95,10 @@ func ociCoreRelay(c *echo.Context, rec *httptest.ResponseRecorder) error {
 
 	if rec.Code < http.StatusMultipleChoices && len(body) > 0 {
 		var doc any
-		if err := json.Unmarshal(body, &doc); err == nil {
+		if err := json.Unmarshal(body, &doc, jsonx.V1()); err == nil {
 			ociCoreScrub(doc)
 
-			if out, merr := json.Marshal(doc); merr == nil {
+			if out, merr := json.Marshal(doc, jsonx.V1()); merr == nil {
 				body = out
 			}
 		}

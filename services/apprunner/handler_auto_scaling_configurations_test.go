@@ -1,12 +1,14 @@
 package apprunner_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestAutoScalingConfigurationCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -27,7 +29,7 @@ func TestAutoScalingConfigurationCRUD(t *testing.T) { //nolint:paralleltest // e
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["AutoScalingConfiguration"].(map[string]any)
 				assert.Contains(t, cfg["AutoScalingConfigurationArn"], "autoscalingconfiguration/my-asg/1/")
 				assert.Equal(t, "ACTIVE", cfg["Status"])
@@ -67,7 +69,7 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	asgArn := createResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
 
 	tests := []struct {
@@ -85,7 +87,7 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["AutoScalingConfiguration"].(map[string]any)
 				assert.Equal(t, "cfg1", cfg["AutoScalingConfigurationName"])
 				assert.InDelta(t, float64(50), cfg["MaxConcurrency"], 0.0001)
@@ -113,7 +115,7 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["AutoScalingConfigurationSummaryList"].([]any)
 				// cfg1 plus the account's always-present DefaultConfiguration
 				// (see ensureDefaultAutoScalingConfiguration).
@@ -128,7 +130,7 @@ func TestAutoScalingConfigurationDescribeDeleteList(t *testing.T) { //nolint:par
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				cfg := resp["AutoScalingConfiguration"].(map[string]any)
 				assert.Equal(t, "cfg1", cfg["AutoScalingConfigurationName"])
 			},
@@ -152,13 +154,13 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	rec := doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var r1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r1, jsonx.V1()))
 	asgArn1 := r1["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
 
 	rec = doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var r2 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &r2, jsonx.V1()))
 	rev2 := r2["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationRevision"].(float64)
 	assert.InDelta(t, float64(2), rev2, 0.0001)
 
@@ -169,21 +171,21 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list := listResp["AutoScalingConfigurationSummaryList"].([]any)
 	// my-asg's latest revision plus DefaultConfiguration.
 	assert.Len(t, list, 2)
 
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": true})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
 	// my-asg's latest revision plus DefaultConfiguration.
 	assert.Len(t, list, 2)
 
 	rec = doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{"LatestOnly": false})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	list = listResp["AutoScalingConfigurationSummaryList"].([]any)
 	// my-asg's 2 revisions plus the account's always-present
 	// DefaultConfiguration (see ensureDefaultAutoScalingConfiguration).
@@ -194,7 +196,7 @@ func TestAutoScalingConfigurationRevisions(t *testing.T) { //nolint:paralleltest
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	cfg := updateResp["AutoScalingConfiguration"].(map[string]any)
 	assert.Equal(t, true, cfg["IsDefault"])
 }
@@ -205,7 +207,7 @@ func TestListServicesForAutoScalingConfiguration(t *testing.T) { //nolint:parall
 	rec := doRequest(t, h, "CreateAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationName": "my-asg"})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	asgArn := createResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
 
 	tests := []struct {
@@ -221,7 +223,7 @@ func TestListServicesForAutoScalingConfiguration(t *testing.T) { //nolint:parall
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				list := resp["ServiceArnList"].([]any)
 				assert.Empty(t, list)
 			},
@@ -264,7 +266,7 @@ func TestDeleteAutoScalingConfiguration_RejectsDefaultAndInUse(t *testing.T) { /
 		rec := doRequest(t, h, "ListAutoScalingConfigurations", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var listResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 		list := listResp["AutoScalingConfigurationSummaryList"].([]any)
 		require.Len(t, list, 1, "only the seeded default configuration should exist yet")
 		defaultArn := list[0].(map[string]any)["AutoScalingConfigurationArn"].(string)
@@ -281,7 +283,7 @@ func TestDeleteAutoScalingConfiguration_RejectsDefaultAndInUse(t *testing.T) { /
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		asgArn := createResp["AutoScalingConfiguration"].(map[string]any)["AutoScalingConfigurationArn"].(string)
 
 		rec = doRequest(t, h, "CreateService", map[string]any{
@@ -293,7 +295,7 @@ func TestDeleteAutoScalingConfiguration_RejectsDefaultAndInUse(t *testing.T) { /
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var svcResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &svcResp, jsonx.V1()))
 		svcArn := svcResp["Service"].(map[string]any)["ServiceArn"].(string)
 
 		rec = doRequest(t, h, "DeleteAutoScalingConfiguration", map[string]any{"AutoScalingConfigurationArn": asgArn})

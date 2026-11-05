@@ -2,13 +2,14 @@ package databrew_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/databrew"
 )
 
@@ -320,7 +321,7 @@ func TestHandlerListTagsForResource(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/tags/"+ds.Arn, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["Tags"])
 }
 
@@ -375,7 +376,7 @@ func TestTagsOps(t *testing.T) {
 	listRec := databrewReq(t, h, http.MethodGet, prefix, nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	tags := listResp["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 

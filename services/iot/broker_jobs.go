@@ -1,11 +1,14 @@
 package iot
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -85,7 +88,7 @@ type jobsExecutionWire struct {
 	JobID                       string             `json:"jobId"`
 	ThingName                   string             `json:"thingName,omitempty"`
 	Status                      JobExecutionStatus `json:"status,omitempty"`
-	JobDocument                 json.RawMessage    `json:"jobDocument,omitempty"`
+	JobDocument                 jsontext.Value     `json:"jobDocument,omitempty"`
 	ApproxSecondsBeforeTimedOut int64              `json:"approximateSecondsBeforeTimedOut,omitempty"`
 	QueuedAt                    int64              `json:"queuedAt"`
 	StartedAt                   int64              `json:"startedAt,omitempty"`
@@ -111,16 +114,16 @@ func executionWire(e *DeviceJobExecution) *jobsExecutionWire {
 }
 
 // documentRaw embeds a JSON job document as an object; MQTT carries it unquoted, unlike the HTTP API.
-func documentRaw(doc string) json.RawMessage {
+func documentRaw(doc string) jsontext.Value {
 	if doc == "" {
 		return nil
 	}
 
-	if json.Valid([]byte(doc)) {
-		return json.RawMessage(doc)
+	if jsontext.Value([]byte(doc)).IsValid(jsonx.V1()) {
+		return jsontext.Value(doc)
 	}
 
-	quoted, _ := json.Marshal(doc)
+	quoted, _ := json.Marshal(doc, jsonx.V1())
 
 	return quoted
 }
@@ -140,7 +143,7 @@ type jobsRequestBody struct {
 func (b *Broker) handleJobsRequest(topic string, req jobsRequest, payload []byte) {
 	var body jobsRequestBody
 	if len(payload) > 0 {
-		if err := json.Unmarshal(payload, &body); err != nil {
+		if err := json.Unmarshal(payload, &body, jsonx.V1()); err != nil {
 			b.publishJobs(topic+jobsSuffixReject, map[string]any{
 				"code":         jobsCodeInvalidJSON,
 				jobsKeyMessage: "payload is not valid JSON",
@@ -343,7 +346,7 @@ func (b *Broker) rejectJobs(topic, clientToken, code, message string, state map[
 }
 
 func (b *Broker) publishJobs(topic string, body map[string]any) {
-	payload, err := json.Marshal(body)
+	payload, err := json.Marshal(body, jsonx.V1())
 	if err != nil {
 		return
 	}

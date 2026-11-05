@@ -2,8 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // modelCardExportOpsSupported returns the real stateful operations
@@ -53,7 +55,7 @@ type createModelCardExportJobInput struct {
 func (h *Handler) handleCreateModelCardExportJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req createModelCardExportJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -68,7 +70,7 @@ func (h *Handler) handleCreateModelCardExportJob(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyModelCardExportJobArn: job.ModelCardExportJobArn})
+	return json.Marshal(map[string]any{keyModelCardExportJobArn: job.ModelCardExportJobArn}, jsonx.V1())
 }
 
 // describeModelCardExportJobInput mirrors DescribeModelCardExportJobInput
@@ -81,7 +83,7 @@ type describeModelCardExportJobInput struct {
 func (h *Handler) handleDescribeModelCardExportJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeModelCardExportJobInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -104,5 +106,5 @@ func (h *Handler) handleDescribeModelCardExportJob(ctx context.Context, body []b
 		keyStatus:                job.Status,
 		keyOutputConfig:          map[string]any{"S3OutputPath": job.S3OutputPath},
 		"ExportArtifacts":        map[string]any{"S3ExportArtifacts": job.S3ExportArtifacts},
-	})
+	}, jsonx.V1())
 }

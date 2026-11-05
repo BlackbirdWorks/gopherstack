@@ -2,7 +2,7 @@ package ocivault_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
@@ -112,7 +113,7 @@ func TestPathVaultRouting(t *testing.T) {
 		VaultID string `json:"vaultId"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(out), &k))
+	require.NoError(t, json.Unmarshal([]byte(out), &k, jsonx.V1()))
 	assert.Equal(t, *v.Id, k.VaultID)
 
 	code, out = rawDo(t, http.MethodGet, e.base+"/_vault/"+*v.Id+"/20180608/keys?compartmentId="+testCompartment, "")
@@ -161,7 +162,7 @@ func TestErrorBodyShapeAndUnknownRoutes(t *testing.T) {
 				Message string `json:"message"`
 			}
 
-			require.NoError(t, json.Unmarshal([]byte(out), &eb))
+			require.NoError(t, json.Unmarshal([]byte(out), &eb, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, eb.Code)
 			assert.NotEmpty(t, eb.Message)
 			assert.NotEqual(t, eb.Code, eb.Message)
@@ -234,7 +235,10 @@ func TestAdminKeyRegistration(t *testing.T) {
 	_, err := e.vaults.ListVaults(t.Context(), listReq)
 	assert.Equal(t, http.StatusUnauthorized, svcErr(t, err).GetHTTPStatusCode())
 
-	payload, _ := json.Marshal(map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.kp.pubPEM})
+	payload, _ := json.Marshal(
+		map[string]string{"tenancy": testTenancy, "user": testUser, "publicKey": e.kp.pubPEM},
+		jsonx.V1(),
+	)
 	code, body := rawDo(t, http.MethodPost, e.base+"/_gopherstack/oci/keys", string(payload))
 	require.Equal(t, http.StatusCreated, code, body)
 

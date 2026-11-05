@@ -2,13 +2,14 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -84,7 +85,7 @@ func TestHandler_CreateSyncConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			cfg, ok := out["SyncConfiguration"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "main", cfg["Branch"])
@@ -147,7 +148,7 @@ func TestHandler_GetSyncConfiguration(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			cfg, ok := out["SyncConfiguration"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "my-stack", cfg["ResourceName"])
@@ -225,7 +226,7 @@ func TestHandler_RepositoryLink_SyncConfiguration_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recLink.Code)
 
 	var linkOut map[string]any
-	require.NoError(t, json.Unmarshal(recLink.Body.Bytes(), &linkOut))
+	require.NoError(t, json.Unmarshal(recLink.Body.Bytes(), &linkOut, jsonx.V1()))
 	linkInfo := linkOut["RepositoryLinkInfo"].(map[string]any)
 	linkID := linkInfo["RepositoryLinkId"].(string)
 	require.NotEmpty(t, linkID)
@@ -242,7 +243,7 @@ func TestHandler_RepositoryLink_SyncConfiguration_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recSync.Code)
 
 	var syncOut map[string]any
-	require.NoError(t, json.Unmarshal(recSync.Body.Bytes(), &syncOut))
+	require.NoError(t, json.Unmarshal(recSync.Body.Bytes(), &syncOut, jsonx.V1()))
 	syncCfg := syncOut["SyncConfiguration"].(map[string]any)
 	assert.Equal(t, "my-repo", syncCfg["RepositoryName"])
 	assert.Equal(t, "GitHub", syncCfg["ProviderType"])
@@ -267,7 +268,7 @@ func TestHandler_RepositoryLink_SyncConfiguration_RoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 	links, ok := listOut["RepositoryLinks"].([]any)
 	require.True(t, ok)
 	assert.Len(t, links, 1)

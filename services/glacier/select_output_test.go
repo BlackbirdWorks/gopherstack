@@ -2,7 +2,7 @@ package glacier_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glacier"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 )
@@ -210,7 +211,7 @@ func TestGetJobOutput_Select_S3ErrorManifestOnQueryFailure(t *testing.T) {
 		"OutputLocation": map[string]any{
 			"S3": map[string]any{"BucketName": testOutputBucket, "Prefix": "out/"},
 		},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	jobID := initiateJobWithBody(t, h, "select-s3-error-vault", string(body))

@@ -2,7 +2,11 @@ package s3
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"encoding/json/jsontext"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // validateBucketPolicyDocument checks a PutBucketPolicy request body against the
@@ -20,8 +24,8 @@ import (
 // else *ErrorResponse{Code: "MalformedPolicy"} describing the first violation
 // (real S3's fail-fast behavior).
 func validateBucketPolicyDocument(body []byte) *ErrorResponse {
-	var top map[string]json.RawMessage
-	if err := json.Unmarshal(body, &top); err != nil {
+	var top map[string]jsontext.Value
+	if err := json.Unmarshal(body, &top, jsonx.V1()); err != nil {
 		// json.Valid() already gated non-JSON bodies before this is called;
 		// this branch covers valid-JSON-but-not-an-object bodies (e.g. a bare
 		// JSON array, string, or number), which real S3 also rejects.
@@ -61,14 +65,14 @@ func validateBucketPolicyDocument(body []byte) *ErrorResponse {
 // validatePolicyVersion validates the optional top-level Version element. AWS
 // accepts a policy with no Version at all (version_block is marked `?` in the
 // grammar), but if present it must be exactly "2008-10-17" or "2012-10-17".
-func validatePolicyVersion(top map[string]json.RawMessage) *ErrorResponse {
+func validatePolicyVersion(top map[string]jsontext.Value) *ErrorResponse {
 	raw, ok := top["Version"]
 	if !ok {
 		return nil
 	}
 
 	var version string
-	if err := json.Unmarshal(raw, &version); err != nil {
+	if err := json.Unmarshal(raw, &version, jsonx.V1()); err != nil {
 		return &ErrorResponse{
 			Code:    errMalformedPolicy,
 			Message: "The policy must contain a valid version string.",
@@ -88,7 +92,7 @@ func validatePolicyVersion(top map[string]json.RawMessage) *ErrorResponse {
 // decodePolicyStatements decodes the "Statement" value, which per the IAM
 // grammar convention may be either a single statement object or a JSON array
 // of statement objects.
-func decodePolicyStatements(raw json.RawMessage) ([]map[string]json.RawMessage, *ErrorResponse) {
+func decodePolicyStatements(raw jsontext.Value) ([]map[string]jsontext.Value, *ErrorResponse) {
 	trimmed := bytes.TrimSpace(raw)
 	shapeErr := &ErrorResponse{
 		Code:    errMalformedPolicy,
@@ -100,27 +104,27 @@ func decodePolicyStatements(raw json.RawMessage) ([]map[string]json.RawMessage, 
 	}
 
 	if trimmed[0] == '[' {
-		var arr []map[string]json.RawMessage
-		if err := json.Unmarshal(trimmed, &arr); err != nil {
+		var arr []map[string]jsontext.Value
+		if err := json.Unmarshal(trimmed, &arr, jsonx.V1()); err != nil {
 			return nil, shapeErr
 		}
 
 		return arr, nil
 	}
 
-	var single map[string]json.RawMessage
-	if err := json.Unmarshal(trimmed, &single); err != nil {
+	var single map[string]jsontext.Value
+	if err := json.Unmarshal(trimmed, &single, jsonx.V1()); err != nil {
 		return nil, shapeErr
 	}
 
-	return []map[string]json.RawMessage{single}, nil
+	return []map[string]jsontext.Value{single}, nil
 }
 
 // validatePolicyStatementShape validates a single statement object against
 // the required <statement> grammar elements for a resource-based (bucket)
 // policy: Effect, Principal/NotPrincipal, Action/NotAction, and
 // Resource/NotResource.
-func validatePolicyStatementShape(stmt map[string]json.RawMessage) *ErrorResponse {
+func validatePolicyStatementShape(stmt map[string]jsontext.Value) *ErrorResponse {
 	if effectErr := validatePolicyEffect(stmt); effectErr != nil {
 		return effectErr
 	}
@@ -150,14 +154,14 @@ func validatePolicyStatementShape(stmt map[string]json.RawMessage) *ErrorRespons
 }
 
 // validatePolicyEffect validates the required Effect element of a statement.
-func validatePolicyEffect(stmt map[string]json.RawMessage) *ErrorResponse {
+func validatePolicyEffect(stmt map[string]jsontext.Value) *ErrorResponse {
 	effectRaw, ok := stmt["Effect"]
 	if !ok {
 		return &ErrorResponse{Code: errMalformedPolicy, Message: "Missing required field Effect"}
 	}
 
 	var effect string
-	if err := json.Unmarshal(effectRaw, &effect); err != nil || (effect != "Allow" && effect != "Deny") {
+	if err := json.Unmarshal(effectRaw, &effect, jsonx.V1()); err != nil || (effect != "Allow" && effect != "Deny") {
 		return &ErrorResponse{
 			Code:    errMalformedPolicy,
 			Message: "Invalid effect: " + string(effectRaw),

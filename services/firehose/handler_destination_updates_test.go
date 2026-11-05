@@ -1,13 +1,14 @@
 package firehose_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -85,7 +86,7 @@ func TestUpdateDestination_Success_VersionIncrements(t *testing.T) {
 			} `json:"Destinations"`
 		} `json:"DeliveryStreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(desc.Body.Bytes(), &descOut, jsonx.V1()))
 	versionBefore := descOut.DeliveryStreamDescription.VersionID
 
 	rec := doFirehoseRequest(t, h, "UpdateDestination", map[string]any{
@@ -112,7 +113,7 @@ func TestUpdateDestination_Success_VersionIncrements(t *testing.T) {
 			} `json:"Destinations"`
 		} `json:"DeliveryStreamDescription"`
 	}
-	require.NoError(t, json.Unmarshal(desc2.Body.Bytes(), &descOut2))
+	require.NoError(t, json.Unmarshal(desc2.Body.Bytes(), &descOut2, jsonx.V1()))
 	assert.NotEqual(t, versionBefore, descOut2.DeliveryStreamDescription.VersionID)
 	require.Len(t, descOut2.DeliveryStreamDescription.Destinations, 1)
 	assert.Equal(t, "arn:aws:s3:::updated-bucket",
@@ -247,7 +248,7 @@ func TestUpdateDestination_VersionMismatchRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ConcurrentModificationException", body["__type"])
 }
 

@@ -2,7 +2,8 @@ package kql
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"math"
 	"net/url"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -45,10 +48,9 @@ func sameAsFirst(a []Type) (Type, error) { return a[0], nil }
 func parseJSONValue(s string) (any, error) {
 	var v any
 
-	dec := json.NewDecoder(strings.NewReader(s))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(s))
 
-	if err := dec.Decode(&v); err != nil {
+	if err := json.UnmarshalDecode(dec, &v, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, err
 	}
 

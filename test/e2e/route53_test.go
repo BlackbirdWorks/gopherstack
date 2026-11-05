@@ -35,6 +35,7 @@ func TestRoute53Dashboard(t *testing.T) {
 	// Navigate to the Route 53 dashboard page.
 	_, err = page.Goto(server.URL + "/dashboard/route53")
 	require.NoError(t, err)
+	waitHydrated(t, page)
 
 	// Wait for the Route 53 page header to appear.
 	err = page.Locator("h1").First().WaitFor(playwright.LocatorWaitForOptions{

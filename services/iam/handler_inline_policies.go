@@ -1,11 +1,14 @@
 package iam
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"net/url"
 	"sort"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) iamInlinePolicyDispatchTable() map[string]iamActionFn {
@@ -284,10 +287,10 @@ func contextKeysFromPolicyDocuments(docs []string) []string {
 		}
 
 		var parsed struct {
-			Statement json.RawMessage `json:"Statement"`
+			Statement jsontext.Value `json:"Statement"`
 		}
 
-		if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+		if err := json.Unmarshal([]byte(doc), &parsed, jsonx.V1()); err != nil {
 			// Malformed documents are skipped; GetContextKeys is best-effort.
 			continue
 		}

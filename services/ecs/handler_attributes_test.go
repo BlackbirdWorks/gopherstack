@@ -1,7 +1,7 @@
 package ecs_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 )
 
@@ -72,7 +73,7 @@ func TestAttributes_PutListDelete_Roundtrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	// Put attributes
@@ -102,7 +103,7 @@ func TestAttributes_PutListDelete_Roundtrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	attrs := listOut["attributes"].([]any)
 	assert.Len(t, attrs, 2)
 
@@ -126,7 +127,7 @@ func TestAttributes_PutListDelete_Roundtrip(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp2.Code)
 	var listOut2 map[string]any
-	require.NoError(t, json.Unmarshal(listResp2.Body.Bytes(), &listOut2))
+	require.NoError(t, json.Unmarshal(listResp2.Body.Bytes(), &listOut2, jsonx.V1()))
 	attrs2 := listOut2["attributes"].([]any)
 	assert.Len(t, attrs2, 1)
 	assert.Equal(t, "com.example.zone", attrs2[0].(map[string]any)["name"])
@@ -144,7 +145,7 @@ func TestAttributes_FilterByName(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
-	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
+	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut, jsonx.V1()))
 	ciArn := ciOut["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	doECSRequest(t, h, "PutAttributes", map[string]any{
@@ -173,7 +174,7 @@ func TestAttributes_FilterByName(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	attrs := listOut["attributes"].([]any)
 	assert.Len(t, attrs, 1)
 	assert.Equal(t, "ecs.gpu", attrs[0].(map[string]any)["name"])
@@ -192,7 +193,7 @@ func TestListAttributes_TargetID_Filter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ci1Resp.Code)
 	var ci1Out map[string]any
-	require.NoError(t, json.Unmarshal(ci1Resp.Body.Bytes(), &ci1Out))
+	require.NoError(t, json.Unmarshal(ci1Resp.Body.Bytes(), &ci1Out, jsonx.V1()))
 	ci1Arn := ci1Out["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	ci2Resp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
@@ -201,7 +202,7 @@ func TestListAttributes_TargetID_Filter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, ci2Resp.Code)
 	var ci2Out map[string]any
-	require.NoError(t, json.Unmarshal(ci2Resp.Body.Bytes(), &ci2Out))
+	require.NoError(t, json.Unmarshal(ci2Resp.Body.Bytes(), &ci2Out, jsonx.V1()))
 	ci2Arn := ci2Out["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	doECSRequest(t, h, "PutAttributes", map[string]any{
@@ -231,7 +232,7 @@ func TestListAttributes_TargetID_Filter(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	attrs := listOut["attributes"].([]any)
 	require.Len(t, attrs, 1)
 	assert.Equal(t, "us-east-1a", attrs[0].(map[string]any)["value"])
@@ -262,7 +263,7 @@ func TestListAttributes_TargetID_Filter_NotFound(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	attrs := listOut["attributes"].([]any)
 	assert.Empty(t, attrs)
 }
@@ -304,7 +305,7 @@ func TestListAttributes_TargetID_NoFilter_ReturnsAll(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut, jsonx.V1()))
 	attrs := listOut["attributes"].([]any)
 	assert.Len(t, attrs, 3)
 }
@@ -372,7 +373,7 @@ func TestECS_DeleteAttributes(t *testing.T) {
 			}
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			attrs, ok := resp["attributes"].([]any)
 			require.True(t, ok)
@@ -435,7 +436,7 @@ func TestECS_PutAndListAttributes(t *testing.T) {
 			}
 
 			var putResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &putResp, jsonx.V1()))
 
 			attrs, ok := putResp["attributes"].([]any)
 			require.True(t, ok)
@@ -446,7 +447,7 @@ func TestECS_PutAndListAttributes(t *testing.T) {
 			require.Equal(t, http.StatusOK, listRec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 
 			listedAttrs, ok := listResp["attributes"].([]any)
 			require.True(t, ok)

@@ -2,11 +2,12 @@ package servicequotas
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -151,7 +152,7 @@ func (b *InMemoryBackend) noticeFor(
 	body, _ := json.Marshal(map[string]any{
 		"account": am.Account, "region": am.Region, "serviceCode": serviceCode, "quotaCode": def.Code,
 		"quotaName": def.Name, "utilization": util, "threshold": level, "optInType": am.OptInType,
-	})
+	}, jsonx.V1())
 
 	return pendingNotice{
 		topicArn: am.NotificationArn,

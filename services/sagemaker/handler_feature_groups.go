@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -33,7 +34,7 @@ type createFeatureGroupInput struct {
 func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req createFeatureGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -72,7 +73,7 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 	logger.Load(ctx).
 		InfoContext(ctx, "sagemaker: created feature group", "name", fg.FeatureGroupName)
 
-	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn})
+	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn}, jsonx.V1())
 }
 
 // describeFeatureGroupInput mirrors DescribeFeatureGroupInput
@@ -89,7 +90,7 @@ type describeFeatureGroupInput struct {
 func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeFeatureGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -146,7 +147,7 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 		resp["LastUpdateStatus"] = fg.LastUpdateStatus
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 type featureGroupSummary struct {
@@ -175,7 +176,7 @@ type listFeatureGroupsInput struct {
 func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]byte, error) {
 	var req listFeatureGroupsInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -206,7 +207,7 @@ func (h *Handler) handleListFeatureGroups(ctx context.Context, body []byte) ([]b
 		resp["NextToken"] = nextToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 // deleteFeatureGroupInput mirrors DeleteFeatureGroupInput
@@ -218,7 +219,7 @@ type deleteFeatureGroupInput struct {
 func (h *Handler) handleDeleteFeatureGroup(ctx context.Context, body []byte) error {
 	var req deleteFeatureGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -254,7 +255,7 @@ type updateFeatureGroupInput struct {
 func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req updateFeatureGroupInput
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -273,5 +274,5 @@ func (h *Handler) handleUpdateFeatureGroup(ctx context.Context, body []byte) ([]
 
 	logger.Load(ctx).InfoContext(ctx, "sagemaker: updated feature group", "name", fg.FeatureGroupName)
 
-	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn})
+	return json.Marshal(map[string]string{keyFeatureGroupArn: fg.FeatureGroupArn}, jsonx.V1())
 }

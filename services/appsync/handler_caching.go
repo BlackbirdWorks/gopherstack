@@ -2,12 +2,13 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // handleAPICaches handles /v1/apis/{apiId}/ApiCaches[/entries].
@@ -56,7 +57,7 @@ func (h *Handler) createAPICache(ctx context.Context, c *echo.Context, apiID str
 	}
 
 	var cache APICache
-	if jsonErr := json.Unmarshal(body, &cache); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &cache, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 
@@ -95,7 +96,7 @@ func (h *Handler) updateAPICache(ctx context.Context, c *echo.Context, apiID str
 	}
 
 	var cache APICache
-	if jsonErr := json.Unmarshal(body, &cache); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &cache, jsonx.V1()); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 	}
 

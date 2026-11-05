@@ -2,7 +2,7 @@ package securityhub
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strconv"
 
@@ -229,9 +229,9 @@ type snapshot struct {
 	OrgAdminAccounts        map[string]string `json:"orgAdminAccounts"`
 	OrgAdminAccountFeatures map[string]string `json:"orgAdminAccountFeatures,omitempty"`
 	// V2
-	HubV2   *HubV2                     `json:"hubV2"`
-	Tables  map[string]json.RawMessage `json:"tables"`
-	Version int                        `json:"version"`
+	HubV2   *HubV2                    `json:"hubV2"`
+	Tables  map[string]jsontext.Value `json:"tables"`
+	Version int                       `json:"version"`
 
 	StandardsSeq         int  `json:"standardsSeq"`
 	ActionTargetSeq      int  `json:"actionTargetSeq"`

@@ -2,7 +2,9 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // buildGenerateAndMacActions returns dispatch entries for data key pair, MAC, and random operations.
@@ -10,7 +12,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		opGenerateDataKeyPair: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyPairInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -18,7 +20,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 		},
 		opGenerateDataKeyPairWithoutPlaintext: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyPairWithoutPlaintextInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -26,7 +28,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 		},
 		opGenerateMac: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateMacInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -34,7 +36,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 		},
 		"GenerateRandom": func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateRandomInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -42,7 +44,7 @@ func (h *Handler) buildGenerateAndMacActions() map[string]kmsActionFn {
 		},
 		opVerifyMac: func(ctx context.Context, b []byte) (any, error) {
 			var input VerifyMacInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

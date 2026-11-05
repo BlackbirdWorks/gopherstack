@@ -2,7 +2,7 @@ package accessanalyzer
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"time"
@@ -96,7 +96,7 @@ func buildPersistenceDTORegistry() (*store.Registry, *store.Table[archiveRuleSna
 // identity of its own, so it is persisted here directly, matching its
 // pre-refactor shape exactly.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
+	Tables    map[string]jsontext.Value    `json:"tables"`
 	Tags      map[string]map[string]string `json:"tags"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // store_setup.go's registerAllTables doc) from tables via the ephemeral DTO
 // registry, factored out of Restore to keep Restore's own cognitive
 // complexity low. Callers must hold b.mu.Lock.
-func (b *InMemoryBackend) restoreArchiveRules(tables map[string]json.RawMessage) error {
+func (b *InMemoryBackend) restoreArchiveRules(tables map[string]jsontext.Value) error {
 	dtoReg, archiveRuleDTOs := buildPersistenceDTORegistry()
 	if err := dtoReg.RestoreAll(tables); err != nil {
 		return fmt.Errorf("accessanalyzer: restore snapshot DTO tables: %w", err)

@@ -1,13 +1,14 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -52,7 +53,7 @@ func TestHandler_CreateCloudFormationTemplate(t *testing.T) {
 
 			if tt.wantCode == http.StatusCreated {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["templateId"])
 				assert.Equal(t, "ACTIVE", resp["status"])
 			}
@@ -86,7 +87,7 @@ func TestCreateCloudFormationTemplate_HasTemplateURL(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["templateUrl"])
 	assert.NotEmpty(t, resp["expirationTime"])
 }
@@ -103,7 +104,7 @@ func TestCreateCloudFormationTemplate_OmitsSemanticVersionWhenEmpty(t *testing.T
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasSV := resp["semanticVersion"]
 	assert.False(t, hasSV, "semanticVersion must be absent from response when not provided")
 	assert.NotEmpty(t, resp["templateId"])
@@ -124,7 +125,7 @@ func TestCreateCloudFormationTemplate_IncludesSemanticVersionWhenProvided(t *tes
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "2.0.0", resp["semanticVersion"])
 }
 
@@ -186,7 +187,7 @@ func TestHandler_GetCloudFormationTemplate(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["templateId"])
 				assert.Equal(t, "ACTIVE", resp["status"])
 			}
@@ -205,7 +206,7 @@ func TestGetCloudFormationTemplate_ActiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	templateID := createResp["templateId"].(string)
 
 	rec2 := doServerlessRepoRequest(t, h, http.MethodGet,
@@ -213,7 +214,7 @@ func TestGetCloudFormationTemplate_ActiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", getResp["status"])
 }
 
@@ -229,7 +230,7 @@ func TestGetCloudFormationTemplate_OmitsSemanticVersionWhenEmpty(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	templateID := createResp["templateId"].(string)
 
 	getRec := doServerlessRepoRequest(t, h, http.MethodGet,
@@ -237,7 +238,7 @@ func TestGetCloudFormationTemplate_OmitsSemanticVersionWhenEmpty(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	_, hasSV := getResp["semanticVersion"]
 	assert.False(t, hasSV, "semanticVersion must be absent from GetCloudFormationTemplate when not set")
 }
@@ -258,7 +259,7 @@ func TestGetCloudFormationTemplate_ExpiredStatus(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "EXPIRED", resp["status"])
 	assert.Equal(t, "1.0.0", resp["semanticVersion"])
 }
@@ -278,7 +279,7 @@ func TestGetCloudFormationTemplate_Fields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	templateID := createResp["templateId"].(string)
 
 	rec2 := doServerlessRepoRequest(t, h, http.MethodGet,
@@ -286,7 +287,7 @@ func TestGetCloudFormationTemplate_Fields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.Equal(t, "ACTIVE", getResp["status"])
 	assert.Equal(t, "1.0.0", getResp["semanticVersion"])
 	assert.NotEmpty(t, getResp["templateUrl"])
@@ -357,7 +358,7 @@ func TestHandler_CreateCloudFormationChangeSet(t *testing.T) {
 
 			if tt.wantCode == http.StatusCreated {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["changeSetId"])
 				assert.NotEmpty(t, resp["stackId"])
 			}
@@ -392,7 +393,7 @@ func TestCreateCloudFormationChangeSet_CustomName(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["changeSetId"].(string), "my-custom-changeset")
 }
 
@@ -477,7 +478,7 @@ func TestCreateCloudFormationChangeSet_TemplateID(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "BadRequestException", resp["__type"])
 	})
 
@@ -514,7 +515,7 @@ func TestCreateCloudFormationChangeSet_OmitsSemanticVersionWhenEmpty(t *testing.
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	_, hasSV := resp["semanticVersion"]
 	assert.False(t, hasSV, "semanticVersion must be absent from response when not provided")
 	assert.NotEmpty(t, resp["changeSetId"])
@@ -535,7 +536,7 @@ func TestCreateCloudFormationChangeSet_IncludesSemanticVersionWhenProvided(t *te
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "3.1.4", resp["semanticVersion"])
 }
 
@@ -557,7 +558,7 @@ func TestCreateCloudFormationChangeSet_ResponseFields(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["changeSetId"])
 	assert.NotEmpty(t, resp["stackId"])
 	assert.Equal(t, "1.0.0", resp["semanticVersion"])
@@ -579,7 +580,7 @@ func TestCreateCloudFormationChangeSet_ARNForm(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["changeSetId"].(string), "cloudformation", "changeSetId should be a CloudFormation ARN")
 	assert.Contains(t, resp["stackId"].(string), "cloudformation", "stackId should be a CloudFormation ARN")
 }

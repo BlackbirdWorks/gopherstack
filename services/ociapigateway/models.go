@@ -1,7 +1,7 @@
 package ociapigateway
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -38,59 +38,59 @@ func (t *Tags) merge(in Tags) {
 
 // Gateway is an API gateway.
 type Gateway struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeUpdated   time.Time       `json:"timeUpdated"`
-	Tags          Tags            `json:"tags"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	Locks         json.RawMessage `json:"locks,omitempty"`
-	CaBundles     json.RawMessage `json:"caBundles,omitempty"`
-	ResponseCache json.RawMessage `json:"responseCache,omitempty"`
-	ID            string          `json:"id"`
-	CompartmentID string          `json:"compartmentId"`
-	EndpointType  string          `json:"endpointType"`
-	DisplayName   string          `json:"displayName"`
-	SubnetID      string          `json:"subnetId"`
-	Hostname      string          `json:"hostname"`
-	CertificateID string          `json:"certificateId,omitempty"`
-	IPMode        string          `json:"ipMode,omitempty"`
-	State         string          `json:"state"`
-	Etag          string          `json:"etag"`
-	NSGs          []string        `json:"networkSecurityGroupIds,omitempty"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeUpdated   time.Time      `json:"timeUpdated"`
+	Tags          Tags           `json:"tags"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	Locks         jsontext.Value `json:"locks,omitempty"`
+	CaBundles     jsontext.Value `json:"caBundles,omitempty"`
+	ResponseCache jsontext.Value `json:"responseCache,omitempty"`
+	ID            string         `json:"id"`
+	CompartmentID string         `json:"compartmentId"`
+	EndpointType  string         `json:"endpointType"`
+	DisplayName   string         `json:"displayName"`
+	SubnetID      string         `json:"subnetId"`
+	Hostname      string         `json:"hostname"`
+	CertificateID string         `json:"certificateId,omitempty"`
+	IPMode        string         `json:"ipMode,omitempty"`
+	State         string         `json:"state"`
+	Etag          string         `json:"etag"`
+	NSGs          []string       `json:"networkSecurityGroupIds,omitempty"`
 }
 
 // Deployment is an API deployment on a gateway.
 type Deployment struct {
-	TimeCreated   time.Time       `json:"timeCreated"`
-	TimeUpdated   time.Time       `json:"timeUpdated"`
-	Tags          Tags            `json:"tags"`
-	TransitionAt  *time.Time      `json:"transitionAt,omitempty"`
-	ID            string          `json:"id"`
-	GatewayID     string          `json:"gatewayId"`
-	CompartmentID string          `json:"compartmentId"`
-	PathPrefix    string          `json:"pathPrefix"`
-	DisplayName   string          `json:"displayName"`
-	State         string          `json:"state"`
-	Etag          string          `json:"etag"`
-	Locks         json.RawMessage `json:"locks,omitempty"`
-	Spec          json.RawMessage `json:"specification"`
+	TimeCreated   time.Time      `json:"timeCreated"`
+	TimeUpdated   time.Time      `json:"timeUpdated"`
+	Tags          Tags           `json:"tags"`
+	TransitionAt  *time.Time     `json:"transitionAt,omitempty"`
+	ID            string         `json:"id"`
+	GatewayID     string         `json:"gatewayId"`
+	CompartmentID string         `json:"compartmentId"`
+	PathPrefix    string         `json:"pathPrefix"`
+	DisplayName   string         `json:"displayName"`
+	State         string         `json:"state"`
+	Etag          string         `json:"etag"`
+	Locks         jsontext.Value `json:"locks,omitempty"`
+	Spec          jsontext.Value `json:"specification"`
 }
 
 // Certificate is a TLS certificate usable by a gateway.
 type Certificate struct {
-	TimeCreated       time.Time       `json:"timeCreated"`
-	TimeUpdated       time.Time       `json:"timeUpdated"`
-	TimeNotValidAfter time.Time       `json:"timeNotValidAfter"`
-	Tags              Tags            `json:"tags"`
-	TransitionAt      *time.Time      `json:"transitionAt,omitempty"`
-	Locks             json.RawMessage `json:"locks,omitempty"`
-	ID                string          `json:"id"`
-	CompartmentID     string          `json:"compartmentId"`
-	DisplayName       string          `json:"displayName"`
-	CertPEM           string          `json:"certificate"`
-	Intermediate      string          `json:"intermediateCertificates,omitempty"`
-	State             string          `json:"state"`
-	Etag              string          `json:"etag"`
-	SubjectNames      []string        `json:"subjectNames"`
+	TimeCreated       time.Time      `json:"timeCreated"`
+	TimeUpdated       time.Time      `json:"timeUpdated"`
+	TimeNotValidAfter time.Time      `json:"timeNotValidAfter"`
+	Tags              Tags           `json:"tags"`
+	TransitionAt      *time.Time     `json:"transitionAt,omitempty"`
+	Locks             jsontext.Value `json:"locks,omitempty"`
+	ID                string         `json:"id"`
+	CompartmentID     string         `json:"compartmentId"`
+	DisplayName       string         `json:"displayName"`
+	CertPEM           string         `json:"certificate"`
+	Intermediate      string         `json:"intermediateCertificates,omitempty"`
+	State             string         `json:"state"`
+	Etag              string         `json:"etag"`
+	SubjectNames      []string       `json:"subjectNames"`
 }
 
 // WorkRequest records an asynchronous operation.

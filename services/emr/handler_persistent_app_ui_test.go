@@ -2,13 +2,14 @@ package emr_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/emr"
 )
 
@@ -48,7 +49,7 @@ func TestEMR_CreatePersistentAppUI(t *testing.T) {
 				var out struct {
 					PersistentAppUIID string `json:"PersistentAppUIId"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.NotEmpty(t, out.PersistentAppUIID)
 			}
 		})
@@ -65,7 +66,7 @@ func TestGetClusterSessionCredentials(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "GetClusterSessionCredentials", map[string]any{
 		"ClusterId":        create.JobFlowID,
@@ -77,7 +78,7 @@ func TestGetClusterSessionCredentials(t *testing.T) {
 		Credentials map[string]any `json:"Credentials"`
 		ExpiresAt   float64        `json:"ExpiresAt"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotEmpty(t, out.Credentials)
 	assert.NotZero(t, out.ExpiresAt)
 }
@@ -92,7 +93,7 @@ func TestGetClusterSessionCredentials_MissingRole(t *testing.T) {
 	var create struct {
 		JobFlowID string `json:"JobFlowId"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &create, jsonx.V1()))
 
 	rec := doEMRRequest(t, h, "GetClusterSessionCredentials", map[string]any{
 		"ClusterId": create.JobFlowID,
@@ -131,6 +132,6 @@ func TestGetOnClusterPresignedURL_NonExistentCluster(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errOut map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errOut, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", errOut["__type"])
 }

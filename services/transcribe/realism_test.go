@@ -1,7 +1,7 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -115,7 +116,7 @@ func TestRealism_RequestValidation(t *testing.T) {
 			rec := doTranscribeRequest(t, newTestTranscribeHandler(t), tt.action, tt.body)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, resp["__type"])
 			assert.Contains(t, resp["message"], tt.wantMsg)
 			assert.NotContains(t, resp["message"], "Exception: ")

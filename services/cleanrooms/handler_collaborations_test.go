@@ -1,11 +1,13 @@
 package cleanrooms_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCollaborations_Handlers(t *testing.T) {
@@ -22,7 +24,7 @@ func TestCollaborations_Handlers(t *testing.T) {
 	require.Equal(t, http.StatusOK, res.Code)
 
 	var colResp map[string]any
-	json.Unmarshal(res.Body.Bytes(), &colResp)
+	json.Unmarshal(res.Body.Bytes(), &colResp, jsonx.V1())
 	collabID := colResp["collaboration"].(map[string]any)["id"].(string)
 
 	tests := []struct {

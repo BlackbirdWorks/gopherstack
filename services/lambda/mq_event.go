@@ -2,10 +2,12 @@ package lambda
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 	"time"
 	"unicode/utf8"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // Event shapes follow https://docs.aws.amazon.com/lambda/latest/dg/with-mq.html.
@@ -113,10 +115,10 @@ func strPtr(s string) *string {
 // buildMQEventPayload shapes msgs into the documented aws:mq or aws:rmq event.
 func buildMQEventPayload(eventSource, eventSourceARN, vhost string, msgs []mqMessage) ([]byte, error) {
 	if eventSource == mqEventSourceRabbitMQ {
-		return json.Marshal(buildRabbitMQEvent(eventSourceARN, vhost, msgs))
+		return json.Marshal(buildRabbitMQEvent(eventSourceARN, vhost, msgs), jsonx.V1())
 	}
 
-	return json.Marshal(buildActiveMQEvent(eventSourceARN, msgs))
+	return json.Marshal(buildActiveMQEvent(eventSourceARN, msgs), jsonx.V1())
 }
 
 func buildActiveMQEvent(eventSourceARN string, msgs []mqMessage) activeMQEvent {

@@ -2,7 +2,8 @@ package organizations_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/organizations"
 )
@@ -73,7 +75,7 @@ func TestHandler_Pagination(t *testing.T) {
 			if tt.nextToken != "" {
 				reqBody["NextToken"] = tt.nextToken
 			}
-			bodyBytes, _ := json.Marshal(reqBody)
+			bodyBytes, _ := json.Marshal(reqBody, jsonx.V1())
 
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 			req.Header.Set("X-Amz-Target", "AWSOrganizationsV20161128.ListAccounts")
@@ -94,7 +96,7 @@ func TestHandler_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var res map[string]any
-			err = json.Unmarshal(rec.Body.Bytes(), &res)
+			err = json.Unmarshal(rec.Body.Bytes(), &res, jsonx.V1())
 			require.NoError(t, err)
 
 			accounts, ok := res["Accounts"].([]any)
@@ -139,7 +141,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Accounts  []map[string]any `json:"Accounts"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 
 		require.Len(t, resp.Accounts, 2, "MaxResults=2 must truncate to 2 items")
 		require.NotEmpty(t, resp.NextToken, "truncated page must carry a NextToken")
@@ -155,7 +157,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Accounts  []map[string]any `json:"Accounts"`
 		}
-		require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec2.Body), &resp2, jsonx.V1()))
 		require.Len(t, resp2.Accounts, 2, "second page must continue from the token")
 	})
 
@@ -180,7 +182,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 					} `json:"PolicySummary"`
 				} `json:"Policy"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&pResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &pResp, jsonx.V1()))
 
 			rec = doRequest(t, h, "AttachPolicy", map[string]any{
 				"PolicyId": pResp.Policy.PolicySummary.ID,
@@ -200,7 +202,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Policies  []map[string]any `json:"Policies"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.Policies, 1)
 		require.NotEmpty(t, resp.NextToken)
 	})
@@ -221,7 +223,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 				ID string `json:"Id"`
 			} `json:"OrganizationalUnit"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&ouResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &ouResp, jsonx.V1()))
 
 		rec = doRequest(t, h, "CreatePolicy", map[string]any{
 			"Name":        "p",
@@ -238,7 +240,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 				} `json:"PolicySummary"`
 			} `json:"Policy"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&pResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &pResp, jsonx.V1()))
 		policyID := pResp.Policy.PolicySummary.ID
 
 		for _, targetID := range []string{rootID, ouResp.OrganizationalUnit.ID} {
@@ -259,7 +261,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Targets   []map[string]any `json:"Targets"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.Targets, 1)
 		require.NotEmpty(t, resp.NextToken)
 	})
@@ -284,7 +286,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 					AccountID string `json:"AccountId"`
 				} `json:"CreateAccountStatus"`
 			}
-			require.NoError(t, json.NewDecoder(caRec.Body).Decode(&caResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(caRec.Body), &caResp, jsonx.V1()))
 
 			rec = doRequest(t, h, "RegisterDelegatedAdministrator", map[string]any{
 				"AccountId":        caResp.CreateAccountStatus.AccountID,
@@ -302,7 +304,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken               string           `json:"NextToken"`
 			DelegatedAdministrators []map[string]any `json:"DelegatedAdministrators"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.DelegatedAdministrators, 1)
 		require.NotEmpty(t, resp.NextToken)
 	})
@@ -329,7 +331,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken             string           `json:"NextToken"`
 			CreateAccountStatuses []map[string]any `json:"CreateAccountStatuses"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.CreateAccountStatuses, 2)
 		require.NotEmpty(t, resp.NextToken)
 	})
@@ -359,7 +361,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken string           `json:"NextToken"`
 			Tags      []map[string]any `json:"Tags"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.Tags, 3, "all 3 tags fit under the default page size")
 		require.Empty(t, resp.NextToken)
 	})
@@ -383,7 +385,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken                string           `json:"NextToken"`
 			EnabledServicePrincipals []map[string]any `json:"EnabledServicePrincipals"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.EnabledServicePrincipals, 1)
 		require.NotEmpty(t, resp.NextToken)
 
@@ -409,7 +411,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 				AccountID string `json:"AccountId"`
 			} `json:"CreateAccountStatus"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&caResp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &caResp, jsonx.V1()))
 		accountID := caResp.CreateAccountStatus.AccountID
 
 		for _, sp := range []string{"config.amazonaws.com", "cloudtrail.amazonaws.com"} {
@@ -433,7 +435,7 @@ func TestListOps_HonorMaxResultsAndNextToken(t *testing.T) {
 			NextToken         string           `json:"NextToken"`
 			DelegatedServices []map[string]any `json:"DelegatedServices"`
 		}
-		require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+		require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 		require.Len(t, resp.DelegatedServices, 1)
 		require.NotEmpty(t, resp.NextToken)
 	})

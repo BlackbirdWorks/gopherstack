@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -322,7 +323,7 @@ func TestHandler_SnapshotRestore_ServiceAttributesAndHealth(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	svc := createOut["Service"].(map[string]any)
 	svcID := svc["Id"].(string)
 	svcARN := svc["Arn"].(string)
@@ -359,7 +360,7 @@ func TestHandler_SnapshotRestore_ServiceAttributesAndHealth(t *testing.T) {
 	getRec := doSDRequest(t, h2, "GetServiceAttributes", map[string]any{"ServiceId": svcID})
 	assert.Equal(t, http.StatusOK, getRec.Code)
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	attrs := getOut["ServiceAttributes"].(map[string]any)["Attributes"].(map[string]any)
 	assert.Equal(t, "test", attrs["stage"])
 	assert.Equal(t, svcARN, getOut["ServiceAttributes"].(map[string]any)["ServiceArn"])

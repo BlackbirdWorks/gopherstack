@@ -1,7 +1,8 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -105,7 +107,7 @@ func TestListPrincipalThingsV2_WireShapeAndFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	objs, _ := out["principalThingObjects"].([]any)
 	require.Len(t, objs, 1)
 	entry, ok := objs[0].(map[string]any)
@@ -186,7 +188,7 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		policies, _ := out["policies"].([]any)
 		assert.LessOrEqual(t, len(policies), 1)
 		assert.NotEmpty(t, out["nextMarker"])
@@ -209,7 +211,7 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		princs, _ := out["principals"].([]any)
 		assert.LessOrEqual(t, len(princs), 1)
 		assert.NotEmpty(t, out["nextMarker"])
@@ -229,7 +231,7 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		targets, _ := out["targets"].([]any)
 		assert.LessOrEqual(t, len(targets), 1)
 		assert.NotEmpty(t, out["nextMarker"])
@@ -252,7 +254,7 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		things, _ := out["things"].([]any)
 		assert.LessOrEqual(t, len(things), 1)
 		assert.NotEmpty(t, out["nextToken"])
@@ -456,7 +458,7 @@ func TestHandler_ListPolicies_Response(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var out map[string]any
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 			policies, ok := out["policies"]
 			require.True(t, ok, "response must have 'policies' key")
 
@@ -480,7 +482,7 @@ func TestHandler_GetPolicy_HTTP(t *testing.T) {
 	// creationDate/lastModifiedDate are JSON numbers (epoch seconds), not
 	// RFC3339 strings, so this must decode into map[string]any.
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(resp.Body), &out, jsonx.V1()))
 	assert.Equal(t, "http-policy", out["policyName"])
 	assert.NotEmpty(t, out["policyArn"])
 
@@ -1011,7 +1013,7 @@ func TestGetPolicyVersion_ReturnsPolicyArnAndName(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "parb-pol2", resp["policyName"], "policyName must be in GetPolicyVersion response")
 	policyARN, _ := resp["policyArn"].(string)
 	assert.NotEmpty(t, policyARN, "policyArn must be in GetPolicyVersion response")

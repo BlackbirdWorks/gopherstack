@@ -1,7 +1,7 @@
 package servicediscovery_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicediscovery"
 )
 
@@ -64,7 +65,7 @@ func TestHandler_RegisterInstance(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 
 				var createResp map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 				svcData := createResp["Service"].(map[string]any)
 				svcID := svcData["Id"].(string)
 
@@ -160,7 +161,7 @@ func TestHandler_RegisterInstance_AttributeQuota(t *testing.T) {
 			createRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "attr-quota-svc"})
 			require.Equal(t, http.StatusOK, createRec.Code)
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			svcID := createResp["Service"].(map[string]any)["Id"].(string)
 
 			rec := doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -228,7 +229,7 @@ func TestHandler_RegisterInstance_InitHealthStatus(t *testing.T) {
 			createRec := doSDRequest(t, h, "CreateService", body)
 			require.Equal(t, http.StatusOK, createRec.Code)
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			svcID := createResp["Service"].(map[string]any)["Id"].(string)
 
 			regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -239,7 +240,7 @@ func TestHandler_RegisterInstance_InitHealthStatus(t *testing.T) {
 			statusRec := doSDRequest(t, h, "GetInstancesHealthStatus", map[string]any{"ServiceId": svcID})
 			require.Equal(t, http.StatusOK, statusRec.Code)
 			var statusResp map[string]any
-			require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+			require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp, jsonx.V1()))
 			statuses := statusResp["Status"].(map[string]any)
 			assert.Equal(t, tt.wantStatus, statuses["i-init-health"])
 		})
@@ -255,7 +256,7 @@ func TestHandler_GetInstance(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcData := createResp["Service"].(map[string]any)
 	svcID := svcData["Id"].(string)
 
@@ -317,7 +318,7 @@ func TestHandler_ListInstances(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcData := createResp["Service"].(map[string]any)
 	svcID := svcData["Id"].(string)
 
@@ -371,7 +372,7 @@ func TestHandler_DeregisterInstance(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	svcData := createResp["Service"].(map[string]any)
 	svcID := svcData["Id"].(string)
 
@@ -445,7 +446,7 @@ func TestHandler_GetInstancesHealthStatus(t *testing.T) {
 				require.Equal(t, http.StatusOK, svcRec.Code)
 
 				var svcOut map[string]any
-				require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut))
+				require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut, jsonx.V1()))
 				svc := svcOut["Service"].(map[string]any)
 
 				return svc["Id"].(string)
@@ -481,7 +482,7 @@ func TestHandler_GetInstancesHealthStatus(t *testing.T) {
 
 			if len(tt.wantFields) > 0 {
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				for _, field := range tt.wantFields {
 					assert.Contains(t, out, field)
 				}
@@ -550,16 +551,16 @@ func TestHandler_RegisterInstanceRealOperationID(t *testing.T) {
 	// Create namespace and service first.
 	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-reg"})
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	nsOpID := nsResp["OperationId"].(string)
 	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": nsOpID})
 	var nsOpResp map[string]any
-	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp, jsonx.V1()))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-reg", "NamespaceId": nsID})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	// Register instance.
@@ -571,7 +572,7 @@ func TestHandler_RegisterInstanceRealOperationID(t *testing.T) {
 	require.Equal(t, 200, regRec.Code)
 
 	var regResp map[string]any
-	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regResp))
+	require.NoError(t, json.Unmarshal(regRec.Body.Bytes(), &regResp, jsonx.V1()))
 
 	opID := regResp["OperationId"].(string)
 	assert.NotEqual(t, "op-register", opID, "must not be hardcoded op ID")
@@ -582,7 +583,7 @@ func TestHandler_RegisterInstanceRealOperationID(t *testing.T) {
 	require.Equal(t, 200, opRec.Code)
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	assert.Equal(t, "REGISTER_INSTANCE", opResp["Operation"].(map[string]any)["Type"])
 }
 
@@ -596,16 +597,16 @@ func TestHandler_DeregisterInstanceRealOperationID(t *testing.T) {
 	// Setup.
 	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-dereg"})
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	nsOpID := nsResp["OperationId"].(string)
 	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": nsOpID})
 	var nsOpResp map[string]any
-	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp, jsonx.V1()))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-dereg", "NamespaceId": nsID})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -622,7 +623,7 @@ func TestHandler_DeregisterInstanceRealOperationID(t *testing.T) {
 	require.Equal(t, 200, deregRec.Code)
 
 	var deregResp map[string]any
-	require.NoError(t, json.Unmarshal(deregRec.Body.Bytes(), &deregResp))
+	require.NoError(t, json.Unmarshal(deregRec.Body.Bytes(), &deregResp, jsonx.V1()))
 
 	opID := deregResp["OperationId"].(string)
 	assert.NotEqual(t, "op-deregister", opID)
@@ -632,7 +633,7 @@ func TestHandler_DeregisterInstanceRealOperationID(t *testing.T) {
 	require.Equal(t, 200, opRec.Code)
 
 	var opResp map[string]any
-	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp))
+	require.NoError(t, json.Unmarshal(opRec.Body.Bytes(), &opResp, jsonx.V1()))
 	assert.Equal(t, "DEREGISTER_INSTANCE", opResp["Operation"].(map[string]any)["Type"])
 }
 
@@ -646,11 +647,11 @@ func TestHandler_GetInstancesHealthStatusStoredValue(t *testing.T) {
 	// Setup service and instances.
 	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-health"})
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	nsOpID := nsResp["OperationId"].(string)
 	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": nsOpID})
 	var nsOpResp map[string]any
-	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp, jsonx.V1()))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{
@@ -659,7 +660,7 @@ func TestHandler_GetInstancesHealthStatusStoredValue(t *testing.T) {
 		"HealthCheckCustomConfig": map[string]any{"FailureThreshold": 1},
 	})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -683,7 +684,7 @@ func TestHandler_GetInstancesHealthStatusStoredValue(t *testing.T) {
 	require.Equal(t, 200, statusRec.Code)
 
 	var statusResp map[string]any
-	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp))
+	require.NoError(t, json.Unmarshal(statusRec.Body.Bytes(), &statusResp, jsonx.V1()))
 
 	statuses := statusResp["Status"].(map[string]any)
 	assert.Equal(t, "HEALTHY", statuses["inst-healthy"])
@@ -698,16 +699,16 @@ func TestHandler_GetInstancesHealthStatusFilterByIDs(t *testing.T) {
 
 	nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{"Name": "ns-filter-health"})
 	var nsResp map[string]any
-	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp))
+	require.NoError(t, json.Unmarshal(nsRec.Body.Bytes(), &nsResp, jsonx.V1()))
 	nsOpID := nsResp["OperationId"].(string)
 	nsOpRec := doSDRequest(t, h, "GetOperation", map[string]any{"OperationId": nsOpID})
 	var nsOpResp map[string]any
-	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp))
+	require.NoError(t, json.Unmarshal(nsOpRec.Body.Bytes(), &nsOpResp, jsonx.V1()))
 	nsID := nsOpResp["Operation"].(map[string]any)["Targets"].(map[string]any)["NAMESPACE"].(string)
 
 	svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-filter", "NamespaceId": nsID})
 	var svcResp map[string]any
-	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+	require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 	svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 	for _, iid := range []string{"a", "b", "c"} {
@@ -724,7 +725,7 @@ func TestHandler_GetInstancesHealthStatusFilterByIDs(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	statuses := resp["Status"].(map[string]any)
 	assert.Len(t, statuses, 2)
@@ -777,7 +778,7 @@ func TestHandler_GetInstancesHealthStatusUnknownInstanceID(t *testing.T) {
 
 			svcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-unknown-inst"})
 			var svcResp map[string]any
-			require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp))
+			require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcResp, jsonx.V1()))
 			svcID := svcResp["Service"].(map[string]any)["Id"].(string)
 
 			registerRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
@@ -793,7 +794,7 @@ func TestHandler_GetInstancesHealthStatusUnknownInstanceID(t *testing.T) {
 
 			if tt.wantCode == http.StatusBadRequest {
 				var errResp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "InstanceNotFound", errResp["__type"])
 			}
 		})
@@ -809,7 +810,7 @@ func TestListInstances_Pagination(t *testing.T) {
 	createSvcRec := doSDRequest(t, h, "CreateService", map[string]any{"Name": "svc-inst-page"})
 	require.Equal(t, http.StatusOK, createSvcRec.Code)
 	var svcOut map[string]any
-	require.NoError(t, json.Unmarshal(createSvcRec.Body.Bytes(), &svcOut))
+	require.NoError(t, json.Unmarshal(createSvcRec.Body.Bytes(), &svcOut, jsonx.V1()))
 	svcID := svcOut["Service"].(map[string]any)["Id"].(string)
 
 	for i := range 4 {
@@ -849,7 +850,7 @@ func TestListInstances_Pagination(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			insts := out["Instances"].([]any)
 			assert.Len(t, insts, tt.wantLen)
 			if tt.wantNextToken {
@@ -896,7 +897,7 @@ func TestHandler_UpdateInstanceCustomHealthStatus(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				var out map[string]any
-				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &out, jsonx.V1()))
 				svcID := out["Service"].(map[string]any)["Id"].(string)
 				regRec := doSDRequest(t, h, "RegisterInstance", map[string]any{
 					"ServiceId":  svcID,

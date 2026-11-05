@@ -2,7 +2,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -38,7 +39,7 @@ func TestGetSecretValue_NotFoundHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp.Type)
 }
 
@@ -74,7 +75,7 @@ func TestGetSecretValue_DeletedHTTPStatus(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "InvalidRequestException", errResp.Type)
 }
 
@@ -230,12 +231,12 @@ func TestGetSecretValue_VersionMismatchHTTPErrorType(t *testing.T) {
 		"SecretId":     "mismatch-http",
 		"VersionId":    "v1",
 		"VersionStage": secretsmanager.StagingLabelPrevious,
-	})
+	}, jsonx.V1())
 	rec = doR1Request(t, h, "secretsmanager.GetSecretValue", string(body))
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp secretsmanager.ErrorResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "ResourceNotFoundException", errResp.Type,
 		"HTTP error body must carry ResourceNotFoundException")
 }
@@ -371,7 +372,7 @@ func TestGetSecretValue_LastAccessedDateTracking(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc1 secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc1, jsonx.V1()))
 	assert.Nil(t, desc1.LastAccessedDate)
 
 	// GetSecretValue should update LastAccessedDate.
@@ -383,7 +384,7 @@ func TestGetSecretValue_LastAccessedDateTracking(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var desc2 secretsmanager.DescribeSecretOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc2))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc2, jsonx.V1()))
 	require.NotNil(t, desc2.LastAccessedDate)
 	// The LastAccessedDate should be today (day-granularity as AWS does).
 	accessTime := time.Unix(int64(*desc2.LastAccessedDate), 0).UTC()

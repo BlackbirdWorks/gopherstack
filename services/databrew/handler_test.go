@@ -1,7 +1,7 @@
 package databrew_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---- Handler metadata ----
@@ -30,7 +32,7 @@ func TestHandlerReset(t *testing.T) {
 	rec := databrewReq(t, h, http.MethodGet, "/databrew/v1/datasets", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	datasets := resp["Datasets"].([]any)
 	assert.Empty(t, datasets)
 }

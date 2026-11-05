@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"regexp"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/servicequotas"
 )
 
@@ -30,7 +32,7 @@ func TestDocsCatalog_Provenance(t *testing.T) {
 	require.NoError(t, err)
 
 	var svcs []servicequotas.ServiceDef
-	require.NoError(t, json.Unmarshal(docsQuotas, &svcs))
+	require.NoError(t, json.Unmarshal(docsQuotas, &svcs, jsonx.V1()))
 
 	codeRe := regexp.MustCompile(`^L-[0-9A-F]{8}$`)
 	seen := map[string]bool{}
@@ -55,7 +57,7 @@ func TestDocsCatalog_Provenance(t *testing.T) {
 		seen[s.Code] = true
 	}
 
-	canon, err := json.MarshalIndent(svcs, "", " ")
+	canon, err := json.Marshal(svcs, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(" "))
 	require.NoError(t, err)
 	assert.True(t, bytes.Equal(append(canon, '\n'), docsQuotas), "docs_quotas.json.gz is not in generator output form")
 }

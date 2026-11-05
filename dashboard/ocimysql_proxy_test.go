@@ -1,7 +1,7 @@
 package dashboard_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ocimysql"
 )
 
@@ -50,7 +51,7 @@ func newMySQLDashboard(t *testing.T) (*dashboard.DashboardHandler, string) {
 	}
 
 	require.NoError(t, json.Unmarshal(mysqlSeed(t, e, http.MethodGet,
-		"/20190415/dbSystems?compartmentId="+mysqlComp, ""), &systems))
+		"/20190415/dbSystems?compartmentId="+mysqlComp, ""), &systems, jsonx.V1()))
 	require.Len(t, systems, 1)
 
 	return dashboard.NewHandler(dashboard.Config{OCIMySQLOps: ops}), systems[0].ID

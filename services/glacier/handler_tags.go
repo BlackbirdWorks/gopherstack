@@ -1,15 +1,17 @@
 package glacier
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleAddTagsToVault(c *echo.Context, vaultName string, body []byte) error {
 	var req addTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,
@@ -36,7 +38,7 @@ func (h *Handler) handleListTagsForVault(c *echo.Context, vaultName string) erro
 
 func (h *Handler) handleRemoveTagsFromVault(c *echo.Context, vaultName string, body []byte) error {
 	var req removeTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(
 			c,
 			http.StatusBadRequest,

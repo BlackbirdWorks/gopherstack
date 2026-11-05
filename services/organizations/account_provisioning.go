@@ -1,8 +1,10 @@
 package organizations
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const defaultAccessRoleName = "OrganizationAccountAccessRole"
@@ -28,7 +30,7 @@ func accessRoleTrustPolicy(managementAccountID string) string {
 			"Principal": map[string]string{"AWS": fmt.Sprintf("arn:aws:iam::%s:root", managementAccountID)},
 			"Action":    "sts:AssumeRole",
 		}},
-	})
+	}, jsonx.V1())
 
 	return string(doc)
 }

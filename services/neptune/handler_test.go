@@ -1,7 +1,7 @@
 package neptune_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/xml"
 	"io"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/neptune"
 )
@@ -552,7 +553,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 
 	// Verify it's valid JSON
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(data, &raw))
+	require.NoError(t, json.Unmarshal(data, &raw, jsonx.V1()))
 
 	restored := neptune.NewInMemoryBackend("000000000000", "us-east-1")
 	require.NoError(t, restored.Restore(t.Context(), data))

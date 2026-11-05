@@ -1,13 +1,15 @@
 package mediaconvert_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/mediaconvert"
 )
 
@@ -59,7 +61,7 @@ func TestMediaConvert_Queue_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&createResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &createResp, jsonx.V1()))
 	queueData, ok := createResp["queue"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, queueName, queueData["name"])
@@ -86,7 +88,7 @@ func TestMediaConvert_Queue_FullLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&updateResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &updateResp, jsonx.V1()))
 	updatedQueue, ok := updateResp["queue"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "PAUSED", updatedQueue["status"])
@@ -140,7 +142,7 @@ func TestMediaConvert_ListQueues_Empty(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queues, ok := out["queues"].([]any)
 	require.True(t, ok)
 	require.Len(t, queues, 1)
@@ -191,7 +193,7 @@ func TestMediaConvert_UpdateQueue_ConcurrentJobsAndReservationPlanSettings(t *te
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queueData := out["queue"].(map[string]any)
 	assert.InDelta(t, float64(7), queueData["concurrentJobs"], 0)
 
@@ -248,7 +250,7 @@ func TestMediaConvert_CreateQueue_MaximumConcurrentFeeds(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			createQueue, ok := createResp["queue"].(map[string]any)
 			require.True(t, ok)
 			tt.check(t, createQueue)
@@ -258,7 +260,7 @@ func TestMediaConvert_CreateQueue_MaximumConcurrentFeeds(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var getResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp, jsonx.V1()))
 			getQueue, ok := getResp["queue"].(map[string]any)
 			require.True(t, ok)
 			tt.check(t, getQueue)
@@ -284,7 +286,7 @@ func TestMediaConvert_UpdateQueue_MaximumConcurrentFeeds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queueData, ok := out["queue"].(map[string]any)
 	require.True(t, ok)
 	assert.InDelta(t, float64(9), queueData["maximumConcurrentFeeds"], 0)
@@ -319,7 +321,7 @@ func TestCreateQueue_WithTags(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &resp, jsonx.V1()))
 	queue := resp["queue"].(map[string]any)
 	tags := queue["tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
@@ -459,7 +461,7 @@ func TestListQueues_JobCountsViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queues, ok := out["queues"].([]any)
 	require.True(t, ok)
 	require.Len(t, queues, 2)
@@ -505,7 +507,7 @@ func TestCreateQueue_ReservationPlanViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queueData := out["queue"].(map[string]any)
 	rp, ok := queueData["reservationPlan"].(map[string]any)
 	require.True(t, ok, "reservationPlan should be in response")
@@ -525,7 +527,7 @@ func TestQueue_NoLegacyReservationPlanNameField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queueData := out["queue"].(map[string]any)
 	_, hasOldField := queueData["reservationPlanName"]
 	assert.False(t, hasOldField, "legacy reservationPlanName field should not be present")
@@ -555,7 +557,7 @@ func TestCreateQueue_ConcurrentJobsViaHTTP(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	queueData := out["queue"].(map[string]any)
 	assert.InDelta(t, float64(4), queueData["concurrentJobs"], 0)
 }
@@ -576,7 +578,7 @@ func TestCreateQueue_ConcurrentJobsZeroDistinctFromUnset(t *testing.T) {
 	require.Equal(t, http.StatusCreated, unset.Code)
 
 	var unsetOut map[string]any
-	require.NoError(t, json.NewDecoder(unset.Body).Decode(&unsetOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(unset.Body), &unsetOut, jsonx.V1()))
 	unsetQueue := unsetOut["queue"].(map[string]any)
 	_, hasField := unsetQueue["concurrentJobs"]
 	assert.False(t, hasField, "concurrentJobs must be omitted entirely when the client never sent it")
@@ -588,7 +590,7 @@ func TestCreateQueue_ConcurrentJobsZeroDistinctFromUnset(t *testing.T) {
 	require.Equal(t, http.StatusCreated, explicitZero.Code)
 
 	var zeroOut map[string]any
-	require.NoError(t, json.NewDecoder(explicitZero.Body).Decode(&zeroOut))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(explicitZero.Body), &zeroOut, jsonx.V1()))
 	zeroQueue := zeroOut["queue"].(map[string]any)
 	zeroVal, hasZeroField := zeroQueue["concurrentJobs"]
 	require.True(t, hasZeroField, "an explicit concurrentJobs:0 must round-trip as a present field, not be dropped")

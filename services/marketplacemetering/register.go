@@ -3,11 +3,12 @@ package marketplacemetering
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsid"
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // RegisterUsageInput is the RegisterUsage request.
@@ -67,11 +68,11 @@ func signRegistration(p *Product, in *RegisterUsageInput, account string, issued
 	enc := base64.RawURLEncoding
 	header, _ := json.Marshal(map[string]string{
 		"alg": "HS256", "typ": "JWT", "kid": "v" + strconv.Itoa(int(p.PublicKeyVersion)),
-	})
+	}, jsonx.V1())
 	claims, _ := json.Marshal(map[string]any{
 		"productCode": in.ProductCode, "nonce": in.Nonce, "customerAWSAccountId": account,
 		"publicKeyVersion": p.PublicKeyVersion, "iat": issued,
-	})
+	}, jsonx.V1())
 	signing := enc.EncodeToString(header) + "." + enc.EncodeToString(claims)
 
 	return signing + "." + enc.EncodeToString([]byte(mac(signing)))

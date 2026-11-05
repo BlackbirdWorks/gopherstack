@@ -2,9 +2,11 @@ package sqs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type jsonMsgAttr struct {
@@ -113,7 +115,7 @@ func (h *Handler) handleSendMessage(
 	body []byte,
 ) (any, error) {
 	var req jsonSendMessageReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -146,7 +148,7 @@ func (h *Handler) handleReceiveMessage(
 	body []byte,
 ) (any, error) {
 	var req jsonReceiveMessageReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -237,7 +239,7 @@ func (h *Handler) handleDeleteMessage(
 	body []byte,
 ) (any, error) {
 	var req jsonDeleteMessageReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -258,7 +260,7 @@ func (h *Handler) handleSendMessageBatch(
 	body []byte,
 ) (any, error) {
 	var req jsonSendMessageBatchReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 
@@ -314,7 +316,7 @@ func (h *Handler) handleDeleteMessageBatch(
 	body []byte,
 ) (any, error) {
 	var req jsonDeleteMessageBatchReq
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, ErrUnknownAction
 	}
 

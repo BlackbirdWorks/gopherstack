@@ -1,7 +1,7 @@
 package cloudwatch_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
@@ -625,9 +626,9 @@ func TestInMemoryBackend_Restore_VersionGuard(t *testing.T) {
 
 	// Corrupt the version field to simulate an incompatible (older/newer) snapshot.
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 	raw["version"] = 999999
-	corrupted, err := json.Marshal(raw)
+	corrupted, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	// Restore into a backend that already has unrelated state, to confirm the

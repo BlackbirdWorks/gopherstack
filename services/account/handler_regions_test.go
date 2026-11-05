@@ -1,7 +1,8 @@
 package account_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/account"
 )
 
@@ -44,7 +46,7 @@ func TestHandler_ListRegions(t *testing.T) {
 			var out struct {
 				Regions []account.Region `json:"Regions"`
 			}
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 			assert.Len(t, out.Regions, tt.wantCount)
 		})
 	}
@@ -60,7 +62,7 @@ func TestHandler_ListRegions_RegionFieldsPresent(t *testing.T) {
 	var out struct {
 		Regions []map[string]any `json:"Regions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Regions)
 
 	for _, r := range out.Regions {
@@ -79,7 +81,7 @@ func TestHandler_ListRegions_Alphabetical(t *testing.T) {
 	var out struct {
 		Regions []account.Region `json:"Regions"`
 	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 	require.NotEmpty(t, out.Regions)
 
 	for i := 1; i < len(out.Regions); i++ {
@@ -129,7 +131,7 @@ func TestHandler_ListRegions_Pagination(t *testing.T) {
 					NextToken string           `json:"NextToken"`
 					Regions   []map[string]any `json:"Regions"`
 				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				require.LessOrEqual(t, len(resp.Regions), tc.maxResults)
 
 				for _, r := range resp.Regions {
@@ -231,7 +233,7 @@ func TestHandler_GetRegionOptStatus(t *testing.T) {
 
 			if tc.wantStatus != "" {
 				var out map[string]any
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 				assert.Equal(t, tc.regionName, out["RegionName"])
 				assert.Equal(t, tc.wantStatus, out["RegionOptStatus"])
 			}
@@ -263,7 +265,7 @@ func TestHandler_EnableDisableRegion(t *testing.T) {
 					require.Equal(t, http.StatusOK, rec.Code)
 
 					var out map[string]any
-					require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+					require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &out, jsonx.V1()))
 
 					return out["RegionOptStatus"].(string)
 				}

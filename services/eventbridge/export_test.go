@@ -2,9 +2,11 @@ package eventbridge
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // RegionContextKeyForTest exports the regionContextKey type for external tests.
@@ -30,7 +32,7 @@ func CompilePatternErrorForTest(pattern string) error {
 // despite carrying a shape validation would normally reject.
 func MatchCompiledPatternBypassingValidationForTest(patternJSON, event string) bool {
 	var pattern map[string]any
-	if err := json.Unmarshal([]byte(patternJSON), &pattern); err != nil {
+	if err := json.Unmarshal([]byte(patternJSON), &pattern, jsonx.V1()); err != nil {
 		panic(err)
 	}
 

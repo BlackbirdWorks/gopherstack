@@ -3,13 +3,14 @@ package lambda_test
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -150,7 +151,7 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 
 			h, _ := newHandler(t)
 
-			body, err := json.Marshal(tt.input)
+			body, err := json.Marshal(tt.input, jsonx.V1())
 			require.NoError(t, err)
 
 			rec := callHandler(t, h, http.MethodPost, "/2015-03-31/functions", string(body), nil)
@@ -162,7 +163,7 @@ func TestZipHandler_CreateFunction(t *testing.T) {
 			}
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 
 			if tt.wantFnName != "" {
 				assert.Equal(t, tt.wantFnName, fn.FunctionName)
@@ -192,7 +193,7 @@ func TestZipHandler_UpdateFunctionCode(t *testing.T) {
 
 	zipBody := func() string {
 		zipBytes := makeTestZip(t, `def handler(event, context): return "updated"`)
-		b, err := json.Marshal(map[string]any{"ZipFile": zipBytes})
+		b, err := json.Marshal(map[string]any{"ZipFile": zipBytes}, jsonx.V1())
 		require.NoError(t, err)
 
 		return string(b)
@@ -244,7 +245,7 @@ func TestZipHandler_UpdateFunctionCode(t *testing.T) {
 
 			if tt.wantRevisionID {
 				var fn lambda.FunctionConfiguration
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 				assert.NotEmpty(t, fn.RevisionID)
 			}
 		})
@@ -292,7 +293,7 @@ func TestZipHandler_UpdateFunctionConfiguration(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var fn lambda.FunctionConfiguration
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fn, jsonx.V1()))
 			assert.Equal(t, tt.wantRuntime, fn.Runtime)
 			assert.Equal(t, tt.wantHandler, fn.Handler)
 		})
@@ -348,7 +349,7 @@ func TestZipHandler_BuildCodeLocation(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var out lambda.GetFunctionOutput
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			require.NotNil(t, out.Code)
 
 			if tt.wantImageURI != "" {

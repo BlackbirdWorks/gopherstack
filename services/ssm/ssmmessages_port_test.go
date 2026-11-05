@@ -3,7 +3,7 @@ package ssm_test
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
 )
 
@@ -79,7 +80,7 @@ func portHandshake(t *testing.T, c *dcClient, acked map[int64]bool, wantProps ma
 	require.Equal(t, ssm.PayloadHandshakeRequest, req.PayloadType)
 
 	var hr ssm.HandshakeRequestPayload
-	require.NoError(t, json.Unmarshal(req.Payload, &hr))
+	require.NoError(t, json.Unmarshal(req.Payload, &hr, jsonx.V1()))
 	require.Len(t, hr.RequestedClientActions, 1)
 	assert.Equal(t, "2.3.0.0", hr.AgentVersion)
 	assert.Equal(t, "Port", hr.RequestedClientActions[0].ActionParameters["SessionType"])
@@ -88,7 +89,7 @@ func portHandshake(t *testing.T, c *dcClient, acked map[int64]bool, wantProps ma
 	resp, _ := json.Marshal(ssm.HandshakeResponsePayload{
 		ClientVersion:          "1.2.0.0",
 		ProcessedClientActions: []ssm.ProcessedClientAction{{ActionType: "SessionType", ActionStatus: 1}},
-	})
+	}, jsonx.V1())
 	c.input(ssm.PayloadHandshakeResponse, resp)
 
 	done := c.nextNonAck(acked)
@@ -291,7 +292,7 @@ func TestSessionPortForwardingErrors(t *testing.T) {
 
 			resp, _ := json.Marshal(ssm.HandshakeResponsePayload{
 				ProcessedClientActions: []ssm.ProcessedClientAction{{ActionType: "SessionType", ActionStatus: 1}},
-			})
+			}, jsonx.V1())
 			c.input(ssm.PayloadHandshakeResponse, resp)
 
 			done := c.nextNonAck(map[int64]bool{})

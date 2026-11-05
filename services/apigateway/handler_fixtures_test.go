@@ -1,7 +1,7 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -27,7 +28,7 @@ func boostAPI(t *testing.T, handler *apigateway.Handler, e *echo.Echo) string {
 	rec := postWithHandler(t, handler, e, "CreateRestApi", `{"name":"boost-api"}`)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -38,7 +39,7 @@ func boostRootResource(t *testing.T, handler *apigateway.Handler, e *echo.Echo, 
 	rec := postWithHandler(t, handler, e, "GetResources", fmt.Sprintf(`{"restApiId":%q}`, apiID))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	items := resp["item"].([]any)
 	require.NotEmpty(t, items)
 
@@ -52,7 +53,7 @@ func boostDeployment(t *testing.T, handler *apigateway.Handler, e *echo.Echo, ap
 		fmt.Sprintf(`{"restApiId":%q,"stageName":%q}`, apiID, stageName))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -72,7 +73,7 @@ func boostAuthorizer(t *testing.T, handler *apigateway.Handler, e *echo.Echo, ap
 	)
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -84,7 +85,7 @@ func boostDocPart(t *testing.T, handler *apigateway.Handler, e *echo.Echo, apiID
 		fmt.Sprintf(`{"restApiId":%q,"location":{"type":"API"},"properties":"{}"}`, apiID))
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }

@@ -1,13 +1,14 @@
 package glue_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -23,7 +24,7 @@ func TestDataQualityRecommendationRun(t *testing.T) {
 	var startOut struct {
 		RunID string `json:"RunId"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	require.NotEmpty(t, startOut.RunID)
 
 	// List
@@ -104,13 +105,13 @@ func TestDataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	runID := startOut["RunId"].(string)
 
 	getEvalRec := doGlueRequest(t, h, "GetDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
 	require.Equal(t, http.StatusOK, getEvalRec.Code)
 	var getEvalOut map[string]any
-	require.NoError(t, json.Unmarshal(getEvalRec.Body.Bytes(), &getEvalOut))
+	require.NoError(t, json.Unmarshal(getEvalRec.Body.Bytes(), &getEvalOut, jsonx.V1()))
 	assert.Equal(t, "RUNNING", getEvalOut["Status"])
 
 	cancelEvalRec := doGlueRequest(t, h, "CancelDataQualityRulesetEvaluationRun", map[string]any{"RunId": runID})
@@ -133,7 +134,7 @@ func TestGetDataQualityModel_RequiresProfileID(t *testing.T) {
 	var out struct {
 		Status string `json:"Status"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "SUCCEEDED", out.Status)
 }
 
@@ -155,7 +156,7 @@ func TestGetDataQualityModelResult_RequiresBothIDs(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Contains(t, out, "Model")
 	assert.NotContains(t, out, "Status", "GetDataQualityModelResult has no Status field in the real API")
 }
@@ -174,7 +175,7 @@ func TestDataQualityStatisticAnnotations_RealStore(t *testing.T) {
 	var empty struct {
 		Annotations []map[string]any `json:"Annotations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &empty, jsonx.V1()))
 	assert.Empty(t, empty.Annotations)
 
 	rec = doGlueRequest(t, h, "PutDataQualityProfileAnnotation", map[string]any{})
@@ -196,7 +197,7 @@ func TestDataQualityStatisticAnnotations_RealStore(t *testing.T) {
 	var batchOut struct {
 		FailedInclusionAnnotations []map[string]any `json:"FailedInclusionAnnotations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchOut, jsonx.V1()))
 	require.Len(t, batchOut.FailedInclusionAnnotations, 1)
 	assert.Equal(t, "stat-2", batchOut.FailedInclusionAnnotations[0]["StatisticId"])
 
@@ -206,14 +207,14 @@ func TestDataQualityStatisticAnnotations_RealStore(t *testing.T) {
 	var out struct {
 		Annotations []map[string]any `json:"Annotations"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Annotations, 2, "the profile-wide and the per-statistic annotation")
 
 	rec = doGlueRequest(t, h, "ListDataQualityStatisticAnnotations", map[string]any{
 		"ProfileId": "profile-1", "StatisticId": "stat-1",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	require.Len(t, out.Annotations, 1)
 	assert.Equal(t, "stat-1", out.Annotations[0]["StatisticId"])
 }
@@ -232,7 +233,7 @@ func TestDataQualityEvaluationRuns_Stateful(t *testing.T) {
 		var out struct {
 			Runs []any `json:"Runs"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.Runs)
 	})
 
@@ -260,7 +261,7 @@ func TestDataQualityEvaluationRuns_Stateful(t *testing.T) {
 		var out struct {
 			Runs []any `json:"Runs"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.Runs, 1)
 	})
 }
@@ -279,7 +280,7 @@ func TestListDataQualityResults_Stateful(t *testing.T) {
 		var out struct {
 			Results []any `json:"Results"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Empty(t, out.Results)
 	})
 
@@ -298,7 +299,7 @@ func TestListDataQualityResults_Stateful(t *testing.T) {
 		var out struct {
 			Results []any `json:"Results"`
 		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 		assert.Len(t, out.Results, 2)
 	})
 }
@@ -351,7 +352,7 @@ func TestDataQualityRecommendationRun_Stateful(t *testing.T) {
 	var startOut struct {
 		RunID string `json:"RunId"`
 	}
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut, jsonx.V1()))
 	assert.NotEmpty(t, startOut.RunID)
 
 	getRec := doGlueRequest(t, h, "GetDataQualityRuleRecommendationRun", map[string]any{
@@ -363,7 +364,7 @@ func TestDataQualityRecommendationRun_Stateful(t *testing.T) {
 		RunID  string `json:"RunId"`
 		Status string `json:"Status"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, startOut.RunID, getOut.RunID)
 	assert.NotEmpty(t, getOut.Status)
 }
@@ -433,7 +434,7 @@ func TestGetDataQualityResult_Found(t *testing.T) {
 		ResultID string  `json:"ResultId"`
 		Score    float64 `json:"Score"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "result-abc", out.ResultID)
 	assert.InDelta(t, 0.95, out.Score, 0.001)
 }

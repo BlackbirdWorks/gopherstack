@@ -1,7 +1,7 @@
 package emrserverless
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -771,7 +772,7 @@ type createApplicationResponse struct {
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
 	var in createApplicationBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -879,7 +880,7 @@ func applyAutoConfigDefaults(extra map[string]any, whenAbsent bool) {
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string, body []byte) error {
 	var in updateApplicationBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -974,7 +975,7 @@ type startJobRunResponse struct {
 func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body []byte) error {
 	var in startJobRunBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}
@@ -1189,7 +1190,7 @@ type tagResourceBody struct {
 func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
 	var in tagResourceBody
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
 	}

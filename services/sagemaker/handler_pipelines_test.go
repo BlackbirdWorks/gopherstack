@@ -3,7 +3,7 @@ package sagemaker_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -68,7 +69,7 @@ func TestHandler_CreatePipeline_FullFields(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "My Pipeline", descResp["PipelineDisplayName"])
 	assert.Equal(t, "A test pipeline", descResp["PipelineDescription"])
 	assert.NotNil(t, descResp["ParallelismConfiguration"])
@@ -95,7 +96,7 @@ func TestHandler_UpdatePipeline_FullFields(t *testing.T) {
 		"PipelineName": "my-pipeline",
 	})
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Updated Display", descResp["PipelineDisplayName"])
 	assert.Equal(t, "Updated desc", descResp["PipelineDescription"])
 }
@@ -128,7 +129,7 @@ func TestHandler_CreatePipeline_S3Location_UnreadableRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 
 	rec = doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "s3-def-pipeline"})
@@ -155,7 +156,7 @@ func TestHandler_UpdatePipeline_S3Location_UnreadableRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var body map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 	assert.Equal(t, "ValidationException", body["__type"])
 }
 
@@ -270,7 +271,7 @@ func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["PipelineExecutionArn"]
 	assert.NotEmpty(t, execArn)
 
@@ -281,7 +282,7 @@ func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "Run 1", descResp["PipelineExecutionDisplayName"])
 	assert.Equal(t, "First run", descResp["PipelineExecutionDescription"])
 	params := descResp["PipelineParameters"].([]any)
@@ -314,7 +315,7 @@ func TestHandler_StartPipelineExecution_ParallelismAndSelectiveExecution(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["PipelineExecutionArn"]
 	require.NotEmpty(t, execArn)
 
@@ -324,7 +325,7 @@ func TestHandler_StartPipelineExecution_ParallelismAndSelectiveExecution(t *test
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 
 	parallelism, ok := descResp["ParallelismConfiguration"].(map[string]any)
 	require.True(t, ok, "ParallelismConfiguration must be present in DescribePipelineExecution")
@@ -367,7 +368,7 @@ func TestHandler_ListPipelineParametersForExecution(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 	execArn := startResp["PipelineExecutionArn"]
 	require.NotEmpty(t, execArn)
 
@@ -383,7 +384,7 @@ func TestHandler_ListPipelineParametersForExecution(t *testing.T) {
 			Value string `json:"Value"`
 		} `json:"PipelineParameters"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.Len(t, listResp.PipelineParameters, 2)
 
 	names := make(map[string]string)
@@ -409,7 +410,7 @@ func TestHandler_ListPipelineParametersForExecution_Empty(t *testing.T) {
 		"PipelineName": "empty-param-pipe",
 	})
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp, jsonx.V1()))
 
 	rec2 := doSageMakerRequest(t, h, "ListPipelineParametersForExecution", map[string]any{
 		"PipelineExecutionArn": startResp["PipelineExecutionArn"],
@@ -419,7 +420,7 @@ func TestHandler_ListPipelineParametersForExecution_Empty(t *testing.T) {
 	var listResp struct {
 		PipelineParameters []any `json:"PipelineParameters"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &listResp, jsonx.V1()))
 	assert.NotNil(t, listResp.PipelineParameters)
 	assert.Empty(t, listResp.PipelineParameters)
 }
@@ -449,7 +450,7 @@ func TestHandler_PipelineLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recCreate.Code)
 
 		var createOut map[string]any
-		require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut))
+		require.NoError(t, json.Unmarshal(recCreate.Body.Bytes(), &createOut, jsonx.V1()))
 		assert.NotEmpty(t, createOut["PipelineArn"])
 
 		// Describe pipeline.
@@ -466,7 +467,7 @@ func TestHandler_PipelineLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recList.Code)
 
 		var listOut map[string]any
-		require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut))
+		require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listOut, jsonx.V1()))
 		assert.Len(t, listOut["PipelineSummaries"].([]any), 1)
 
 		// Update pipeline.
@@ -483,7 +484,7 @@ func TestHandler_PipelineLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusOK, recExec.Code)
 
 		var execOut map[string]any
-		require.NoError(t, json.Unmarshal(recExec.Body.Bytes(), &execOut))
+		require.NoError(t, json.Unmarshal(recExec.Body.Bytes(), &execOut, jsonx.V1()))
 		execArn := execOut["PipelineExecutionArn"].(string)
 		assert.NotEmpty(t, execArn)
 
@@ -553,7 +554,7 @@ func TestHandler_DeletePipeline_RunningExecution(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, recDelete.Code)
 
 		var errResp map[string]any
-		require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &errResp))
+		require.NoError(t, json.Unmarshal(recDelete.Body.Bytes(), &errResp, jsonx.V1()))
 		assert.Equal(t, "ConflictException", errResp["__type"])
 
 		// Once the execution reaches Succeeded, the delete is allowed.
@@ -640,7 +641,7 @@ func TestHandler_PipelineExecutionSteps(t *testing.T) {
 	require.Equal(t, http.StatusOK, recExec.Code)
 
 	var execOut map[string]any
-	require.NoError(t, json.Unmarshal(recExec.Body.Bytes(), &execOut))
+	require.NoError(t, json.Unmarshal(recExec.Body.Bytes(), &execOut, jsonx.V1()))
 	execArn := execOut["PipelineExecutionArn"].(string)
 
 	// ListPipelineExecutionSteps.

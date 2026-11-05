@@ -2,7 +2,7 @@ package rolesanywhere
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/url"
@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -227,7 +228,7 @@ func (h *Handler) handleREST(c *echo.Context) error {
 		return c.JSON(statusCode, struct{}{})
 	}
 
-	data, jsonErr := json.Marshal(result)
+	data, jsonErr := json.Marshal(result, jsonx.V1())
 	if jsonErr != nil {
 		return c.JSON(http.StatusInternalServerError, errBody("InternalFailure", "serialization failed"))
 	}

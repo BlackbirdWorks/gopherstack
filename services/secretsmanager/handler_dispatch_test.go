@@ -7,7 +7,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
@@ -47,7 +48,7 @@ func TestHandler_Dispatch(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.CreateSecretOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "test-secret", out.Name)
 			},
 		},
@@ -66,7 +67,7 @@ func TestHandler_Dispatch(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.GetSecretValueOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "the-value", out.SecretString)
 			},
 		},
@@ -78,7 +79,7 @@ func TestHandler_Dispatch(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var errResp secretsmanager.ErrorResponse
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 				assert.Equal(t, "UnknownOperationException", errResp.Type)
 			},
 		},
@@ -96,7 +97,7 @@ func TestHandler_Dispatch(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var ops []string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ops, jsonx.V1()))
 				assert.Contains(t, ops, "CreateSecret")
 			},
 		},
@@ -188,7 +189,7 @@ func TestHandler_FullCycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut secretsmanager.ListSecretsOutput
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Len(t, listOut.SecretList, 1)
 
 	// UpdateSecret
@@ -402,7 +403,7 @@ func TestHandler_ErrorCases(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 
 			var errResp secretsmanager.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.expectedErrTyp, errResp.Type)
 		})
 	}
@@ -762,7 +763,7 @@ func TestHandler_ErrorResponseAmznErrortypeHeader(t *testing.T) {
 			require.GreaterOrEqual(t, rec.Code, http.StatusBadRequest)
 
 			var errResp secretsmanager.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp.Type, "body __type")
 			assert.Equal(t, tt.wantType, rec.Header().Get("X-Amzn-Errortype"),
 				"X-Amzn-Errortype header must equal body __type")

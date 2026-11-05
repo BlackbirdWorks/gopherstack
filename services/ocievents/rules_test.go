@@ -1,7 +1,7 @@
 package ocievents_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestRuleLifecycle(t *testing.T) {
@@ -247,7 +249,7 @@ func TestCreateRuleValidation(t *testing.T) {
 			m := validRuleBody()
 			tt.mutate(m)
 
-			raw, err := json.Marshal(m)
+			raw, err := json.Marshal(m, jsonx.V1())
 			require.NoError(t, err)
 
 			status, body := rawDo(t, http.MethodPost, e.base+"/20181201/rules", string(raw))

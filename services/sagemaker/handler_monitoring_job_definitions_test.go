@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // minimalJobDefinitionFixture builds a structurally valid Create*JobDefinition
@@ -41,7 +43,7 @@ func TestHandler_CreateDataQualityJobDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["JobDefinitionArn"], "dq-def-1")
 }
 
@@ -59,7 +61,7 @@ func TestHandler_DescribeDataQualityJobDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "dq-def-2", resp["JobDefinitionName"])
 	assert.Equal(t, "arn:aws:iam::000000000000:role/monitor", resp["RoleArn"])
 	assert.NotNil(t, resp["DataQualityAppSpecification"])
@@ -99,7 +101,7 @@ func TestHandler_CreateDataQualityJobDefinition_DuplicateReturnsResourceInUse(t 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ResourceInUse", resp["__type"])
 }
 
@@ -117,7 +119,7 @@ func TestHandler_CreateModelBiasJobDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["JobDefinitionArn"], "mb-def-1")
 }
 
@@ -153,7 +155,7 @@ func TestHandler_CreateModelQualityJobDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["JobDefinitionArn"], "mq-def-1")
 }
 
@@ -184,7 +186,7 @@ func TestHandler_CreateModelExplainabilityJobDefinition(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Contains(t, resp["JobDefinitionArn"], "me-def-1")
 }
 

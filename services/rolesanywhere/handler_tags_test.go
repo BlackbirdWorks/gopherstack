@@ -2,7 +2,7 @@ package rolesanywhere_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/rolesanywhere"
 )
 
@@ -31,7 +32,7 @@ func createTestTrustAnchor(t *testing.T, h *rolesanywhere.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	ta, ok := resp["trustAnchor"].(map[string]any)
 	require.True(t, ok, "response missing trustAnchor: %s", rec.Body.String())
@@ -76,7 +77,7 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 			assert.Equal(t, tt.wantListStatus, recList.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &listResp, jsonx.V1()))
 			tags := listResp["tags"].([]any)
 			assert.Len(t, tags, 2)
 
@@ -102,7 +103,7 @@ func TestHandler_Tags_HTTP(t *testing.T) {
 				"/ListTagsForResource?resourceArn="+resARN,
 				nil,
 			)
-			require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(recList2.Body.Bytes(), &listResp, jsonx.V1()))
 			tags2 := listResp["tags"].([]any)
 			assert.Len(t, tags2, 1)
 		})
@@ -169,7 +170,7 @@ func TestHandler_Tags_UnknownResource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "ResourceNotFoundException", resp["__type"])
 		})
 	}
@@ -188,7 +189,7 @@ func TestHandler_Tags_EmptyList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	tags := resp["tags"].([]any)
 	assert.Empty(t, tags)
 }

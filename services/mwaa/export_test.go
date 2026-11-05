@@ -1,9 +1,11 @@
 package mwaa
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // EnvironmentCount returns the total number of environments in the backend across
@@ -68,7 +70,7 @@ func NewInvokeRequest(method, path string) *invokeRestAPIRequest {
 func ResponseJSON(t *testing.T, r *InvokeRestAPIResponse) string {
 	t.Helper()
 
-	raw, err := json.Marshal(r.RestAPIResponse)
+	raw, err := json.Marshal(r.RestAPIResponse, jsonx.V1())
 	if err != nil {
 		t.Fatal(err)
 	}

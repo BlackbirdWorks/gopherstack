@@ -3,7 +3,7 @@ package ociapigateway
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"encoding/pem"
 	"time"
 
@@ -13,12 +13,12 @@ import (
 
 type createCertificateIn struct {
 	Tags
-	CompartmentID string          `json:"compartmentId"`
-	DisplayName   string          `json:"displayName"`
-	PrivateKey    string          `json:"privateKey"`
-	Certificate   string          `json:"certificate"`
-	Intermediate  string          `json:"intermediateCertificates"`
-	Locks         json.RawMessage `json:"locks"`
+	CompartmentID string         `json:"compartmentId"`
+	DisplayName   string         `json:"displayName"`
+	PrivateKey    string         `json:"privateKey"`
+	Certificate   string         `json:"certificate"`
+	Intermediate  string         `json:"intermediateCertificates"`
+	Locks         jsontext.Value `json:"locks"`
 }
 
 type updateCertificateIn struct {
@@ -33,7 +33,7 @@ type CertificateWire struct {
 	TimeNotValidAfter time.Time                 `json:"timeNotValidAfter"`
 	DefinedTags       map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags      map[string]string         `json:"freeformTags,omitempty"`
-	Locks             json.RawMessage           `json:"locks,omitempty"`
+	Locks             jsontext.Value            `json:"locks,omitempty"`
 	ID                string                    `json:"id"`
 	CompartmentID     string                    `json:"compartmentId"`
 	DisplayName       string                    `json:"displayName"`

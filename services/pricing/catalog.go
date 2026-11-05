@@ -3,13 +3,15 @@ package pricing
 import (
 	"crypto/sha256"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -129,7 +131,7 @@ func render(s *spec) *entry {
 		Product:     productJSON{Attributes: attrs, ProductFamily: s.family, SKU: sku},
 		ServiceCode: s.service, Terms: terms, Version: catalogVersion, PublicationDate: publicationDate,
 	}
-	raw, _ := json.Marshal(item)
+	raw, _ := json.Marshal(item, jsonx.V1())
 
 	return &entry{item: item, json: string(raw), region: s.region.code, service: s.service}
 }

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/apptrace"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func inspectorServer(t *testing.T) (*echo.Echo, *apptrace.Tracer) {
@@ -69,7 +70,7 @@ func TestAppInspectorEndpoints(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var res apptrace.ListResult
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &res, jsonx.V1()))
 			assert.Equal(t, tc.total, res.Total)
 		})
 	}
@@ -93,7 +94,7 @@ func TestAppInspectorDetailTraceAndConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var detail appInspectorDetail
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &detail, jsonx.V1()))
 	require.NotNil(t, detail.Span.Detail)
 	assert.NotContains(t, detail.Span.Detail.RequestBody, "hunter2")
 	require.Len(t, detail.Trace, 2)

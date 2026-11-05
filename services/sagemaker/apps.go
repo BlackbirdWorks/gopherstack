@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -50,14 +50,14 @@ type App struct {
 	AppName         string            `json:"AppName"`
 	AppArn          string            `json:"AppArn"`
 	Status          string            `json:"Status"`
-	ResourceSpec    json.RawMessage   `json:"ResourceSpec,omitempty"`
+	ResourceSpec    jsontext.Value    `json:"ResourceSpec,omitempty"`
 	RecoveryMode    bool              `json:"RecoveryMode,omitempty"`
 }
 
 func cloneApp(a *App) *App {
 	cp := *a
 	cp.Tags = maps.Clone(a.Tags)
-	cp.ResourceSpec = append(json.RawMessage(nil), a.ResourceSpec...)
+	cp.ResourceSpec = append(jsontext.Value(nil), a.ResourceSpec...)
 
 	return &cp
 }
@@ -65,7 +65,7 @@ func cloneApp(a *App) *App {
 // CreateAppOptions bundles CreateApp's optional fields.
 type CreateAppOptions struct {
 	SpaceName    string
-	ResourceSpec json.RawMessage
+	ResourceSpec jsontext.Value
 	RecoveryMode bool
 }
 

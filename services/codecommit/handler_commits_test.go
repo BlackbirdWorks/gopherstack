@@ -1,13 +1,15 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateCommit(t *testing.T) {
@@ -69,7 +71,7 @@ func TestHandler_CreateCommit(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["commitId"])
 				assert.NotEmpty(t, resp["treeId"])
 			}
@@ -97,7 +99,7 @@ func TestHandler_CreateCommit_FilesAddedBlobID(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	filesAdded, ok := resp["filesAdded"].([]any)
 	require.True(t, ok)
 	require.Len(t, filesAdded, 2)
@@ -143,7 +145,7 @@ func TestHandler_CreateCommit_FilesDeletedBlobID(t *testing.T) {
 	require.Equal(t, http.StatusOK, addRec.Code)
 
 	var addResp map[string]any
-	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp))
+	require.NoError(t, json.Unmarshal(addRec.Body.Bytes(), &addResp, jsonx.V1()))
 	filesAdded, ok := addResp["filesAdded"].([]any)
 	require.True(t, ok)
 	require.Len(t, filesAdded, 1)
@@ -162,7 +164,7 @@ func TestHandler_CreateCommit_FilesDeletedBlobID(t *testing.T) {
 	require.Equal(t, http.StatusOK, delRec.Code)
 
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &delResp, jsonx.V1()))
 	filesDeleted, ok := delResp["filesDeleted"].([]any)
 	require.True(t, ok)
 	require.Len(t, filesDeleted, 1)
@@ -237,7 +239,7 @@ func TestHandler_BatchGetCommits(t *testing.T) {
 				require.Equal(t, http.StatusOK, r.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(r.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1()))
 				commitIDs = append(commitIDs, resp["commitId"].(string))
 			}
 
@@ -252,7 +254,7 @@ func TestHandler_BatchGetCommits(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			commits, _ := resp["commits"].([]any)
 			assert.Len(t, commits, tt.wantFoundCount)
@@ -308,7 +310,7 @@ func TestHandler_BatchGetCommits_FullCommitMap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	commitID := createResp["commitId"].(string)
 
 	rec = doRequest(t, h, "BatchGetCommits", map[string]any{
@@ -318,7 +320,7 @@ func TestHandler_BatchGetCommits_FullCommitMap(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	commits, ok := resp["commits"].([]any)
 	require.True(t, ok)
@@ -392,7 +394,7 @@ func TestHandler_BatchGetCommits_TableDriven(t *testing.T) {
 			require.Equal(t, http.StatusOK, branchRec.Code)
 
 			var brResp map[string]any
-			require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &brResp))
+			require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &brResp, jsonx.V1()))
 			realCommitID := brResp["branch"].(map[string]any)["commitId"].(string)
 
 			var ids []string
@@ -410,7 +412,7 @@ func TestHandler_BatchGetCommits_TableDriven(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			commits := resp["commits"].([]any)
 			errors := resp["errors"].([]any)
@@ -437,7 +439,7 @@ func TestHandler_CommitParentTracking(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 	firstCommitID := firstResp["commitId"].(string)
 
 	// Second commit on same branch — should have firstCommitID as parent
@@ -449,7 +451,7 @@ func TestHandler_CommitParentTracking(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var secondResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &secondResp, jsonx.V1()))
 	secondCommitID := secondResp["commitId"].(string)
 
 	// Fetch both commits via BatchGetCommits and check parent linkage
@@ -460,7 +462,7 @@ func TestHandler_CommitParentTracking(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var batchResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &batchResp, jsonx.V1()))
 
 	commits, ok := batchResp["commits"].([]any)
 	require.True(t, ok)
@@ -504,7 +506,7 @@ func TestHandler_CreateCommit_ParentCommitIdOutdated(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "ParentCommitIdOutdatedException", resp["__type"])
 }
 
@@ -535,7 +537,7 @@ func TestHandler_CreateCommit_NoChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp, jsonx.V1()))
 	firstCommitID, _ := firstResp["commitId"].(string)
 	require.NotEmpty(t, firstCommitID)
 
@@ -549,7 +551,7 @@ func TestHandler_CreateCommit_NoChange(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "NoChangeException", errResp["__type"])
 
 	branchRec := doRequest(t, h, "GetBranch", map[string]any{
@@ -558,7 +560,7 @@ func TestHandler_CreateCommit_NoChange(t *testing.T) {
 	require.Equal(t, http.StatusOK, branchRec.Code)
 
 	var branchResp map[string]any
-	require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &branchResp))
+	require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &branchResp, jsonx.V1()))
 	branch, ok := branchResp["branch"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, firstCommitID, branch["commitId"], "rejected commit must not move the branch tip")
@@ -602,7 +604,7 @@ func TestGetCommit_ParentsNotNull(t *testing.T) {
 			require.Equal(t, http.StatusOK, r1.Code)
 
 			var firstResp map[string]any
-			require.NoError(t, json.Unmarshal(r1.Body.Bytes(), &firstResp))
+			require.NoError(t, json.Unmarshal(r1.Body.Bytes(), &firstResp, jsonx.V1()))
 			firstID := firstResp["commitId"].(string)
 
 			// Create second commit (has first as parent).
@@ -614,7 +616,7 @@ func TestGetCommit_ParentsNotNull(t *testing.T) {
 			require.Equal(t, http.StatusOK, r2.Code)
 
 			var secondResp map[string]any
-			require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &secondResp))
+			require.NoError(t, json.Unmarshal(r2.Body.Bytes(), &secondResp, jsonx.V1()))
 			secondID := secondResp["commitId"].(string)
 
 			ids := []string{firstID, secondID}
@@ -627,7 +629,7 @@ func TestGetCommit_ParentsNotNull(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			commit, ok := resp["commit"].(map[string]any)
 			require.True(t, ok, "commit field must be present")
@@ -664,7 +666,7 @@ func TestGetCommit_FullFieldSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, r.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(r.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(r.Body.Bytes(), &createResp, jsonx.V1()))
 	commitID := createResp["commitId"].(string)
 
 	rec := doRequest(t, h, "GetCommit", map[string]any{
@@ -674,7 +676,7 @@ func TestGetCommit_FullFieldSet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	commit, ok := resp["commit"].(map[string]any)
 	require.True(t, ok)
@@ -719,7 +721,7 @@ func TestHandler_GetCommit_CommitIDNotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "CommitIdDoesNotExistException", resp["__type"])
 }
 
@@ -747,7 +749,7 @@ func TestHandler_BatchGetCommits_ErrorCodeIsCommitIdDoesNotExist(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	errs, ok := resp["errors"].([]any)
 	require.True(t, ok)
@@ -771,7 +773,7 @@ func TestHandler_GetDifferences(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotNil(t, resp["differences"])
 }
 
@@ -831,7 +833,7 @@ func TestGetDifferences_BlobObjectShape(t *testing.T) {
 			require.Equal(t, http.StatusOK, commitRec.Code)
 
 			var commitOut map[string]any
-			require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+			require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut, jsonx.V1()))
 			commitID := commitOut["commitId"].(string)
 
 			rec := doRequest(t, h, "GetDifferences", map[string]any{
@@ -843,7 +845,7 @@ func TestGetDifferences_BlobObjectShape(t *testing.T) {
 			var resp struct {
 				Differences []map[string]any `json:"differences"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Differences, tt.wantCount)
 
 			// Each difference must have afterBlob as an object, not a string.
@@ -878,7 +880,7 @@ func TestGetDifferences_FilePathInBlob(t *testing.T) {
 	require.Equal(t, http.StatusOK, commitRec.Code)
 
 	var commitOut map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut, jsonx.V1()))
 
 	rec := doRequest(t, h, "GetDifferences", map[string]any{
 		"repositoryName":       "path-repo",
@@ -889,7 +891,7 @@ func TestGetDifferences_FilePathInBlob(t *testing.T) {
 	var resp struct {
 		Differences []map[string]any `json:"differences"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.Len(t, resp.Differences, 1)
 
 	afterBlob := resp.Differences[0]["afterBlob"].(map[string]any)
@@ -912,7 +914,7 @@ func TestGetDifferences_EmptyRepoReturnsEmptyArray(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	diffs, ok := resp["differences"].([]any)
 	require.True(t, ok, "differences must be a JSON array, not null")
 	assert.Empty(t, diffs)
@@ -946,7 +948,7 @@ func TestGetDifferences_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, commitRec.Code)
 
 	var commitOut map[string]any
-	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut))
+	require.NoError(t, json.Unmarshal(commitRec.Body.Bytes(), &commitOut, jsonx.V1()))
 	commitID := commitOut["commitId"].(string)
 
 	seenPaths := map[string]bool{}
@@ -966,7 +968,7 @@ func TestGetDifferences_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		diffs, ok := resp["differences"].([]any)
 		require.True(t, ok)
 		assert.LessOrEqual(t, len(diffs), 2, "each page must respect MaxResults")

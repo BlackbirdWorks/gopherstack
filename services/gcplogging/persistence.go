@@ -2,7 +2,7 @@ package gcplogging
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -21,9 +21,9 @@ var errBadSnapshot = errors.New("gcplogging: corrupt snapshot")
 const snapshotVersion = 1
 
 type bucketSnap struct {
-	DeleteRequested time.Time       `json:"deleteRequested"`
-	Bucket          json.RawMessage `json:"bucket"`
-	Entries         []int           `json:"entries,omitempty"`
+	DeleteRequested time.Time      `json:"deleteRequested"`
+	Bucket          jsontext.Value `json:"bucket"`
+	Entries         []int          `json:"entries,omitempty"`
 }
 
 type seriesSnap struct {
@@ -36,26 +36,26 @@ type seriesSnap struct {
 }
 
 type metricSnap struct {
-	Metric json.RawMessage `json:"metric"`
-	Series []seriesSnap    `json:"series,omitempty"`
+	Metric jsontext.Value `json:"metric"`
+	Series []seriesSnap   `json:"series,omitempty"`
 }
 
 type backendSnapshot struct {
-	Buckets    map[string]bucketSnap      `json:"buckets"`
-	Views      map[string]json.RawMessage `json:"views"`
-	Sinks      map[string]json.RawMessage `json:"sinks"`
-	Exclusions map[string]json.RawMessage `json:"exclusions"`
-	Metrics    map[string]metricSnap      `json:"metrics"`
-	Settings   map[string]json.RawMessage `json:"settings"`
-	Cmek       map[string]json.RawMessage `json:"cmek"`
-	Ops        map[string]json.RawMessage `json:"ops"`
-	Entries    []json.RawMessage          `json:"entries"`
-	Seeded     []string                   `json:"seeded"`
-	Seq        uint64                     `json:"seq"`
-	Version    int                        `json:"version"`
+	Buckets    map[string]bucketSnap     `json:"buckets"`
+	Views      map[string]jsontext.Value `json:"views"`
+	Sinks      map[string]jsontext.Value `json:"sinks"`
+	Exclusions map[string]jsontext.Value `json:"exclusions"`
+	Metrics    map[string]metricSnap     `json:"metrics"`
+	Settings   map[string]jsontext.Value `json:"settings"`
+	Cmek       map[string]jsontext.Value `json:"cmek"`
+	Ops        map[string]jsontext.Value `json:"ops"`
+	Entries    []jsontext.Value          `json:"entries"`
+	Seeded     []string                  `json:"seeded"`
+	Seq        uint64                    `json:"seq"`
+	Version    int                       `json:"version"`
 }
 
-func marshalPB(m proto.Message) json.RawMessage {
+func marshalPB(m proto.Message) jsontext.Value {
 	out, err := protojson.Marshal(m)
 	if err != nil {
 		return nil
@@ -64,12 +64,12 @@ func marshalPB(m proto.Message) json.RawMessage {
 	return out
 }
 
-func unmarshalPB(raw json.RawMessage, m proto.Message) error {
+func unmarshalPB(raw jsontext.Value, m proto.Message) error {
 	return protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(raw, m)
 }
 
-func snapMap[T proto.Message](in map[string]T) map[string]json.RawMessage {
-	out := make(map[string]json.RawMessage, len(in))
+func snapMap[T proto.Message](in map[string]T) map[string]jsontext.Value {
+	out := make(map[string]jsontext.Value, len(in))
 	for k, v := range in {
 		out[k] = marshalPB(v)
 	}
@@ -136,7 +136,7 @@ func snapMetric(rec *metricRec) metricSnap {
 	return ms
 }
 
-func restoreMap[T proto.Message](raw map[string]json.RawMessage, newT func() T) (map[string]T, error) {
+func restoreMap[T proto.Message](raw map[string]jsontext.Value, newT func() T) (map[string]T, error) {
 	out := make(map[string]T, len(raw))
 
 	for k, r := range raw {
@@ -235,7 +235,7 @@ func (b *InMemoryBackend) load(snap *backendSnapshot) error {
 	return b.loadMetrics(snap.Metrics)
 }
 
-func decodeEntries(raw []json.RawMessage) ([]*loggingpb.LogEntry, error) {
+func decodeEntries(raw []jsontext.Value) ([]*loggingpb.LogEntry, error) {
 	out := make([]*loggingpb.LogEntry, len(raw))
 
 	for i, r := range raw {

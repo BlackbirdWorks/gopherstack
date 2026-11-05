@@ -1,7 +1,8 @@
 package ram_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/ram"
 )
 
@@ -45,7 +47,7 @@ func TestBuiltInPermissions_Present(t *testing.T) {
 					PermissionType string `json:"permissionType"`
 				} `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.NotEmpty(t, resp.Permissions, "built-in permission for %s should exist", tt.resourceType)
 			assert.Equal(t, tt.resourceType, resp.Permissions[0].ResourceType)
 			assert.Equal(t, "AWS_MANAGED", resp.Permissions[0].PermissionType)
@@ -61,9 +63,9 @@ func TestBuiltInPermissions_Count(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Permissions []json.RawMessage `json:"permissions"`
+		Permissions []jsontext.Value `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Permissions, ram.BuiltInPermissionCount)
 }
 
@@ -106,9 +108,9 @@ func TestListPermissions_TypeFilter(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				Permissions []json.RawMessage `json:"permissions"`
+				Permissions []jsontext.Value `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Permissions, tt.wantCount)
 		})
 	}
@@ -174,9 +176,9 @@ func TestListPermissions_TypeFilter_WithCustom(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				Permissions []json.RawMessage `json:"permissions"`
+				Permissions []jsontext.Value `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Len(t, resp.Permissions, tt.wantCount)
 		})
 	}
@@ -229,7 +231,7 @@ func TestBuiltInPermission_PermissionType(t *testing.T) {
 					IsResourceTypeDefault bool   `json:"isResourceTypeDefault"`
 				} `json:"permission"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantPermissionType, resp.Permission.PermissionType)
 			assert.Equal(t, tt.wantIsDefault, resp.Permission.IsResourceTypeDefault)
 		})
@@ -289,7 +291,7 @@ func TestDeleteCustomPermission_Allowed(t *testing.T) {
 			Arn string `json:"arn"`
 		} `json:"permission"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	path := fmt.Sprintf("/deletepermission?permissionArn=%s", createResp.Permission.Arn)
 	rec := doRAMRawRequest(t, h, http.MethodDelete, path, nil)
@@ -338,12 +340,12 @@ func TestPermissionResponses_NoResourceRegionScopeField(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp struct {
-				Permission json.RawMessage `json:"permission"`
+				Permission jsontext.Value `json:"permission"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
-			var permFields map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(resp.Permission, &permFields))
+			var permFields map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(resp.Permission, &permFields, jsonx.V1()))
 			assert.NotContains(t, permFields, "resourceRegionScope")
 		})
 	}
@@ -379,7 +381,7 @@ func TestIsResourceTypeDefault(t *testing.T) {
 					IsResourceTypeDefault bool `json:"isResourceTypeDefault"`
 				} `json:"permission"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantDefault, resp.Permission.IsResourceTypeDefault)
 		})
 	}
@@ -402,7 +404,7 @@ func TestCustomerPermission_NotResourceTypeDefault(t *testing.T) {
 			IsResourceTypeDefault bool   `json:"isResourceTypeDefault"`
 		} `json:"permission"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.False(t, createResp.Permission.IsResourceTypeDefault)
 }
 
@@ -446,7 +448,7 @@ func TestListPermissions_ResourceTypeFilter(t *testing.T) {
 					ResourceType string `json:"resourceType"`
 				} `json:"permissions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			if tt.wantMinCount == 0 {
 				assert.Empty(t, resp.Permissions)
@@ -480,7 +482,7 @@ func TestListPermissions_ResourceTypeFilter_CaseInsensitive(t *testing.T) {
 			ResourceType string `json:"resourceType"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	require.NotEmpty(
 		t, resp.Permissions,
 		"resourceType filter must match case-insensitively, per the doc's own example",
@@ -527,12 +529,12 @@ func TestGetPermission_BuiltIn_HasPolicy(t *testing.T) {
 					Permission string `json:"permission"`
 				} `json:"permission"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp.Permission.Permission, "built-in permission should have non-empty policy")
 
 			// Policy should be valid JSON.
 			var policy map[string]any
-			assert.NoError(t, json.Unmarshal([]byte(resp.Permission.Permission), &policy))
+			assert.NoError(t, json.Unmarshal([]byte(resp.Permission.Permission), &policy, jsonx.V1()))
 		})
 	}
 }
@@ -558,7 +560,7 @@ func TestListPermissions_SummaryHasType(t *testing.T) {
 			PermissionType string `json:"permissionType"`
 		} `json:"permissions"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, p := range resp.Permissions {
 		assert.NotEmpty(t, p.PermissionType, "permission %q should have PermissionType set", p.Name)
@@ -669,7 +671,7 @@ func TestPermissionNotFound_UsesUnknownResourceException(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "UnknownResourceException", resp["__type"])
 }
 
@@ -949,7 +951,7 @@ func TestListPermissions_Pagination(t *testing.T) {
 					assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 					var errResp map[string]string
-					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+					require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 					assert.Equal(t, "InvalidParameterException", errResp["__type"])
 
 					return
@@ -958,7 +960,7 @@ func TestListPermissions_Pagination(t *testing.T) {
 				require.Equal(t, http.StatusOK, rec.Code)
 
 				var resp respBody
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 				pages++
 				totalSeen += len(resp.Permissions)
@@ -1069,7 +1071,7 @@ func TestPromotePermissionCreatedFromPolicy_Table(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			perm := resp["permission"].(map[string]any)
 			assert.Equal(t, tc.wantType, perm["permissionType"])
 			assert.Equal(t, tc.wantName, perm["name"])
@@ -1087,7 +1089,7 @@ func TestListPermissions_Smoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	perms, ok := listResp["permissions"].([]any)
 	require.True(t, ok)
 	assert.NotEmpty(t, perms, "ListPermissions must return the built-in AWS-managed permissions")
@@ -1099,7 +1101,7 @@ func TestListPermissions_Smoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var versionsResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &versionsResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &versionsResp, jsonx.V1()))
 	versions, ok := versionsResp["permissions"].([]any)
 	require.True(t, ok)
 	require.NotEmpty(t, versions, "AWSRAMDefaultPermissionEC2Subnet must have at least one version")

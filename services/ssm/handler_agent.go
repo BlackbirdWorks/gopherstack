@@ -2,13 +2,14 @@ package ssm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -42,7 +43,7 @@ func (h *Handler) agentOps() map[string]ssmActionFn {
 	return map[string]ssmActionFn{
 		"GetEndpoint": func(ctx context.Context, body []byte) (any, error) {
 			var in agentGetEndpointInput
-			if err := json.Unmarshal(body, &in); err != nil {
+			if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -56,7 +57,7 @@ func (h *Handler) agentOps() map[string]ssmActionFn {
 		},
 		"GetMessages": func(ctx context.Context, body []byte) (any, error) {
 			var in AgentGetMessagesInput
-			if err := json.Unmarshal(body, &in); err != nil {
+			if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -77,7 +78,7 @@ func (h *Handler) agentOps() map[string]ssmActionFn {
 		}),
 		"SendReply": func(ctx context.Context, body []byte) (any, error) {
 			var in agentSendReplyInput
-			if err := json.Unmarshal(body, &in); err != nil {
+			if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -89,7 +90,7 @@ func (h *Handler) agentOps() map[string]ssmActionFn {
 func agentMessageOp(fn func(context.Context, *agentMessageIDInput) error) ssmActionFn {
 	return func(ctx context.Context, body []byte) (any, error) {
 		var in agentMessageIDInput
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return nil, err
 		}
 
@@ -117,7 +118,7 @@ func (h *Handler) handleAgent(ctx context.Context, c *echo.Context) error {
 				return nil, err
 			}
 
-			return json.Marshal(resp)
+			return json.Marshal(resp, jsonx.V1())
 		},
 		h.handleError,
 	)

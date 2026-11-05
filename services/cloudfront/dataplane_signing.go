@@ -6,13 +6,15 @@ import (
 	"crypto/sha1" //nolint:gosec // CloudFront signed URLs mandate RSA-SHA1
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"encoding/pem"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func isSignedQueryKey(name string) bool {
@@ -224,7 +226,7 @@ func cannedPolicyDoc(resource string, expires int64) ([]byte, error) {
 	return json.Marshal(cannedPolicy{Statement: []cannedStatement{{
 		Resource:  resource,
 		Condition: cannedCondition{DateLessThan: cannedEpoch{EpochTime: expires}},
-	}}})
+	}}}, jsonx.V1())
 }
 
 func rsaSHA1Verify(key *rsa.PublicKey, doc, sig []byte) bool {
@@ -240,7 +242,7 @@ func verifyCustomPolicy(v *viewerReq, d *Distribution, key *rsa.PublicKey, polic
 	}
 
 	var pol signedPolicy
-	if json.Unmarshal(doc, &pol) != nil || len(pol.Statement) == 0 {
+	if json.Unmarshal(doc, &pol, jsonx.V1()) != nil || len(pol.Statement) == 0 {
 		return false
 	}
 

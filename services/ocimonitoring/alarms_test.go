@@ -1,7 +1,7 @@
 package ocimonitoring_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +10,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/monitoring"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (e *env) alarmDetails(topic string, mod func(*monitoring.CreateAlarmDetails)) monitoring.CreateAlarmDetails {
@@ -305,7 +307,7 @@ func TestAlarmFiringDeliversToNotifications(t *testing.T) {
 		} `json:"alarmMetaData"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(msg.body), &n))
+	require.NoError(t, json.Unmarshal([]byte(msg.body), &n, jsonx.V1()))
 	assert.Equal(t, "OK_TO_FIRING", n.Type)
 	assert.Equal(t, "CRITICAL", n.Severity)
 	assert.Equal(t, "cpu-high", n.Title)
@@ -327,7 +329,7 @@ func TestAlarmFiringDeliversToNotifications(t *testing.T) {
 		Type string `json:"type"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &ok))
+	require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &ok, jsonx.V1()))
 	assert.Equal(t, "FIRING_TO_OK", ok.Type)
 
 	hist, err := e.mon.GetAlarmHistory(t.Context(), monitoring.GetAlarmHistoryRequest{AlarmId: a.Id})
@@ -509,7 +511,7 @@ func TestAlarmGroupedThreshold(t *testing.T) {
 		} `json:"alarmMetaData"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &n))
+	require.NoError(t, json.Unmarshal([]byte(o.sink.next(t).body), &n, jsonx.V1()))
 	assert.Equal(t, 1, n.AlarmMetaData[0].TotalMetricsFiring, "only web2 breaches; db1 is filtered out")
 	assert.Equal(t, []map[string]string{{"host": "web2"}}, n.AlarmMetaData[0].Dimensions)
 }

@@ -1,7 +1,7 @@
 package arczonalshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	zs "github.com/blackbirdworks/gopherstack/services/arczonalshift"
 )
@@ -158,7 +159,7 @@ func TestErrorBodyShape(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Header().Get("X-Amzn-Errortype"))
 
 			var body map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body, jsonx.V1()))
 			assert.NotEmpty(t, body["message"])
 			assert.Equal(t, body["message"], body["Message"])
 			assert.False(t, strings.HasPrefix(body["message"].(string), tt.wantCode))

@@ -1,7 +1,7 @@
 package accessanalyzer_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 )
 
@@ -36,7 +37,7 @@ func TestPolicyGenerationLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["jobId"])
 			},
 		},
@@ -55,7 +56,7 @@ func TestPolicyGenerationLifecycle(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["policyGenerations"])
 			},
 		},
@@ -102,7 +103,7 @@ func TestGetGeneratedPolicy(t *testing.T) {
 					"policyGenerationDetails": map[string]any{"principalArn": "arn:aws:iam::000000000000:role/R"},
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				jobID = resp["jobId"]
 			}
 
@@ -117,7 +118,7 @@ func TestGetGeneratedPolicy(t *testing.T) {
 			// principalArn member -- that value only appears under
 			// generatedPolicyResult.properties.principalArn for this operation.
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			jobDetails, ok := resp["jobDetails"].(map[string]any)
 			require.True(t, ok)
 			_, hasPrincipalArn := jobDetails["principalArn"]
@@ -163,7 +164,7 @@ func TestCancelPolicyGeneration(t *testing.T) {
 					"policyGenerationDetails": map[string]any{"principalArn": "arn:aws:iam::000000000000:role/R"},
 				})
 				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				jobID = resp["jobId"]
 			}
 
@@ -198,13 +199,13 @@ func TestStartPolicyGeneration_CloudTrailDetails(t *testing.T) {
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp, jsonx.V1()))
 
 	getRec := doRequest(t, h, http.MethodGet, "/policy/generation/"+startResp["jobId"], nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &resp, jsonx.V1()))
 
 	result, ok := resp["generatedPolicyResult"].(map[string]any)
 	require.True(t, ok)
@@ -249,7 +250,7 @@ func TestListPolicyGenerations_MaxResultsAndNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, firstRec.Code)
 
 	var firstResp map[string]any
-	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstResp))
+	require.NoError(t, json.Unmarshal(firstRec.Body.Bytes(), &firstResp, jsonx.V1()))
 
 	firstPage, ok := firstResp["policyGenerations"].([]any)
 	require.True(t, ok)
@@ -262,7 +263,7 @@ func TestListPolicyGenerations_MaxResultsAndNextToken(t *testing.T) {
 	require.Equal(t, http.StatusOK, secondRec.Code)
 
 	var secondResp map[string]any
-	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondResp))
+	require.NoError(t, json.Unmarshal(secondRec.Body.Bytes(), &secondResp, jsonx.V1()))
 
 	secondPage, ok := secondResp["policyGenerations"].([]any)
 	require.True(t, ok)

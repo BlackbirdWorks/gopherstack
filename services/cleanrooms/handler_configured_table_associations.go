@@ -2,10 +2,12 @@ package cleanrooms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 
 	crtypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleCreateConfiguredTableAssociation(
@@ -20,7 +22,7 @@ func (h *Handler) handleCreateConfiguredTableAssociation(
 		ConfiguredTableIdentifier string            `json:"configuredTableIdentifier"`
 		RoleArn                   string            `json:"roleArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.CreateConfiguredTableAssociation(
 		req.MembershipIdentifier,
 		req.Name,
@@ -44,7 +46,7 @@ func (h *Handler) handleGetConfiguredTableAssociation(
 		MembershipIdentifier                 string `json:"membershipIdentifier"`
 		ConfiguredTableAssociationIdentifier string `json:"configuredTableAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.GetConfiguredTableAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -64,7 +66,7 @@ func (h *Handler) handleListConfiguredTableAssociations(
 	var req struct {
 		MembershipIdentifier string `json:"membershipIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	items, next, err := h.Backend.ListConfiguredTableAssociations(
 		req.MembershipIdentifier,
 		qp(c, "maxResults"),
@@ -91,7 +93,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociation(
 		Description                          string `json:"description"`
 		RoleArn                              string `json:"roleArn"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	a, err := h.Backend.UpdateConfiguredTableAssociation(
 		req.MembershipIdentifier,
 		req.ConfiguredTableAssociationIdentifier,
@@ -113,7 +115,7 @@ func (h *Handler) handleDeleteConfiguredTableAssociation(
 		MembershipIdentifier                 string `json:"membershipIdentifier"`
 		ConfiguredTableAssociationIdentifier string `json:"configuredTableAssociationIdentifier"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	return nil, h.Backend.DeleteConfiguredTableAssociation(
 		req.MembershipIdentifier,
@@ -131,7 +133,7 @@ func (h *Handler) handleCreateConfiguredTableAssociationAnalysisRule(
 		ConfiguredTableAssociationIdentifier string         `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
@@ -161,7 +163,7 @@ func (h *Handler) handleGetConfiguredTableAssociationAnalysisRule(
 		ConfiguredTableAssociationIdentifier string `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
@@ -191,7 +193,7 @@ func (h *Handler) handleUpdateConfiguredTableAssociationAnalysisRule(
 		ConfiguredTableAssociationIdentifier string         `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string         `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),
@@ -221,7 +223,7 @@ func (h *Handler) handleDeleteConfiguredTableAssociationAnalysisRule(
 		ConfiguredTableAssociationIdentifier string `json:"configuredTableAssociationIdentifier"`
 		AnalysisRuleType                     string `json:"analysisRuleType"`
 	}
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 	if err := checkEnum(
 		"analysisRuleType",
 		crtypes.ConfiguredTableAssociationAnalysisRuleType(req.AnalysisRuleType),

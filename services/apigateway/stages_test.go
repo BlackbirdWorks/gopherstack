@@ -1,7 +1,8 @@
 package apigateway_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigateway"
 )
 
@@ -164,7 +166,7 @@ func TestHandlerStage_ClientCertificateId(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var certResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&certResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &certResp, jsonx.V1()))
 	certID := certResp["clientCertificateId"].(string)
 	require.NotEmpty(t, certID)
 
@@ -172,7 +174,7 @@ func TestHandlerStage_ClientCertificateId(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var apiResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&apiResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &apiResp, jsonx.V1()))
 	apiID := apiResp["id"].(string)
 
 	rec = restRequest(t, h, http.MethodPost, "/restapis/"+apiID+"/deployments",
@@ -184,7 +186,7 @@ func TestHandlerStage_ClientCertificateId(t *testing.T) {
 	require.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	var stageResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&stageResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &stageResp, jsonx.V1()))
 	assert.Equal(t, certID, stageResp["clientCertificateId"])
 }
 

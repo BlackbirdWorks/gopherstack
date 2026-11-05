@@ -1,10 +1,12 @@
 package kinesisvideo
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) buildTagOps() map[string]handlerFunc {
@@ -20,7 +22,7 @@ func (h *Handler) buildTagOps() map[string]handlerFunc {
 
 func (h *Handler) handleTagStream(c *echo.Context, body []byte) error {
 	var req tagStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) handleTagStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUntagStream(c *echo.Context, body []byte) error {
 	var req untagStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -46,7 +48,7 @@ func (h *Handler) handleUntagStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListTagsForStream(c *echo.Context, body []byte) error {
 	var req listTagsForStreamRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -60,7 +62,7 @@ func (h *Handler) handleListTagsForStream(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var req tagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -82,7 +84,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	var req untagResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 
@@ -99,7 +101,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
 	var req listTagsForResourceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidArgumentException", "invalid request body")
 	}
 

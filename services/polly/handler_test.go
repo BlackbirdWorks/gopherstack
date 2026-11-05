@@ -2,7 +2,7 @@ package polly_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/polly"
 )
 
@@ -30,7 +31,7 @@ func request(
 	var payload []byte
 	if body != nil {
 		var err error
-		payload, err = json.Marshal(body)
+		payload, err = json.Marshal(body, jsonx.V1())
 		require.NoError(t, err)
 	}
 
@@ -47,7 +48,7 @@ func responseMap(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	return out
 }

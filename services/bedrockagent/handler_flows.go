@@ -2,12 +2,14 @@ package bedrockagent
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,7 @@ func (h *Handler) handleCreateFlow(ctx context.Context, c *echo.Context, body []
 		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -77,7 +79,7 @@ func (h *Handler) handleUpdateFlow(
 		CustomerEncryptionKeyArn string            `json:"customerEncryptionKeyArn"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -133,7 +135,7 @@ func (h *Handler) handleValidateFlowDef(ctx context.Context, c *echo.Context, bo
 		Definition map[string]any `json:"definition"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	errs, err := h.Backend.ValidateFlowDefinition(ctx, req.Definition)
 	if err != nil {
@@ -155,7 +157,7 @@ func (h *Handler) handleCreateFlowVersion(
 		ClientToken string `json:"clientToken"`
 	}
 
-	_ = json.Unmarshal(body, &req)
+	_ = json.Unmarshal(body, &req, jsonx.V1())
 
 	fv, err := h.Backend.CreateFlowVersion(ctx, flowID, VersionConfig{
 		Description: req.Description, ClientToken: req.ClientToken,
@@ -228,7 +230,7 @@ func (h *Handler) handleCreateFlowAlias(
 		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 
@@ -270,7 +272,7 @@ func (h *Handler) handleUpdateFlowAlias(
 		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return handleErr(c, err)
 	}
 

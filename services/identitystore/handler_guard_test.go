@@ -1,13 +1,14 @@
 package identitystore_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/identitystore"
 )
 
@@ -303,7 +304,7 @@ func TestRequireIdentityStoreIDGuardReadsSingleWellFormedBody(t *testing.T) {
 			var resp map[string]any
 			require.NoError(
 				t,
-				json.Unmarshal(rec.Body.Bytes(), &resp),
+				json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()),
 				"response body must be a single well-formed JSON document, not two writes concatenated: %s",
 				rec.Body.String(),
 			)

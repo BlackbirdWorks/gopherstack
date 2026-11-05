@@ -1,12 +1,14 @@
 package gcpstorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type objectsJSON struct {
@@ -229,7 +231,7 @@ func (h *Handler) composeObject(c *echo.Context, rt route) error {
 	}
 
 	var req composeRequest
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return errInvalid("Invalid JSON payload received.")
 	}
 

@@ -1,7 +1,7 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"sort"
@@ -46,7 +46,7 @@ type PermissionSpec struct {
 	ID           string
 	Mode         string
 	Resource     string
-	PartitionKey json.RawMessage
+	PartitionKey jsontext.Value
 }
 
 // PermissionInfo is a read-only snapshot of a permission. Link is the canonical id-based resource path.
@@ -60,7 +60,7 @@ type PermissionInfo struct {
 	Resource         string
 	Link             string
 	PartitionKeyJSON string
-	PartitionKey     json.RawMessage
+	PartitionKey     jsontext.Value
 }
 
 type storedUser struct {
@@ -75,8 +75,8 @@ type storedPermission struct {
 	Mode             string
 	Resource         string
 	Link             string
-	PartitionKeyJSON string          `json:"PartitionKeyJSON,omitempty"`
-	PartitionKey     json.RawMessage `json:"PartitionKey,omitempty"`
+	PartitionKeyJSON string         `json:"PartitionKeyJSON,omitempty"`
+	PartitionKey     jsontext.Value `json:"PartitionKey,omitempty"`
 }
 
 func userInfo(dbID string, u *storedUser) UserInfo {

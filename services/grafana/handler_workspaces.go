@@ -2,9 +2,10 @@ package grafana
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -12,7 +13,7 @@ const grafanaDefaultPageSize = 100
 
 func (h *Handler) handleCreateWorkspace(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {
 	var req createWorkspaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -21,7 +22,7 @@ func (h *Handler) handleCreateWorkspace(_ context.Context, _ *http.Request, body
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }
 
 func (h *Handler) handleDescribeWorkspace(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -32,14 +33,14 @@ func (h *Handler) handleDescribeWorkspace(_ context.Context, r *http.Request, _ 
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }
 
 func (h *Handler) handleUpdateWorkspace(_ context.Context, r *http.Request, body []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
 
 	var req updateWorkspaceRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, validationError("invalid request body: " + err.Error())
 	}
 
@@ -48,7 +49,7 @@ func (h *Handler) handleUpdateWorkspace(_ context.Context, r *http.Request, body
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteWorkspace(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -59,7 +60,7 @@ func (h *Handler) handleDeleteWorkspace(_ context.Context, r *http.Request, _ []
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)})
+	return json.Marshal(map[string]any{keyWorkspace: toWorkspaceDescriptionWire(w)}, jsonx.V1())
 }
 
 func (h *Handler) handleListWorkspaces(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
@@ -81,5 +82,5 @@ func (h *Handler) handleListWorkspaces(_ context.Context, r *http.Request, _ []b
 		out["nextToken"] = p.Next
 	}
 
-	return json.Marshal(out)
+	return json.Marshal(out, jsonx.V1())
 }

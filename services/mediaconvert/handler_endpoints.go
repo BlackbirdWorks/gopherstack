@@ -1,10 +1,12 @@
 package mediaconvert
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // --- Endpoints handler ---
@@ -27,7 +29,7 @@ type endpointEntry struct {
 func (h *Handler) handleDescribeEndpoints(c *echo.Context, body []byte) error {
 	var in describeEndpointsInput
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &in); err != nil {
+		if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 			return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
 		}
 	}

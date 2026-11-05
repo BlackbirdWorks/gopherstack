@@ -2,7 +2,7 @@ package persistence_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -821,7 +822,7 @@ func (s *statefulPersistable) Restore(_ context.Context, data []byte) error {
 		State string `json:"state"`
 	}
 
-	if err := json.Unmarshal(data, &v); err != nil {
+	if err := json.Unmarshal(data, &v, jsonx.V1()); err != nil {
 		return err
 	}
 

@@ -2,13 +2,14 @@ package cloudformation_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
@@ -53,7 +54,7 @@ func templateWithDeletionPolicy(policy string) string {
 	body, _ := json.Marshal(map[string]any{
 		"AWSTemplateFormatVersion": "2010-09-09",
 		"Resources":                map[string]any{"Bucket": res},
-	})
+	}, jsonx.V1())
 
 	return string(body)
 }

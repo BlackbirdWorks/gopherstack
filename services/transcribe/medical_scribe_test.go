@@ -1,13 +1,15 @@
 package transcribe_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -292,9 +294,9 @@ func TestListMedicalScribeJobs_JobNameContainsAndSummaryShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var raw struct {
-		MedicalScribeJobSummaries []map[string]json.RawMessage `json:"MedicalScribeJobSummaries"`
+		MedicalScribeJobSummaries []map[string]jsontext.Value `json:"MedicalScribeJobSummaries"`
 	}
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw, jsonx.V1()))
 	require.Len(t, raw.MedicalScribeJobSummaries, 1)
 
 	summary := raw.MedicalScribeJobSummaries[0]
@@ -334,7 +336,7 @@ func TestMedicalScribeJob_OutputURIsPresentWhenCompleted(t *testing.T) {
 			} `json:"MedicalScribeOutput"`
 		} `json:"MedicalScribeJob"`
 	}
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &raw, jsonx.V1()))
 	assert.Contains(t, raw.MedicalScribeJob.MedicalScribeOutput.ClinicalDocumentURI, "scribe-output-bucket")
 	assert.Contains(t, raw.MedicalScribeJob.MedicalScribeOutput.TranscriptFileURI, "scribe-output-bucket")
 }

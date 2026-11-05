@@ -2,8 +2,10 @@ package gcpidentitytoolkit
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // flexInt decodes a JSON number or a quoted number, the two forms Google clients send for int64 fields.
@@ -84,7 +86,7 @@ func (u userWire) MarshalJSON() ([]byte, error) {
 		aux.ValidSince = strconv.FormatInt(int64(u.ValidSince), 10)
 	}
 
-	return json.Marshal(aux)
+	return json.Marshal(aux, jsonx.V1())
 }
 
 // authRequest is the union of the request fields the account operations read.
@@ -128,14 +130,14 @@ type flexStrings []string
 
 func (f *flexStrings) UnmarshalJSON(data []byte) error {
 	var one string
-	if json.Unmarshal(data, &one) == nil {
+	if json.Unmarshal(data, &one, jsonx.V1()) == nil {
 		*f = flexStrings{one}
 
 		return nil
 	}
 
 	var many []string
-	if err := json.Unmarshal(data, &many); err != nil {
+	if err := json.Unmarshal(data, &many, jsonx.V1()); err != nil {
 		return err //nolint:wrapcheck // surfaced as a JSON decode error
 	}
 

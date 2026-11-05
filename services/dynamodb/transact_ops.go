@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
@@ -210,7 +211,7 @@ func commitTransactTokenLocked(db *InMemoryDB, token, hash string) {
 // preserves TransactItems' slice order and each Go struct's fixed field
 // order, so the same request always hashes the same way.
 func hashTransactWriteItems(items []types.TransactWriteItem) string {
-	b, err := json.Marshal(items)
+	b, err := json.Marshal(items, jsonx.V1())
 	if err != nil {
 		return ""
 	}

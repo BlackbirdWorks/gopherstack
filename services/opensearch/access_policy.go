@@ -1,9 +1,10 @@
 package opensearch
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -28,7 +29,7 @@ func accessPolicyDenies(accessPolicies, action, resourceARN string) bool {
 	}
 
 	var pd iam.PolicyDocument
-	if err := json.Unmarshal([]byte(accessPolicies), &pd); err != nil {
+	if err := json.Unmarshal([]byte(accessPolicies), &pd, jsonx.V1()); err != nil {
 		return false
 	}
 

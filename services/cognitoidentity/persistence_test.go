@@ -5,11 +5,13 @@ package cognitoidentity //nolint:testpackage // see comment above.
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // testRegionEast and testRegionWest are the two AWS regions exercised by the
@@ -220,11 +222,11 @@ func tamperSnapshotVersion(t *testing.T, data []byte, version int) []byte {
 	t.Helper()
 
 	var snap backendSnapshot
-	require.NoError(t, json.Unmarshal(data, &snap))
+	require.NoError(t, json.Unmarshal(data, &snap, jsonx.V1()))
 
 	snap.Version = version
 
-	out, err := json.Marshal(snap)
+	out, err := json.Marshal(snap, jsonx.V1())
 	require.NoError(t, err)
 
 	return out

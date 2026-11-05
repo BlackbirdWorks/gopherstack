@@ -1,9 +1,11 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"sort"
 	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // maxParsedQueries bounds the parsed-statement cache.
@@ -32,7 +34,7 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 		case "id":
 			return r.doc.ID, true
 		case sysPropTS:
-			return json.Number(strconv.FormatInt(r.doc.Timestamp.Unix(), 10)), true
+			return jsonx.Number(strconv.FormatInt(r.doc.Timestamp.Unix(), 10)), true
 		case sysPropETag:
 			return r.src.b.etagFunc(r.doc.Timestamp), true
 		case sysPropAttachments:
@@ -56,7 +58,7 @@ func (r sqlRow) lookup(seg string) (any, bool) {
 	v, ok := r.m[seg]
 
 	if i, isInt := v.(int64); isInt {
-		return json.Number(strconv.FormatInt(i, 10)), true
+		return jsonx.Number(strconv.FormatInt(i, 10)), true
 	}
 
 	return v, ok
@@ -221,7 +223,7 @@ func (b *InMemoryBackend) queryLocked(
 
 // loadedCharge sums the read cost of the documents the query had to retrieve: those its filter kept when the
 // indexing policy can serve the filter, every examined document otherwise (or when there is no filter).
-func loadedCharge(stmt *sqlSelectStmt, indexing json.RawMessage, res QueryResult) float64 {
+func loadedCharge(stmt *sqlSelectStmt, indexing jsontext.Value, res QueryResult) float64 {
 	docs := res.Matched
 	if stmt.where == nil || parseIndexingPolicy(indexing).needsScan(stmt.where) {
 		docs = res.Visited

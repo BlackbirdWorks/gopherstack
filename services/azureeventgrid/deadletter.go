@@ -1,14 +1,16 @@
 package azureeventgrid
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func decodeFields(raw []byte) map[string]any {
 	var m map[string]any
-	_ = json.Unmarshal(raw, &m)
+	_ = json.Unmarshal(raw, &m, jsonx.V1())
 
 	return m
 }
@@ -25,7 +27,7 @@ func deadLetterPayload(item deadItem) ([]byte, error) {
 	m["publishTime"] = item.d.Published.UTC().Format(time.RFC3339Nano)
 	m["lastDeliveryAttemptTime"] = item.d.LastAttempt.UTC().Format(time.RFC3339Nano)
 
-	return json.Marshal(m)
+	return json.Marshal(m, jsonx.V1())
 }
 
 func blobName(item deadItem, at time.Time) string {

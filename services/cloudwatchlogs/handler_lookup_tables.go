@@ -2,8 +2,10 @@ package cloudwatchlogs
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createLookupTableInput struct {
@@ -20,7 +22,7 @@ func (h *Handler) handleCreateLookupTable(
 	body []byte,
 ) (any, error) {
 	var in createLookupTableInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -53,7 +55,7 @@ func (h *Handler) handleGetLookupTable(
 	body []byte,
 ) (any, error) {
 	var in getLookupTableInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -83,7 +85,7 @@ func (h *Handler) handleUpdateLookupTable(
 	body []byte,
 ) (any, error) {
 	var in updateLookupTableInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -112,7 +114,7 @@ func (h *Handler) handleDeleteLookupTable(
 	body []byte,
 ) (any, error) {
 	var in deleteLookupTableInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 
@@ -136,7 +138,7 @@ func (h *Handler) handleDescribeLookupTables(
 	body []byte,
 ) (any, error) {
 	var in describeLookupTablesInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: invalid JSON: %w", ErrValidation, err)
 	}
 

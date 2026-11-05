@@ -1,7 +1,7 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -47,11 +47,11 @@ type aciProbeWire struct {
 }
 
 type aciInitPropsWire struct {
-	Image                string          `json:"image"`
-	Command              []string        `json:"command,omitempty"`
-	EnvironmentVariables []aciEnvWire    `json:"environmentVariables,omitempty"`
-	VolumeMounts         []aciMountWire  `json:"volumeMounts,omitempty"`
-	InstanceView         json.RawMessage `json:"instanceView,omitempty"`
+	Image                string         `json:"image"`
+	Command              []string       `json:"command,omitempty"`
+	EnvironmentVariables []aciEnvWire   `json:"environmentVariables,omitempty"`
+	VolumeMounts         []aciMountWire `json:"volumeMounts,omitempty"`
+	InstanceView         jsontext.Value `json:"instanceView,omitempty"`
 }
 
 type aciInitWire struct {

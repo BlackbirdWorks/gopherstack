@@ -2,7 +2,7 @@ package appsync
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // errUnexpectedJWTSigningMethod mirrors the sentinel
@@ -255,7 +256,7 @@ func (b *InMemoryBackend) checkLambdaAuth(
 		},
 	}
 
-	payload, marshalErr := json.Marshal(event)
+	payload, marshalErr := json.Marshal(event, jsonx.V1())
 	if marshalErr != nil {
 		return nil, false
 	}
@@ -267,7 +268,7 @@ func (b *InMemoryBackend) checkLambdaAuth(
 	}
 
 	var resp lambdaAuthorizerResponse
-	if jsonErr := json.Unmarshal(result, &resp); jsonErr != nil {
+	if jsonErr := json.Unmarshal(result, &resp, jsonx.V1()); jsonErr != nil {
 		return nil, false
 	}
 

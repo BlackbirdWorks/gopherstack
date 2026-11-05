@@ -1,12 +1,13 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -137,8 +138,8 @@ func TestExecuteQuery_Engine(t *testing.T) {
 			name:  "offset limit params",
 			query: "SELECT VALUE c.id FROM c ORDER BY c.age OFFSET @o LIMIT @l",
 			params: []cosmosdb.QueryParameter{
-				{Name: "@o", Value: json.Number("0")},
-				{Name: "@l", Value: json.Number("2")},
+				{Name: "@o", Value: jsonx.Number("0")},
+				{Name: "@l", Value: jsonx.Number("2")},
 			},
 			want: `["2","1"]`,
 		},
@@ -194,7 +195,7 @@ func TestExecuteQuery_Engine(t *testing.T) {
 			rows, err := cosmosdb.ExecuteQuery(tt.query, tt.params, docs)
 			require.NoError(t, err)
 
-			got, err := json.Marshal(rows)
+			got, err := json.Marshal(rows, jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, tt.want, string(got))
 

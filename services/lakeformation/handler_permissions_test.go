@@ -1,13 +1,14 @@
 package lakeformation_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -45,7 +46,7 @@ func TestHandler_GrantRevokeListPermissions(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var listResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 			perms, _ := listResp["PrincipalResourcePermissions"].([]any)
 			assert.Len(t, perms, 1)
 
@@ -82,7 +83,7 @@ func TestHandler_BatchGrantRevokePermissions(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			failures, _ := resp["Failures"].([]any)
 			assert.Empty(t, failures)
 
@@ -104,7 +105,7 @@ func TestBatchGrantPermissions_EmptyEntries(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["Failures"])
 }
 
@@ -126,7 +127,7 @@ func TestGrantAndListPermissions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out, jsonx.V1()))
 	perms := out["PrincipalResourcePermissions"].([]any)
 	assert.Len(t, perms, 1)
 }

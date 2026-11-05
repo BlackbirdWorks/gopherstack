@@ -2,7 +2,7 @@ package mediastore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"sort"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -131,7 +132,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var data map[string]any
-	if uerr := json.Unmarshal(body, &data); uerr != nil {
+	if uerr := json.Unmarshal(body, &data, jsonx.V1()); uerr != nil {
 		return ""
 	}
 
@@ -221,7 +222,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
 	var req createContainerRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -244,7 +245,7 @@ func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
 func (h *Handler) handleDeleteContainer(c *echo.Context, body []byte) error {
 	var req deleteContainerRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -262,7 +263,7 @@ func (h *Handler) handleDeleteContainer(c *echo.Context, body []byte) error {
 func (h *Handler) handleDescribeContainer(c *echo.Context, body []byte) error {
 	var req describeContainerRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -283,7 +284,7 @@ func (h *Handler) handleDescribeContainer(c *echo.Context, body []byte) error {
 func (h *Handler) handleListContainers(c *echo.Context, body []byte) error {
 	var req listContainersRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -309,7 +310,7 @@ func (h *Handler) handleListContainers(c *echo.Context, body []byte) error {
 func (h *Handler) handlePutContainerPolicy(c *echo.Context, body []byte) error {
 	var req putContainerPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -327,7 +328,7 @@ func (h *Handler) handlePutContainerPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleGetContainerPolicy(c *echo.Context, body []byte) error {
 	var req getContainerPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -346,7 +347,7 @@ func (h *Handler) handleGetContainerPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleDeleteContainerPolicy(c *echo.Context, body []byte) error {
 	var req deleteContainerPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -364,7 +365,7 @@ func (h *Handler) handleDeleteContainerPolicy(c *echo.Context, body []byte) erro
 func (h *Handler) handlePutCorsPolicy(c *echo.Context, body []byte) error {
 	var req putCorsPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -382,7 +383,7 @@ func (h *Handler) handlePutCorsPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleGetCorsPolicy(c *echo.Context, body []byte) error {
 	var req getCorsPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -401,7 +402,7 @@ func (h *Handler) handleGetCorsPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleDeleteCorsPolicy(c *echo.Context, body []byte) error {
 	var req deleteCorsPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -419,7 +420,7 @@ func (h *Handler) handleDeleteCorsPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handlePutLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req putLifecyclePolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -437,7 +438,7 @@ func (h *Handler) handlePutLifecyclePolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req getLifecyclePolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -456,7 +457,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleDeleteLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req deleteLifecyclePolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -474,7 +475,7 @@ func (h *Handler) handleDeleteLifecyclePolicy(c *echo.Context, body []byte) erro
 func (h *Handler) handlePutMetricPolicy(c *echo.Context, body []byte) error {
 	var req putMetricPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -492,7 +493,7 @@ func (h *Handler) handlePutMetricPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleGetMetricPolicy(c *echo.Context, body []byte) error {
 	var req getMetricPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -511,7 +512,7 @@ func (h *Handler) handleGetMetricPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleDeleteMetricPolicy(c *echo.Context, body []byte) error {
 	var req deleteMetricPolicyRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -529,7 +530,7 @@ func (h *Handler) handleDeleteMetricPolicy(c *echo.Context, body []byte) error {
 func (h *Handler) handleStartAccessLogging(c *echo.Context, body []byte) error {
 	var req startAccessLoggingRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -547,7 +548,7 @@ func (h *Handler) handleStartAccessLogging(c *echo.Context, body []byte) error {
 func (h *Handler) handleStopAccessLogging(c *echo.Context, body []byte) error {
 	var req stopAccessLoggingRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -565,7 +566,7 @@ func (h *Handler) handleStopAccessLogging(c *echo.Context, body []byte) error {
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var req tagResourceRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -585,7 +586,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	var req untagResourceRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
@@ -603,7 +604,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
 	var req listTagsForResourceRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 

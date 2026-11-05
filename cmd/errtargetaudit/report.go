@@ -1,11 +1,14 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // lowResolutionThreshold gates the implausible-resolution guard --
@@ -211,10 +214,9 @@ func writeJSON(path string, scans []serviceScan) error {
 	}
 	defer f.Close()
 
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
+	enc := jsontext.NewEncoder(f, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent("  "))
 
-	return enc.Encode(scans)
+	return json.MarshalEncode(enc, scans)
 }
 
 func printServiceScan(sr serviceScan) {

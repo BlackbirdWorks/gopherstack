@@ -1,13 +1,15 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -111,13 +113,13 @@ func acaClone(m map[string]any) map[string]any {
 		return nil
 	}
 
-	buf, err := json.Marshal(m)
+	buf, err := json.Marshal(m, jsonx.V1())
 	if err != nil {
 		return nil
 	}
 
 	var out map[string]any
-	if err = json.Unmarshal(buf, &out); err != nil {
+	if err = json.Unmarshal(buf, &out, jsonx.V1()); err != nil {
 		return nil
 	}
 

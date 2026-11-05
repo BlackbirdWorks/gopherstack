@@ -2,7 +2,7 @@ package apigatewayv2_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
@@ -36,7 +37,7 @@ func (m *mockLambdaInvoker) InvokeFunction(
 	}
 
 	resp := map[string]any{"statusCode": 200, "body": "ok"}
-	b, _ := json.Marshal(resp)
+	b, _ := json.Marshal(resp, jsonx.V1())
 
 	return b, 200, nil
 }
@@ -119,7 +120,7 @@ func buildHTTPAPIWithLambda(
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	theAPIID := api.APIID
 
@@ -132,7 +133,7 @@ func buildHTTPAPIWithLambda(
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	theIntegrationID := integ.IntegrationID
 
@@ -222,12 +223,12 @@ func TestHTTPAPIProxy_RouteMatching(t *testing.T) {
 			lambda := &mockLambdaInvoker{
 				fn: func(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 					var ev map[string]any
-					if err := json.Unmarshal(payload, &ev); err == nil {
+					if err := json.Unmarshal(payload, &ev, jsonx.V1()); err == nil {
 						capturedRouteKey, _ = ev["routeKey"].(string)
 					}
 
 					resp := map[string]any{"statusCode": 200, "body": "routed"}
-					b, _ := json.Marshal(resp)
+					b, _ := json.Marshal(resp, jsonx.V1())
 
 					return b, 200, nil
 				},
@@ -247,7 +248,7 @@ func TestHTTPAPIProxy_RouteMatching(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var integ apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 				rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/routes", map[string]any{
 					"routeKey": rk,
@@ -337,10 +338,10 @@ func TestHTTPAPIProxy_PayloadFormat(t *testing.T) {
 			var capturedPayload map[string]any
 			lambda := &mockLambdaInvoker{
 				fn: func(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
-					_ = json.Unmarshal(payload, &capturedPayload)
+					_ = json.Unmarshal(payload, &capturedPayload, jsonx.V1())
 
 					resp := map[string]any{"statusCode": 200, "body": "ok"}
-					b, _ := json.Marshal(resp)
+					b, _ := json.Marshal(resp, jsonx.V1())
 
 					return b, 200, nil
 				},
@@ -354,7 +355,7 @@ func TestHTTPAPIProxy_PayloadFormat(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var api apigatewayv2.API
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
 				"integrationType":      "AWS_PROXY",
@@ -364,7 +365,7 @@ func TestHTTPAPIProxy_PayloadFormat(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integ apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
 				"routeKey": "GET /test",
@@ -414,7 +415,7 @@ func TestHTTPAPIProxy_CORSPreflight(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	// Create a route (even though OPTIONS won't use it).
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
@@ -424,7 +425,7 @@ func TestHTTPAPIProxy_CORSPreflight(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
 		"routeKey": "GET /items",
@@ -459,7 +460,7 @@ func TestHTTPAPIProxy_JWTAuthorizer(t *testing.T) {
 		fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
 			integrationCalls.Add(1)
 
-			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 			return b, 200, nil
 		},
@@ -472,7 +473,7 @@ func TestHTTPAPIProxy_JWTAuthorizer(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	// Create JWT authorizer.
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/authorizers", map[string]any{
@@ -487,7 +488,7 @@ func TestHTTPAPIProxy_JWTAuthorizer(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var authorizer apigatewayv2.Authorizer
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authorizer))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authorizer, jsonx.V1()))
 
 	// Create integration + route with JWT auth.
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
@@ -497,7 +498,7 @@ func TestHTTPAPIProxy_JWTAuthorizer(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
 		"routeKey":          "GET /secure",
@@ -535,7 +536,7 @@ func TestHTTPAPIProxy_JWTAuthorizerMissing_DoesNotInvokeIntegration(t *testing.T
 		fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
 			integrationCalls.Add(1)
 
-			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 			return b, 200, nil
 		},
@@ -547,7 +548,7 @@ func TestHTTPAPIProxy_JWTAuthorizerMissing_DoesNotInvokeIntegration(t *testing.T
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
 		"integrationType": "AWS_PROXY",
@@ -556,7 +557,7 @@ func TestHTTPAPIProxy_JWTAuthorizerMissing_DoesNotInvokeIntegration(t *testing.T
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	// authorizerId names an authorizer that was never created.
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
@@ -612,7 +613,7 @@ func TestHTTPAPIProxy_JWTAuthorizer_ValidCognitoToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var api apigatewayv2.API
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/authorizers", map[string]any{
 		"name":           "cognito-jwt",
@@ -626,7 +627,7 @@ func TestHTTPAPIProxy_JWTAuthorizer_ValidCognitoToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var authorizer apigatewayv2.Authorizer
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authorizer))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &authorizer, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/integrations", map[string]any{
 		"integrationType": "AWS_PROXY",
@@ -635,7 +636,7 @@ func TestHTTPAPIProxy_JWTAuthorizer_ValidCognitoToken(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rr.Code)
 
 	var integ apigatewayv2.Integration
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 	rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+api.APIID+"/routes", map[string]any{
 		"routeKey":          "GET /secure",
@@ -707,7 +708,7 @@ func TestHTTPAPIProxy_LambdaResponse(t *testing.T) {
 
 			lambda := &mockLambdaInvoker{
 				fn: func(_ context.Context, _, _ string, _ []byte) ([]byte, int, error) {
-					b, _ := json.Marshal(tt.lambdaBody)
+					b, _ := json.Marshal(tt.lambdaBody, jsonx.V1())
 
 					return b, 200, nil
 				},
@@ -744,13 +745,13 @@ func TestHTTPAPIProxy_PathParameters(t *testing.T) {
 	h.SetLambdaInvoker(&mockLambdaInvoker{
 		fn: func(_ context.Context, _, _ string, payload []byte) ([]byte, int, error) {
 			var ev map[string]any
-			if err := json.Unmarshal(payload, &ev); err == nil {
+			if err := json.Unmarshal(payload, &ev, jsonx.V1()); err == nil {
 				if pp, ok := ev["pathParameters"].(map[string]any); ok {
 					capturedPathParams = pp
 				}
 			}
 
-			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"})
+			b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": "ok"}, jsonx.V1())
 
 			return b, 200, nil
 		},
@@ -795,7 +796,7 @@ func TestHTTPAPIProxy_DeploymentSnapshot(t *testing.T) {
 						body = "from-b"
 					}
 
-					b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": body})
+					b, _ := json.Marshal(map[string]any{"statusCode": 200, "body": body}, jsonx.V1())
 
 					return b, 200, nil
 				},
@@ -812,7 +813,7 @@ func TestHTTPAPIProxy_DeploymentSnapshot(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integ apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integ, jsonx.V1()))
 
 			rr = doRequest(t, h, http.MethodPost, "/v2/apis/"+apiID+"/routes", map[string]any{
 				"routeKey": "GET /a",

@@ -2,7 +2,7 @@ package appconfig_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
@@ -394,7 +395,7 @@ func TestHandler_ResourceIDsPresentAcrossResources(t *testing.T) {
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 	require.NotEmpty(t, app.ID, "Application must have a non-empty Id")
 
 	// Create environment.
@@ -406,7 +407,7 @@ func TestHandler_ResourceIDsPresentAcrossResources(t *testing.T) {
 		ID            string `json:"Id"`
 		ApplicationID string `json:"ApplicationId"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 	require.NotEmpty(t, env.ID, "Environment must have a non-empty Id")
 	assert.Equal(t, app.ID, env.ApplicationID,
 		"Environment.ApplicationId must match the parent application")
@@ -422,7 +423,7 @@ func TestHandler_ResourceIDsPresentAcrossResources(t *testing.T) {
 		ApplicationID string `json:"ApplicationId"`
 		LocationURI   string `json:"LocationUri"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 	require.NotEmpty(t, prof.ID, "ConfigurationProfile must have a non-empty Id")
 	assert.Equal(t, app.ID, prof.ApplicationID)
 	assert.Equal(t, "hosted", prof.LocationURI)
@@ -436,7 +437,7 @@ func TestHandler_ResourceIDsPresentAcrossResources(t *testing.T) {
 		ID   string `json:"Id"`
 		Name string `json:"Name"`
 	}
-	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat))
+	require.NoError(t, json.Unmarshal(stratRec.Body.Bytes(), &strat, jsonx.V1()))
 	require.NotEmpty(t, strat.ID, "DeploymentStrategy must have a non-empty Id")
 	assert.Equal(t, "id-strat", strat.Name)
 }
@@ -456,7 +457,7 @@ func TestHandler_ListResponsesUseItemsKey(t *testing.T) {
 	var app struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app))
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &app, jsonx.V1()))
 
 	envRec := doRequest(t, h, http.MethodPost, "/applications/"+app.ID+"/environments",
 		[]byte(`{"Name":"items-env"}`))
@@ -470,7 +471,7 @@ func TestHandler_ListResponsesUseItemsKey(t *testing.T) {
 	var prof struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof))
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &prof, jsonx.V1()))
 
 	stratRec := doRequest(t, h, http.MethodPost, "/deploymentstrategies",
 		[]byte(`{"Name":"items-strat","DeploymentDurationInMinutes":0,"GrowthFactor":100,"ReplicateTo":"NONE"}`))
@@ -479,7 +480,7 @@ func TestHandler_ListResponsesUseItemsKey(t *testing.T) {
 	var env struct {
 		ID string `json:"Id"`
 	}
-	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env))
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &env, jsonx.V1()))
 
 	listPaths := []struct {
 		name string
@@ -506,7 +507,7 @@ func TestHandler_ListResponsesUseItemsKey(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "path: %s", tt.path)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			_, ok := resp["Items"]
 			assert.True(t, ok, "%s: response must have 'Items' key, got keys: %v",
 				tt.name, mapKeys(resp))

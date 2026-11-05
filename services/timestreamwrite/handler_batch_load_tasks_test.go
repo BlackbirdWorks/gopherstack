@@ -1,7 +1,7 @@
 package timestreamwrite_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 )
 
@@ -72,7 +73,7 @@ func TestHandler_CreateBatchLoadTask(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["TaskId"])
 			}
 		})
@@ -102,7 +103,7 @@ func TestHandler_DescribeBatchLoadTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	taskID, _ := createResp["TaskId"].(string)
 	require.NotEmpty(t, taskID)
 
@@ -137,7 +138,7 @@ func TestHandler_DescribeBatchLoadTask(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp, jsonx.V1()))
 				desc, ok := resp["BatchLoadTaskDescription"].(map[string]any)
 				assert.True(t, ok)
 				assert.Equal(t, taskID, desc["TaskId"])
@@ -207,7 +208,7 @@ func TestHandler_ListBatchLoadTasks(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, result.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(result.Body.Bytes(), &resp, jsonx.V1()))
 			tasks, ok := resp["BatchLoadTasks"].([]any)
 			assert.True(t, ok)
 			assert.Len(t, tasks, tt.wantLen)
@@ -238,7 +239,7 @@ func TestHandler_ResumeBatchLoadTask(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	taskID, _ := createResp["TaskId"].(string)
 	require.NotEmpty(t, taskID)
 
@@ -349,7 +350,7 @@ func TestHandler_CreateBatchLoadTask_DataSourceConfigRequired(t *testing.T) {
 
 			if tt.wantStatus == http.StatusBadRequest {
 				var errBody map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errBody, jsonx.V1()))
 				assert.Equal(t, "ValidationException", errBody["__type"])
 			}
 		})
@@ -380,7 +381,7 @@ func TestHandler_CreateBatchLoadTask_WithDataSourceConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 	require.NotEmpty(t, taskID)
 
@@ -388,7 +389,7 @@ func TestHandler_CreateBatchLoadTask_WithDataSourceConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	desc := descOut["BatchLoadTaskDescription"].(map[string]any)
 	dsc := desc["DataSourceConfiguration"].(map[string]any)
@@ -424,14 +425,14 @@ func TestHandler_CreateBatchLoadTask_WithReportConfig(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 
 	descRec := doRequest(t, h, "DescribeBatchLoadTask", map[string]string{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, descRec.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut, jsonx.V1()))
 
 	desc := descOut["BatchLoadTaskDescription"].(map[string]any)
 	rpt := desc["ReportConfiguration"].(map[string]any)
@@ -504,7 +505,7 @@ func TestHandler_ListBatchLoadTasks_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var out1 map[string]any
-	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1, jsonx.V1()))
 
 	tasks1 := out1["BatchLoadTasks"].([]any)
 	assert.Len(t, tasks1, 2)
@@ -516,7 +517,7 @@ func TestHandler_ListBatchLoadTasks_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var out2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2, jsonx.V1()))
 
 	tasks2 := out2["BatchLoadTasks"].([]any)
 	assert.Len(t, tasks2, 2)
@@ -555,7 +556,7 @@ func TestHandler_ListBatchLoadTasks_StatusFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tasks := out["BatchLoadTasks"].([]any)
 	assert.Len(t, tasks, 1)
@@ -594,7 +595,7 @@ func TestHandler_ListBatchLoadTasks_SummaryResumableUntil(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	tasks := out["BatchLoadTasks"].([]any)
 	require.Len(t, tasks, 1)
@@ -633,7 +634,7 @@ func TestHandler_DescribeBatchLoadTask_ErrorMessage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
 	assert.Equal(t, "S3 object not found", desc["ErrorMessage"])
@@ -660,14 +661,14 @@ func TestHandler_BatchLoadTaskDescriptionView_MissingResumableUntilOmitted(t *te
 	require.Equal(t, http.StatusOK, cr.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 
 	dr := doRequest(t, h, "DescribeBatchLoadTask", map[string]string{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, dr.Code)
 
 	var descOut map[string]any
-	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &descOut))
+	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &descOut, jsonx.V1()))
 
 	desc := descOut["BatchLoadTaskDescription"].(map[string]any)
 	_, hasResumable := desc["ResumableUntil"]
@@ -698,7 +699,7 @@ func TestHandler_DescribeBatchLoadTask_RecordVersion(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
 	assert.InDelta(t, float64(42), desc["RecordVersion"], 0,
@@ -726,14 +727,14 @@ func TestHandler_DescribeBatchLoadTask_RecordVersionZeroOmitted(t *testing.T) {
 	require.Equal(t, http.StatusOK, cr.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 
 	dr := doRequest(t, h, "DescribeBatchLoadTask", map[string]string{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, dr.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &out, jsonx.V1()))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
 	_, hasRV := desc["RecordVersion"]
@@ -771,7 +772,7 @@ func TestHandler_DescribeBatchLoadTask_ProgressReport(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
 	report := desc["ProgressReport"].(map[string]any)
@@ -803,14 +804,14 @@ func TestHandler_DescribeBatchLoadTask_NoProgressReport(t *testing.T) {
 	require.Equal(t, http.StatusOK, cr.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(cr.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 
 	dr := doRequest(t, h, "DescribeBatchLoadTask", map[string]string{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, dr.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(dr.Body.Bytes(), &out, jsonx.V1()))
 
 	desc := out["BatchLoadTaskDescription"].(map[string]any)
 	_, hasPR := desc["ProgressReport"]
@@ -840,14 +841,14 @@ func TestHandler_DescribeBatchLoadTask_TimestampsAreFloats(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	taskID := createOut["TaskId"].(string)
 
 	rec2 := doRequest(t, h, "DescribeBatchLoadTask", map[string]any{"TaskId": taskID})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &raw))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &raw, jsonx.V1()))
 
 	desc := raw["BatchLoadTaskDescription"].(map[string]any)
 	ct, ok := desc["CreationTime"].(float64)

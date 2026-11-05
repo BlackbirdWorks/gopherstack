@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"regexp"
 	"slices"
@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -77,7 +78,7 @@ func (b *InMemoryBackend) dockerFiles(ctx context.Context, ref repoRef) []*artif
 			add(d, int64(len(m.Body)), src)
 
 			var doc manifestBlobs
-			if json.Unmarshal(m.Body, &doc) != nil {
+			if json.Unmarshal(m.Body, &doc, jsonx.V1()) != nil {
 				continue
 			}
 

@@ -2,7 +2,7 @@ package workmail
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/idempotency"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -116,7 +117,7 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 func (h *Handler) precheck(action string, body []byte) error {
@@ -178,7 +179,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 
 	payload, marshalErr := json.Marshal(
-		service.JSONErrorResponse{Type: code, Message: strings.TrimPrefix(err.Error(), code+": ")},
+		service.JSONErrorResponse{Type: code, Message: strings.TrimPrefix(err.Error(), code+": ")}, jsonx.V1(),
 	)
 	if marshalErr != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")

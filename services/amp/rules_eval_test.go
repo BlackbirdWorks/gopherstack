@@ -2,7 +2,8 @@ package amp_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/amp"
 	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
@@ -86,7 +88,7 @@ func (f *fixture) vector(t *testing.T, ws, q string) []vecSample {
 	require.Equal(t, http.StatusOK, r.status, string(r.body))
 
 	var out []vecSample
-	require.NoError(t, json.Unmarshal(pr.Data.Result, &out))
+	require.NoError(t, json.Unmarshal(pr.Data.Result, &out, jsonx.V1()))
 
 	return out
 }
@@ -98,11 +100,11 @@ func (f *fixture) apiData(t *testing.T, ws, path string, into any) {
 	require.Equal(t, http.StatusOK, r.status, string(r.body))
 
 	var env struct {
-		Data json.RawMessage `json:"data"`
+		Data jsontext.Value `json:"data"`
 	}
 
-	require.NoError(t, json.Unmarshal(r.body, &env))
-	require.NoError(t, json.Unmarshal(env.Data, into))
+	require.NoError(t, json.Unmarshal(r.body, &env, jsonx.V1()))
+	require.NoError(t, json.Unmarshal(env.Data, into, jsonx.V1()))
 }
 
 func TestRecordingRule(t *testing.T) {
@@ -416,7 +418,7 @@ inhibit_rules:
 func (f *fixture) postAlerts(t *testing.T, ws string, alerts []map[string]any) {
 	t.Helper()
 
-	body, err := json.Marshal(alerts)
+	body, err := json.Marshal(alerts, jsonx.V1())
 	require.NoError(t, err)
 
 	path := "/workspaces/" + ws + "/alertmanager/api/v2/alerts"

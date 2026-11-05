@@ -2,12 +2,14 @@ package pipes
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/eventpattern"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // matchesAnyFilter returns true if body passes at least one of the given filters.
@@ -67,8 +69,8 @@ func matchesSingleFilter(body string, f Filter) bool {
 // and/or content-filter objects) or a nested object; a bare scalar is not a
 // valid EventBridge pattern value and never matches (see isJSONObject).
 func matchesJSONPattern(msgBody, pattern string) bool {
-	var patternMap map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(pattern), &patternMap); err != nil {
+	var patternMap map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(pattern), &patternMap, jsonx.V1()); err != nil {
 		// Malformed pattern: fall back to substring.
 		return strings.Contains(msgBody, pattern)
 	}
@@ -77,8 +79,8 @@ func matchesJSONPattern(msgBody, pattern string) bool {
 		return true
 	}
 
-	var msgMap map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(msgBody), &msgMap); err != nil {
+	var msgMap map[string]jsontext.Value
+	if err := json.Unmarshal([]byte(msgBody), &msgMap, jsonx.V1()); err != nil {
 		// Message body is not a JSON object; pattern cannot match.
 		return false
 	}
@@ -89,7 +91,7 @@ func matchesJSONPattern(msgBody, pattern string) bool {
 // matchesPatternObject reports whether every field in patternMap is
 // satisfied by msgMap (fields at one level are ANDed). "$or" is a
 // combinator, not a message field, so it is dispatched separately.
-func matchesPatternObject(patternMap, msgMap map[string]json.RawMessage) bool {
+func matchesPatternObject(patternMap, msgMap map[string]jsontext.Value) bool {
 	for field, ruleRaw := range patternMap {
 		if field == "$or" {
 			if !matchesOrCombinator(ruleRaw, msgMap) {
@@ -111,9 +113,9 @@ func matchesPatternObject(patternMap, msgMap map[string]json.RawMessage) bool {
 // matchesOrCombinator evaluates a "$or" combinator
 // (eb-filtering-complex-example-or): ruleRaw must decode to an array of
 // pattern objects, and msgMap matches if any one of them fully matches.
-func matchesOrCombinator(ruleRaw json.RawMessage, msgMap map[string]json.RawMessage) bool {
-	var alternatives []json.RawMessage
-	if err := json.Unmarshal(ruleRaw, &alternatives); err != nil {
+func matchesOrCombinator(ruleRaw jsontext.Value, msgMap map[string]jsontext.Value) bool {
+	var alternatives []jsontext.Value
+	if err := json.Unmarshal(ruleRaw, &alternatives, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -135,15 +137,15 @@ func matchesOrCombinator(ruleRaw json.RawMessage, msgMap map[string]json.RawMess
 // its first non-whitespace byte rather than by attempting to unmarshal it --
 // unmarshalling JSON `null` into a map succeeds with a nil map, which would
 // otherwise misclassify a literal null rule element as an object.
-func isJSONObject(raw json.RawMessage) bool {
+func isJSONObject(raw jsontext.Value) bool {
 	trimmed := bytes.TrimSpace(raw)
 
 	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
-func decodeJSONObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &obj); err != nil {
+func decodeJSONObject(raw jsontext.Value) (map[string]jsontext.Value, bool) {
+	var obj map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &obj, jsonx.V1()); err != nil {
 		return nil, false
 	}
 
@@ -157,13 +159,13 @@ func decodeJSONObject(raw json.RawMessage) (map[string]json.RawMessage, bool) {
 // needed because {"exists": false} matches precisely when the field is
 // absent, so evaluation cannot short-circuit on absence the way every other
 // operator does.
-func fieldMatchesRule(msgVal json.RawMessage, exists bool, ruleRaw json.RawMessage) bool {
+func fieldMatchesRule(msgVal jsontext.Value, exists bool, ruleRaw jsontext.Value) bool {
 	if isJSONObject(ruleRaw) {
 		return matchesNestedRule(msgVal, exists, ruleRaw)
 	}
 
-	var rules []json.RawMessage
-	if err := json.Unmarshal(ruleRaw, &rules); err != nil {
+	var rules []jsontext.Value
+	if err := json.Unmarshal(ruleRaw, &rules, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -179,7 +181,7 @@ func fieldMatchesRule(msgVal json.RawMessage, exists bool, ruleRaw json.RawMessa
 // matchesNestedRule descends one level into the event for a nested pattern
 // object. A nested pattern can only match a present, JSON-object-shaped
 // field.
-func matchesNestedRule(msgVal json.RawMessage, exists bool, ruleRaw json.RawMessage) bool {
+func matchesNestedRule(msgVal jsontext.Value, exists bool, ruleRaw jsontext.Value) bool {
 	if !exists {
 		return false
 	}
@@ -216,7 +218,7 @@ func matchesNestedRule(msgVal json.RawMessage, exists bool, ruleRaw json.RawMess
 // msgExists is false whenever the field was absent from the message; every
 // operator besides exists requires a value to compare against, so absence
 // fails them all except an explicit {"exists": false}.
-func matchesRule(msgVal json.RawMessage, msgExists bool, rule json.RawMessage) bool {
+func matchesRule(msgVal jsontext.Value, msgExists bool, rule jsontext.Value) bool {
 	if isJSONObject(rule) {
 		ruleObj, ok := decodeJSONObject(rule)
 		if !ok {
@@ -247,13 +249,13 @@ func matchesRule(msgVal json.RawMessage, msgExists bool, rule json.RawMessage) b
 // numerically-equal event number). reflect.DeepEqual (not ==) is required
 // because a malformed pattern or event can decode to a non-comparable type
 // (a JSON array or object), which would panic under ==.
-func matchesExactRule(msgVal, rule json.RawMessage) bool {
+func matchesExactRule(msgVal, rule jsontext.Value) bool {
 	var ruleAny, msgAny any
-	if err := json.Unmarshal(rule, &ruleAny); err != nil {
+	if err := json.Unmarshal(rule, &ruleAny, jsonx.V1()); err != nil {
 		return false
 	}
 
-	if err := json.Unmarshal(msgVal, &msgAny); err != nil {
+	if err := json.Unmarshal(msgVal, &msgAny, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -263,7 +265,7 @@ func matchesExactRule(msgVal, rule json.RawMessage) bool {
 // matchesRuleObject dispatches a single-key content-filter object to its
 // matcher. Supported: prefix, suffix, numeric, cidr, anything-but,
 // equals-ignore-case.
-func matchesRuleObject(msgVal json.RawMessage, ruleObj map[string]json.RawMessage) bool {
+func matchesRuleObject(msgVal jsontext.Value, ruleObj map[string]jsontext.Value) bool {
 	if prefixRaw, ok := ruleObj["prefix"]; ok {
 		return matchesPrefixRule(msgVal, prefixRaw)
 	}
@@ -291,18 +293,18 @@ func matchesRuleObject(msgVal json.RawMessage, ruleObj map[string]json.RawMessag
 	return false
 }
 
-func decodeString(raw json.RawMessage) (string, bool) {
+func decodeString(raw jsontext.Value) (string, bool) {
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return "", false
 	}
 
 	return s, true
 }
 
-func decodeFloat(raw json.RawMessage) (float64, bool) {
+func decodeFloat(raw jsontext.Value) (float64, bool) {
 	var f float64
-	if err := json.Unmarshal(raw, &f); err != nil {
+	if err := json.Unmarshal(raw, &f, jsonx.V1()); err != nil {
 		return 0, false
 	}
 
@@ -312,7 +314,7 @@ func decodeFloat(raw json.RawMessage) (float64, bool) {
 // matchesPrefixRule matches a prefix rule value against msgVal. AWS supports
 // both a plain string prefix and a case-insensitive nested form
 // (eb-filtering-prefix-matching-ignore-case): {"prefix": {"equals-ignore-case": "foo"}}.
-func matchesPrefixRule(msgVal, prefixRaw json.RawMessage) bool {
+func matchesPrefixRule(msgVal, prefixRaw jsontext.Value) bool {
 	msgStr, ok := decodeString(msgVal)
 	if !ok {
 		return false
@@ -338,7 +340,7 @@ func matchesPrefixRule(msgVal, prefixRaw json.RawMessage) bool {
 // matchesSuffixRule matches a suffix rule value against msgVal. AWS supports
 // both a plain string suffix and a case-insensitive nested form
 // (eb-filtering-suffix-matching-ignore-case): {"suffix": {"equals-ignore-case": "foo"}}.
-func matchesSuffixRule(msgVal, suffixRaw json.RawMessage) bool {
+func matchesSuffixRule(msgVal, suffixRaw jsontext.Value) bool {
 	msgStr, ok := decodeString(msgVal)
 	if !ok {
 		return false
@@ -363,7 +365,7 @@ func matchesSuffixRule(msgVal, suffixRaw json.RawMessage) bool {
 
 // nestedEqualsIgnoreCase extracts the string value of a nested
 // {"equals-ignore-case": "..."} object, as used inside prefix/suffix rules.
-func nestedEqualsIgnoreCase(nested map[string]json.RawMessage) (string, bool) {
+func nestedEqualsIgnoreCase(nested map[string]jsontext.Value) (string, bool) {
 	ciRaw, ok := nested["equals-ignore-case"]
 	if !ok {
 		return "", false
@@ -374,7 +376,7 @@ func nestedEqualsIgnoreCase(nested map[string]json.RawMessage) (string, bool) {
 
 // matchesEqualsIgnoreCaseRule matches a standalone
 // {"equals-ignore-case": "..."} rule (eb-filtering-equals-ignore-case-matching).
-func matchesEqualsIgnoreCaseRule(msgVal, valRaw json.RawMessage) bool {
+func matchesEqualsIgnoreCaseRule(msgVal, valRaw jsontext.Value) bool {
 	msgStr, ok := decodeString(msgVal)
 	if !ok {
 		return false
@@ -393,9 +395,9 @@ func matchesEqualsIgnoreCaseRule(msgVal, valRaw json.RawMessage) bool {
 // services/eventbridge/pattern.go's matchNumeric. msgVal must decode as a
 // JSON number; a string-encoded number (as DynamoDB Streams' "N" attribute
 // wrapper produces) does not match.
-func matchesNumericRule(msgVal, rulesRaw json.RawMessage) bool {
+func matchesNumericRule(msgVal, rulesRaw jsontext.Value) bool {
 	var ruleList []any
-	if err := json.Unmarshal(rulesRaw, &ruleList); err != nil {
+	if err := json.Unmarshal(rulesRaw, &ruleList, jsonx.V1()); err != nil {
 		return false
 	}
 
@@ -410,7 +412,7 @@ func matchesNumericRule(msgVal, rulesRaw json.RawMessage) bool {
 // matchesCIDRRule reports whether the string msgVal is an IP address inside
 // the given CIDR range (eb-filtering-ip-address), via pkgs/eventpattern,
 // shared with services/eventbridge/pattern.go's matchCIDR.
-func matchesCIDRRule(msgVal, cidrRaw json.RawMessage) bool {
+func matchesCIDRRule(msgVal, cidrRaw jsontext.Value) bool {
 	ipStr, ok := decodeString(msgVal)
 	if !ok {
 		return false
@@ -426,14 +428,14 @@ func matchesCIDRRule(msgVal, cidrRaw json.RawMessage) bool {
 
 // existsWant extracts {"exists": true/false}'s boolean, ok=false if the key
 // is absent or not a bool.
-func existsWant(ruleObj map[string]json.RawMessage) (bool, bool) {
+func existsWant(ruleObj map[string]jsontext.Value) (bool, bool) {
 	existsRaw, hasKey := ruleObj["exists"]
 	if !hasKey {
 		return false, false
 	}
 
 	var want bool
-	if err := json.Unmarshal(existsRaw, &want); err != nil {
+	if err := json.Unmarshal(existsRaw, &want, jsonx.V1()); err != nil {
 		return false, false
 	}
 
@@ -448,19 +450,19 @@ func existsWant(ruleObj map[string]json.RawMessage) (bool, bool) {
 // records use, where every AttributeValue is string-wrapped); a non-string
 // msgVal is never equal to a string exclusion value, so it always counts as
 // "anything but" (matchesRuleObject negates this function's result).
-func matchesAnythingBut(anythingButRaw, msgVal json.RawMessage) bool {
+func matchesAnythingBut(anythingButRaw, msgVal jsontext.Value) bool {
 	msgStr, ok := decodeString(msgVal)
 	if !ok {
 		return false
 	}
 
 	var single string
-	if err := json.Unmarshal(anythingButRaw, &single); err == nil {
+	if err := json.Unmarshal(anythingButRaw, &single, jsonx.V1()); err == nil {
 		return msgStr == single
 	}
 
 	var excluded []string
-	if err := json.Unmarshal(anythingButRaw, &excluded); err == nil {
+	if err := json.Unmarshal(anythingButRaw, &excluded, jsonx.V1()); err == nil {
 		return slices.Contains(excluded, msgStr)
 	}
 

@@ -1,12 +1,13 @@
 package appsync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
@@ -102,7 +103,7 @@ func TestSubscriptionFilter_AppliedToPublishedEvents(t *testing.T) {
 			msg := next()
 			require.Equal(t, "data", msg["type"], msg)
 
-			raw, err := json.Marshal(msg["payload"])
+			raw, err := json.Marshal(msg["payload"], jsonx.V1())
 			require.NoError(t, err)
 			assert.JSONEq(t, `{"data":{"onPut":{"id":"2","title":"`+tt.want+`"}}}`, string(raw),
 				"the filtered-out mutation must not be delivered before the matching one")
@@ -207,7 +208,7 @@ export function response(ctx) {
 	f.put(t, "1", "sell")
 	f.put(t, "2", "buy")
 
-	raw, err := json.Marshal(next()["payload"])
+	raw, err := json.Marshal(next()["payload"], jsonx.V1())
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"data":{"onPut":{"id":"2","title":"buy"}}}`, string(raw))
 }

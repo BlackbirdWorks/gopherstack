@@ -2,7 +2,8 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrModelCardNotFound is returned when a model card does not exist.
@@ -83,7 +85,7 @@ func (c *ModelCard) MarshalJSON() ([]byte, error) {
 		alias:            (*alias)(c),
 		CreationTime:     epochSeconds(c.CreationTime),
 		LastModifiedTime: epochSeconds(c.LastModifiedTime),
-	})
+	}, jsonx.V1())
 }
 
 // UnmarshalJSON is the inverse of [ModelCard.MarshalJSON], read by
@@ -97,7 +99,7 @@ func (c *ModelCard) UnmarshalJSON(data []byte) error {
 		LastModifiedTime float64 `json:"LastModifiedTime"`
 	}{alias: (*alias)(c)}
 
-	if err := json.Unmarshal(data, &aux); err != nil {
+	if err := json.Unmarshal(data, &aux, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -222,22 +224,22 @@ var modelCardMetadataOnlyPaths = [][2]string{
 // object sanitizes to "{}", since a non-object document trivially has none
 // of the preserved paths.
 func sanitizeModelCardContent(content string) string {
-	var doc map[string]json.RawMessage
+	var doc map[string]jsontext.Value
 
-	out := map[string]map[string]json.RawMessage{}
+	out := map[string]map[string]jsontext.Value{}
 
-	if unmarshalErr := json.Unmarshal([]byte(content), &doc); unmarshalErr == nil {
+	if unmarshalErr := json.Unmarshal([]byte(content), &doc, jsonx.V1()); unmarshalErr == nil {
 		for _, path := range modelCardMetadataOnlyPaths {
 			section, value := path[0], path[1]
 
-			var fields map[string]json.RawMessage
-			if json.Unmarshal(doc[section], &fields) != nil {
+			var fields map[string]jsontext.Value
+			if json.Unmarshal(doc[section], &fields, jsonx.V1()) != nil {
 				continue
 			}
 
 			if v, ok := fields[value]; ok {
 				if out[section] == nil {
-					out[section] = map[string]json.RawMessage{}
+					out[section] = map[string]jsontext.Value{}
 				}
 
 				out[section][value] = v
@@ -245,7 +247,7 @@ func sanitizeModelCardContent(content string) string {
 		}
 	}
 
-	sanitized, err := json.Marshal(out)
+	sanitized, err := json.Marshal(out, jsonx.V1())
 	if err != nil {
 		return "{}"
 	}

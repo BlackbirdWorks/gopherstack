@@ -1,13 +1,14 @@
 package serverlessrepo_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 )
 
@@ -44,7 +45,7 @@ func TestHandler_ListApplicationDependencies(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				deps, ok := resp["dependencies"].([]any)
 				require.True(t, ok)
 				assert.Empty(t, deps)
@@ -64,7 +65,7 @@ func TestListApplicationDependencies_EmptyList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	deps, ok := resp["dependencies"].([]any)
 	require.True(t, ok, "dependencies must be an array (not nil)")
 	assert.Empty(t, deps)
@@ -91,7 +92,7 @@ func TestListApplicationDependencies_NoSemanticVersion_ReturnsEmpty(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	deps := resp["dependencies"].([]any)
 	assert.Empty(t, deps)
 }
@@ -139,7 +140,7 @@ func TestListApplicationDependencies_PersistedState(t *testing.T) {
 	var response struct {
 		Dependencies []serverlessrepo.ApplicationDependency `json:"dependencies"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response, jsonx.V1()))
 	assert.ElementsMatch(t, tests, response.Dependencies)
 }
 
@@ -171,7 +172,7 @@ func TestListApplicationDependencies_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp1 map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp1, jsonx.V1()))
 	page1, ok := resp1["dependencies"].([]any)
 	require.True(t, ok)
 	assert.Len(t, page1, 2)
@@ -186,7 +187,7 @@ func TestListApplicationDependencies_Pagination(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	page2, ok := resp2["dependencies"].([]any)
 	require.True(t, ok)
 	assert.Len(t, page2, 1)
@@ -214,7 +215,7 @@ func TestListApplicationDependencies_MaxItemsDefault(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	page, ok := resp["dependencies"].([]any)
 	require.True(t, ok)
 	assert.Len(t, page, 3)
@@ -243,7 +244,7 @@ func TestListApplicationDependencies_DeterministicOrder(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	page, ok := resp["dependencies"].([]any)
 	require.True(t, ok)
 	require.Len(t, page, 3)

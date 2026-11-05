@@ -2,9 +2,10 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -29,7 +30,7 @@ type deleteTagsRequest struct {
 
 func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error) {
 	var req addTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -55,12 +56,12 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Tags": toTagObjects(allTags)})
+	return json.Marshal(map[string]any{"Tags": toTagObjects(allTags)}, jsonx.V1())
 }
 
 func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, error) {
 	var req listTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -80,12 +81,12 @@ func (h *Handler) handleListTags(ctx context.Context, body []byte) ([]byte, erro
 		resp["NextToken"] = outToken
 	}
 
-	return json.Marshal(resp)
+	return json.Marshal(resp, jsonx.V1())
 }
 
 func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) error {
 	var req deleteTagsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

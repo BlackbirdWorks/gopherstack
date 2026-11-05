@@ -1,7 +1,7 @@
 package macie2
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func parseFindingsFilterPath(method string, parts []string) (string, string) {
@@ -80,7 +81,7 @@ func (h *Handler) handleCreateFindingsFilter(body []byte) (any, int, error) {
 		Name            string            `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
@@ -138,7 +139,7 @@ func (h *Handler) handleUpdateFindingsFilter(id string, body []byte) (any, int, 
 		Name            string         `json:"name"`
 	}
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 

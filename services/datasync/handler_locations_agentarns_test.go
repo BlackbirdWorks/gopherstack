@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // agentArnsLocationCase covers one of the six location types that accept
@@ -179,7 +181,7 @@ func TestDataSync_AgentArns_RejectsPhantomAgent(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", resp["__type"])
 		})
 	}
@@ -206,7 +208,7 @@ func TestDataSync_AgentArns_UpdateRejectsPhantomAgent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "create: %s", rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -214,7 +216,7 @@ func TestDataSync_AgentArns_UpdateRejectsPhantomAgent(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, rec.Code, "update: %s", rec.Body.String())
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, "InvalidRequestException", resp["__type"])
 
 			// The rejected update must not have applied: AgentArns on the
@@ -223,7 +225,7 @@ func TestDataSync_AgentArns_UpdateRejectsPhantomAgent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.ElementsMatch(t, []any{realAgentArn}, tc.agentArns(t, descResp))
 		})
 	}
@@ -246,7 +248,7 @@ func TestDataSync_AgentArns_AcceptsRealAgent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -254,7 +256,7 @@ func TestDataSync_AgentArns_AcceptsRealAgent(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.ElementsMatch(t, []any{agentArn}, tc.agentArns(t, descResp))
 		})
 	}

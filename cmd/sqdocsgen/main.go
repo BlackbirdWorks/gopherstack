@@ -6,7 +6,8 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httpclient"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const fetchTimeout = time.Minute
@@ -208,7 +210,7 @@ func main() {
 
 	slices.SortFunc(svcs, func(a, b service) int { return strings.Compare(a.Code, b.Code) })
 
-	b, err := json.MarshalIndent(svcs, "", " ")
+	b, err := json.Marshal(svcs, jsonx.V1(), jsontext.Multiline(true), jsontext.WithIndent(" "))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

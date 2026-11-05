@@ -1,11 +1,13 @@
 package eventbridge //nolint:testpackage // needs buildEventEnvelopeMap.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestBuildEventEnvelopeMap_MatchesJSONRoundTrip(t *testing.T) {
@@ -36,7 +38,7 @@ func TestBuildEventEnvelopeMap_MatchesJSONRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			var viaJSON map[string]any
-			require.NoError(t, json.Unmarshal([]byte(buildEventEnvelope(tt.entry)), &viaJSON))
+			require.NoError(t, json.Unmarshal([]byte(buildEventEnvelope(tt.entry)), &viaJSON, jsonx.V1()))
 			require.Equal(t, viaJSON, buildEventEnvelopeMap(tt.entry))
 		})
 	}

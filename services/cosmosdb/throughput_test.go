@@ -2,7 +2,7 @@ package cosmosdb_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
@@ -480,7 +481,7 @@ func TestThroughput_PersistenceRoundTrip(t *testing.T) {
 	snap := src.Snapshot(t.Context())
 
 	var raw map[string]any
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 
 	dst := cosmosdb.NewInMemoryBackend()
 	require.NoError(t, dst.Restore(t.Context(), snap))

@@ -1,7 +1,7 @@
 package ocicontainerinstances
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"time"
 )
 
@@ -110,7 +110,7 @@ type Container struct {
 	State         string            `json:"lifecycleState"`
 	Details       string            `json:"lifecycleDetails,omitempty"`
 	WorkingDir    string            `json:"workingDirectory,omitempty"`
-	Security      json.RawMessage   `json:"securityContext,omitempty"`
+	Security      jsontext.Value    `json:"securityContext,omitempty"`
 	Command       []string          `json:"command,omitempty"`
 	Args          []string          `json:"arguments,omitempty"`
 	Mounts        []VolumeMount     `json:"volumeMounts,omitempty"`
@@ -170,7 +170,7 @@ type Instance struct {
 	Restart      string            `json:"containerRestartPolicy"`
 	Etag         string            `json:"etag"`
 	Target       string            `json:"target,omitempty"`
-	Security     json.RawMessage   `json:"securityContext,omitempty"`
+	Security     jsontext.Value    `json:"securityContext,omitempty"`
 	Containers   []*Container      `json:"containers"`
 	Volumes      []Volume          `json:"volumes,omitempty"`
 	Vnics        []Vnic            `json:"vnics"`

@@ -3,12 +3,13 @@ package firehose
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -151,7 +152,7 @@ func indexInProcess(idx OpenSearchIndexer, domainARN, index string, records [][]
 
 	for _, rec := range records {
 		var doc map[string]any
-		if err := json.Unmarshal(rec, &doc); err != nil {
+		if err := json.Unmarshal(rec, &doc, jsonx.V1()); err != nil {
 			failed = append(
 				failed,
 				failureRecord(rec, "", "ES.JsonProcessingException", "record is not a JSON object", 1),

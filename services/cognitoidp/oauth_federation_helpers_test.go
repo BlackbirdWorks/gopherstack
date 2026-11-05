@@ -4,7 +4,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"maps"
 	"math/big"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/cognitoidp"
 )
 
@@ -62,7 +64,7 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 func (f *fakeIDP) serve(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/.well-known/openid-configuration":
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{
 			"issuer": f.srv.URL, "authorization_endpoint": f.srv.URL + "/authorize",
 			"token_endpoint": f.srv.URL + "/token", "jwks_uri": f.srv.URL + "/jwks",
 		})
@@ -72,7 +74,7 @@ func (f *fakeIDP) serve(w http.ResponseWriter, r *http.Request) {
 		f.token(w, r)
 	case "/jwks":
 		pub := f.key.PublicKey
-		_ = json.NewEncoder(w).Encode(map[string]any{"keys": []map[string]string{{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]any{"keys": []map[string]string{{
 			"kty": "RSA", "kid": fedKID, "alg": "RS256", "use": "sig",
 			"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
@@ -150,7 +152,7 @@ func (f *fakeIDP) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	_ = json.MarshalEncode(jsontext.NewEncoder(w, jsonx.V1()), map[string]string{
 		"id_token": signed, "access_token": "idp-access", "token_type": "Bearer",
 	})
 }

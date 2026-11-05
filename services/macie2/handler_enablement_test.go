@@ -1,7 +1,7 @@
 package macie2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"testing/synctest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/macie2"
 )
 
@@ -54,7 +55,7 @@ func TestMacie2_Session(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Equal(t, "ONE_HOUR", resp["findingPublishingFrequency"])
 				assert.Equal(t, "ENABLED", resp["status"])
 				assert.NotEmpty(t, resp["serviceRole"])
@@ -132,7 +133,7 @@ func TestDisableMacie_DeletesResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, jobRec.Code)
 
 	var jobResp map[string]string
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &jobResp, jsonx.V1()))
 	jobID := jobResp["jobId"]
 	require.NotEmpty(t, jobID)
 
@@ -143,7 +144,7 @@ func TestDisableMacie_DeletesResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, cdiRec.Code)
 
 	var cdiResp map[string]string
-	require.NoError(t, json.Unmarshal(cdiRec.Body.Bytes(), &cdiResp))
+	require.NoError(t, json.Unmarshal(cdiRec.Body.Bytes(), &cdiResp, jsonx.V1()))
 	cdiID := cdiResp["customDataIdentifierId"]
 	require.NotEmpty(t, cdiID)
 
@@ -154,7 +155,7 @@ func TestDisableMacie_DeletesResources(t *testing.T) {
 	require.Equal(t, http.StatusOK, allowListRec.Code)
 
 	var allowListResp map[string]string
-	require.NoError(t, json.Unmarshal(allowListRec.Body.Bytes(), &allowListResp))
+	require.NoError(t, json.Unmarshal(allowListRec.Body.Bytes(), &allowListResp, jsonx.V1()))
 	allowListID := allowListResp["id"]
 	require.NotEmpty(t, allowListID)
 
@@ -297,7 +298,7 @@ func TestSessionTimestampsPresent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	for _, field := range []string{"createdAt", "updatedAt"} {
 		raw, ok := resp[field]
@@ -320,7 +321,7 @@ func TestSessionUpdatedAtAdvances(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec1.Code)
 
 		var before map[string]any
-		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before))
+		require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &before, jsonx.V1()))
 		createdAt := before["createdAt"].(string)
 
 		time.Sleep(1001 * time.Millisecond)
@@ -332,7 +333,7 @@ func TestSessionUpdatedAtAdvances(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 
 		var after map[string]any
-		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after))
+		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &after, jsonx.V1()))
 
 		assert.Equal(t, createdAt, after["createdAt"].(string), "createdAt must not change after update")
 		assert.NotEqual(t, after["createdAt"], after["updatedAt"],

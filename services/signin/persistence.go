@@ -3,7 +3,7 @@ package signin
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -14,11 +14,11 @@ import (
 const signinSnapshotVersion = 1
 
 type backendSnapshot struct {
-	Tables     map[string]json.RawMessage `json:"tables"`
-	AccountID  string                     `json:"accountID"`
-	Region     string                     `json:"region"`
-	SigningKey string                     `json:"signingKey"`
-	Version    int                        `json:"version"`
+	Tables     map[string]jsontext.Value `json:"tables"`
+	AccountID  string                    `json:"accountID"`
+	Region     string                    `json:"region"`
+	SigningKey string                    `json:"signingKey"`
+	Version    int                       `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.

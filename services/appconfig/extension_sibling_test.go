@@ -1,12 +1,13 @@
 package appconfig_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 )
@@ -61,7 +62,7 @@ func TestExtensionActions_SiblingSQSDelivery(t *testing.T) {
 				}
 
 				var m map[string]any
-				require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &m))
+				require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &m, jsonx.V1()))
 
 				return m["Type"] == "OnDeploymentComplete"
 			}, eventuallyWait, eventuallyTick)

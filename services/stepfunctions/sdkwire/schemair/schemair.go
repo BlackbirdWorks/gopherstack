@@ -5,7 +5,8 @@ package schemair
 
 import (
 	"compress/gzip"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/prelude"
 	"github.com/aws/smithy-go/traits"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrModel marks an invalid or mismatched schema model.
@@ -58,8 +61,8 @@ type Op struct {
 
 // Trait is a smithy-go trait by codec name and JSON-encoded fields.
 type Trait struct {
-	Name  string          `json:"n"`
-	Value json.RawMessage `json:"v,omitempty"`
+	Name  string         `json:"n"`
+	Value jsontext.Value `json:"v,omitempty"`
 }
 
 // Operation is a decoded operation.
@@ -161,7 +164,7 @@ func Read(r io.Reader) (*Model, error) {
 	defer zr.Close()
 
 	var m Model
-	if derr := json.NewDecoder(zr).Decode(&m); derr != nil {
+	if derr := json.UnmarshalDecode(jsontext.NewDecoder(zr), &m, jsonx.V1()); derr != nil {
 		return nil, fmt.Errorf("schemair: %w", derr)
 	}
 
@@ -245,7 +248,7 @@ func decodeTraits(cs map[string]codec, in []Trait) ([]smithy.Trait, error) {
 
 		v := reflect.New(c.typ)
 		if len(t.Value) > 0 {
-			if err := json.Unmarshal(t.Value, v.Interface()); err != nil {
+			if err := json.Unmarshal(t.Value, v.Interface(), jsonx.V1()); err != nil {
 				return nil, fmt.Errorf("schemair: trait %s: %w", t.Name, err)
 			}
 		}

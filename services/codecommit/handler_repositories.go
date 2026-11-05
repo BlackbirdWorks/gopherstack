@@ -1,10 +1,12 @@
 package codecommit
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 type createRepositoryInput struct {
@@ -52,7 +54,7 @@ func repoMetadata(r *Repository) map[string]any {
 
 func (h *Handler) handleCreateRepository(body []byte) (any, error) {
 	var in createRepositoryInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -72,7 +74,7 @@ func (h *Handler) handleCreateRepository(body []byte) (any, error) {
 
 func (h *Handler) handleGetRepository(body []byte) (any, error) {
 	var in getRepositoryInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -88,7 +90,7 @@ func (h *Handler) handleGetRepository(body []byte) (any, error) {
 
 func (h *Handler) handleDeleteRepository(body []byte) (any, error) {
 	var in deleteRepositoryInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -113,7 +115,7 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 		MaxResults int    `json:"maxResults"`
 	}
 	// Ignore parse errors — all fields are optional.
-	_ = json.Unmarshal(body, &in)
+	_ = json.Unmarshal(body, &in, jsonx.V1())
 
 	if in.SortBy != "" && in.SortBy != "repositoryName" && in.SortBy != "lastModifiedDate" {
 		return nil, fmt.Errorf("%w: sortBy %q is not valid", ErrInvalidSortBy, in.SortBy)
@@ -169,7 +171,7 @@ func (h *Handler) handleListRepositories(body []byte) (any, error) {
 
 func (h *Handler) handleBatchGetRepositories(body []byte) (any, error) {
 	var in batchGetRepositoriesInput
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err := json.Unmarshal(body, &in, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("invalid request body: %w", err)
 	}
 
@@ -198,7 +200,7 @@ func (h *Handler) handleUpdateRepositoryDescription(body []byte) (any, error) {
 		RepositoryName        string `json:"repositoryName"`
 		RepositoryDescription string `json:"repositoryDescription"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {
@@ -213,7 +215,7 @@ func (h *Handler) handleUpdateRepositoryName(body []byte) (any, error) {
 		OldName string `json:"oldName"`
 		NewName string `json:"newName"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.OldName == "" || req.NewName == "" {
@@ -228,7 +230,7 @@ func (h *Handler) handleUpdateRepositoryEncryptionKey(body []byte) (any, error) 
 		RepositoryName string `json:"repositoryName"`
 		KmsKeyID       string `json:"kmsKeyId"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, err
 	}
 	if req.RepositoryName == "" {

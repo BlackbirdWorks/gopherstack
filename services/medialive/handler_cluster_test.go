@@ -1,7 +1,7 @@
 package medialive_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/medialive"
 )
 
@@ -23,7 +24,7 @@ func createTestCluster(t *testing.T, h *medialive.Handler) string {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	return resp["id"].(string)
 }
@@ -48,7 +49,7 @@ func TestCluster_Create(t *testing.T) {
 				t.Helper()
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.Contains(t, resp["arn"], "arn:aws:medialive:us-east-1:000000000000:cluster:")
 				assert.Equal(t, "ACTIVE", resp["state"])
 				assert.NotEmpty(t, resp["id"])
@@ -91,7 +92,7 @@ func TestCluster_CRUD(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/prod/clusters/"+clusterID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, clusterID, descResp["id"])
 	assert.Equal(t, "ACTIVE", descResp["state"])
 
@@ -101,14 +102,14 @@ func TestCluster_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated-cluster", updateResp["name"])
 
 	// List
 	rec = doRequest(t, h, http.MethodGet, "/prod/clusters", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	clusters := listResp["clusters"].([]any)
 	assert.Len(t, clusters, 1)
 
@@ -116,7 +117,7 @@ func TestCluster_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodDelete, "/prod/clusters/"+clusterID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var delResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &delResp, jsonx.V1()))
 	assert.Equal(t, "DELETED", delResp["state"])
 
 	assert.Equal(t, 0, medialive.ClusterCount(h.Backend.(*medialive.InMemoryBackend)))
@@ -158,7 +159,7 @@ func TestClusterAlerts_Empty(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	alerts := resp["alerts"].([]any)
 	assert.Empty(t, alerts)
 }
@@ -179,7 +180,7 @@ func TestNodeRegistrationScript(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	script, ok := resp["nodeRegistrationScript"].(string)
 	assert.True(t, ok)
 	assert.NotEmpty(t, script)
@@ -198,7 +199,7 @@ func TestNode_CRUD(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	nodeID := createResp["id"].(string)
 	assert.NotEmpty(t, nodeID)
 	assert.Equal(t, "ACTIVE", createResp["state"])
@@ -215,7 +216,7 @@ func TestNode_CRUD(t *testing.T) {
 	rec = doRequest(t, h, http.MethodGet, "/prod/clusters/"+clusterID+"/nodes/"+nodeID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, nodeID, descResp["id"])
 
 	// Update node
@@ -231,7 +232,7 @@ func TestNode_CRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp, jsonx.V1()))
 	assert.Equal(t, "updated-node", updateResp["name"])
 	assert.Equal(t, "BACKUP", updateResp["role"])
 
@@ -247,14 +248,14 @@ func TestNode_CRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var stateResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stateResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &stateResp, jsonx.V1()))
 	assert.Equal(t, "DRAINING", stateResp["state"])
 
 	// List nodes
 	rec = doRequest(t, h, http.MethodGet, "/prod/clusters/"+clusterID+"/nodes", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp, jsonx.V1()))
 	nodes := listResp["nodes"].([]any)
 	assert.Len(t, nodes, 1)
 
@@ -356,7 +357,7 @@ func TestListClusterAlerts(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				alerts := resp["alerts"].([]any)
 
 				if tt.wantEmpty {

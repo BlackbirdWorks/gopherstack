@@ -1,10 +1,11 @@
 package apigateway
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -32,12 +33,12 @@ type unixEpochTime struct {
 }
 
 func (t unixEpochTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Unix())
+	return json.Marshal(t.Unix(), jsonx.V1())
 }
 
 func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
 	var epoch int64
-	if err := json.Unmarshal(b, &epoch); err != nil {
+	if err := json.Unmarshal(b, &epoch, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -105,7 +106,7 @@ func wirePolicyString(plain string) *string {
 		return nil
 	}
 
-	quoted, err := json.Marshal(plain)
+	quoted, err := json.Marshal(plain, jsonx.V1())
 	if err != nil || len(quoted) < 2 {
 		return nil
 	}

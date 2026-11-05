@@ -1,13 +1,15 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCreateTicketV2_ClientToken(t *testing.T) {
@@ -43,7 +45,7 @@ func TestCreateTicketV2_ClientToken(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 			var conn map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &conn))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &conn, jsonx.V1()))
 
 			create := func(token, uid string) *httptest.ResponseRecorder {
 				body := map[string]any{"ConnectorId": conn["ConnectorId"], "FindingMetadataUid": uid}
@@ -64,8 +66,8 @@ func TestCreateTicketV2_ClientToken(t *testing.T) {
 			}
 
 			var a, b map[string]any
-			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &a))
-			require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b))
+			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &a, jsonx.V1()))
+			require.NoError(t, json.Unmarshal(second.Body.Bytes(), &b, jsonx.V1()))
 			assert.Equal(t, tt.wantSame, a["TicketId"] == b["TicketId"])
 		})
 	}

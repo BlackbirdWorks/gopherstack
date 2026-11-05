@@ -1,7 +1,7 @@
 package managedblockchain_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +9,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_HandlerMetadata(t *testing.T) {
@@ -341,7 +343,7 @@ func TestHandler_ErrorResponseHasCodeField(t *testing.T) {
 			assert.Equal(t, tt.wantHTTP, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.Equal(t, tt.wantCode, resp["Code"],
 				"error response must include Code field; body: %s", rec.Body.String())
 			assert.NotEmpty(t, resp["message"],
@@ -388,7 +390,7 @@ func TestHandler_ErrorResponseMessageNotEmpty(t *testing.T) {
 			assert.NotEqual(t, http.StatusOK, rec.Code)
 
 			var resp map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["message"], "error response must include non-empty message")
 			assert.NotEmpty(t, resp["Code"], "error response must include non-empty Code")
 		})

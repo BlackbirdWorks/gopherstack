@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +13,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func layerDigest(data []byte) string {
@@ -78,7 +80,7 @@ func buildManifest(configDigest string, layerDigests ...string) string {
 		m.Layers = append(m.Layers, layer{Digest: d})
 	}
 
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(m, jsonx.V1())
 
 	return string(b)
 }

@@ -1,12 +1,14 @@
 package backup
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // splitVaultRP splits a "vaultName|recoveryPointArn" resource string.
@@ -362,7 +364,7 @@ func (h *Handler) handleUpdateRecoveryPointIndexSettings(
 	var reqBody struct {
 		Index string `json:"Index"`
 	}
-	_ = json.Unmarshal(body, &reqBody)
+	_ = json.Unmarshal(body, &reqBody, jsonx.V1())
 
 	if err := h.Backend.UpdateRecoveryPointIndexSettings(vaultName, rpArn, reqBody.Index); err != nil {
 		return h.handleError(c, err)
@@ -388,7 +390,7 @@ func (h *Handler) handleUpdateRecoveryPointLifecycle(
 			DeleteAfterDays            int64 `json:"DeleteAfterDays"`
 		} `json:"Lifecycle"`
 	}
-	_ = json.Unmarshal(body, &reqBody)
+	_ = json.Unmarshal(body, &reqBody, jsonx.V1())
 
 	if err := h.Backend.UpdateRecoveryPointLifecycle(vaultName, rpArn,
 		reqBody.Lifecycle.MoveToColdStorageAfterDays, reqBody.Lifecycle.DeleteAfterDays); err != nil {

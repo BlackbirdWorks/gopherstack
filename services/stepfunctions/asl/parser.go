@@ -4,10 +4,13 @@ package asl
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync/atomic"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // ErrParseError is returned when the state machine definition cannot be parsed.
@@ -70,37 +73,37 @@ type ItemBatcher struct {
 	maxItemsExpr string
 	maxBytesExpr string
 	// BatchInput is fixed JSON merged into every batch (input-output-itembatcher.html).
-	BatchInput json.RawMessage `json:"BatchInput,omitempty"`
+	BatchInput jsontext.Value `json:"BatchInput,omitempty"`
 	// MaxItemsPerBatch and MaxInputBytesPerBatch: zero means no limit.
 	MaxItemsPerBatch      int `json:"MaxItemsPerBatch,omitempty"`
 	MaxInputBytesPerBatch int `json:"MaxInputBytesPerBatch,omitempty"`
 }
 
 type itemBatcherWire struct {
-	MaxItemsPerBatchPath      string          `json:"MaxItemsPerBatchPath,omitempty"`
-	MaxInputBytesPerBatchPath string          `json:"MaxInputBytesPerBatchPath,omitempty"`
-	MaxItemsPerBatch          json.RawMessage `json:"MaxItemsPerBatch,omitempty"`
-	MaxInputBytesPerBatch     json.RawMessage `json:"MaxInputBytesPerBatch,omitempty"`
-	BatchInput                json.RawMessage `json:"BatchInput,omitempty"`
+	MaxItemsPerBatchPath      string         `json:"MaxItemsPerBatchPath,omitempty"`
+	MaxInputBytesPerBatchPath string         `json:"MaxInputBytesPerBatchPath,omitempty"`
+	MaxItemsPerBatch          jsontext.Value `json:"MaxItemsPerBatch,omitempty"`
+	MaxInputBytesPerBatch     jsontext.Value `json:"MaxInputBytesPerBatch,omitempty"`
+	BatchInput                jsontext.Value `json:"BatchInput,omitempty"`
 }
 
 // decodeBatchLimit reads an integer limit, or a JSONata string into expr.
-func decodeBatchLimit(raw json.RawMessage, n *int, expr *string) error {
+func decodeBatchLimit(raw jsontext.Value, n *int, expr *string) error {
 	if len(raw) == 0 {
 		return nil
 	}
 
 	if raw[0] == '"' {
-		return json.Unmarshal(raw, expr)
+		return json.Unmarshal(raw, expr, jsonx.V1())
 	}
 
-	return json.Unmarshal(raw, n)
+	return json.Unmarshal(raw, n, jsonx.V1())
 }
 
 // UnmarshalJSON accepts a JSONata string for either batch limit.
 func (b *ItemBatcher) UnmarshalJSON(data []byte) error {
 	var w itemBatcherWire
-	if err := json.Unmarshal(data, &w); err != nil {
+	if err := json.Unmarshal(data, &w, jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -134,15 +137,15 @@ func (b ItemBatcher) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	return json.Marshal(w)
+	return json.Marshal(w, jsonx.V1())
 }
 
-func encodeBatchLimit(n int, expr string) (json.RawMessage, error) {
+func encodeBatchLimit(n int, expr string) (jsontext.Value, error) {
 	switch {
 	case expr != "":
-		return json.Marshal(expr)
+		return json.Marshal(expr, jsonx.V1())
 	case n != 0:
-		return json.Marshal(n)
+		return json.Marshal(n, jsonx.V1())
 	}
 
 	return nil, nil
@@ -150,10 +153,10 @@ func encodeBatchLimit(n int, expr string) (json.RawMessage, error) {
 
 // ItemReader configures reading items from S3 for a Map state's Distributed Map.
 type ItemReader struct {
-	Parameters   map[string]any  `json:"Parameters,omitempty"`
-	ReaderConfig *ReaderConfig   `json:"ReaderConfig,omitempty"`
-	Resource     string          `json:"Resource,omitempty"`
-	Arguments    json.RawMessage `json:"Arguments,omitempty"`
+	Parameters   map[string]any `json:"Parameters,omitempty"`
+	ReaderConfig *ReaderConfig  `json:"ReaderConfig,omitempty"`
+	Resource     string         `json:"Resource,omitempty"`
+	Arguments    jsontext.Value `json:"Arguments,omitempty"`
 }
 
 // ReaderConfig describes how the ItemReader should interpret S3 object data.
@@ -196,7 +199,7 @@ type ResultWriter struct {
 	Parameters   map[string]any      `json:"Parameters,omitempty"`
 	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
 	Resource     string              `json:"Resource,omitempty"`
-	Arguments    json.RawMessage     `json:"Arguments,omitempty"`
+	Arguments    jsontext.Value      `json:"Arguments,omitempty"`
 }
 
 // ResultWriterConfig is ResultWriter.WriterConfig: Transformation
@@ -215,22 +218,22 @@ type State struct {
 	jx            *jxState
 	assignVals    map[string]any
 	// numExprs holds JSONata strings for fields that are integers in JSONPath.
-	Assign        json.RawMessage `json:"Assign,omitempty"`
-	Arguments     json.RawMessage `json:"Arguments,omitempty"`
-	Output        json.RawMessage `json:"Output,omitempty"`
-	Items         json.RawMessage `json:"Items,omitempty"`
+	Assign        jsontext.Value `json:"Assign,omitempty"`
+	Arguments     jsontext.Value `json:"Arguments,omitempty"`
+	Output        jsontext.Value `json:"Output,omitempty"`
+	Items         jsontext.Value `json:"Items,omitempty"`
 	numExprs      map[string]string
 	QueryLanguage string `json:"QueryLanguage,omitempty"`
 	lang          string
-	Iterator      *StateMachine   `json:"Iterator,omitempty"`
-	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
-	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`
-	ItemReader    *ItemReader     `json:"ItemReader,omitempty"`
-	ResultWriter  *ResultWriter   `json:"ResultWriter,omitempty"`
-	ItemSelector  json.RawMessage `json:"ItemSelector,omitempty"`
-	SecondsPath   string          `json:"SecondsPath,omitempty"`
-	TimestampPath string          `json:"TimestampPath,omitempty"`
-	ItemsPath     string          `json:"ItemsPath,omitempty"`
+	Iterator      *StateMachine  `json:"Iterator,omitempty"`
+	ItemProcessor *StateMachine  `json:"ItemProcessor,omitempty"`
+	ItemBatcher   *ItemBatcher   `json:"ItemBatcher,omitempty"`
+	ItemReader    *ItemReader    `json:"ItemReader,omitempty"`
+	ResultWriter  *ResultWriter  `json:"ResultWriter,omitempty"`
+	ItemSelector  jsontext.Value `json:"ItemSelector,omitempty"`
+	SecondsPath   string         `json:"SecondsPath,omitempty"`
+	TimestampPath string         `json:"TimestampPath,omitempty"`
+	ItemsPath     string         `json:"ItemsPath,omitempty"`
 	// ToleratedFailureCount/Percentage (and their *Path variants) bound how many
 	// Map iterations may fail before the Map state itself fails with
 	// States.ExceedToleratedFailureThreshold. AWS supports these only for
@@ -261,20 +264,20 @@ type State struct {
 	// reference-path siblings, mutually exclusive with them and resolved against
 	// the Task state's pre-Parameters input (AWS docs:
 	// amazon-states-language-task-state.html, GlueJobTask example).
-	TimeoutSecondsPath   string          `json:"TimeoutSecondsPath,omitempty"`
-	HeartbeatSecondsPath string          `json:"HeartbeatSecondsPath,omitempty"`
-	Retry                []Retrier       `json:"Retry,omitempty"`
-	Catch                []Catcher       `json:"Catch,omitempty"`
-	Choices              []ChoiceRule    `json:"Choices,omitempty"`
-	Result               json.RawMessage `json:"Result,omitempty"`
-	Branches             []Branch        `json:"Branches,omitempty"`
-	Parameters           json.RawMessage `json:"Parameters,omitempty"`
-	ResultSelector       json.RawMessage `json:"ResultSelector,omitempty"`
-	TimeoutSeconds       int             `json:"TimeoutSeconds,omitempty"`
-	HeartbeatSeconds     int             `json:"HeartbeatSeconds,omitempty"`
-	Seconds              int             `json:"Seconds,omitempty"`
-	MaxConcurrency       int             `json:"MaxConcurrency,omitempty"`
-	End                  bool            `json:"End,omitempty"`
+	TimeoutSecondsPath   string         `json:"TimeoutSecondsPath,omitempty"`
+	HeartbeatSecondsPath string         `json:"HeartbeatSecondsPath,omitempty"`
+	Retry                []Retrier      `json:"Retry,omitempty"`
+	Catch                []Catcher      `json:"Catch,omitempty"`
+	Choices              []ChoiceRule   `json:"Choices,omitempty"`
+	Result               jsontext.Value `json:"Result,omitempty"`
+	Branches             []Branch       `json:"Branches,omitempty"`
+	Parameters           jsontext.Value `json:"Parameters,omitempty"`
+	ResultSelector       jsontext.Value `json:"ResultSelector,omitempty"`
+	TimeoutSeconds       int            `json:"TimeoutSeconds,omitempty"`
+	HeartbeatSeconds     int            `json:"HeartbeatSeconds,omitempty"`
+	Seconds              int            `json:"Seconds,omitempty"`
+	MaxConcurrency       int            `json:"MaxConcurrency,omitempty"`
+	End                  bool           `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.
@@ -294,8 +297,8 @@ type Retrier struct {
 
 // Catcher defines catch behavior for a Task state on error.
 type Catcher struct {
-	Assign      json.RawMessage `json:"Assign,omitempty"`
-	Output      json.RawMessage `json:"Output,omitempty"`
+	Assign      jsontext.Value `json:"Assign,omitempty"`
+	Output      jsontext.Value `json:"Output,omitempty"`
 	assignVals  map[string]any
 	outputVal   any
 	Next        string   `json:"Next"`
@@ -314,8 +317,8 @@ type Branch struct {
 // ChoiceRule represents a single condition/transition in a Choice state.
 type ChoiceRule struct {
 	// Condition and Assign are the JSONata-mode rule fields.
-	Condition  string          `json:"Condition,omitempty"`
-	Assign     json.RawMessage `json:"Assign,omitempty"`
+	Condition  string         `json:"Condition,omitempty"`
+	Assign     jsontext.Value `json:"Assign,omitempty"`
 	assignVals map[string]any
 	// Numeric comparisons
 	NumericEquals                *float64 `json:"NumericEquals,omitempty"`
@@ -386,7 +389,7 @@ func ParseIsolatedState(definition string) (*StateMachine, error) {
 
 func parse(definition string, checkTransitions bool) (*StateMachine, error) {
 	var sm StateMachine
-	if err := json.Unmarshal([]byte(definition), &sm); err != nil {
+	if err := json.Unmarshal([]byte(definition), &sm, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrParseError, err)
 	}
 
@@ -610,7 +613,7 @@ func (s *State) UnmarshalJSON(b []byte) error {
 		}
 	}
 
-	if err := json.Unmarshal(b, (*stateAlias)(s)); err != nil {
+	if err := json.Unmarshal(b, (*stateAlias)(s), jsonx.V1()); err != nil {
 		return err
 	}
 
@@ -622,8 +625,8 @@ func (s *State) UnmarshalJSON(b []byte) error {
 // liftNumExprs removes string-valued integer fields from the state object and
 // returns them separately; the object is returned untouched if there are none.
 func liftNumExprs(b []byte) ([]byte, map[string]string, error) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(b, &raw); err != nil {
+	var raw map[string]jsontext.Value
+	if err := json.Unmarshal(b, &raw, jsonx.V1()); err != nil {
 		return nil, nil, err
 	}
 
@@ -636,7 +639,7 @@ func liftNumExprs(b []byte) ([]byte, map[string]string, error) {
 		}
 
 		var str string
-		if err := json.Unmarshal(v, &str); err != nil {
+		if err := json.Unmarshal(v, &str, jsonx.V1()); err != nil {
 			return nil, nil, err
 		}
 
@@ -652,7 +655,7 @@ func liftNumExprs(b []byte) ([]byte, map[string]string, error) {
 		return b, nil, nil
 	}
 
-	out, err := json.Marshal(raw)
+	out, err := json.Marshal(raw, jsonx.V1())
 
 	return out, exprs, err
 }

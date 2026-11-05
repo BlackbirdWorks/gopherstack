@@ -1,12 +1,14 @@
 package directoryservice_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // realIDPattern matches terraform-provider-aws's client-side ValidateFunc for
@@ -35,7 +37,7 @@ func TestIDFormats_MatchRealAWSPattern(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var snapResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &snapResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &snapResp, jsonx.V1()))
 	snapID, _ := snapResp["SnapshotId"].(string)
 	require.Regexp(t, realIDPattern, snapID, "snapshot ID")
 
@@ -48,7 +50,7 @@ func TestIDFormats_MatchRealAWSPattern(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var trustResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trustResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trustResp, jsonx.V1()))
 	trustID, _ := trustResp["TrustId"].(string)
 	require.Regexp(t, realIDPattern, trustID, "trust ID")
 }

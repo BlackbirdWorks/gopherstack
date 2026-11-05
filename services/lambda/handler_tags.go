@@ -2,7 +2,7 @@ package lambda
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -102,7 +103,7 @@ func (h *Handler) handleTagsRoute(c *echo.Context, method string) error {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 		}
 		var input lambdaTagsInput
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid body")
 		}
 		var kv map[string]string

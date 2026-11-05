@@ -1,13 +1,14 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -122,7 +123,7 @@ func (h *Handler) readJSONBody(c *echo.Context, dst any) bool {
 		return false
 	}
 
-	if json.Unmarshal(raw, dst) != nil {
+	if json.Unmarshal(raw, dst, jsonx.V1()) != nil {
 		_ = h.writeError(c, http.StatusBadRequest, "BadRequest", "The input is not valid JSON.")
 
 		return false

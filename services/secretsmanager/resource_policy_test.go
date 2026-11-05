@@ -6,7 +6,7 @@ package secretsmanager_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
@@ -360,7 +361,7 @@ func TestGetResourcePolicy_DeletedSecret_HTTP(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rec.Code)
 
 			var errResp secretsmanager.ErrorResponse
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.expectedType, errResp.Type)
 		})
 	}
@@ -398,7 +399,7 @@ func TestResourcePolicy_Cycle(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.PutResourcePolicyOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "policy-secret", out.Name)
 				assert.NotEmpty(t, out.ARN)
 			},
@@ -424,7 +425,7 @@ func TestResourcePolicy_Cycle(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.GetResourcePolicyOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "get-policy", out.Name)
 				assert.Contains(t, out.ResourcePolicy, "2012-10-17")
 			},
@@ -450,7 +451,7 @@ func TestResourcePolicy_Cycle(t *testing.T) {
 			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
 				var out secretsmanager.DeleteResourcePolicyOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, "del-policy", out.Name)
 			},
 		},
@@ -690,7 +691,7 @@ func TestValidateResourcePolicy_HTTP(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var out secretsmanager.ValidateResourcePolicyOutput
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 				assert.Equal(t, tt.wantPassed, out.PolicyValidationPassed)
 
 				if tt.wantErrCount > 0 {
@@ -720,12 +721,12 @@ func TestValidateResourcePolicy_HTTP_SecretExists(t *testing.T) {
 	body, _ := json.Marshal(map[string]string{
 		"SecretId":       "validate-test",
 		"ResourcePolicy": validPolicy,
-	})
+	}, jsonx.V1())
 
 	rec = doR1Request(t, h, "secretsmanager.ValidateResourcePolicy", string(body))
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out secretsmanager.ValidateResourcePolicyOutput
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.True(t, out.PolicyValidationPassed)
 }

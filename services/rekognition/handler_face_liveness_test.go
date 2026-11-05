@@ -1,12 +1,14 @@
 package rekognition_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // =============================================================================
@@ -25,14 +27,14 @@ func TestFaceLiveness_ConfidenceRange(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var createResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 		sessionID := createResp["SessionId"].(string)
 
 		rec = doRequest(t, h, "GetFaceLivenessSessionResults", map[string]any{"SessionId": sessionID})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resultResp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resultResp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resultResp, jsonx.V1()))
 		confidence := resultResp["Confidence"].(float64)
 		assert.GreaterOrEqual(t, confidence, float64(75), "confidence must be >= 75")
 		assert.Less(t, confidence, float64(100), "confidence must be < 100")
@@ -47,7 +49,7 @@ func TestFaceLiveness_TwoSessionsDifferentConfidence(t *testing.T) { //nolint:pa
 		rec := doRequest(t, h, "GetFaceLivenessSessionResults", map[string]any{"SessionId": sessionID})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 		return resp["Confidence"].(float64)
 	}
@@ -58,7 +60,7 @@ func TestFaceLiveness_TwoSessionsDifferentConfidence(t *testing.T) { //nolint:pa
 		rec := doRequest(t, h, "CreateFaceLivenessSession", map[string]any{})
 		require.Equal(t, http.StatusOK, rec.Code)
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		c := getConfidence(resp["SessionId"].(string))
 		confidences[c] = true
 	}
@@ -84,7 +86,7 @@ func TestFaceLiveness(t *testing.T) { //nolint:paralleltest // existing issue.
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["SessionId"])
 			},
 		},
@@ -103,7 +105,7 @@ func TestFaceLiveness(t *testing.T) { //nolint:paralleltest // existing issue.
 
 			if tc.action == "CreateFaceLivenessSession" && rec.Code == http.StatusOK {
 				var resp map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+				_ = json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1())
 				sessionID = resp["SessionId"].(string)
 			}
 		})
@@ -114,7 +116,7 @@ func TestFaceLiveness(t *testing.T) { //nolint:paralleltest // existing issue.
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		assert.Equal(t, "SUCCEEDED", resp["Status"])
 		assert.Equal(t, sessionID, resp["SessionId"])
 	})

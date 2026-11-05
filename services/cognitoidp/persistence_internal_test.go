@@ -1,12 +1,15 @@
 package cognitoidp
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestSnapshotRoundTrip_NonUTCZone guards against the bare-'Z' layout bug: Format's
@@ -128,19 +131,19 @@ func TestGlobalSignOut_RestoreFromV2Snapshot(t *testing.T) {
 	data := b.Snapshot(t.Context())
 	require.NotEmpty(t, data)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(data, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(data, &raw, jsonx.V1()))
 
 	delete(raw, "tokenSeq")
 	delete(raw, "tokenRevokedBeforeSeq")
 
 	key := pool.ID + ":" + user.Username
-	revoked, err := json.Marshal(map[string]time.Time{key: baseTime})
+	revoked, err := json.Marshal(map[string]time.Time{key: baseTime}, jsonx.V1())
 	require.NoError(t, err)
 	raw["tokenRevokedBefore"] = revoked
-	raw["version"] = json.RawMessage(`2`)
+	raw["version"] = jsontext.Value(`2`)
 
-	patched, err := json.Marshal(raw)
+	patched, err := json.Marshal(raw, jsonx.V1())
 	require.NoError(t, err)
 
 	b2 := NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")

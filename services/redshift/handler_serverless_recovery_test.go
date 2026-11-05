@@ -1,13 +1,15 @@
 package redshift_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
@@ -31,7 +33,7 @@ func seedNamespaceAndWorkgroup(
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	points, _ := listResp["recoveryPoints"].([]any)
 	require.Len(t, points, 1, "CreateWorkgroup must generate exactly one recovery point")
 
@@ -57,7 +59,7 @@ func TestServerless_RecoveryPoint_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&getResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &getResp, jsonx.V1()))
 	got, _ := getResp["recoveryPoint"].(map[string]any)
 	require.NotNil(t, got)
 	assert.Equal(t, recoveryPointID, got["recoveryPointId"])
@@ -70,7 +72,7 @@ func TestServerless_RecoveryPoint_CRUD(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var restoreResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&restoreResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &restoreResp, jsonx.V1()))
 	assert.Equal(t, recoveryPointID, restoreResp["recoveryPointId"])
 	ns, _ := restoreResp["namespace"].(map[string]any)
 	require.NotNil(t, ns)
@@ -129,7 +131,7 @@ func TestServerless_RecoveryPoint_Errors(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code)
 
 			var errResp map[string]any
-			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 			assert.Equal(t, tt.wantType, errResp["__type"])
 		})
 	}
@@ -154,7 +156,7 @@ func TestServerless_RestoreFromRecoveryPoint_WorkgroupNamespaceMismatch(t *testi
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&listResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &listResp, jsonx.V1()))
 	points, _ := listResp["recoveryPoints"].([]any)
 	require.Len(t, points, 1)
 	rp, _ := points[0].(map[string]any)
@@ -168,6 +170,6 @@ func TestServerless_RestoreFromRecoveryPoint_WorkgroupNamespaceMismatch(t *testi
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
 	var errResp map[string]any
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	require.NoError(t, json.UnmarshalDecode(jsontext.NewDecoder(rec.Body), &errResp, jsonx.V1()))
 	assert.Equal(t, "ValidationException", errResp["__type"])
 }

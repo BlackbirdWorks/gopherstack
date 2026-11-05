@@ -1,7 +1,7 @@
 package bedrock_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
@@ -185,7 +186,7 @@ func TestAccuracy_ImportedModel_VisibleAfterImportJob(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			models := out["modelSummaries"].([]any)
 			assert.Len(t, models, 1)
 
@@ -195,7 +196,7 @@ func TestAccuracy_ImportedModel_VisibleAfterImportJob(t *testing.T) {
 			require.Equal(t, http.StatusOK, recGet.Code)
 
 			var modelOut map[string]any
-			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &modelOut))
+			require.NoError(t, json.Unmarshal(recGet.Body.Bytes(), &modelOut, jsonx.V1()))
 			assert.Equal(t, job.ImportedModelArn, modelOut["modelArn"])
 			assert.Equal(t, tt.jobName+"-model", modelOut["modelName"])
 			assert.Equal(t, job.JobArn, modelOut["jobArn"])
@@ -223,7 +224,7 @@ func TestAccuracy_ImportedModel_DeleteRemovesFromList(t *testing.T) {
 	require.Equal(t, http.StatusOK, recList.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(recList.Body.Bytes(), &out, jsonx.V1()))
 	assert.Empty(t, out["modelSummaries"].([]any))
 }
 
@@ -240,7 +241,7 @@ func TestAccuracy_ModelImportJob_EndTimeAbsentWhileInProgress(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.Equal(t, "InProgress", out["status"])
 	_, hasEndTime := out["endTime"]
 	assert.False(t, hasEndTime, "endTime must not be present while InProgress")
@@ -282,14 +283,14 @@ func TestAccuracy_ModelImportJob_ImportedModelStatus(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobARN := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/model-import-jobs/"+jobARN, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 
 	// Status should be one of the valid statuses
 	assert.Contains(t, []any{"InProgress", "Completed", "Failed"}, getOut["status"])
@@ -307,14 +308,14 @@ func TestAccuracy_ModelImportJob_TagsPreserved(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	jobARN := out["jobArn"].(string)
 
 	getRec := doRequest(t, h, http.MethodGet, "/model-import-jobs/"+jobARN, nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getOut map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut, jsonx.V1()))
 	assert.Equal(t, "tagged-import", getOut["jobName"])
 }
 
@@ -330,7 +331,7 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 	require.Equal(t, http.StatusCreated, importRec.Code)
 
 	var importOut map[string]any
-	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut))
+	require.NoError(t, json.Unmarshal(importRec.Body.Bytes(), &importOut, jsonx.V1()))
 	jobARN := importOut["jobArn"].(string)
 
 	// Advance job status to complete (zero duration = immediate)
@@ -341,7 +342,7 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 	require.Equal(t, http.StatusOK, getJobRec.Code)
 
 	var jobOut map[string]any
-	require.NoError(t, json.Unmarshal(getJobRec.Body.Bytes(), &jobOut))
+	require.NoError(t, json.Unmarshal(getJobRec.Body.Bytes(), &jobOut, jsonx.V1()))
 	importedModelARN := jobOut["importedModelArn"].(string)
 	assert.NotEmpty(t, importedModelARN)
 
@@ -350,7 +351,7 @@ func TestAccuracy_ImportedModel_AvailableAfterJobComplete(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listOut, jsonx.V1()))
 	models := listOut["modelSummaries"].([]any)
 	assert.NotEmpty(t, models)
 }

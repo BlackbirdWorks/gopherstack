@@ -1,13 +1,14 @@
 package appstream_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appstream"
 )
 
@@ -37,7 +38,7 @@ func TestAppStream_AppBlocks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				ab := resp["AppBlock"].(map[string]any)
 				assert.Equal(t, "my-block", ab["Name"])
 				assert.Contains(t, ab["Arn"], ":app-block/my-block")
@@ -73,7 +74,7 @@ func TestAppStream_AppBlocks(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				blocks := resp["AppBlocks"].([]any)
 				assert.Len(t, blocks, 2)
 			},
@@ -136,7 +137,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bb := resp["AppBlockBuilder"].(map[string]any)
 				assert.Equal(t, "my-builder", bb["Name"])
 				assert.Equal(t, "STOPPED", bb["State"])
@@ -162,7 +163,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bb := resp["AppBlockBuilder"].(map[string]any)
 				assert.Equal(t, "RUNNING", bb["State"])
 			},
@@ -180,7 +181,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bb := resp["AppBlockBuilder"].(map[string]any)
 				assert.Equal(t, "STOPPED", bb["State"])
 			},
@@ -196,7 +197,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bb := resp["AppBlockBuilder"].(map[string]any)
 				assert.Equal(t, "STOPPED", bb["State"])
 			},
@@ -212,7 +213,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				bb := resp["AppBlockBuilder"].(map[string]any)
 				assert.Equal(t, "updated", bb["Description"])
 			},
@@ -228,7 +229,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assert.NotEmpty(t, resp["StreamingURL"])
 				assert.NotEmpty(t, resp["Expires"])
 			},
@@ -263,7 +264,7 @@ func TestAppStream_AppBlockBuilders(t *testing.T) {
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(respBody, &resp))
+				require.NoError(t, json.Unmarshal(respBody, &resp, jsonx.V1()))
 				assocs := resp["AppBlockBuilderAppBlockAssociations"].([]any)
 				assert.Len(t, assocs, 1)
 			},
@@ -307,7 +308,7 @@ func TestAppStream_AppBlockARNFormat(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ab := resp["AppBlock"].(map[string]any)
 	assert.Contains(t, ab["Arn"], "arn:aws:appstream:")
 	assert.Contains(t, ab["Arn"], "app-block/arn-appblock")
@@ -330,7 +331,7 @@ func TestAppStream_AppBlockBuilderStreamingURL(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["StreamingURL"])
 	assert.NotEmpty(t, resp["Expires"])
 }
@@ -355,7 +356,7 @@ func TestAppStream_DeleteAppBlock_InUseByApplication(t *testing.T) {
 		require.Equal(t, http.StatusOK, abRec.Code)
 
 		var abResp map[string]any
-		require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp))
+		require.NoError(t, json.Unmarshal(abRec.Body.Bytes(), &abResp, jsonx.V1()))
 		ab := abResp["AppBlock"].(map[string]any)
 
 		appRec := doRequest(t, h, "CreateApplication", map[string]any{

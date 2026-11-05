@@ -1,9 +1,11 @@
 package bedrockagent_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandlerFlowCRUD(t *testing.T) {
@@ -26,7 +28,7 @@ func TestHandlerFlowCRUD(t *testing.T) {
 	}
 
 	var createResp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &createResp)
+	_ = json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1())
 	flowID, _ := createResp["id"].(string)
 
 	if flowID == "" {
@@ -40,7 +42,7 @@ func TestHandlerFlowCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPost, "/flows", createBody)
 
 		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["id"].(string)
 
 		rec2 := doRequest(t, h2, e2, http.MethodGet, "/flows/"+id, nil)
@@ -65,7 +67,7 @@ func TestHandlerFlowCRUD(t *testing.T) {
 		r := doRequest(t, h2, e2, http.MethodPost, "/flows", createBody)
 
 		var resp map[string]any
-		_ = json.Unmarshal(r.Body.Bytes(), &resp)
+		_ = json.Unmarshal(r.Body.Bytes(), &resp, jsonx.V1())
 		id := resp["id"].(string)
 
 		// Real PrepareFlow POSTs to "/flows/{flowIdentifier}/" -- no

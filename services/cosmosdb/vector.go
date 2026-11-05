@@ -1,11 +1,14 @@
 package cosmosdb
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -50,20 +53,20 @@ func validVectorIndexType(s string) bool {
 	return slices.Contains([]string{vectorIdxFlat, vectorIdxQuantizedFlat, vectorIdxDiskANN}, s)
 }
 
-func parseVectorPolicy(raw json.RawMessage) (vectorEmbeddingPolicy, error) {
+func parseVectorPolicy(raw jsontext.Value) (vectorEmbeddingPolicy, error) {
 	var pol vectorEmbeddingPolicy
 	if isJSONNull(raw) {
 		return pol, nil
 	}
 
-	if err := json.Unmarshal(raw, &pol); err != nil {
+	if err := json.Unmarshal(raw, &pol, jsonx.V1()); err != nil {
 		return pol, fmt.Errorf("%w: vectorEmbeddingPolicy is malformed", ErrInvalidContainerPolicy)
 	}
 
 	return pol, nil
 }
 
-func validateVectorPolicy(raw json.RawMessage) error {
+func validateVectorPolicy(raw jsontext.Value) error {
 	pol, err := parseVectorPolicy(raw)
 	if err != nil {
 		return err

@@ -2,7 +2,8 @@ package gcpbigquery
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -179,11 +181,10 @@ func decodeObject(data []byte) (map[string]any, error) {
 		return map[string]any{}, nil
 	}
 
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(string(data)))
 
 	var body map[string]any
-	if err := dec.Decode(&body); err != nil {
+	if err := json.UnmarshalDecode(dec, &body, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return nil, errInvalid("Invalid JSON payload received: %v", err)
 	}
 
@@ -366,10 +367,9 @@ func (h *Handler) insertAll(c *echo.Context, rt route) error {
 		return newErr(http.StatusRequestEntityTooLarge, "uploadTooLarge", "Request body is too large or unreadable.")
 	}
 
-	dec := json.NewDecoder(strings.NewReader(string(data)))
-	dec.UseNumber()
+	dec := jsontext.NewDecoder(strings.NewReader(string(data)))
 
-	if err := dec.Decode(&req); err != nil {
+	if err := json.UnmarshalDecode(dec, &req, jsonx.V1(), jsonx.UseNumber()); err != nil {
 		return errInvalid("Invalid JSON payload received: %v", err)
 	}
 

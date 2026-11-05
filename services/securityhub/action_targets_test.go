@@ -1,13 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -27,7 +28,7 @@ func TestCreateActionTargetPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	arn, _ := resp["ActionTargetArn"].(string)
 	assert.NotEmpty(t, arn)
@@ -51,7 +52,7 @@ func TestDescribeActionTargetsIsPOSTActionTargetsGet(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	targets, _ := resp["ActionTargets"].([]any)
 	assert.Len(t, targets, 1)
@@ -74,7 +75,7 @@ func TestDeleteActionTargetIsDELETEActionTargetsArn(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	arn, _ := createResp["ActionTargetArn"].(string)
 
@@ -82,7 +83,7 @@ func TestDeleteActionTargetIsDELETEActionTargetsArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	deletedArn, _ := resp["ActionTargetArn"].(string)
 	assert.Equal(t, arn, deletedArn, "DeleteActionTarget must return the deleted ActionTargetArn")

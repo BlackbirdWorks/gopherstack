@@ -3,7 +3,7 @@ package kms_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 
 	"strings"
@@ -29,7 +30,7 @@ func TestTagResource_PendingDeletion_Rejected(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"KeyId": keyID,
 		"Tags":  []map[string]string{{"TagKey": "env", "TagValue": "test"}},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doKMSRequest(t, h, "TagResource", string(body))
@@ -38,7 +39,7 @@ func TestTagResource_PendingDeletion_Rejected(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 }
 
@@ -69,7 +70,7 @@ func TestTagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 			body, merr := json.Marshal(map[string]any{
 				"KeyId": keyID,
 				"Tags":  []map[string]string{{"TagKey": "env", "TagValue": "test"}},
-			})
+			}, jsonx.V1())
 			require.NoError(t, merr)
 
 			rec := doKMSRequest(t, h, "TagResource", string(body))
@@ -90,7 +91,7 @@ func TestUntagResource_PendingDeletion_Rejected(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"KeyId":   keyID,
 		"TagKeys": []string{"env"},
-	})
+	}, jsonx.V1())
 	require.NoError(t, err)
 
 	rec := doKMSRequest(t, h, "UntagResource", string(body))
@@ -99,7 +100,7 @@ func TestUntagResource_PendingDeletion_Rejected(t *testing.T) {
 	var errResp struct {
 		Type string `json:"__type"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Equal(t, "KMSInvalidStateException", errResp.Type)
 }
 
@@ -130,7 +131,7 @@ func TestUntagResource_EnabledAndDisabled_Accepted(t *testing.T) {
 			body, merr := json.Marshal(map[string]any{
 				"KeyId":   keyID,
 				"TagKeys": []string{"nonexistent-key"},
-			})
+			}, jsonx.V1())
 			require.NoError(t, merr)
 
 			rec := doKMSRequest(t, h, "UntagResource", string(body))
@@ -219,7 +220,7 @@ func TestTagResource_AndListResourceTags_Roundtrip(t *testing.T) {
 			TagValue string `json:"TagValue"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp, jsonx.V1()))
 	assert.Len(t, tagsResp.Tags, 2)
 }
 
@@ -248,7 +249,7 @@ func TestUntagResource_RemovesSpecifiedTags(t *testing.T) {
 			TagKey string `json:"TagKey"`
 		} `json:"Tags"`
 	}
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &tagsResp, jsonx.V1()))
 	keys := make([]string, 0, len(tagsResp.Tags))
 	for _, t := range tagsResp.Tags {
 		keys = append(keys, t.TagKey)
@@ -318,7 +319,7 @@ func TestListResourceTags_Pagination(t *testing.T) {
 		Tags      []any `json:"Tags"`
 		Truncated bool  `json:"Truncated"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Len(t, resp.Tags, 3)
 	assert.True(t, resp.Truncated)
 }
@@ -353,12 +354,12 @@ func TestKMSTagOperations(t *testing.T) {
 	keyID := keyOut.KeyMetadata.KeyID
 
 	// ListResourceTags on a key with no tags
-	listBody, _ := json.Marshal(map[string]string{"KeyId": keyID})
+	listBody, _ := json.Marshal(map[string]string{"KeyId": keyID}, jsonx.V1())
 	rec := doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var listOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	assert.Empty(t, listOut["Tags"])
 	assert.Equal(t, false, listOut["Truncated"])
 
@@ -369,7 +370,7 @@ func TestKMSTagOperations(t *testing.T) {
 			{"TagKey": "env", "TagValue": "prod"},
 			{"TagKey": "team", "TagValue": "backend"},
 		},
-	})
+	}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "TagResource", string(tagBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -377,7 +378,7 @@ func TestKMSTagOperations(t *testing.T) {
 	rec = doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	tags, ok := listOut["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags, 2)
@@ -386,13 +387,13 @@ func TestKMSTagOperations(t *testing.T) {
 	untagBody, _ := json.Marshal(map[string]any{
 		"KeyId":   keyID,
 		"TagKeys": []string{"team"},
-	})
+	}, jsonx.V1())
 	rec = doKMSHTTPRequest(t, h, "UntagResource", string(untagBody))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// ListResourceTags should now return 1 tag
 	rec = doKMSHTTPRequest(t, h, "ListResourceTags", string(listBody))
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut, jsonx.V1()))
 	tags, ok = listOut["Tags"].([]any)
 	require.True(t, ok)
 	assert.Len(t, tags, 1)
@@ -536,7 +537,7 @@ func TestKMSHandlerListResourceTagsPagination(t *testing.T) {
 				Tags       []any  `json:"Tags"`
 				Truncated  bool   `json:"Truncated"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Tags, tt.wantCount)
 			assert.Equal(t, tt.wantTruncated, out.Truncated)
 
@@ -590,7 +591,7 @@ func TestHandlerTagResourceMaxTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	// Build a tag list with 51 unique entries.
@@ -622,14 +623,14 @@ func TestHandlerCreateKeyWithTagsApplied(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createOut map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut, jsonx.V1()))
 	keyID := createOut["KeyMetadata"].(map[string]any)["KeyId"].(string)
 
 	tagListRec := sendKMSOp(t, h, "ListResourceTags", `{"KeyId":"`+keyID+`"}`)
 	require.Equal(t, http.StatusOK, tagListRec.Code)
 
 	var tagListOut map[string]any
-	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut))
+	require.NoError(t, json.Unmarshal(tagListRec.Body.Bytes(), &tagListOut, jsonx.V1()))
 	tags := tagListOut["Tags"].([]any)
 	require.NotEmpty(t, tags)
 

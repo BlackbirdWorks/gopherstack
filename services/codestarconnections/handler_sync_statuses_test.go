@@ -2,13 +2,14 @@ package codestarconnections_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/codestarconnections"
 )
 
@@ -74,7 +75,7 @@ func TestHandler_GetRepositorySyncStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			latest, ok := out["LatestSync"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "SUCCEEDED", latest["Status"])
@@ -136,7 +137,7 @@ func TestHandler_GetResourceSyncStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			latest, ok := out["LatestSync"].(map[string]any)
 			require.True(t, ok)
 			assert.Equal(t, "SUCCEEDED", latest["Status"])

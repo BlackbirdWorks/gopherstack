@@ -2,7 +2,7 @@ package azureservicebus_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 )
 
@@ -146,7 +147,7 @@ func TestHandler_MessageLifecycle_Queue(t *testing.T) {
 
 	var bp map[string]any
 
-	require.NoError(t, json.Unmarshal([]byte(bpHeader), &bp))
+	require.NoError(t, json.Unmarshal([]byte(bpHeader), &bp, jsonx.V1()))
 	messageID, _ := bp["MessageId"].(string)
 	lockToken, _ := bp["LockToken"].(string)
 	require.NotEmpty(t, messageID)

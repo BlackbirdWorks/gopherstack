@@ -1,7 +1,8 @@
 package eventbridge_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 )
 
@@ -82,14 +84,14 @@ func TestStartReplay_ReplayStartTimeIsEpochFloat(t *testing.T) {
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			replayStartRaw, ok := raw["ReplayStartTime"]
 			require.True(t, ok, "ReplayStartTime must be present in StartReplay response")
 
 			var f float64
-			err := json.Unmarshal(replayStartRaw, &f)
+			err := json.Unmarshal(replayStartRaw, &f, jsonx.V1())
 			require.NoError(
 				t,
 				err,
@@ -131,14 +133,14 @@ func TestHandler_DescribeReplay_TimestampsAreEpochSeconds(t *testing.T) {
 	rec = auditMakeRequest(t, h, e, "DescribeReplay", map[string]any{"ReplayName": "epoch-replay"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	startRaw, ok := raw["EventStartTime"]
 	require.True(t, ok, "EventStartTime must be present")
 
 	var f float64
-	require.NoError(t, json.Unmarshal(startRaw, &f),
+	require.NoError(t, json.Unmarshal(startRaw, &f, jsonx.V1()),
 		"EventStartTime must be a JSON number (epoch seconds), got: %s", string(startRaw))
 	assert.Greater(t, f, float64(0))
 }

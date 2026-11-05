@@ -1,7 +1,7 @@
 package lambda
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // resourcePolicyBody is PutResourcePolicy's real request body shape
@@ -60,7 +61,7 @@ func (h *Handler) handlePutResourcePolicy(c *echo.Context, b *InMemoryBackend, r
 	}
 
 	var input resourcePolicyBody
-	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+	if unmarshalErr := json.Unmarshal(body, &input, jsonx.V1()); unmarshalErr != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 

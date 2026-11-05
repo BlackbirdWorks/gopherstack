@@ -2,7 +2,8 @@ package awsconfig
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/regionpeers"
@@ -202,8 +204,8 @@ type configNameBody struct {
 
 // extractNamedField extracts a top-level string field by key from a JSON body.
 func extractNamedField(body []byte, key string) string {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(body, &m); err != nil {
+	var m map[string]jsontext.Value
+	if err := json.Unmarshal(body, &m, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -213,7 +215,7 @@ func extractNamedField(body []byte, key string) string {
 	}
 
 	var s string
-	if err := json.Unmarshal(raw, &s); err != nil {
+	if err := json.Unmarshal(raw, &s, jsonx.V1()); err != nil {
 		return ""
 	}
 
@@ -279,13 +281,13 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	return json.Marshal(result, jsonx.V1())
 }
 
 // marshalError serialises a typed AWS error response into bytes.
 // Marshaling a struct with only string fields cannot fail; error is intentionally ignored.
 func marshalError(errType, message string) []byte {
-	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message})
+	payload, _ := json.Marshal(service.JSONErrorResponse{Type: errType, Message: message}, jsonx.V1())
 
 	return payload
 }
@@ -350,15 +352,12 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		}
 	}
 
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
 	// configservice@v1.68.4 has no single code that fits every operation here:
 	// ValidationException is modeled on only 38 of its ~102 operations, the rest
 	// use InvalidParameterValueException or model no bad-request-class error at
 	// all (e.g. DeleteConfigurationAggregator declares only
 	// NoSuchConfigurationAggregatorException). Left untyped rather than guessing.
-	if errors.Is(err, errUnknownAction) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+	if errors.Is(err, errUnknownAction) || jsonx.IsSyntaxError(err) || jsonx.IsTypeError(err) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	}
 

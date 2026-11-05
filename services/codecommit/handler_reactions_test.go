@@ -1,12 +1,14 @@
 package codecommit_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_GetCommentReactions(t *testing.T) {
@@ -23,7 +25,7 @@ func TestHandler_GetCommentReactions(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	cID := cr["comment"].(map[string]any)["commentId"].(string)
 
 	doRequest(t, h, "PutCommentReaction", map[string]any{
@@ -35,7 +37,7 @@ func TestHandler_GetCommentReactions(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	reactions := resp["reactionsForComment"].([]any)
 	assert.Len(t, reactions, 1)
 }
@@ -54,7 +56,7 @@ func TestHandler_PutCommentReaction(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	cID := cr["comment"].(map[string]any)["commentId"].(string)
 
 	rec = doRequest(t, h, "PutCommentReaction", map[string]any{

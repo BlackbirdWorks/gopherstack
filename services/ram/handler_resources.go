@@ -2,11 +2,12 @@ package ram
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -52,7 +53,7 @@ type listResourcesResponse struct {
 
 func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, error) {
 	var req listResourcesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -85,7 +86,7 @@ func (h *Handler) handleListResources(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(listResourcesResponse{NextToken: nextToken, Resources: page})
+	return json.Marshal(listResourcesResponse{NextToken: nextToken, Resources: page}, jsonx.V1())
 }
 
 type listPendingInvitationResourcesRequest struct {
@@ -104,7 +105,7 @@ func (h *Handler) handleListPendingInvitationResources(
 	body []byte,
 ) ([]byte, error) {
 	var req listPendingInvitationResourcesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -129,7 +130,7 @@ func (h *Handler) handleListPendingInvitationResources(
 	}
 
 	return json.Marshal(
-		listPendingInvitationResourcesResponse{NextToken: nextToken, Resources: page},
+		listPendingInvitationResourcesResponse{NextToken: nextToken, Resources: page}, jsonx.V1(),
 	)
 }
 
@@ -147,7 +148,7 @@ type getResourcePoliciesResponse struct {
 
 func (h *Handler) handleGetResourcePolicies(_ context.Context, body []byte) ([]byte, error) {
 	var req getResourcePoliciesRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -177,7 +178,7 @@ func (h *Handler) handleGetResourcePolicies(_ context.Context, body []byte) ([]b
 		return nil, err
 	}
 
-	return json.Marshal(getResourcePoliciesResponse{NextToken: nextToken, Policies: page})
+	return json.Marshal(getResourcePoliciesResponse{NextToken: nextToken, Policies: page}, jsonx.V1())
 }
 
 type resourceTypeObject struct {
@@ -320,7 +321,7 @@ type listResourceTypesRequest struct {
 func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byte, error) {
 	var req listResourceTypesRequest
 	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
+		if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 		}
 	}
@@ -350,7 +351,7 @@ func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byt
 
 	pg := page.New(types, req.NextToken, limit, len(awsShareableResourceTypes))
 
-	return json.Marshal(listResourceTypesResponse{ResourceTypes: pg.Data, NextToken: pg.Next})
+	return json.Marshal(listResourceTypesResponse{ResourceTypes: pg.Data, NextToken: pg.Next}, jsonx.V1())
 }
 
 // associatedSourceObject is the JSON representation of an AssociatedSource (RAM's wire
@@ -386,7 +387,7 @@ type listSourceAssociationsRequest struct {
 
 func (h *Handler) handleListSourceAssociations(_ context.Context, body []byte) ([]byte, error) {
 	var req listSourceAssociationsRequest
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -408,5 +409,5 @@ func (h *Handler) handleListSourceAssociations(_ context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(listSourceAssociationsResponse{NextToken: nextToken, SourceAssociations: page})
+	return json.Marshal(listSourceAssociationsResponse{NextToken: nextToken, SourceAssociations: page}, jsonx.V1())
 }

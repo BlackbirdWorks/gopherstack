@@ -2,13 +2,14 @@ package resourcegroupstaggingapi_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
@@ -184,7 +185,7 @@ func TestGetComplianceSummaryJSONShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["SummaryList"].([]any)
 	require.True(t, ok, "SummaryList should be a JSON array")
@@ -312,7 +313,7 @@ func TestListRequiredTagsJSONShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 
 	list, ok := out["RequiredTags"].([]any)
 	require.True(t, ok, "RequiredTags should be a JSON array")

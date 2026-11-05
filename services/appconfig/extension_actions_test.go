@@ -3,7 +3,7 @@ package appconfig_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"sync"
 	"testing"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/appconfig"
 )
 
@@ -50,7 +51,7 @@ func (r *recordingInvoker) lastEvent(t *testing.T) map[string]any {
 	require.NotEmpty(t, r.payloads)
 
 	var ev map[string]any
-	require.NoError(t, json.Unmarshal(r.payloads[len(r.payloads)-1], &ev))
+	require.NoError(t, json.Unmarshal(r.payloads[len(r.payloads)-1], &ev, jsonx.V1()))
 
 	return ev
 }

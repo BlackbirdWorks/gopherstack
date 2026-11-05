@@ -3,7 +3,7 @@ package rdsdata
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/url"
@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -127,7 +128,7 @@ func (e *realEngine) loginFor(ctx context.Context, resourceARN string) (realLogi
 		Password string `json:"password"`
 	}
 
-	if json.Unmarshal([]byte(raw), &creds) != nil || creds.Username == "" || creds.Password == "" {
+	if json.Unmarshal([]byte(raw), &creds, jsonx.V1()) != nil || creds.Username == "" || creds.Password == "" {
 		return realLogin{}, false, errInvalidSecret("the secret must be a JSON object with username and password")
 	}
 

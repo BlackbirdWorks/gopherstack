@@ -2,7 +2,9 @@ package kms
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
@@ -10,7 +12,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		opEncrypt: func(ctx context.Context, b []byte) (any, error) {
 			var input EncryptInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -18,7 +20,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opDecrypt: func(ctx context.Context, b []byte) (any, error) {
 			var input DecryptInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -26,7 +28,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opGenerateDataKey: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -34,7 +36,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opGenerateDataKeyWithoutPlaintext: func(ctx context.Context, b []byte) (any, error) {
 			var input GenerateDataKeyWithoutPlaintextInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -42,7 +44,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		"ReEncrypt": func(ctx context.Context, b []byte) (any, error) {
 			var input ReEncryptInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -50,7 +52,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opSign: func(ctx context.Context, b []byte) (any, error) {
 			var input SignInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -58,7 +60,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opVerify: func(ctx context.Context, b []byte) (any, error) {
 			var input VerifyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 
@@ -66,7 +68,7 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 		},
 		opGetPublicKey: func(ctx context.Context, b []byte) (any, error) {
 			var input GetPublicKeyInput
-			if err := json.Unmarshal(b, &input); err != nil {
+			if err := json.Unmarshal(b, &input, jsonx.V1()); err != nil {
 				return nil, err
 			}
 

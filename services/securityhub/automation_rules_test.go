@@ -1,13 +1,14 @@
 package securityhub_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
@@ -29,7 +30,7 @@ func TestCreateAutomationRulePath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	ruleArn, _ := resp["RuleArn"].(string)
 	assert.NotEmpty(t, ruleArn)
@@ -55,7 +56,7 @@ func TestListAutomationRulesIsGETAutomationrulesList(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rules, _ := resp["AutomationRulesMetadata"].([]any)
 	assert.Len(t, rules, 1)
@@ -81,7 +82,7 @@ func TestBatchGetAutomationRulesPath(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ruleArn, _ := createResp["RuleArn"].(string)
 
 	rec := doRequest(t, h, http.MethodPost, "/automationrules/get", map[string]any{
@@ -91,7 +92,7 @@ func TestBatchGetAutomationRulesPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	rules, _ := resp["Rules"].([]any)
 	assert.Len(t, rules, 1)
@@ -117,7 +118,7 @@ func TestBatchDeleteAutomationRulesPath(t *testing.T) {
 	})
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ruleArn, _ := createResp["RuleArn"].(string)
 
 	rec := doRequest(t, h, http.MethodPost, "/automationrules/delete", map[string]any{
@@ -127,7 +128,7 @@ func TestBatchDeleteAutomationRulesPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.Contains(t, resp, "ProcessedAutomationRules")
 	assert.Contains(t, resp, "UnprocessedAutomationRules")
@@ -156,7 +157,7 @@ func TestCreateAutomationRule_ResponseFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.NotEmpty(t, resp["RuleArn"], "RuleArn must be present")
 	assert.NotEmpty(t, resp["CreatedAt"], "CreatedAt must be present")
 	assert.Equal(t, "my-rule", resp["RuleName"])
@@ -184,7 +185,7 @@ func TestCreateAutomationRule_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	ruleArn, _ := resp["RuleArn"].(string)
 	require.NotEmpty(t, ruleArn)
 
@@ -192,7 +193,7 @@ func TestCreateAutomationRule_TagsReachTagStore(t *testing.T) {
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
 	var tagResp map[string]any
-	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp, jsonx.V1()))
 	tags, _ := tagResp["Tags"].(map[string]any)
 	assert.Equal(t, "sec", tags["team"])
 }
@@ -215,7 +216,7 @@ func TestBatchUpdateAutomationRules_CriteriaAndActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	ruleArn := createResp["RuleArn"].(string)
 
 	// Update its Criteria and Actions
@@ -240,7 +241,7 @@ func TestBatchUpdateAutomationRules_CriteriaAndActions(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	rules, _ := getResp["Rules"].([]any)
 	require.Len(t, rules, 1)
 
@@ -272,7 +273,7 @@ func TestUpdateAutomationRuleV2_ActionsApplied(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 	identifier, _ := createResp["RuleId"].(string)
 	require.NotEmpty(t, identifier)
 
@@ -289,7 +290,7 @@ func TestUpdateAutomationRuleV2_ActionsApplied(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateResp map[string]any
-	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp))
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateResp, jsonx.V1()))
 
 	actions, _ := updateResp["Actions"].([]any)
 	require.Len(t, actions, 1, "Actions update must be applied, not silently dropped")
@@ -378,7 +379,7 @@ func TestHandler_BatchUpdateAutomationRules(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			ruleArn, _ := createResp["RuleArn"].(string)
 			require.NotEmpty(t, ruleArn)
 
@@ -581,7 +582,7 @@ func TestAutomationRulesV2(t *testing.T) {
 				rec := doRequest(t, h, s.method, s.path, s.body)
 
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				s.check(t, rec.Code, resp)
 			}
 		})
@@ -654,7 +655,7 @@ func TestBatchImportFindings_AutomationRuleFires(t *testing.T) {
 			var resp struct {
 				Findings []map[string]any `json:"Findings"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			require.Len(t, resp.Findings, 1)
 
 			severity, _ := resp.Findings[0]["Severity"].(map[string]any)

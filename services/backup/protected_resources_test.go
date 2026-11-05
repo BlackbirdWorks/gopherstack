@@ -1,13 +1,14 @@
 package backup_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -46,7 +47,7 @@ func TestProtectedResourceLastBackupTimeEpoch(t *testing.T) {
 					"IamRoleArn": "arn:aws:iam::000000000000:role/backup-role"
 				}`)
 				var startData map[string]any
-				require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData))
+				require.NoError(t, json.Unmarshal(startResp.Body.Bytes(), &startData, jsonx.V1()))
 				// Real AWS Backup jobs complete asynchronously; the emulator
 				// models that via the janitor. Complete it synchronously here
 				// so the resource is recorded as protected.
@@ -66,7 +67,7 @@ func TestProtectedResourceLastBackupTimeEpoch(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 
 			var data map[string]any
-			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data))
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &data, jsonx.V1()))
 
 			lastBackup, exists := data["LastBackupTime"]
 			require.True(t, exists, "LastBackupTime must be present")

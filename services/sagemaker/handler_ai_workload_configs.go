@@ -2,8 +2,11 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // aiWorkloadConfigOpsSupported returns the operations handled by
@@ -44,16 +47,16 @@ func (h *Handler) dispatchAIWorkloadConfigOps(
 }
 
 type createAIWorkloadConfigRequest struct {
-	WorkloadSpec         json.RawMessage `json:"AIWorkloadConfigs"`
-	DatasetConfig        json.RawMessage `json:"DatasetConfig"`
-	AIWorkloadConfigName string          `json:"AIWorkloadConfigName"`
-	Tags                 []tagObject     `json:"Tags"`
+	WorkloadSpec         jsontext.Value `json:"AIWorkloadConfigs"`
+	DatasetConfig        jsontext.Value `json:"DatasetConfig"`
+	AIWorkloadConfigName string         `json:"AIWorkloadConfigName"`
+	Tags                 []tagObject    `json:"Tags"`
 }
 
 func (h *Handler) handleCreateAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req createAIWorkloadConfigRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -71,7 +74,7 @@ func (h *Handler) handleCreateAIWorkloadConfig(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: c.AIWorkloadConfigArn})
+	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: c.AIWorkloadConfigArn}, jsonx.V1())
 }
 
 type describeAIWorkloadConfigRequest struct {
@@ -81,7 +84,7 @@ type describeAIWorkloadConfigRequest struct {
 func (h *Handler) handleDescribeAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req describeAIWorkloadConfigRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -94,7 +97,7 @@ func (h *Handler) handleDescribeAIWorkloadConfig(ctx context.Context, body []byt
 		return nil, err
 	}
 
-	return json.Marshal(c)
+	return json.Marshal(c, jsonx.V1())
 }
 
 type deleteAIWorkloadConfigRequest struct {
@@ -104,7 +107,7 @@ type deleteAIWorkloadConfigRequest struct {
 func (h *Handler) handleDeleteAIWorkloadConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req deleteAIWorkloadConfigRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
@@ -117,7 +120,7 @@ func (h *Handler) handleDeleteAIWorkloadConfig(ctx context.Context, body []byte)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: configARN})
+	return json.Marshal(map[string]string{keyAIWorkloadConfigArn: configARN}, jsonx.V1())
 }
 
 type listAIWorkloadConfigsRequest struct {
@@ -133,7 +136,7 @@ type listAIWorkloadConfigsRequest struct {
 func (h *Handler) handleListAIWorkloadConfigs(ctx context.Context, body []byte) ([]byte, error) {
 	var req listAIWorkloadConfigsRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := json.Unmarshal(body, &req, jsonx.V1()); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 

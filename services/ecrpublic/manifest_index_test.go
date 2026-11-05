@@ -1,7 +1,7 @@
 package ecrpublic_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 
@@ -10,6 +10,8 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func buildIndex(t *testing.T, childDigests ...string) string {
@@ -28,7 +30,7 @@ func buildIndex(t *testing.T, childDigests ...string) string {
 		doc.Manifests = append(doc.Manifests, child{Digest: d})
 	}
 
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(doc, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(b)

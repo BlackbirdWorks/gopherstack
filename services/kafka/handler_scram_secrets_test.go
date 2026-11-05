@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestKafka_BatchAssociateScramSecret(t *testing.T) {
@@ -53,14 +55,14 @@ func TestKafka_BatchAssociateScramSecret(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 			encodedArn := url.PathEscape(clusterArn)
 
 			var bodyBytes []byte
 			if tt.body != nil {
 				var err error
-				bodyBytes, err = json.Marshal(tt.body)
+				bodyBytes, err = json.Marshal(tt.body, jsonx.V1())
 				require.NoError(t, err)
 			} else {
 				bodyBytes = []byte("not-json")
@@ -82,7 +84,7 @@ func TestKafka_BatchAssociateScramSecret(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				assert.Contains(t, resp, "unprocessedScramSecrets")
 			}
 		})
@@ -117,14 +119,14 @@ func TestKafka_BatchDisassociateScramSecret(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 			clusterArn := createResp["clusterArn"].(string)
 			encodedArn := url.PathEscape(clusterArn)
 
 			secretArn := "arn:aws:secretsmanager:us-east-1:000000000000:secret/my-secret"
 
 			// Associate first
-			bodyBytes, _ := json.Marshal(map[string]any{"secretArnList": []string{secretArn}})
+			bodyBytes, _ := json.Marshal(map[string]any{"secretArnList": []string{secretArn}}, jsonx.V1())
 			e := echo.New()
 			req := httptest.NewRequest(
 				http.MethodPost,
@@ -139,7 +141,7 @@ func TestKafka_BatchDisassociateScramSecret(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			// Disassociate
-			bodyBytes2, _ := json.Marshal(map[string]any{"secretArnList": []string{secretArn}})
+			bodyBytes2, _ := json.Marshal(map[string]any{"secretArnList": []string{secretArn}}, jsonx.V1())
 			req2 := httptest.NewRequest(
 				http.MethodPatch,
 				"/v1/clusters/"+encodedArn+"/scram-secrets",
@@ -188,7 +190,7 @@ func TestScramSecret_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, assocRec.Code)
 
 	var assocResp map[string]any
-	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
+	require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp, jsonx.V1()))
 	unprocessed, _ := assocResp["unprocessedScramSecrets"].([]any)
 	assert.Empty(t, unprocessed, "no secrets should be unprocessed")
 
@@ -198,7 +200,7 @@ func TestScramSecret_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	secretList, _ := listResp["secretArnList"].([]any)
 	require.Len(t, secretList, 1)
 	assert.Equal(t, secretArn, secretList[0])
@@ -210,7 +212,7 @@ func TestScramSecret_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, disassocRec.Code)
 
 	var disassocResp map[string]any
-	require.NoError(t, json.Unmarshal(disassocRec.Body.Bytes(), &disassocResp))
+	require.NoError(t, json.Unmarshal(disassocRec.Body.Bytes(), &disassocResp, jsonx.V1()))
 	unprocessed2, _ := disassocResp["unprocessedScramSecrets"].([]any)
 	assert.Empty(t, unprocessed2, "no secrets should be unprocessed after disassociate")
 
@@ -220,7 +222,7 @@ func TestScramSecret_Lifecycle(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec2.Code)
 
 	var listResp2 map[string]any
-	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2))
+	require.NoError(t, json.Unmarshal(listRec2.Body.Bytes(), &listResp2, jsonx.V1()))
 	secretList2, _ := listResp2["secretArnList"].([]any)
 	assert.Empty(t, secretList2, "list should be empty after disassociate")
 }
@@ -248,7 +250,7 @@ func TestScramSecret_AssociateMultiple(t *testing.T) {
 	require.Equal(t, http.StatusOK, listRec.Code)
 
 	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp, jsonx.V1()))
 	secretList, _ := listResp["secretArnList"].([]any)
 	assert.Len(t, secretList, 3)
 }
@@ -292,7 +294,7 @@ func TestBatchAssociateThenDisassociate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var cr map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cr, jsonx.V1()))
 	clusterArn := cr["clusterArn"].(string)
 
 	encoded := url.PathEscape(clusterArn)

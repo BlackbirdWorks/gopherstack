@@ -2,7 +2,7 @@ package persistence_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
@@ -40,7 +41,7 @@ func (c *counterSvc) Snapshot(context.Context) []byte {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	b, _ := json.Marshal(c.vals)
+	b, _ := json.Marshal(c.vals, jsonx.V1())
 
 	return b
 }
@@ -49,7 +50,7 @@ func (c *counterSvc) Restore(_ context.Context, data []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return json.Unmarshal(data, &c.vals)
+	return json.Unmarshal(data, &c.vals, jsonx.V1())
 }
 
 func newMgr(

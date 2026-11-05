@@ -2,7 +2,7 @@ package kafka_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/kafka"
 )
 
@@ -184,7 +185,7 @@ func TestListClustersV2_ClusterType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clusterList := resp["clusterInfoList"].([]any)
 	require.Len(t, clusterList, 2)
@@ -271,7 +272,7 @@ func TestListClustersV2_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			clusterList, _ := resp["clusterInfoList"].([]any)
 
@@ -301,7 +302,7 @@ func TestListClusters_NameFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clusterList, _ := resp["clusterInfoList"].([]any)
 
@@ -328,7 +329,7 @@ func TestListClustersV2_ServerlessHasNoProvisionedArm(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clusterList := resp["clusterInfoList"].([]any)
 	require.Len(t, clusterList, 1)
@@ -411,7 +412,7 @@ func TestOpenMonitoring_InV2Response(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo := resp["clusterInfo"].(map[string]any)
 	provisioned := clInfo["provisioned"].(map[string]any)
@@ -593,7 +594,7 @@ func TestCreateCluster_V1_HTTP_AuthModes(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.NotEmpty(t, resp["clusterArn"])
 		})
 	}
@@ -695,7 +696,7 @@ func TestGetBootstrapBrokers_Variants(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Empty(t, resp["bootstrapBrokerString"], "default ClientBroker is TLS: no plaintext listener")
 			assert.NotEmpty(t, resp["bootstrapBrokerStringTls"], "TLS broker string present for the default mode")
@@ -754,7 +755,7 @@ func TestGetBootstrapBrokers_ScramPublic(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	assert.NotEmpty(t, resp["bootstrapBrokerStringSaslScram"])
 	assert.NotEmpty(t, resp["bootstrapBrokerStringPublicTls"])
@@ -773,7 +774,7 @@ func TestZookeeperConnectString(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo := resp["clusterInfo"].(map[string]any)
 	zkStr, ok := clInfo["zookeeperConnectString"].(string)
@@ -810,7 +811,7 @@ func TestDescribeCluster_V1_IncludesNewFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 	clInfo := resp["clusterInfo"].(map[string]any)
 	assert.Equal(t, kafka.EnhancedMonitoringPerBroker, clInfo["enhancedMonitoring"])

@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -28,6 +28,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/internal/awswire/cloudwatchlogs"
 	"github.com/blackbirdworks/gopherstack/internal/awswire/sqs"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -82,12 +83,12 @@ func tagsProperty(m map[string]string) []map[string]string {
 func ccDecode[T any](raw any) (T, error) {
 	var out T
 
-	b, err := json.Marshal(raw)
+	b, err := json.Marshal(raw, jsonx.V1())
 	if err != nil {
 		return out, fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
 	}
 
-	if err = json.Unmarshal(b, &out); err != nil {
+	if err = json.Unmarshal(b, &out, jsonx.V1()); err != nil {
 		return out, fmt.Errorf("%w: %w", cloudcontrolbackend.ErrValidation, err)
 	}
 
@@ -147,13 +148,13 @@ func ccRejectUnsupportedChanges(current, desired map[string]any, allowed ...stri
 }
 
 func normalizeJSON(v any) any {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, jsonx.V1())
 	if err != nil {
 		return v
 	}
 
 	var out any
-	if json.Unmarshal(b, &out) != nil {
+	if json.Unmarshal(b, &out, jsonx.V1()) != nil {
 		return v
 	}
 

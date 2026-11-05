@@ -1,12 +1,15 @@
 package lambda_test
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestListFunctions_MasterRegion(t *testing.T) {
@@ -50,9 +53,9 @@ func TestListFunctions_MasterRegion(t *testing.T) {
 			}
 
 			var out struct {
-				Functions []json.RawMessage `json:"Functions"`
+				Functions []jsontext.Value `json:"Functions"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Len(t, out.Functions, tt.wantCount)
 		})
 	}

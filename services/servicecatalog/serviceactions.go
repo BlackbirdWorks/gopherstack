@@ -3,8 +3,10 @@ package servicecatalog
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"slices"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -47,7 +49,7 @@ func parseActionParams(def map[string]string) ([]actionParam, error) {
 	}
 
 	var ps []actionParam
-	if err := json.Unmarshal([]byte(raw), &ps); err != nil {
+	if err := json.Unmarshal([]byte(raw), &ps, jsonx.V1()); err != nil {
 		return nil, invalid("Definition Parameters is not a valid JSON list of {Name, Type}")
 	}
 

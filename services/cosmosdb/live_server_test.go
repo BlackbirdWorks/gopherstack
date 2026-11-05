@@ -1,7 +1,7 @@
 package cosmosdb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	"github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
@@ -35,7 +36,7 @@ func (r rawResponse) object(t *testing.T) map[string]any {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal(r.body, &m), string(r.body))
+	require.NoError(t, json.Unmarshal(r.body, &m, jsonx.V1()), string(r.body))
 
 	return m
 }
@@ -134,13 +135,13 @@ func stripSystem[T ~string | ~[]byte](t *testing.T, raw T) string {
 	t.Helper()
 
 	var m map[string]any
-	require.NoError(t, json.Unmarshal([]byte(raw), &m))
+	require.NoError(t, json.Unmarshal([]byte(raw), &m, jsonx.V1()))
 
 	for _, k := range []string{"_rid", "_self", "_etag", "_ts", "_attachments", "_lsn"} {
 		delete(m, k)
 	}
 
-	out, err := json.Marshal(m)
+	out, err := json.Marshal(m, jsonx.V1())
 	require.NoError(t, err)
 
 	return string(out)

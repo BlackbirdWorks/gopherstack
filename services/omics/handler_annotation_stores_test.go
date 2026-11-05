@@ -1,13 +1,14 @@
 package omics_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
@@ -31,7 +32,7 @@ func TestOmics_AnnotationStore(t *testing.T) {
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(body, &resp))
+				require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 				// Real CreateAnnotationStoreOutput is narrower than
 				// GetAnnotationStoreOutput -- no storeArn/reference member
 				// (api_op_CreateAnnotationStore.go:68-95); storeArn is
@@ -98,14 +99,14 @@ func TestCreateAnnotationStoreStoresReference(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	assert.Equal(t, "CREATING", createResp["status"])
 
 	getRec := doRequest(t, h, http.MethodGet, "/annotationStore/ann-store-ref", nil)
 	require.Equal(t, http.StatusOK, getRec.Code)
 
 	var getResp map[string]any
-	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp, jsonx.V1()))
 	assert.NotNil(t, getResp["reference"])
 	// GetAnnotationStore advances CREATING->ACTIVE on its first poll (the
 	// waiter-hang fix -- see PARITY.md), so the immediate Get after Create
@@ -130,7 +131,7 @@ func TestCreateAnnotationStore_ResponseShape(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	assert.Equal(t, "v1", resp["versionName"])
 	assert.NotContains(t, resp, "storeArn")
 	assert.NotContains(t, resp, "reference")
@@ -157,7 +158,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusCreated, jobRec.Code)
 
 	var job map[string]any
-	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job))
+	require.NoError(t, json.Unmarshal(jobRec.Body.Bytes(), &job, jsonx.V1()))
 	jobID := job["jobId"].(string)
 
 	// storeName filter: no job targets "other-store".
@@ -166,7 +167,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	jobs, ok := resp["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs)
@@ -177,7 +178,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2, jsonx.V1()))
 	jobs2, ok := resp2["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
@@ -188,7 +189,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec3.Code)
 
 	var resp3 map[string]any
-	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3))
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &resp3, jsonx.V1()))
 	jobs3, ok := resp3["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, jobs3)
@@ -197,7 +198,7 @@ func TestListAnnotationImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec4.Code)
 
 	var resp4 map[string]any
-	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4))
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &resp4, jsonx.V1()))
 	jobs4, ok := resp4["annotationImportJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs4, 1)
@@ -218,7 +219,7 @@ func createAnnotationStorePair(t *testing.T, h *omics.Handler) map[string]string
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 		ids[name], _ = resp["id"].(string)
 	}
 
@@ -307,7 +308,7 @@ func TestListAnnotationStores_Filters(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			assert.ElementsMatch(t, tc.wantNames, annotationStoreNames(t, resp["annotationStores"]))
 		})
 	}
@@ -348,7 +349,7 @@ func TestListAnnotationStoreVersions_FiltersByStatus(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 			versions, ok := resp["annotationStoreVersions"].([]any)
 			require.True(t, ok)
 			assert.Len(t, versions, tc.wantCount)

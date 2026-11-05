@@ -1,12 +1,14 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestHandler_CreateFeatureGroup_StoreConfigsRoundTrip(t *testing.T) {
@@ -49,7 +51,7 @@ func TestHandler_CreateFeatureGroup_StoreConfigsRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	onlineCfg, ok := out["OnlineStoreConfig"].(map[string]any)
 	require.True(t, ok, "OnlineStoreConfig must round-trip")
@@ -96,7 +98,7 @@ func TestHandler_CreateFeatureGroup_NoStoreConfigsOmitsFields(t *testing.T) {
 	require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out, jsonx.V1()))
 
 	_, hasOnline := out["OnlineStoreConfig"]
 	_, hasOffline := out["OfflineStoreConfig"]

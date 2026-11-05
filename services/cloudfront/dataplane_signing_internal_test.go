@@ -1,11 +1,13 @@
 package cloudfront
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func TestCannedPolicyDoc(t *testing.T) {
@@ -37,7 +39,7 @@ func TestCannedPolicyDoc(t *testing.T) {
 			doc, err := cannedPolicyDoc(tt.resource, 42)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, string(doc))
-			assert.True(t, json.Valid(doc))
+			assert.True(t, jsontext.Value(doc).IsValid(jsonx.V1()))
 		})
 	}
 }

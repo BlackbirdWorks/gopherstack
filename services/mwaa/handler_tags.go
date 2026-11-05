@@ -1,7 +1,7 @@
 package mwaa
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 
@@ -9,6 +9,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
@@ -42,7 +43,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string) error {
 		Tags map[string]string `json:"Tags"`
 	}
 
-	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+	if jsonErr := json.Unmarshal(body, &req, jsonx.V1()); jsonErr != nil {
 		return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 

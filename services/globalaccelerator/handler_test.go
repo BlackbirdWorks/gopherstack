@@ -1,7 +1,7 @@
 package globalaccelerator_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/globalaccelerator"
 )
 
@@ -113,7 +114,7 @@ func TestHandler_ErrorEnvelope(t *testing.T) {
 			assert.NotEmpty(t, rec.Header().Get("X-Amz-Crc32"))
 
 			var got map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tc.code, got["__type"])
 			assert.NotEmpty(t, got["message"])
 			assert.Equal(t, got["message"], got["Message"])
@@ -141,7 +142,7 @@ func TestHandler_EmptyBodyAndResponseShapes(t *testing.T) {
 		Accelerator map[string]any `json:"Accelerator"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.IsType(t, float64(0), out.Accelerator["CreatedTime"], "timestamps are epoch-seconds numbers")
 	assert.IsType(t, float64(0), out.Accelerator["LastModifiedTime"])
 	assert.Equal(t, true, out.Accelerator["Enabled"])
@@ -210,7 +211,7 @@ func TestErrorTable_CoversEverySentinel(t *testing.T) {
 			require.NoError(t, globalaccelerator.WriteErrorForTest(c, tc.err))
 
 			var got map[string]string
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got, jsonx.V1()))
 			assert.Equal(t, tc.code, got["__type"])
 		})
 	}

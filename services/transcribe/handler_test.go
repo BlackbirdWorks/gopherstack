@@ -2,7 +2,8 @@ package transcribe_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -35,7 +37,7 @@ func newHandlerWithBackend(t *testing.T) (*transcribe.Handler, *transcribe.InMem
 func doTranscribeRequest(t *testing.T, h *transcribe.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	e := echo.New()
@@ -502,7 +504,7 @@ func TestTranscribe_BadParams_NotInternalFailure(t *testing.T) {
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 
 			assert.Equal(t, tt.wantType, resp["__type"], "expected %s, not InternalFailureException", tt.wantType)
 		})
@@ -671,13 +673,13 @@ func TestTranscribe_TimestampFields_AreJSONNumbers(t *testing.T) {
 			rec := doTranscribeRequest(t, h, tt.action, tt.body)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var raw map[string]json.RawMessage
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+			var raw map[string]jsontext.Value
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 			// The response wraps the resource under a single top-level key; find it.
-			var inner map[string]json.RawMessage
+			var inner map[string]jsontext.Value
 			for _, v := range raw {
-				_ = json.Unmarshal(v, &inner)
+				_ = json.Unmarshal(v, &inner, jsonx.V1())
 
 				if inner != nil {
 					break
@@ -689,8 +691,8 @@ func TestTranscribe_TimestampFields_AreJSONNumbers(t *testing.T) {
 				val, ok := inner[field]
 				require.True(t, ok, "expected field %s in response %s", field, rec.Body.String())
 
-				var num json.Number
-				err := json.Unmarshal(val, &num)
+				var num jsonx.Number
+				err := json.Unmarshal(val, &num, jsonx.V1())
 				assert.NoError(t, err, "field %s must decode as a JSON number (epoch seconds), got %s", field, val)
 			}
 		})

@@ -3,11 +3,13 @@ package pricing
 import (
 	"crypto/sha256"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -152,7 +154,7 @@ func renderSavingsPlans(region string) []byte {
 		})
 	}
 
-	raw, _ := json.Marshal(f)
+	raw, _ := json.Marshal(f, jsonx.V1())
 
 	return raw
 }

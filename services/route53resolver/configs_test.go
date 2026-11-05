@@ -2,7 +2,7 @@ package route53resolver_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/route53resolver"
 )
 
@@ -90,7 +91,7 @@ func TestResolverDnssecConfig_StatusValues(t *testing.T) {
 
 			if tt.wantCode == http.StatusOK {
 				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 				cfg := resp["ResolverDNSSECConfig"].(map[string]any)
 				assert.Equal(t, tt.wantStatus, cfg["ValidationStatus"])
 			}
@@ -108,7 +109,7 @@ func TestFirewallConfig_NoArn(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp, jsonx.V1()))
 	cfg := resp["FirewallConfig"].(map[string]any)
 
 	// AWS does not return Arn for FirewallConfig.
@@ -629,7 +630,7 @@ func TestListFirewallConfigs_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListFirewallConfigs", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			cfgs, _ := out["FirewallConfigs"].([]any)
 			assert.Len(t, cfgs, tt.wantLen)
 			if tt.wantNextToken {
@@ -681,7 +682,7 @@ func TestListResolverConfigs_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListResolverConfigs", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			cfgs, _ := out["ResolverConfigs"].([]any)
 			assert.Len(t, cfgs, tt.wantLen)
 			if tt.wantNextToken {
@@ -733,7 +734,7 @@ func TestListResolverDnssecConfigs_Pagination(t *testing.T) {
 			listRec := doRequest(t, h, "ListResolverDnssecConfigs", tt.body)
 			require.Equal(t, http.StatusOK, listRec.Code)
 			var out map[string]any
-			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out, jsonx.V1()))
 			cfgs, _ := out["ResolverDnssecConfigs"].([]any)
 			assert.Len(t, cfgs, tt.wantLen)
 			if tt.wantNextToken {
@@ -764,7 +765,7 @@ func TestResolverDnssecConfig_ValidationField(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	cfg, ok := out["ResolverDNSSECConfig"].(map[string]any)
 	require.True(t, ok, "ResolverDNSSECConfig must be present")
 

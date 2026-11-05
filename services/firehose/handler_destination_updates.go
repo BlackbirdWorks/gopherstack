@@ -2,7 +2,7 @@ package firehose
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 )
 
@@ -29,7 +29,7 @@ type updateDestinationInput struct {
 	// AmazonOpenSearchServerlessDestinationUpdate: see createDeliveryStreamInput's
 	// AmazonOpenSearchServerlessDestinationConfiguration doc comment -- same
 	// unimplemented-11th-destination-type reasoning, captured only to reject explicitly.
-	AmazonOpenSearchServerlessDestinationUpdate json.RawMessage `json:"AmazonOpenSearchServerlessDestinationUpdate,omitempty"` //nolint:lll // AWS field name
+	AmazonOpenSearchServerlessDestinationUpdate jsontext.Value `json:"AmazonOpenSearchServerlessDestinationUpdate,omitempty"` //nolint:lll // AWS field name
 }
 
 type updateDestinationOutput struct{}

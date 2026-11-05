@@ -2,7 +2,8 @@ package sqs_test
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/sqs"
 )
 
@@ -201,7 +203,7 @@ func TestSetQueueAttributesFifoQueueRejectedViaHandler(t *testing.T) {
 		Message string `json:"message"`
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp, jsonx.V1()))
 	assert.Contains(t, errResp.Type, "InvalidAttributeName")
 }
 
@@ -344,8 +346,8 @@ func TestSendMessage_Standard_SequenceNumberAbsent(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Unmarshal into a raw map so we can check key presence, not just value.
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	_, hasSeqNum := raw["SequenceNumber"]
 	assert.False(t, hasSeqNum, "standard queue SendMessage response must not contain SequenceNumber")
@@ -371,7 +373,7 @@ func TestSendMessage_FIFO_SequenceNumberPresent(t *testing.T) {
 	var createResp struct {
 		QueueURL string `json:"QueueUrl"`
 	}
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp, jsonx.V1()))
 
 	rec := doRequest(t, h, "SendMessage", map[string]any{
 		"QueueUrl":       createResp.QueueURL,
@@ -380,14 +382,14 @@ func TestSendMessage_FIFO_SequenceNumberPresent(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw, jsonx.V1()))
 
 	rawSeq, hasSeqNum := raw["SequenceNumber"]
 	require.True(t, hasSeqNum, "FIFO queue SendMessage response must contain SequenceNumber")
 
 	var seq string
-	require.NoError(t, json.Unmarshal(rawSeq, &seq))
+	require.NoError(t, json.Unmarshal(rawSeq, &seq, jsonx.V1()))
 	assert.NotEmpty(t, seq, "SequenceNumber must be non-empty for FIFO queue")
 	assert.Len(t, seq, 20, "SequenceNumber must be 20 digits")
 }

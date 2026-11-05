@@ -3,7 +3,7 @@ package dynamodb_test
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
@@ -478,7 +479,7 @@ func TestDynamoDBCBOR_JSONAndCBORCoexist(t *testing.T) {
 	require.Equal(t, http.StatusOK, getRR2.Code)
 
 	var jsonResp map[string]any
-	require.NoError(t, json.Unmarshal(getRR2.Body.Bytes(), &jsonResp))
+	require.NoError(t, json.Unmarshal(getRR2.Body.Bytes(), &jsonResp, jsonx.V1()))
 	itemJSON := jsonResp["Item"].(map[string]any)
 	valueJSON := itemJSON["value"].(map[string]any)
 	assert.Equal(t, "from-cbor", valueJSON["S"])

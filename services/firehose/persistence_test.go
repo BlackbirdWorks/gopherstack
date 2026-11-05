@@ -2,12 +2,13 @@ package firehose_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
@@ -252,9 +253,9 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 			require.NotNil(t, raw)
 
 			var generic map[string]any
-			require.NoError(t, json.Unmarshal(raw, &generic))
+			require.NoError(t, json.Unmarshal(raw, &generic, jsonx.V1()))
 			tt.mutate(t, generic)
-			mutated, err := json.Marshal(generic)
+			mutated, err := json.Marshal(generic, jsonx.V1())
 			require.NoError(t, err)
 
 			// Target already holds unrelated state, which the version-mismatch path must

@@ -16,7 +16,7 @@ package integration_test
 // namespace's Brokered Messaging API.
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"strings"
@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
@@ -97,7 +98,7 @@ func TestIntegration_AzureServiceBus_QueueSendPeekLockComplete(t *testing.T) {
 
 	var bp sbBrokerProperties
 
-	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get("Brokerproperties")), &bp))
+	require.NoError(t, json.Unmarshal([]byte(resp.Header.Get("Brokerproperties")), &bp, jsonx.V1()))
 	require.NotEmpty(t, bp.MessageID)
 	require.NotEmpty(t, bp.LockToken)
 

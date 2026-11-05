@@ -1,11 +1,13 @@
 package ociobjectstorage
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func buildOps() map[string]opFunc {
@@ -54,7 +56,7 @@ func (q *req) decode(v any) error {
 		return errMissing("A request body is required")
 	}
 
-	if err := json.Unmarshal(q.body, v); err != nil {
+	if err := json.Unmarshal(q.body, v, jsonx.V1()); err != nil {
 		return newErr(
 			http.StatusBadRequest,
 			"CannotParseRequest",

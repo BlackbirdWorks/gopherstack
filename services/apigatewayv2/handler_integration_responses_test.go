@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -69,7 +70,7 @@ func TestHandler_CreateIntegrationResponse(t *testing.T) {
 				require.Equal(t, http.StatusCreated, integrationRR.Code)
 
 				var integ apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(integrationRR.Body.Bytes(), &integ))
+				require.NoError(t, json.Unmarshal(integrationRR.Body.Bytes(), &integ, jsonx.V1()))
 				integrationID = integ.IntegrationID
 			}
 
@@ -91,7 +92,7 @@ func TestHandler_CreateIntegrationResponse(t *testing.T) {
 
 			if tt.wantRespKey != "" {
 				var ir apigatewayv2.IntegrationResponse
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir, jsonx.V1()))
 				assert.Equal(t, tt.wantRespKey, ir.IntegrationResponseKey)
 				assert.NotEmpty(t, ir.IntegrationResponseID)
 			}
@@ -125,7 +126,7 @@ func TestHandler_DuplicateIntegrationResponseKey(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integration apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
 
@@ -195,7 +196,7 @@ func TestHandler_GetIntegrationResponses(t *testing.T) {
 				require.Equal(t, http.StatusCreated, rr.Code)
 
 				var integration apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 				integrationID = integration.IntegrationID
 			}
 
@@ -215,7 +216,7 @@ func TestHandler_GetIntegrationResponses(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.IntegrationResponse `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.responseCnt)
 			}
 		})
@@ -255,7 +256,7 @@ func TestHandler_GetIntegrationResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integration apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
 			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
@@ -264,7 +265,7 @@ func TestHandler_GetIntegrationResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var ir apigatewayv2.IntegrationResponse
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir, jsonx.V1()))
 
 			responseID := ir.IntegrationResponseID
 			if tt.useWrongID {
@@ -312,7 +313,7 @@ func TestHandler_DeleteIntegrationResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var integration apigatewayv2.Integration
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &integration, jsonx.V1()))
 
 			path := fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, integration.IntegrationID)
 			rr = doRequest(t, h, http.MethodPost, path, map[string]any{
@@ -321,7 +322,7 @@ func TestHandler_DeleteIntegrationResponse(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var ir apigatewayv2.IntegrationResponse
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir, jsonx.V1()))
 
 			responseID := ir.IntegrationResponseID
 			if tt.useWrongID {
@@ -354,14 +355,14 @@ func TestHandler_UpdateIntegrationResponse(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var i apigatewayv2.Integration
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &i))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &i, jsonx.V1()))
 
 				rr = doRequest(t, h, http.MethodPost,
 					fmt.Sprintf("/v2/apis/%s/integrations/%s/integrationresponses", apiID, i.IntegrationID),
 					map[string]any{"integrationResponseKey": "200"})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var ir apigatewayv2.IntegrationResponse
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &ir, jsonx.V1()))
 
 				return apiID, i.IntegrationID, ir.IntegrationResponseID
 			},

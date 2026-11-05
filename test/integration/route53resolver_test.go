@@ -2,7 +2,7 @@ package integration_test
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"testing"
@@ -10,13 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 )
 
 func route53resolverPost(t *testing.T, action string, body any) *http.Response {
 	t.Helper()
 
-	bodyBytes, err := json.Marshal(body)
+	bodyBytes, err := json.Marshal(body, jsonx.V1())
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
@@ -91,7 +92,7 @@ func TestIntegration_Route53Resolver_GetEndpoint(t *testing.T) {
 	var createBody map[string]any
 	createData, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
-	require.NoError(t, json.Unmarshal(createData, &createBody))
+	require.NoError(t, json.Unmarshal(createData, &createBody, jsonx.V1()))
 
 	ep, _ := createBody["ResolverEndpoint"].(map[string]any)
 	id, _ := ep["Id"].(string)
@@ -120,7 +121,7 @@ func TestIntegration_Route53Resolver_DeleteEndpoint(t *testing.T) {
 	var createBody map[string]any
 	createData, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
-	require.NoError(t, json.Unmarshal(createData, &createBody))
+	require.NoError(t, json.Unmarshal(createData, &createBody, jsonx.V1()))
 
 	ep, _ := createBody["ResolverEndpoint"].(map[string]any)
 	id, _ := ep["Id"].(string)
@@ -179,7 +180,7 @@ func TestIntegration_Route53Resolver_DeleteRule(t *testing.T) {
 	var createBody map[string]any
 	createData, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
-	require.NoError(t, json.Unmarshal(createData, &createBody))
+	require.NoError(t, json.Unmarshal(createData, &createBody, jsonx.V1()))
 
 	rule, _ := createBody["ResolverRule"].(map[string]any)
 	id, _ := rule["Id"].(string)
@@ -206,7 +207,7 @@ func TestIntegration_Route53Resolver_GetRule(t *testing.T) {
 	var createBody map[string]any
 	createData, _ := io.ReadAll(createResp.Body)
 	createResp.Body.Close()
-	require.NoError(t, json.Unmarshal(createData, &createBody))
+	require.NoError(t, json.Unmarshal(createData, &createBody, jsonx.V1()))
 
 	rule, _ := createBody["ResolverRule"].(map[string]any)
 	id, _ := rule["Id"].(string)

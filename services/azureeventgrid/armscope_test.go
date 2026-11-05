@@ -1,13 +1,14 @@
 package azureeventgrid_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
@@ -138,7 +139,7 @@ func TestPublishResourceEvent(t *testing.T) {
 			for _, g := range got {
 				var ev map[string]any
 
-				require.NoError(t, json.Unmarshal([]byte(g.text), &ev))
+				require.NoError(t, json.Unmarshal([]byte(g.text), &ev, jsonx.V1()))
 				assert.Equal(t, tt.wantTopics[g.queue], ev["topic"])
 				assert.Equal(t, tt.ev.ResourceURI, ev["subject"])
 				assert.Equal(t, tt.ev.EventType, ev["eventType"])

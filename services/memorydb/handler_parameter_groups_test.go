@@ -1,7 +1,7 @@
 package memorydb_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"sync"
 	"testing"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
@@ -67,7 +68,7 @@ func TestHandler_DescribeParameters_OK(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 	assert.NotNil(t, out["Parameters"])
 }
 
@@ -595,7 +596,7 @@ func TestHandler_Pagination_MaxResults(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec2.Code)
 
 			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp, jsonx.V1()))
 			pgs, _ := resp["ParameterGroups"].([]any)
 			assert.LessOrEqual(t, len(pgs), tt.maxResults)
 			if tt.maxResults >= 5 {
@@ -866,7 +867,7 @@ func TestDescribeParameters_Pagination(t *testing.T) {
 	var allParams struct {
 		Parameters []map[string]any `json:"Parameters"`
 	}
-	require.NoError(t, json.Unmarshal(all.Body.Bytes(), &allParams))
+	require.NoError(t, json.Unmarshal(all.Body.Bytes(), &allParams, jsonx.V1()))
 	require.NotEmpty(t, allParams.Parameters)
 
 	pageSize := len(allParams.Parameters) - 1
@@ -882,7 +883,7 @@ func TestDescribeParameters_Pagination(t *testing.T) {
 		NextToken  string           `json:"NextToken"`
 		Parameters []map[string]any `json:"Parameters"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first, jsonx.V1()))
 	require.Len(t, first.Parameters, pageSize, "first page must truncate to MaxResults")
 	require.NotEmpty(t, first.NextToken, "NextToken must be set when more parameters remain")
 
@@ -897,7 +898,7 @@ func TestDescribeParameters_Pagination(t *testing.T) {
 		NextToken  string           `json:"NextToken"`
 		Parameters []map[string]any `json:"Parameters"`
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &second, jsonx.V1()))
 	require.Len(t, second.Parameters, len(allParams.Parameters)-pageSize, "second page must return the remainder")
 	assert.NotEqual(
 		t, first.Parameters[0]["Name"], second.Parameters[0]["Name"], "no parameter must repeat across pages",

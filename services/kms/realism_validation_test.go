@@ -2,13 +2,15 @@ package kms_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 func kmsErr(t *testing.T, body []byte) (string, string) {
@@ -19,7 +21,7 @@ func kmsErr(t *testing.T, body []byte) (string, string) {
 		Message string `json:"message"`
 	}
 
-	require.NoError(t, json.Unmarshal(body, &e))
+	require.NoError(t, json.Unmarshal(body, &e, jsonx.V1()))
 
 	return e.Type, e.Message
 }
@@ -98,7 +100,10 @@ func TestKMSWire_ErrorRealism(t *testing.T) {
 				} `json:"KeyMetadata"`
 			}
 
-			require.NoError(t, json.Unmarshal(doKMSRequest(t, h, "CreateKey", createBody).Body.Bytes(), &created))
+			require.NoError(
+				t,
+				json.Unmarshal(doKMSRequest(t, h, "CreateKey", createBody).Body.Bytes(), &created, jsonx.V1()),
+			)
 			keyID := created.KeyMetadata.KeyID
 
 			rec := doKMSRequest(t, h, tt.action, tt.body(keyID))

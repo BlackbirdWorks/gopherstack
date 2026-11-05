@@ -1,11 +1,13 @@
 package azurearm
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 const (
@@ -56,7 +58,7 @@ func parseAPISpec(format, value string) (*apimAPISpec, error) {
 	}
 
 	var doc map[string]any
-	if err := json.Unmarshal([]byte(value), &doc); err != nil {
+	if err := json.Unmarshal([]byte(value), &doc, jsonx.V1()); err != nil {
 		return nil, apimInvalid("The API definition is not valid JSON (YAML is not supported): %v", err)
 	}
 

@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"slices"
@@ -40,7 +40,7 @@ type Endpoint struct {
 	FailureReason            string                     `json:"FailureReason,omitempty"`
 	ProductionVariants       []ProductionVariantSummary `json:"ProductionVariants,omitempty"`
 	ShadowProductionVariants []ProductionVariantSummary `json:"ShadowProductionVariants,omitempty"`
-	DeploymentConfig         json.RawMessage            `json:"DeploymentConfig,omitempty"`
+	DeploymentConfig         jsontext.Value             `json:"DeploymentConfig,omitempty"`
 }
 
 // ProductionVariantStatus describes the current deployment stage of a
@@ -172,7 +172,7 @@ type CreateEndpointOptions struct {
 	Tags               map[string]string
 	Name               string
 	EndpointConfigName string
-	DeploymentConfig   json.RawMessage
+	DeploymentConfig   jsontext.Value
 }
 
 // CreateEndpoint creates a new SageMaker endpoint.
@@ -379,7 +379,7 @@ func (b *InMemoryBackend) finishEndpointDelete(region, name string) {
 // DataCaptureConfig is endpoint-wide here, not per-variant, so that
 // VariantPropertyType value has no effect to exclude.
 type UpdateEndpointOptions struct {
-	DeploymentConfig                 json.RawMessage
+	DeploymentConfig                 jsontext.Value
 	EndpointConfigName               string
 	ExcludeRetainedVariantProperties []string
 	RetainAllVariantProperties       bool

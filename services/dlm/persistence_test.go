@@ -2,12 +2,14 @@ package dlm_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/dlm"
 )
 
@@ -307,8 +309,8 @@ func TestPersistence_CurrentVersionRoundTripsThroughJSON(t *testing.T) {
 
 	snap := b.Snapshot(context.Background())
 
-	var raw map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(snap, &raw))
+	var raw map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(snap, &raw, jsonx.V1()))
 
 	_, hasVersion := raw["version"]
 	assert.True(t, hasVersion, "snapshot must carry a top-level version field")
@@ -319,8 +321,8 @@ func TestPersistence_CurrentVersionRoundTripsThroughJSON(t *testing.T) {
 	_, hasCounter := raw["counter"]
 	assert.True(t, hasCounter, "snapshot must carry a top-level counter field")
 
-	var tables map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw["tables"], &tables))
+	var tables map[string]jsontext.Value
+	require.NoError(t, json.Unmarshal(raw["tables"], &tables, jsonx.V1()))
 
 	_, hasPoliciesTable := tables["policies"]
 	assert.True(

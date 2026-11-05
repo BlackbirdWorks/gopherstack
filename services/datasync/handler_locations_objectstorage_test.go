@@ -1,12 +1,14 @@
 package datasync_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 )
 
 // TestDataSync_ObjectStorage covers the ObjectStorage location lifecycle.
@@ -30,7 +32,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 	locArn := createResp["LocationArn"].(string)
 
 	// Describe
@@ -38,7 +40,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Contains(t, descResp["LocationUri"].(string), "object-storage://")
 	assert.Equal(t, "HTTPS", descResp["ServerProtocol"])
 	// SecretKey not returned
@@ -59,7 +61,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 
 	// Verify update
 	rec = doRequest(t, h, "DescribeLocationObjectStorage", map[string]any{"LocationArn": locArn})
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 	assert.Equal(t, "HTTP", descResp["ServerProtocol"])
 
 	// Missing ServerHostname
@@ -127,7 +129,7 @@ func TestDataSync_UpdateLocationObjectStorage_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp, jsonx.V1()))
 			locArn, ok := createResp["LocationArn"].(string)
 			require.True(t, ok)
 
@@ -139,7 +141,7 @@ func TestDataSync_UpdateLocationObjectStorage_ServerHostname(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var descResp map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp, jsonx.V1()))
 			assert.Equal(t, tt.wantURI, descResp["LocationUri"])
 
 			if proto, isSet := tt.update["ServerProtocol"]; isSet {

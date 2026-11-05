@@ -2,7 +2,7 @@ package wafv2
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 )
 
 // StorageBackend is the interface for WAFv2 storage operations.
@@ -16,11 +16,11 @@ type StorageBackend interface {
 	CreateWebACL(
 		ctx context.Context,
 		name, scope, description string,
-		defaultAction, visibilityConfig json.RawMessage,
+		defaultAction, visibilityConfig jsontext.Value,
 		rules []map[string]any,
 		tokenDomains []string,
-		customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
-		monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+		customResponseBodies, associationConfig, captchaConfig, challengeConfig jsontext.Value,
+		monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig jsontext.Value,
 		tags map[string]string,
 	) (*WebACL, error)
 	GetWebACL(ctx context.Context, id string) (*WebACL, error)
@@ -28,11 +28,11 @@ type StorageBackend interface {
 	UpdateWebACL(
 		ctx context.Context,
 		id, description, lockToken string,
-		defaultAction, visibilityConfig json.RawMessage,
+		defaultAction, visibilityConfig jsontext.Value,
 		rules []map[string]any,
 		tokenDomains []string,
-		customResponseBodies, associationConfig, captchaConfig, challengeConfig json.RawMessage,
-		monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig json.RawMessage,
+		customResponseBodies, associationConfig, captchaConfig, challengeConfig jsontext.Value,
+		monetizationConfig, dataProtectionConfig, applicationConfig, onSourceDDoSProtectionConfig jsontext.Value,
 	) (*WebACL, error)
 	DeleteWebACL(ctx context.Context, id, lockToken string) error
 	ListWebACLs(ctx context.Context) []*WebACL
@@ -73,7 +73,7 @@ type StorageBackend interface {
 		name, scope, description, visibilityConfig string,
 		capacity int64,
 		rules []map[string]any,
-		customResponseBodies, monetizationConfig json.RawMessage,
+		customResponseBodies, monetizationConfig jsontext.Value,
 		tags map[string]string,
 	) (*RuleGroup, error)
 	GetRuleGroup(ctx context.Context, id string) (*RuleGroup, error)
@@ -83,15 +83,15 @@ type StorageBackend interface {
 		ctx context.Context,
 		id, description, visibilityConfig, lockToken string,
 		rules []map[string]any,
-		customResponseBodies, monetizationConfig json.RawMessage,
+		customResponseBodies, monetizationConfig jsontext.Value,
 	) (*RuleGroup, error)
 	DeleteRuleGroup(ctx context.Context, id, lockToken string) error
 	DeleteAPIKey(ctx context.Context, scope, apiKey string) error
 	DeleteFirewallManagerRuleGroups(ctx context.Context, webACLARN, lockToken string) (*WebACL, error)
-	PutLoggingConfiguration(ctx context.Context, resourceARN string, configJSON json.RawMessage) error
+	PutLoggingConfiguration(ctx context.Context, resourceARN string, configJSON jsontext.Value) error
 	DeleteLoggingConfiguration(ctx context.Context, resourceARN, logScope string) error
-	GetLoggingConfiguration(ctx context.Context, resourceARN, logScope string) (json.RawMessage, error)
-	ListLoggingConfigurations(ctx context.Context, scope string) []json.RawMessage
+	GetLoggingConfiguration(ctx context.Context, resourceARN, logScope string) (jsontext.Value, error)
+	ListLoggingConfigurations(ctx context.Context, scope string) []jsontext.Value
 	DeletePermissionPolicy(ctx context.Context, resourceARN string) error
 	DeleteRegexPatternSet(ctx context.Context, id, lockToken string) error
 	ListAPIKeys(ctx context.Context, scope string) []*APIKey

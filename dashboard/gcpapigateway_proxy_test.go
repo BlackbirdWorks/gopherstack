@@ -2,7 +2,8 @@ package dashboard_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/gcpapigateway"
 )
 
@@ -42,7 +44,10 @@ func newAPIGatewayDashboard(t *testing.T) *dashboard.DashboardHandler {
 	be := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Echo-Query", r.URL.RawQuery)
-		_ = json.NewEncoder(w).Encode(map[string]string{"path": r.URL.Path, "query": r.URL.RawQuery})
+		_ = json.MarshalEncode(
+			jsontext.NewEncoder(w, jsonx.V1()),
+			map[string]string{"path": r.URL.Path, "query": r.URL.RawQuery},
+		)
 	}))
 	t.Cleanup(be.Close)
 
@@ -124,7 +129,7 @@ func TestGCPAPIGatewayProxy(t *testing.T) {
 			} `json:"openapiDocuments"`
 		}
 
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg))
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &cfg, jsonx.V1()))
 		require.Len(t, cfg.Docs, 1)
 
 		raw, err := base64.StdEncoding.DecodeString(cfg.Docs[0].Document.Contents)
@@ -211,7 +216,7 @@ func TestGCPAPIGatewayTryIt(t *testing.T) {
 		var o out
 
 		if rec.Code == http.StatusOK {
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &o))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &o, jsonx.V1()))
 		}
 
 		return rec, o

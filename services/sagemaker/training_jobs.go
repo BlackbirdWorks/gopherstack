@@ -2,7 +2,7 @@ package sagemaker
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"sort"
@@ -21,7 +21,7 @@ var (
 )
 
 // rawConfigMap holds CreateTrainingJob members stored verbatim.
-type rawConfigMap = map[string]json.RawMessage
+type rawConfigMap = map[string]jsontext.Value
 
 type TrainingJob struct {
 	PassthroughConfigs                    rawConfigMap                `json:"PassthroughConfigs,omitempty"`

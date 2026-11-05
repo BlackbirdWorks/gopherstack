@@ -2,10 +2,11 @@ package acm
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -146,7 +147,7 @@ func (h *Handler) getTags(resourceID string) []map[string]string {
 
 func (h *Handler) jsonListTagsForCertificate(ctx context.Context, body []byte) (any, error) {
 	var input listTagsForCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -163,7 +164,7 @@ func (h *Handler) jsonListTagsForCertificate(ctx context.Context, body []byte) (
 
 func (h *Handler) jsonAddTagsToCertificate(ctx context.Context, body []byte) (any, error) {
 	var input addTagsToCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 
@@ -188,7 +189,7 @@ func (h *Handler) jsonAddTagsToCertificate(ctx context.Context, body []byte) (an
 
 func (h *Handler) jsonRemoveTagsFromCertificate(ctx context.Context, body []byte) (any, error) {
 	var input removeTagsFromCertificateInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if err := json.Unmarshal(body, &input, jsonx.V1()); err != nil {
 		return nil, ErrInvalidParameter
 	}
 

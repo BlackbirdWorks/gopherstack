@@ -1,7 +1,7 @@
 package apigatewayv2_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 )
 
@@ -73,7 +74,7 @@ func TestHandler_CreateModel(t *testing.T) {
 
 			if tt.wantName != "" {
 				var model apigatewayv2.Model
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model, jsonx.V1()))
 				assert.Equal(t, tt.wantName, model.Name)
 				assert.NotEmpty(t, model.ModelID)
 			}
@@ -121,7 +122,7 @@ func TestHandler_GetModelTemplate(t *testing.T) {
 			require.Equal(t, http.StatusCreated, createRec.Code)
 
 			var model apigatewayv2.Model
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &model))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &model, jsonx.V1()))
 
 			rec := doRequest(t, h, http.MethodGet,
 				fmt.Sprintf("/v2/apis/%s/models/%s/template", apiID, model.ModelID), nil)
@@ -130,7 +131,7 @@ func TestHandler_GetModelTemplate(t *testing.T) {
 			var out struct {
 				Value string `json:"value"`
 			}
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out, jsonx.V1()))
 			assert.Equal(t, tt.wantValue, out.Value)
 		})
 	}
@@ -224,7 +225,7 @@ func TestHandler_GetModels(t *testing.T) {
 				var out struct {
 					Items []apigatewayv2.Model `json:"items"`
 				}
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out, jsonx.V1()))
 				assert.Len(t, out.Items, tt.modelCnt)
 			}
 		})
@@ -265,7 +266,7 @@ func TestHandler_GetModel(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var model apigatewayv2.Model
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model, jsonx.V1()))
 
 			modelID := model.ModelID
 			if tt.useWrongID {
@@ -277,7 +278,7 @@ func TestHandler_GetModel(t *testing.T) {
 
 			if tt.wantStatus == http.StatusOK {
 				var got apigatewayv2.Model
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got, jsonx.V1()))
 				assert.Equal(t, "MyModel", got.Name)
 			}
 		})
@@ -318,7 +319,7 @@ func TestHandler_DeleteModel(t *testing.T) {
 			require.Equal(t, http.StatusCreated, rr.Code)
 
 			var model apigatewayv2.Model
-			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model))
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &model, jsonx.V1()))
 
 			modelID := model.ModelID
 			if tt.useWrongID {
@@ -350,7 +351,7 @@ func TestHandler_UpdateModel(t *testing.T) {
 				})
 				require.Equal(t, http.StatusCreated, rr.Code)
 				var m apigatewayv2.Model
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m, jsonx.V1()))
 
 				return apiID, m.ModelID
 			},
@@ -390,7 +391,7 @@ func TestHandler_UpdateModel(t *testing.T) {
 
 			if tt.wantName != "" {
 				var m apigatewayv2.Model
-				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m))
+				require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &m, jsonx.V1()))
 				assert.Equal(t, tt.wantName, m.Name)
 			}
 		})
@@ -432,7 +433,7 @@ func TestGetModels_Pagination(t *testing.T) {
 			NextToken string           `json:"nextToken"`
 			Items     []map[string]any `json:"items"`
 		}
-		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp))
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &resp, jsonx.V1()))
 		require.LessOrEqual(t, len(resp.Items), 2)
 
 		for _, m := range resp.Items {

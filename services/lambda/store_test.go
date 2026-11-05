@@ -3,7 +3,7 @@ package lambda_test
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
@@ -596,7 +597,7 @@ func TestBuildURLEventPayload(t *testing.T) {
 			require.NoError(t, err)
 
 			var event map[string]any
-			require.NoError(t, json.Unmarshal(payload, &event))
+			require.NoError(t, json.Unmarshal(payload, &event, jsonx.V1()))
 
 			if tt.wantVersion != "" {
 				assert.Equal(t, tt.wantVersion, event["version"])

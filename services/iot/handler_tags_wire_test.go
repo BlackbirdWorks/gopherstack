@@ -1,7 +1,7 @@
 package iot_test
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/jsonx"
 	"github.com/blackbirdworks/gopherstack/services/iot"
 )
 
@@ -38,7 +39,7 @@ func decodeTagList(t *testing.T, body []byte) map[string]string {
 			Value string `json:"Value"`
 		} `json:"tags"`
 	}
-	require.NoError(t, json.Unmarshal(body, &resp))
+	require.NoError(t, json.Unmarshal(body, &resp, jsonx.V1()))
 	out := make(map[string]string, len(resp.Tags))
 	for _, item := range resp.Tags {
 		out[item.Key] = item.Value
@@ -435,7 +436,7 @@ func TestCreateThenListTagsForResourceRoundTrip(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
 
 			var created map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 			resourceARN, ok := created[tt.arnField].(string)
 			require.Truef(t, ok && resourceARN != "", "response missing %q: %s", tt.arnField, createRec.Body.String())
 
@@ -463,7 +464,7 @@ func TestTagUntagResourceAfterCreationTags(t *testing.T) {
 	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
 
 	var created map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created, jsonx.V1()))
 	resourceARN, _ := created["thingGroupArn"].(string)
 	require.NotEmpty(t, resourceARN)
 
