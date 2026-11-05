@@ -41,11 +41,11 @@ type clusterEngine struct {
 	mini          *miniredis.Miniredis
 	front         *sgfilter.Proxy
 	gate          *redisengine.Gate
+	dock          *dockRef
 	connectAddr   string
 	port          int
 	allocatedPort int
 	svcPort       int
-	dock          *dockRef
 }
 
 // startClusterEngine starts the data-plane engine for a cluster WITHOUT holding

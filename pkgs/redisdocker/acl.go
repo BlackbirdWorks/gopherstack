@@ -52,15 +52,11 @@ func SetUserArgs(u ACLUser) ([]any, error) {
 		}
 	}
 
-	for _, rule := range strings.Fields(u.AccessString) {
+	for rule := range strings.FieldsSeq(u.AccessString) {
 		args = append(args, rule)
 	}
 
 	return args, nil
-}
-
-func (p ACLPolicy) hasDefault() bool {
-	return slices.ContainsFunc(p.Users, func(u ACLUser) bool { return u.Name == defaultUser })
 }
 
 // commands returns the SETUSER commands for p; accounts are listed before "default" so a failure leaves it intact.

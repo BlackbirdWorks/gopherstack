@@ -136,8 +136,8 @@ func TestSeedsFor(t *testing.T) {
 	tests := []struct {
 		name    string
 		blob    []byte
-		shards  int
 		want    [][]byte
+		shards  int
 		wantErr bool
 	}{
 		{name: "empty", blob: nil, shards: 2, want: [][]byte{nil, nil}},

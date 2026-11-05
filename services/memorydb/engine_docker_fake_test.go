@@ -1,6 +1,7 @@
 package memorydb_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -78,7 +79,7 @@ func TestDockerClusterTopologyAndEndpoints(t *testing.T) {
 		require.Len(t, sh.Nodes, 2)
 
 		for _, n := range sh.Nodes {
-			key := aws.ToString(n.Endpoint.Address) + ":" + string(rune(n.Endpoint.Port))
+			key := fmt.Sprintf("%s:%d", aws.ToString(n.Endpoint.Address), n.Endpoint.Port)
 			assert.False(t, seen[key], "node endpoint repeated")
 			seen[key] = true
 		}
@@ -122,7 +123,10 @@ func TestDockerACLSyncOnUserAndACLChanges(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateACL(ctx, &memorydbsdk.CreateACLInput{ACLName: aws.String("app-acl"), UserNames: []string{"app"}})
+	_, err = client.CreateACL(
+		ctx,
+		&memorydbsdk.CreateACLInput{ACLName: aws.String("app-acl"), UserNames: []string{"app"}},
+	)
 	require.NoError(t, err)
 
 	_, err = client.CreateCluster(ctx, &memorydbsdk.CreateClusterInput{
@@ -145,7 +149,11 @@ func TestDockerACLSyncOnUserAndACLChanges(t *testing.T) {
 
 	set = fk.Cmds("ACL", "SETUSER", "app")
 	require.Len(t, set, 4)
-	assert.Equal(t, []any{"ACL", "SETUSER", "app", "reset", ">passwordpassword1", "on", "~other:*", "+get"}, set[3].Args)
+	assert.Equal(
+		t,
+		[]any{"ACL", "SETUSER", "app", "reset", ">passwordpassword1", "on", "~other:*", "+get"},
+		set[3].Args,
+	)
 
 	_, err = client.UpdateACL(ctx, &memorydbsdk.UpdateACLInput{
 		ACLName: aws.String("app-acl"), UserNamesToRemove: []string{"app"},

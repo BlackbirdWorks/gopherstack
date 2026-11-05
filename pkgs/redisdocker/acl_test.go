@@ -14,8 +14,8 @@ func TestSetUserArgs(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		user    redisdocker.ACLUser
 		want    []any
+		user    redisdocker.ACLUser
 		wantErr bool
 	}{
 		{

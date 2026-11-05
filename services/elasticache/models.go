@@ -97,35 +97,35 @@ type ReplicationGroup struct {
 	GlobalReplicationGroupID   string                   `json:"globalReplicationGroupId,omitempty"`
 	GlobalReplicationGroupRole string                   `json:"globalReplicationGroupRole,omitempty"`
 	dock                       *redisdocker.Group
-	Tags                       *tags.Tags               `json:"tags,omitempty"`
-	ReplicationGroupID         string                   `json:"replicationGroupID"`
-	Description                string                   `json:"description"`
-	Status                     string                   `json:"status"`
-	PendingStatus              string                   `json:"pendingStatus,omitempty"`
-	ARN                        string                   `json:"arn"`
-	Engine                     string                   `json:"engine,omitempty"`
-	CacheParameterGroupName    string                   `json:"cacheParameterGroupName,omitempty"`
-	AutomaticFailover          string                   `json:"automaticFailover,omitempty"`
-	EngineVersion              string                   `json:"engineVersion,omitempty"`
-	CacheNodeType              string                   `json:"cacheNodeType,omitempty"`
-	PreferredMaintenanceWindow string                   `json:"preferredMaintenanceWindow,omitempty"`
-	SnapshotWindow             string                   `json:"snapshotWindow,omitempty"`
-	AuthToken                  string                   `json:"authToken,omitempty"`
-	KmsKeyID                   string                   `json:"kmsKeyId,omitempty"`
-	NotificationTopicArn       string                   `json:"notificationTopicArn,omitempty"`
-	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
-	Durability                 string                   `json:"durability,omitempty"`
-	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
-	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
-	UserGroupIDs               []string                 `json:"userGroupIds,omitempty"`
-	SnapshotRetentionLimit     int                      `json:"snapshotRetentionLimit,omitempty"`
-	ReplicaCount               int32                    `json:"replicaCount,omitempty"`
-	ClusterModeEnabled         bool                     `json:"clusterModeEnabled,omitempty"`
-	AuthTokenEnabled           bool                     `json:"authTokenEnabled,omitempty"`
-	AtRestEncryptionEnabled    bool                     `json:"atRestEncryptionEnabled,omitempty"`
-	TransitEncryptionEnabled   bool                     `json:"transitEncryptionEnabled,omitempty"`
-	DataTieringEnabled         bool                     `json:"dataTieringEnabled,omitempty"`
-	MultiAZEnabled             bool                     `json:"multiAZEnabled,omitempty"`
+	Tags                       *tags.Tags          `json:"tags,omitempty"`
+	ReplicationGroupID         string              `json:"replicationGroupID"`
+	Description                string              `json:"description"`
+	Status                     string              `json:"status"`
+	PendingStatus              string              `json:"pendingStatus,omitempty"`
+	ARN                        string              `json:"arn"`
+	Engine                     string              `json:"engine,omitempty"`
+	CacheParameterGroupName    string              `json:"cacheParameterGroupName,omitempty"`
+	AutomaticFailover          string              `json:"automaticFailover,omitempty"`
+	EngineVersion              string              `json:"engineVersion,omitempty"`
+	CacheNodeType              string              `json:"cacheNodeType,omitempty"`
+	PreferredMaintenanceWindow string              `json:"preferredMaintenanceWindow,omitempty"`
+	SnapshotWindow             string              `json:"snapshotWindow,omitempty"`
+	AuthToken                  string              `json:"authToken,omitempty"`
+	KmsKeyID                   string              `json:"kmsKeyId,omitempty"`
+	NotificationTopicArn       string              `json:"notificationTopicArn,omitempty"`
+	TransitEncryptionMode      string              `json:"transitEncryptionMode,omitempty"`
+	Durability                 string              `json:"durability,omitempty"`
+	NodeGroups                 []NodeGroup         `json:"nodeGroups,omitempty"`
+	LogDeliveryConfigurations  []LogDeliveryConfig `json:"logDeliveryConfigurations,omitempty"`
+	UserGroupIDs               []string            `json:"userGroupIds,omitempty"`
+	SnapshotRetentionLimit     int                 `json:"snapshotRetentionLimit,omitempty"`
+	ReplicaCount               int32               `json:"replicaCount,omitempty"`
+	ClusterModeEnabled         bool                `json:"clusterModeEnabled,omitempty"`
+	AuthTokenEnabled           bool                `json:"authTokenEnabled,omitempty"`
+	AtRestEncryptionEnabled    bool                `json:"atRestEncryptionEnabled,omitempty"`
+	TransitEncryptionEnabled   bool                `json:"transitEncryptionEnabled,omitempty"`
+	DataTieringEnabled         bool                `json:"dataTieringEnabled,omitempty"`
+	MultiAZEnabled             bool                `json:"multiAZEnabled,omitempty"`
 }
 
 // CacheParameterGroup represents an ElastiCache parameter group.
@@ -529,9 +529,9 @@ type dnsRecordRegistrar interface {
 // same-named resources in different regions are fully isolated. GlobalReplicationGroups
 // are global/partition-scoped (like AWS) and therefore are NOT region-nested.
 type InMemoryBackend struct {
-	sgEnforcer                atomic.Pointer[sgfilter.Enforcer]
 	dnsRegistrar              DNSRegistrar
-	registry                  *store.Registry
+	subnetGroups              map[string]*store.Table[CacheSubnetGroup]
+	clusters                  map[string]*store.Table[Cluster]
 	globalReplicationGroups   *store.Table[GlobalReplicationGroup]
 	serverlessCaches          map[string]*store.Table[ServerlessCache]
 	userGroups                map[string]*store.Table[UserGroup]
@@ -539,23 +539,23 @@ type InMemoryBackend struct {
 	snapshots                 map[string]*store.Table[CacheSnapshot]
 	cacheSecurityGroups       map[string]*store.Table[CacheSecurityGroup]
 	cacheSecurityGroupIngress map[string]map[string][]EC2SecurityGroupMembership
-	clusters                  map[string]*store.Table[Cluster]
+	docker                    *redisdocker.Engine
 	replicationGroups         map[string]*store.Table[ReplicationGroup]
-	reservedCacheNodes        map[string]*store.Table[ReservedCacheNode]
-	serverlessCacheSnapshots  map[string]*store.Table[ServerlessCacheSnapshot]
-	subnetGroups              map[string]*store.Table[CacheSubnetGroup]
 	users                     map[string]*store.Table[User]
+	registry                  *store.Registry
+	serverlessCacheSnapshots  map[string]*store.Table[ServerlessCacheSnapshot]
+	reservedCacheNodes        map[string]*store.Table[ReservedCacheNode]
 	events                    *eventRing
 	mu                        *lockmetrics.RWMutex
 	allocator                 *portalloc.Allocator
 	clock                     func() time.Time
-	region                    string
-	engineMode                string
-	docker                    *redisdocker.Engine
-	dockerWG                  sync.WaitGroup
-	strayGroups               []*redisdocker.Group
+	sgEnforcer                atomic.Pointer[sgfilter.Enforcer]
 	accountID                 string
+	engineMode                string
+	region                    string
+	strayGroups               []*redisdocker.Group
 	updateActions             []*UpdateAction
+	dockerWG                  sync.WaitGroup
 	lifecycleDelay            time.Duration
 }
 
@@ -869,8 +869,8 @@ type User struct {
 	AccessString  string     `json:"accessString"`
 	AuthType      string     `json:"authType"`
 	UserGroupIDs  []string   `json:"userGroupIds,omitempty"`
-	PasswordCount int        `json:"passwordCount"`
 	Passwords     []string   `json:"passwords,omitempty"`
+	PasswordCount int        `json:"passwordCount"`
 }
 
 // UpdateActionResult represents the outcome of a single update action.

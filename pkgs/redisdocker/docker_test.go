@@ -1,8 +1,8 @@
 package redisdocker_test
 
 import (
-	"crypto/x509"
 	"crypto/tls"
+	"crypto/x509"
 	"os/exec"
 	"testing"
 	"time"
@@ -86,20 +86,22 @@ func TestDockerClusterTLSACLSnapshot(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NOPERM")
 
-	var slots []redis.ClusterSlot
+	var shards []redis.ClusterShard
 
 	require.Eventually(t, func() bool {
 		var serr error
 
-		slots, serr = cc.ClusterSlots(t.Context()).Result()
+		shards, serr = cc.ClusterShards(t.Context()).Result()
 
-		return serr == nil && len(slots) == 2 && len(slots[0].Nodes) == 2 && len(slots[1].Nodes) == 2
-	}, time.Minute, 500*time.Millisecond, "replicas listed in CLUSTER SLOTS")
+		return serr == nil && len(shards) == 2 && len(shards[0].Nodes) == 2 && len(shards[1].Nodes) == 2
+	}, time.Minute, 500*time.Millisecond, "replicas listed in CLUSTER SHARDS")
 
 	covered := 0
-	for _, s := range slots {
-		covered += s.End - s.Start + 1
-		assert.Len(t, s.Nodes, 2)
+
+	for _, sh := range shards {
+		for _, r := range sh.Slots {
+			covered += int(r.End - r.Start + 1)
+		}
 	}
 
 	assert.Equal(t, redisdocker.TotalSlots, covered)

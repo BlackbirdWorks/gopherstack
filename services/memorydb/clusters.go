@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
-	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 )
 
 // validateMaintenanceWindow validates the AWS MemoryDB maintenance window format ddd:hh24:mi-ddd:hh24:mi.
@@ -354,27 +353,8 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 	c := buildCluster(region, clusterARN, aclName, req, d, b.now())
 	b.markCreatingLocked(c)
 
-	if b.docker != nil {
-		var seeds [][]byte
-		if restoreSnap != nil {
-			if seeds, err = redisdocker.SeedsFor(restoreSnap.Data, int(c.NumShards)); err != nil {
-				return nil, fmt.Errorf("snapshot %q cannot be restored: %w: %w", req.SnapshotName, ErrValidation, err)
-			}
-		}
-
-		b.launchDockerLocked(region, c, seeds)
-	} else {
-		if err = b.startEngineLocked(c); err != nil {
-			return nil, err
-		}
-
-		if restoreSnap != nil {
-			if err = redisdocker.LoadEmbedded(c.mini(), restoreSnap.Data); err != nil {
-				b.stopEngine(c)
-
-				return nil, err
-			}
-		}
+	if err = b.startDataPlaneLocked(region, c, restoreSnap); err != nil {
+		return nil, err
 	}
 
 	b.clustersStore(region).Put(c)

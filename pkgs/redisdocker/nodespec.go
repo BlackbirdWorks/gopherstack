@@ -36,7 +36,7 @@ func (g *Group) containerSpec(n *node) container.Spec {
 	port := strconv.Itoa(n.port)
 
 	return container.Spec{
-		Name:       "gopherstack-" + cfg.Label + "-" + randomHex(containerSuffixLen/2),
+		Name:       "gopherstack-" + cfg.Label + "-" + randomHex(containerNameBytes),
 		Image:      image,
 		Env:        env,
 		Entrypoint: []string{"sh", "-c", entryScript, "gs-redis"},

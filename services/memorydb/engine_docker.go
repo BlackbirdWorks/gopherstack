@@ -1,10 +1,11 @@
 package memorydb
 
 import (
-	"github.com/alicebob/miniredis/v2"
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
@@ -267,4 +268,39 @@ func (c *Cluster) mini() *miniredis.Miniredis {
 	}
 
 	return c.engine.Mini
+}
+
+// startDataPlaneLocked starts c's servers (containers or the embedded server) and restores restoreSnap into them.
+// Must hold b.mu.
+func (b *InMemoryBackend) startDataPlaneLocked(region string, c *Cluster, restoreSnap *Snapshot) error {
+	if b.docker != nil {
+		var seeds [][]byte
+
+		if restoreSnap != nil {
+			var err error
+			if seeds, err = redisdocker.SeedsFor(restoreSnap.Data, int(c.NumShards)); err != nil {
+				return fmt.Errorf("snapshot %q cannot be restored: %w: %w", restoreSnap.Name, ErrValidation, err)
+			}
+		}
+
+		b.launchDockerLocked(region, c, seeds)
+
+		return nil
+	}
+
+	if err := b.startEngineLocked(c); err != nil {
+		return err
+	}
+
+	if restoreSnap == nil {
+		return nil
+	}
+
+	if err := redisdocker.LoadEmbedded(c.mini(), restoreSnap.Data); err != nil {
+		b.stopEngine(c)
+
+		return err
+	}
+
+	return nil
 }

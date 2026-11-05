@@ -111,7 +111,7 @@ func (s Spec) withDefaultSlots() Spec {
 
 // ImageFor maps an engine and API version to a container image. Versions below 7 run on 7.0, whose cluster
 // hostname support the group relies on; odd minors map to the next published image.
-func ImageFor(engine, version string) (image, binary string) {
+func ImageFor(engine, version string) (string, string) {
 	major, minor := parseVersion(version)
 
 	if engine == EngineValkey {

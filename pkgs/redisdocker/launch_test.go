@@ -145,9 +145,9 @@ func TestLaunchValidatesSpec(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		err  error
 		name string
 		spec redisdocker.Spec
-		err  error
 	}{
 		{name: "no shards", spec: redisdocker.Spec{}, err: redisdocker.ErrSpec},
 		{

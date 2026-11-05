@@ -199,7 +199,11 @@ func TestDockerACLFromUserGroupsAndAuthToken(t *testing.T) {
 
 	set = fk.Cmds("ACL", "SETUSER", "app")
 	require.Len(t, set, 4)
-	assert.Equal(t, []any{"ACL", "SETUSER", "app", "reset", ">passwordpassword1", "on", "~other:*", "+get"}, set[3].Args)
+	assert.Equal(
+		t,
+		[]any{"ACL", "SETUSER", "app", "reset", ">passwordpassword1", "on", "~other:*", "+get"},
+		set[3].Args,
+	)
 
 	_, err = client.ModifyUserGroup(ctx, &elasticachesdk.ModifyUserGroupInput{
 		UserGroupId: aws.String("ug"), UserIdsToRemove: []string{"u-app"},

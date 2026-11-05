@@ -25,7 +25,7 @@ const (
 	defaultPollInterval = 250 * time.Millisecond
 	stopTimeout         = 30 * time.Second
 	adminPasswordBytes  = 16
-	containerSuffixLen  = 8
+	containerNameBytes  = 4
 	busPort             = 16379
 	mountDir            = "/gs"
 	dirMode             = 0o755
@@ -113,11 +113,11 @@ func (n *node) primary() bool { return n.replica == 0 }
 // Group is a launched set of containers.
 type Group struct {
 	engine   *Engine
-	spec     Spec
 	admin    string
 	dir      string
 	aclUsers []string
 	nodes    []*node
+	spec     Spec
 	mu       sync.Mutex
 	closed   bool
 }
@@ -188,7 +188,7 @@ func (g *Group) start(ctx context.Context) error {
 
 	g.dir = dir
 
-	if err = os.Chmod(dir, dirMode); err != nil { //nolint:gosec // mounted read-only into the containers
+	if err = os.Chmod(dir, dirMode); err != nil {
 		return fmt.Errorf("group directory mode: %w", err)
 	}
 

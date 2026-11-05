@@ -89,7 +89,7 @@ func (g *Group) resolveIPs(ctx context.Context) error {
 			return fmt.Errorf("resolve node address: %w", err)
 		}
 
-		for _, f := range strings.Fields(res.Stdout) {
+		for f := range strings.FieldsSeq(res.Stdout) {
 			if ip := net.ParseIP(f); ip != nil && ip.To4() != nil {
 				n.ip = f
 
@@ -233,7 +233,7 @@ func (g *Group) unclaimed(ctx context.Context, a Admin, want []SlotRange) ([]Slo
 func ownedSlots(nodes string) []SlotRange {
 	var out []SlotRange
 
-	for _, line := range strings.Split(nodes, "\n") {
+	for line := range strings.SplitSeq(nodes, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) <= nodeSlotsField || !strings.Contains(fields[nodeFlagsField], "myself") {
 			continue
@@ -275,7 +275,7 @@ func subtractSlots(want, owned []SlotRange) ([]SlotRange, error) {
 
 	var out []SlotRange
 
-	for s := 0; s < TotalSlots; s++ {
+	for s := range TotalSlots {
 		switch {
 		case !set[s]:
 		case len(out) > 0 && out[len(out)-1].End == s-1:
@@ -386,7 +386,7 @@ func (g *Group) replicasVisible(ctx context.Context, a Admin) (bool, error) {
 
 	want, slaves := len(g.nodes)-len(g.spec.Shards), 0
 
-	for _, line := range strings.Split(asString(res), "\n") {
+	for line := range strings.SplitSeq(asString(res), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < nodeFlagsField+1 {
 			continue

@@ -9,6 +9,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+const respVersion = 2
+
 // Target addresses one node's control endpoint.
 type Target struct {
 	TLS      *tls.Config
@@ -31,7 +33,7 @@ type goRedisAdmin struct{ c *redis.Client }
 func dialRedis(t Target) Admin {
 	return &goRedisAdmin{c: redis.NewClient(&redis.Options{
 		Addr: t.Addr, Username: t.Username, Password: t.Password, TLSConfig: t.TLS,
-		Protocol: 2, DisableIdentity: true, MaxRetries: -1,
+		Protocol: respVersion, DisableIdentity: true, MaxRetries: -1,
 	})}
 }
 
@@ -59,7 +61,7 @@ func asString(v any) string {
 
 // infoField returns the value of key in INFO/CLUSTER INFO style "key:value" lines.
 func infoField(text, key string) string {
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		k, v, ok := strings.Cut(strings.TrimSpace(line), ":")
 		if ok && k == key {
 			return v

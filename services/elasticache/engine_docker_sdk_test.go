@@ -71,7 +71,9 @@ func TestDockerRealClusterModeGroupAcrossSlotsAndReplicas(t *testing.T) {
 	rg := out.ReplicationGroup
 	require.Len(t, nodeEndpoints(t, rg), 4)
 
-	cc := redis.NewClusterClient(&redis.ClusterOptions{Addrs: []string{memberAddr(rg.NodeGroups[0].NodeGroupMembers[0])}})
+	cc := redis.NewClusterClient(
+		&redis.ClusterOptions{Addrs: []string{memberAddr(rg.NodeGroups[0].NodeGroupMembers[0])}},
+	)
 	t.Cleanup(func() { _ = cc.Close() })
 
 	keys := make([]string, 0, 40)
@@ -87,13 +89,16 @@ func TestDockerRealClusterModeGroupAcrossSlotsAndReplicas(t *testing.T) {
 		assert.Equal(t, "v"+k, got)
 	}
 
-	slots, err := cc.ClusterSlots(ctx).Result()
+	shards, err := cc.ClusterShards(ctx).Result()
 	require.NoError(t, err)
-	require.Len(t, slots, 2, "both shards own slots")
+	require.Len(t, shards, 2, "both shards own slots")
 
 	covered := 0
-	for _, s := range slots {
-		covered += s.End - s.Start + 1
+
+	for _, sh := range shards {
+		for _, r := range sh.Slots {
+			covered += int(r.End - r.Start + 1)
+		}
 	}
 
 	assert.Equal(t, redisdocker.TotalSlots, covered)
@@ -156,7 +161,9 @@ func TestDockerRealTLSAuthTokenACLAndSnapshotRestore(t *testing.T) {
 	primary := out.ReplicationGroup.NodeGroups[0].PrimaryEndpoint
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(aws.ToInt32(primary.Port))))
 
-	app := redis.NewClient(&redis.Options{Addr: addr, Username: "app", Password: "app-password-12345", TLSConfig: tlsCfg})
+	app := redis.NewClient(
+		&redis.Options{Addr: addr, Username: "app", Password: "app-password-12345", TLSConfig: tlsCfg},
+	)
 	t.Cleanup(func() { _ = app.Close() })
 
 	require.NoError(t, app.Set(ctx, "app:k", "v", 0).Err())
@@ -182,7 +189,9 @@ func TestDockerRealTLSAuthTokenACLAndSnapshotRestore(t *testing.T) {
 
 	raddr := net.JoinHostPort("127.0.0.1",
 		strconv.Itoa(int(aws.ToInt32(restored.ReplicationGroup.NodeGroups[0].PrimaryEndpoint.Port))))
-	rc := redis.NewClient(&redis.Options{Addr: raddr, Username: "app", Password: "app-password-12345", TLSConfig: tlsCfg})
+	rc := redis.NewClient(
+		&redis.Options{Addr: raddr, Username: "app", Password: "app-password-12345", TLSConfig: tlsCfg},
+	)
 	t.Cleanup(func() { _ = rc.Close() })
 
 	got, err := rc.Get(ctx, "app:k").Result()

@@ -218,7 +218,9 @@ func (b *InMemoryBackend) dockerGroupSpec(opts ReplicationGroupCreateOpts, prep 
 ) {
 	clusterMode := prep.clusterMode && opts.ClusterMode != statusDisabled
 	spec := redisdocker.Spec{
-		Engine: b.engineName(opts.Engine), Version: firstNonEmpty(opts.EngineVersion, defaultEngineVersion(opts.Engine)),
+		Engine: b.engineName(
+			opts.Engine,
+		), Version: firstNonEmpty(opts.EngineVersion, defaultEngineVersion(opts.Engine)),
 		ClusterMode: clusterMode,
 		TLS:         opts.TransitEncryptionEnabled && opts.TransitEncryptionMode != transitEncryptionModePreferred,
 	}
@@ -333,7 +335,11 @@ func (b *InMemoryBackend) groupACLPolicy(region string, userGroupIDs []string, a
 	return b.groupACLPolicyLocked(region, userGroupIDs, authToken)
 }
 
-func (b *InMemoryBackend) groupACLPolicyLocked(region string, userGroupIDs []string, authToken string) redisdocker.ACLPolicy {
+func (b *InMemoryBackend) groupACLPolicyLocked(
+	region string,
+	userGroupIDs []string,
+	authToken string,
+) redisdocker.ACLPolicy {
 	policy := redisdocker.ACLPolicy{DefaultPassword: authToken, OpenDefault: len(userGroupIDs) == 0 && authToken == ""}
 	seen := map[string]bool{}
 

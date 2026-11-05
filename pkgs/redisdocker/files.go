@@ -20,7 +20,7 @@ func (g *Group) writeFiles() error {
 			continue
 		}
 
-		if err := os.WriteFile(filepath.Join(g.dir, seedName(i)), sh.Seed, fileMode); err != nil { //nolint:gosec // read-only mount
+		if err := os.WriteFile(filepath.Join(g.dir, seedName(i)), sh.Seed, fileMode); err != nil {
 			return fmt.Errorf("write seed: %w", err)
 		}
 	}
@@ -52,7 +52,7 @@ func (g *Group) writeTLS() error {
 	}
 
 	dir := filepath.Join(g.dir, tlsDir)
-	if err = os.Mkdir(dir, subdirMode); err != nil { //nolint:gosec // read-only mount for the container user
+	if err = os.Mkdir(dir, subdirMode); err != nil {
 		return fmt.Errorf("tls directory: %w", err)
 	}
 
@@ -63,7 +63,7 @@ func (g *Group) writeTLS() error {
 	}
 
 	for name, data := range files {
-		if err = os.WriteFile(filepath.Join(dir, name), data, fileMode); err != nil { //nolint:gosec // read-only mount
+		if err = os.WriteFile(filepath.Join(dir, name), data, fileMode); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}

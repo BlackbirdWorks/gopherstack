@@ -298,7 +298,6 @@ func memberClusterID(rgID, ngID string, n int, clusterMode bool) string {
 func nodeNumber(clusterID string) int {
 	idx := strings.LastIndex(clusterID, "-")
 	n, err := strconv.Atoi(clusterID[idx+1:])
-
 	if err != nil {
 		return 0
 	}
@@ -399,7 +398,11 @@ func nodeFor(c *Cluster, role, az string) NodeGroupNode {
 }
 
 // shardEngines starts one data-plane engine per shard that has no existing primary cluster.
-func (b *InMemoryBackend) startShardEngines(ctx context.Context, engine string, count, port int) ([]*clusterEngine, error) {
+func (b *InMemoryBackend) startShardEngines(
+	ctx context.Context,
+	engine string,
+	count, port int,
+) ([]*clusterEngine, error) {
 	engines := make([]*clusterEngine, 0, count)
 
 	for range count {

@@ -28,8 +28,10 @@ func TestSubtractSlots(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "nothing owned", want: []SlotRange{{0, 9}}, missing: []SlotRange{{0, 9}}},
-		{name: "partly owned", want: []SlotRange{{0, 9}}, owned: []SlotRange{{3, 4}, {9, 9}},
-			missing: []SlotRange{{0, 2}, {5, 8}}},
+		{
+			name: "partly owned", want: []SlotRange{{0, 9}}, owned: []SlotRange{{3, 4}, {9, 9}},
+			missing: []SlotRange{{0, 2}, {5, 8}},
+		},
 		{name: "all owned", want: []SlotRange{{0, 9}}, owned: []SlotRange{{0, 9}}},
 		{name: "owned outside shard", want: []SlotRange{{0, 9}}, owned: []SlotRange{{10, 10}}, wantErr: true},
 	}

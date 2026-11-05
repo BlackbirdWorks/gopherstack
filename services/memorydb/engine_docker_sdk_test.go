@@ -89,7 +89,10 @@ func TestDockerRealClusterTLSACLAndSnapshotRestore(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.CreateACL(ctx, &memorydbsdk.CreateACLInput{ACLName: aws.String("app-acl"), UserNames: []string{"app"}})
+	_, err = client.CreateACL(
+		ctx,
+		&memorydbsdk.CreateACLInput{ACLName: aws.String("app-acl"), UserNames: []string{"app"}},
+	)
 	require.NoError(t, err)
 
 	_, err = client.CreateCluster(ctx, &memorydbsdk.CreateClusterInput{
@@ -142,19 +145,22 @@ func TestDockerRealClusterTLSACLAndSnapshotRestore(t *testing.T) {
 func assertSlotsAndReplication(t *testing.T, cc *redis.ClusterClient, cl memorydbtypes.Cluster, keys []string) {
 	t.Helper()
 
-	var slots []redis.ClusterSlot
+	var shards []redis.ClusterShard
 
 	require.Eventually(t, func() bool {
 		var err error
 
-		slots, err = cc.ClusterSlots(t.Context()).Result()
+		shards, err = cc.ClusterShards(t.Context()).Result()
 
-		return err == nil && len(slots) == 2 && len(slots[0].Nodes) == 2 && len(slots[1].Nodes) == 2
+		return err == nil && len(shards) == 2 && len(shards[0].Nodes) == 2 && len(shards[1].Nodes) == 2
 	}, time.Minute, 500*time.Millisecond)
 
 	covered := 0
-	for _, s := range slots {
-		covered += s.End - s.Start + 1
+
+	for _, sh := range shards {
+		for _, r := range sh.Slots {
+			covered += int(r.End - r.Start + 1)
+		}
 	}
 
 	assert.Equal(t, redisdocker.TotalSlots, covered)

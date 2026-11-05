@@ -108,8 +108,8 @@ func command(w io.Writer, r *bufio.Reader, args ...string) error {
 	return nil
 }
 
-func syncPayload(w io.Writer, r *bufio.Reader) (rdb []byte, err error) {
-	if _, err = io.WriteString(w, "SYNC\r\n"); err != nil {
+func syncPayload(w io.Writer, r *bufio.Reader) ([]byte, error) {
+	if _, err := io.WriteString(w, "SYNC\r\n"); err != nil {
 		return nil, fmt.Errorf("write sync: %w", err)
 	}
 
@@ -133,8 +133,8 @@ func syncPayload(w io.Writer, r *bufio.Reader) (rdb []byte, err error) {
 			return nil, fmt.Errorf("%w: payload size %q", ErrBadSnapshot, line)
 		}
 
-		rdb = make([]byte, size)
-		if _, err = io.ReadFull(r, rdb); err != nil {
+		rdb := make([]byte, size)
+		if _, err := io.ReadFull(r, rdb); err != nil {
 			return nil, fmt.Errorf("read rdb: %w", err)
 		}
 
@@ -156,7 +156,7 @@ func EncodeBundle(shards [][]byte) []byte {
 }
 
 // DecodeBundle unpacks EncodeBundle output; ok is false when blob is not a bundle.
-func DecodeBundle(blob []byte) (shards [][]byte, ok bool) {
+func DecodeBundle(blob []byte) ([][]byte, bool) {
 	rest, found := bytes.CutPrefix(blob, []byte(bundleMagic))
 	if !found {
 		return nil, false
@@ -169,14 +169,17 @@ func DecodeBundle(blob []byte) (shards [][]byte, ok bool) {
 
 	rest = rest[n:]
 
+	var shards [][]byte
+
 	for range count {
 		size, m := binary.Uvarint(rest)
-		if m <= 0 || size > uint64(len(rest)-m) {
+		if m <= 0 || size > uint64(len(rest)-m) { //nolint:gosec // len(rest) > m is checked by the loop invariant
 			return nil, false
 		}
 
-		shards = append(shards, rest[m:m+int(size)])
-		rest = rest[m+int(size):]
+		end := m + int(size) //nolint:gosec // size <= len(rest)
+		shards = append(shards, rest[m:end])
+		rest = rest[end:]
 	}
 
 	return shards, true
