@@ -121,6 +121,18 @@ func (r *buildRunner) resolveEnv(
 	return out, masked, nil
 }
 
+func secretVarNames(vars []EnvironmentVariable) map[string]bool {
+	out := map[string]bool{}
+
+	for _, v := range vars {
+		if v.Type == envTypeParameter || v.Type == envTypeSecret {
+			out[v.Name] = true
+		}
+	}
+
+	return out
+}
+
 // builtinEnv returns the CODEBUILD_* variables every build sees.
 func (r *buildRunner) builtinEnv(srcDir string) []EnvironmentVariable {
 	b := r.build
@@ -137,6 +149,9 @@ func (r *buildRunner) builtinEnv(srcDir string) []EnvironmentVariable {
 		{"AWS_REGION", r.region},
 		{"AWS_DEFAULT_REGION", r.region},
 		{"CODEBUILD_CI", "true"},
+		{"CODEBUILD_BUILD_IMAGE", r.buildImage()},
+		{"CODEBUILD_LOG_PATH", r.logStream()},
+		{"CODEBUILD_SOURCE_REPO_URL", r.sourceLocation()},
 	}
 
 	out := make([]EnvironmentVariable, len(pairs), len(pairs)+len(r.secondary))
@@ -151,4 +166,28 @@ func (r *buildRunner) builtinEnv(srcDir string) []EnvironmentVariable {
 	}
 
 	return out
+}
+
+func (r *buildRunner) buildImage() string {
+	if r.build.Environment == nil {
+		return ""
+	}
+
+	return r.build.Environment.Image
+}
+
+func (r *buildRunner) logStream() string {
+	if r.log == nil {
+		return ""
+	}
+
+	return r.log.stream
+}
+
+func (r *buildRunner) sourceLocation() string {
+	if r.build.Source == nil {
+		return ""
+	}
+
+	return r.build.Source.Location
 }

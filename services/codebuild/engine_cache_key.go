@@ -129,7 +129,7 @@ func (r *buildRunner) s3KeyedBase() (string, string, bool) {
 		return "", "", false
 	}
 
-	return bucket, strings.Trim(prefix+"/"+r.build.ProjectName+"/"+cacheKeyedDir+"/"+r.cacheVersion(), "/") + "/", true
+	return bucket, strings.Trim(prefix+"/"+cacheScope(c, r.build.ProjectName)+"/"+cacheKeyedDir+"/"+r.cacheVersion(), "/") + "/", true
 }
 
 func (r *buildRunner) s3KeyedObject(key string) (string, string, bool) {
@@ -163,7 +163,7 @@ func (r *buildRunner) populateStage() {
 	case r.cacheKey != "":
 		r.restoreKeyed(c)
 	case c.Type == cacheTypeS3:
-		if bucket, key, ok := s3CacheLocation(c.Location, r.build.ProjectName); ok {
+		if bucket, key, ok := s3CacheLocation(c.Location, cacheScope(c, r.build.ProjectName)); ok {
 			r.restoreS3Object(bucket, key)
 		}
 	default:
@@ -318,7 +318,7 @@ func (r *buildRunner) persistStage() error {
 
 		return r.uploadS3Cache(bucket, obj)
 	case c.Type == cacheTypeS3:
-		bucket, key, ok := s3CacheLocation(c.Location, r.build.ProjectName)
+		bucket, key, ok := s3CacheLocation(c.Location, cacheScope(c, r.build.ProjectName))
 		if !ok {
 			return fmt.Errorf("%w: S3 cache location", errSourceDependency)
 		}
@@ -334,7 +334,7 @@ func (r *buildRunner) persistStage() error {
 // emptyKeyedObjects empties every keyed S3 cache archive of the project.
 func emptyKeyedObjects(ctx context.Context, store ObjectStore, proj *Project) error {
 	bucket, prefix, _ := strings.Cut(strings.TrimPrefix(proj.Cache.Location, s3ARNPrefix), "/")
-	base := strings.Trim(prefix+"/"+proj.Name+"/"+cacheKeyedDir, "/") + "/"
+	base := strings.Trim(prefix+"/"+cacheScope(proj.Cache, proj.Name)+"/"+cacheKeyedDir, "/") + "/"
 
 	keys, err := store.ListObjectKeys(ctx, bucket, base)
 	if err != nil {

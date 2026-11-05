@@ -4173,6 +4173,7 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		wireECSRuntime(cli, byName)
 		wireFlinkRoleCredentials(byName)
 		wireBatchExec(cli, byName)
+		wireCodeBuildRuntimeEnv(cli, byName)
 		wireEC2IMDS(appCtx.JanitorCtx, cli, byName)
 		wireLinkLocal(appCtx.JanitorCtx, cli, byName)
 		wireSSMSecrets(cli, byName)
