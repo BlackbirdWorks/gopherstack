@@ -403,7 +403,7 @@ func (t *samTranslator) putAlias(id string, props map[string]any) error {
 		return nil
 	}
 	fnProps := asMap(asMap(t.out[id])[samKeyProps])
-	verID := samVersionID(id, props, fnProps)
+	verID := samVersionID(id, props, t.withPublishedLayers(fnProps))
 	verProps := map[string]any{samKeyFnName: samRef(id)}
 	if d := props["VersionDescription"]; d != nil {
 		verProps[samKeyDesc] = d
@@ -449,6 +449,28 @@ func aliasNamePattern(name string) bool {
 	}
 
 	return name != "" && !numeric
+}
+
+// withPublishedLayers adds the properties of referenced layers that set PublishLambdaVersion to the version hash input.
+func (t *samTranslator) withPublishedLayers(fnProps map[string]any) map[string]any {
+	var extra map[string]any
+	for _, l := range asList(fnProps["Layers"]) {
+		lid := logicalIDFromIntrinsic(l)
+		orig := asMap(t.input[lid])
+		lp := asMap(orig[samKeyProps])
+		if orig[samKeyType] != samResPrefix+"LayerVersion" || lp["PublishLambdaVersion"] != true {
+			continue
+		}
+		if extra == nil {
+			extra = maps.Clone(fnProps)
+		}
+		extra[lid] = lp
+	}
+	if extra == nil {
+		return fnProps
+	}
+
+	return extra
 }
 
 // samVersionID mirrors SAM's Lambda version id: the hash covers the function

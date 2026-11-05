@@ -12,7 +12,7 @@ func samTableAllowed() map[string]bool {
 
 func samLayerAllowed() map[string]bool {
 	return keySet("LayerName", samKeyDesc, "ContentUri", "CompatibleRuntimes",
-		"CompatibleArchitectures", "LicenseInfo", "RetentionPolicy")
+		"CompatibleArchitectures", "LicenseInfo", "RetentionPolicy", "PublishLambdaVersion")
 }
 
 func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error {

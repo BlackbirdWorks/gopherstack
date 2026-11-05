@@ -96,7 +96,9 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	}
 	props := map[string]any{
 		samKeyDomainName: domain[samKeyDomainName], "DomainNameConfigurations": []any{cfg},
-		samKeyTags: map[string]any{samHTTPAPITag: samCreatedBy},
+	}
+	if tags := a.v2Tags(); tags != nil {
+		props[samKeyTags] = tags
 	}
 	if m := mutualTLS(domain); m != nil {
 		props["MutualTlsAuthentication"] = m

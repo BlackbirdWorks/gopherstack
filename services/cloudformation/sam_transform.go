@@ -106,6 +106,8 @@ type samTranslator struct {
 	deploys    []*samDeployPref
 	sharedPlan samSharedPlan
 	curTags    map[string]any
+	owner      map[string]string
+	cur        string
 	bucketTags map[string]map[string]any
 }
 
@@ -162,6 +164,7 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		params:     map[string]any{},
 		conditions: map[string]any{},
 		bucketTags: map[string]map[string]any{},
+		owner:      map[string]string{},
 	}
 	for name, p := range asMap(doc["Parameters"]) {
 		if def, ok := asMap(p)["Default"]; ok {
@@ -223,6 +226,7 @@ func (t *samTranslator) translate(res map[string]any) error {
 		}
 	}
 
+	t.cur = ""
 	if err := t.finalizeAPIs(); err != nil {
 		return err
 	}
@@ -258,6 +262,7 @@ func (t *samTranslator) registerAPIs(id string, r map[string]any) error {
 
 func (t *samTranslator) translateOne(id string, r map[string]any) error {
 	typ, _ := r[samKeyType].(string)
+	t.cur = id
 	switch typ {
 	case samResPrefix + samKeyFunction:
 		return t.translateWithTags(samKeyFunction, r, func() error { return t.translateFunction(id, r) })
@@ -284,8 +289,8 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 
 // put adds a generated resource, rejecting logical-ID collisions.
 func (t *samTranslator) put(id string, r map[string]any) error {
-	if _, exists := t.out[id]; exists {
-		return samErr(id, "Resource with this logical ID already exists in the template")
+	if err := t.checkUniqueID(id, r); err != nil {
+		return err
 	}
 	for k, v := range t.pass {
 		if _, has := r[k]; !has {
@@ -293,6 +298,40 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 		}
 	}
 	t.out[id] = r
+
+	return nil
+}
+
+// samReplacedTypes lists generated resource types that may reuse the id of the template resource they replace.
+//
+//nolint:gochecknoglobals // read-only table
+var samReplacedTypes = map[string][]string{
+	samTypeFunction: {samResPrefix + samKeyFunction}, samTypeLayer: {samResPrefix + "LayerVersion"},
+	samTypeRestAPI: {samResPrefix + "Api"}, "AWS::ApiGatewayV2::Api": {samResPrefix + "HttpApi"},
+	samTypeBucket: {samTypeBucket}, "AWS::SNS::Topic": {"AWS::SNS::Topic"},
+	"AWS::DynamoDB::Table": {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
+	samTypeUserPool: {samTypeUserPool}, "AWS::ApiGateway::DomainName": {"AWS::ApiGateway::DomainName"},
+	"AWS::ApiGateway::BasePathMapping": {"AWS::ApiGateway::BasePathMapping"},
+	"AWS::StepFunctions::StateMachine": {samResPrefix + "StateMachine"},
+}
+
+// checkUniqueID rejects a generated id that collides with a different template resource, or an IAM role that two
+// SAM resources both generate; any other generated resource silently replaces an earlier one, as in SAM.
+func (t *samTranslator) checkUniqueID(id string, r map[string]any) error {
+	typ, _ := r[samKeyType].(string)
+	if orig, inInput := t.input[id].(map[string]any); inInput {
+		origType, _ := orig[samKeyType].(string)
+		if !slices.Contains(samReplacedTypes[typ], origType) {
+			return samErr(id, "Resource with this logical ID already exists in the template")
+		}
+	}
+	if prior, exists := t.out[id].(map[string]any); exists && typ == resTypeIAMRole && prior[samKeyType] == typ &&
+		t.owner[id] != t.cur {
+		return samErr(id, "Resource with this logical ID already exists in the template")
+	}
+	if typ == resTypeIAMRole {
+		t.owner[id] = t.cur
+	}
 
 	return nil
 }

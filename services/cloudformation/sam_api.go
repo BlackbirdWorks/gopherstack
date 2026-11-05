@@ -108,6 +108,9 @@ func (t *samTranslator) registerAPI(id string, r map[string]any) error {
 	if err := validateAPIProps(id, props); err != nil {
 		return err
 	}
+	if a, has := props[samAuthKey]; has {
+		props[samAuthKey] = t.resolveParamRefs(a)
+	}
 	api := &samAPI{id: id, stageRaw: stage, props: props, explicit: true, raw: r}
 	api.stageName, _ = stage.(string)
 	if err := api.validateOpenAPIVersion(); err != nil {

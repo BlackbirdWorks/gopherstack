@@ -74,6 +74,7 @@ type samHTTPAPI struct {
 	props     map[string]any
 	id        string
 	stageName string
+	stageRaw  any
 	routes    []samHTTPRoute
 	managed   bool
 	plainRef  bool
@@ -103,15 +104,23 @@ func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 		return samErr(id, "Specify either 'DefinitionUri' or 'DefinitionBody' property and not both.")
 	}
 	stage := samDefaultStage
+	var stageRaw any = samDefaultStage
 	if v, ok := props[samKeyStageName]; ok {
-		s, isStr := v.(string)
-		if !isStr || s == "" {
+		stageRaw = v
+		switch s := v.(type) {
+		case string:
+			if s == "" {
+				return samErr(id, "StageName must be a literal string.")
+			}
+			stage = s
+		case map[string]any:
+			stage = ""
+		default:
 			return samErr(id, "StageName must be a literal string.")
 		}
-		stage = s
 	}
 	managed := props["DefinitionBody"] == nil && props["DefinitionUri"] == nil
-	t.httpAPIs[id] = &samHTTPAPI{id: id, stageName: stage, props: props, managed: managed, raw: r}
+	t.httpAPIs[id] = &samHTTPAPI{id: id, stageName: stage, stageRaw: stageRaw, props: props, managed: managed, raw: r}
 
 	return nil
 }
@@ -132,7 +141,7 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 				return nil, err
 			}
 			t.httpAPIs[samImplicitHTTPAPI] = &samHTTPAPI{
-				id: samImplicitHTTPAPI, stageName: samDefaultStage, props: props, managed: true,
+				id: samImplicitHTTPAPI, stageName: samDefaultStage, stageRaw: samDefaultStage, props: props, managed: true,
 			}
 		}
 
@@ -334,15 +343,25 @@ func (a *samHTTPAPI) checkURIOnly() error {
 	return nil
 }
 
-func (a *samHTTPAPI) stageProps() map[string]any {
-	tags := map[string]any{}
-	if a.props["DefinitionUri"] == nil {
-		tags[samHTTPAPITag] = samCreatedBy
+// v2Tags are the tags of the stage and domain: the user's plus SAM's, only when SAM owns the OpenAPI body.
+func (a *samHTTPAPI) v2Tags() map[string]any {
+	if a.props["DefinitionUri"] != nil {
+		return nil
 	}
-	maps.Copy(tags, asMap(a.props[samKeyTags]))
+	tags := maps.Clone(asMap(a.props[samKeyTags]))
+	if tags == nil {
+		tags = map[string]any{}
+	}
 	tags[samHTTPAPITag] = samCreatedBy
-	stage := map[string]any{samKeyAPIID: samRef(a.id), samKeyStageName: a.stageName, "AutoDeploy": true,
-		samKeyTags: tags}
+
+	return tags
+}
+
+func (a *samHTTPAPI) stageProps() map[string]any {
+	stage := map[string]any{samKeyAPIID: samRef(a.id), samKeyStageName: a.stageRaw, "AutoDeploy": true}
+	if tags := a.v2Tags(); tags != nil {
+		stage[samKeyTags] = tags
+	}
 	for _, k := range []string{samKeyStageVars, "DefaultRouteSettings", "AccessLogSettings"} {
 		if v, ok := a.props[k]; ok {
 			stage[k] = v
