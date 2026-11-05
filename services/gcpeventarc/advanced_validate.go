@@ -36,7 +36,7 @@ func (b *InMemoryBackend) validateEnrollmentLocked(e *eventarcpb.Enrollment) err
 		return errInvalid("message_bus must be projects/{project}/locations/{location}/messageBuses/{id}.")
 	}
 
-	if _, ok := b.advTable(busKind)[e.GetMessageBus()]; !ok {
+	if _, ok := b.advTable(busKind())[e.GetMessageBus()]; !ok {
 		return errPrecondition("Message bus %q does not exist.", e.GetMessageBus())
 	}
 
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) validateEnrollmentLocked(e *eventarcpb.Enrollment) err
 		return errInvalid("destination must be projects/{project}/locations/{location}/pipelines/{id}.")
 	}
 
-	if _, ok := b.advTable(pipelineKind)[e.GetDestination()]; !ok {
+	if _, ok := b.advTable(pipelineKind())[e.GetDestination()]; !ok {
 		return errPrecondition("Pipeline %q does not exist.", e.GetDestination())
 	}
 
@@ -105,7 +105,7 @@ func (b *InMemoryBackend) validatePipelineDestination(d *eventarcpb.Pipeline_Des
 	case *eventarcpb.Pipeline_Destination_Workflow:
 		return validateWorkflowName(dd.Workflow)
 	case *eventarcpb.Pipeline_Destination_MessageBus:
-		if _, ok := b.advTable(busKind)[dd.MessageBus]; !ok {
+		if _, ok := b.advTable(busKind())[dd.MessageBus]; !ok {
 			return errPrecondition("Message bus %q does not exist.", dd.MessageBus)
 		}
 	case *eventarcpb.Pipeline_Destination_Topic:
@@ -125,7 +125,11 @@ func validatePipelineRetry(r *eventarcpb.Pipeline_RetryPolicy) error {
 	}
 
 	if n := r.GetMaxAttempts(); n != 0 && (n < pipelineMinAttempts || n > pipelineMaxAttempts) {
-		return errInvalid("retry_policy.max_attempts must be between %d and %d.", pipelineMinAttempts, pipelineMaxAttempts)
+		return errInvalid(
+			"retry_policy.max_attempts must be between %d and %d.",
+			pipelineMinAttempts,
+			pipelineMaxAttempts,
+		)
 	}
 
 	for name, d := range map[string]*struct{ v time.Duration }{
@@ -158,7 +162,7 @@ func (b *InMemoryBackend) validateSourceLocked(s *eventarcpb.GoogleApiSource) er
 		return errInvalid("destination must be projects/{project}/locations/{location}/messageBuses/{id}.")
 	}
 
-	if _, ok := b.advTable(busKind)[s.GetDestination()]; !ok {
+	if _, ok := b.advTable(busKind())[s.GetDestination()]; !ok {
 		return errPrecondition("Message bus %q does not exist.", s.GetDestination())
 	}
 

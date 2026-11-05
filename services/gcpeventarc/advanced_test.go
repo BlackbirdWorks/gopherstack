@@ -128,7 +128,8 @@ func TestAdvancedBusToPipelineDelivery(t *testing.T) {
 			},
 		},
 		{
-			name: "removeFields and a message binding template", match: `message.source.startsWith("//orders") && message.type == "order.created"`,
+			name:      "removeFields and a message binding template",
+			match:     `message.source.startsWith("//orders") && message.type == "order.created"`,
 			transform: `message.removeFields(["data.n"])`,
 			binding:   `{"headers": {"X-Order-Type": message.type}, "body": message.data.toJsonString()}`,
 			check: func(t *testing.T, got request) {
@@ -223,7 +224,9 @@ func TestAdvancedPipelineRetry(t *testing.T) {
 		{
 			name: "custom policy caps the delay",
 			policy: &eventarcpb.Pipeline_RetryPolicy{
-				MaxAttempts: 4, MinRetryDelay: durationpb.New(2 * time.Second), MaxRetryDelay: durationpb.New(3 * time.Second),
+				MaxAttempts:   4,
+				MinRetryDelay: durationpb.New(2 * time.Second),
+				MaxRetryDelay: durationpb.New(3 * time.Second),
 			},
 			wantDelays: []time.Duration{0, 2 * time.Second, 3 * time.Second, 3 * time.Second},
 		},
@@ -291,7 +294,11 @@ func TestAdvancedCRUD(t *testing.T) {
 
 	// Update with a mask changes only the masked field and the etag.
 	op, err := e.client.UpdateEnrollment(t.Context(), &eventarcpb.UpdateEnrollmentRequest{
-		Enrollment: &eventarcpb.Enrollment{Name: enr.GetName(), CelMatch: `message.type == "b"`, DisplayName: "ignored"},
+		Enrollment: &eventarcpb.Enrollment{
+			Name:        enr.GetName(),
+			CelMatch:    `message.type == "b"`,
+			DisplayName: "ignored",
+		},
 		UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"cel_match"}},
 	})
 	require.NoError(t, err)
@@ -322,7 +329,6 @@ func TestAdvancedCRUD(t *testing.T) {
 
 	_, err = e.client.GetEnrollment(t.Context(), &eventarcpb.GetEnrollmentRequest{Name: enr.GetName()})
 	assert.Equal(t, codes.NotFound, code(err))
-
 }
 
 func TestAdvancedValidation(t *testing.T) {
@@ -339,7 +345,11 @@ func TestAdvancedValidation(t *testing.T) {
 				t.Helper()
 				_, err := e.client.CreateEnrollment(t.Context(), &eventarcpb.CreateEnrollmentRequest{
 					Parent: parent, EnrollmentId: "bad-cel",
-					Enrollment: &eventarcpb.Enrollment{MessageBus: bus, CelMatch: "message.type ==", Destination: pipeline},
+					Enrollment: &eventarcpb.Enrollment{
+						MessageBus:  bus,
+						CelMatch:    "message.type ==",
+						Destination: pipeline,
+					},
 				})
 
 				return err
@@ -351,7 +361,11 @@ func TestAdvancedValidation(t *testing.T) {
 				t.Helper()
 				_, err := e.client.CreateEnrollment(t.Context(), &eventarcpb.CreateEnrollmentRequest{
 					Parent: parent, EnrollmentId: "not-bool",
-					Enrollment: &eventarcpb.Enrollment{MessageBus: bus, CelMatch: `"not a bool"`, Destination: pipeline},
+					Enrollment: &eventarcpb.Enrollment{
+						MessageBus:  bus,
+						CelMatch:    `"not a bool"`,
+						Destination: pipeline,
+					},
 				})
 
 				return err

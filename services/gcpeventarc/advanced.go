@@ -35,8 +35,16 @@ type advKind struct {
 
 func advKinds() []advKind {
 	return []advKind{
-		{collection: kindMessageBuses, noun: "MessageBus", create: func() proto.Message { return &eventarcpb.MessageBus{} }},
-		{collection: kindEnrollments, noun: "Enrollment", create: func() proto.Message { return &eventarcpb.Enrollment{} }},
+		{
+			collection: kindMessageBuses,
+			noun:       "MessageBus",
+			create:     func() proto.Message { return &eventarcpb.MessageBus{} },
+		},
+		{
+			collection: kindEnrollments,
+			noun:       "Enrollment",
+			create:     func() proto.Message { return &eventarcpb.Enrollment{} },
+		},
 		{collection: kindPipelines, noun: "Pipeline", create: func() proto.Message { return &eventarcpb.Pipeline{} }},
 		{
 			collection: kindAPISources, noun: "GoogleApiSource",
@@ -45,14 +53,14 @@ func advKinds() []advKind {
 	}
 }
 
-var (
-	busKind      = advKinds()[0]
-	enrollKind   = advKinds()[1]
-	pipelineKind = advKinds()[2]
-	sourceKind   = advKinds()[3]
-)
+func busKind() advKind      { return advKinds()[0] }
+func enrollKind() advKind   { return advKinds()[1] }
+func pipelineKind() advKind { return advKinds()[2] }
+func sourceKind() advKind   { return advKinds()[3] }
 
-var immutableFields = []protoreflect.Name{"name", "uid", "create_time", "update_time", "etag"}
+func immutableFields() []protoreflect.Name {
+	return []protoreflect.Name{"name", "uid", fieldCreateTime, fieldUpdateTime, "etag"}
+}
 
 func fieldOf(m proto.Message, name protoreflect.Name) protoreflect.FieldDescriptor {
 	return m.ProtoReflect().Descriptor().Fields().ByName(name)
@@ -153,8 +161,8 @@ func (b *InMemoryBackend) advCreate(
 
 	setString(res, "name", name)
 	setString(res, "uid", uuid.NewString())
-	setTime(res, "create_time", b.ts())
-	setTime(res, "update_time", b.ts())
+	setTime(res, fieldCreateTime, b.ts())
+	setTime(res, fieldUpdateTime, b.ts())
 
 	if err = validate(res); err != nil {
 		return nil, err
@@ -231,7 +239,7 @@ func (b *InMemoryBackend) advList(
 		switch field {
 		case fieldName:
 			return getString(m, "name"), m != nil
-		case "create_time", "update_time":
+		case fieldCreateTime, fieldUpdateTime:
 			if m == nil {
 				return "", true
 			}
@@ -280,7 +288,7 @@ func applyAdvMask(next, src proto.Message, paths []string) error {
 	}
 
 	for _, fd := range targets {
-		if slices.Contains(immutableFields, fd.Name()) {
+		if slices.Contains(immutableFields(), fd.Name()) {
 			continue
 		}
 
@@ -337,7 +345,7 @@ func (b *InMemoryBackend) advUpdate(
 		return nil, err
 	}
 
-	setTime(next, "update_time", b.ts())
+	setTime(next, fieldUpdateTime, b.ts())
 	setString(next, "etag", advEtag(next))
 
 	if !validateOnly {
@@ -391,14 +399,20 @@ func (b *InMemoryBackend) deleteBlockedLocked(k advKind, name string) error {
 		kind  advKind
 		field protoreflect.Name
 	}{
-		kindMessageBuses: {{enrollKind, "message_bus"}, {sourceKind, "destination"}},
-		kindPipelines:    {{enrollKind, "destination"}},
+		kindMessageBuses: {{enrollKind(), "message_bus"}, {sourceKind(), "destination"}},
+		kindPipelines:    {{enrollKind(), "destination"}},
 	}
 
 	for _, r := range refs[k.collection] {
 		for _, res := range b.advTable(r.kind) {
 			if getString(res, r.field) == name {
-				return errPrecondition("%s %q is still used by %s %q.", k.noun, name, r.kind.noun, getString(res, "name"))
+				return errPrecondition(
+					"%s %q is still used by %s %q.",
+					k.noun,
+					name,
+					r.kind.noun,
+					getString(res, "name"),
+				)
 			}
 		}
 	}
@@ -410,7 +424,7 @@ func (b *InMemoryBackend) deleteBlockedLocked(k advKind, name string) error {
 func (b *InMemoryBackend) ListMessageBusEnrollments(
 	in *eventarcpb.ListMessageBusEnrollmentsRequest,
 ) (*eventarcpb.ListMessageBusEnrollmentsResponse, error) {
-	if _, err := b.advGet(busKind, in.GetParent()); err != nil {
+	if _, err := b.advGet(busKind(), in.GetParent()); err != nil {
 		return nil, err
 	}
 
@@ -422,7 +436,7 @@ func (b *InMemoryBackend) ListMessageBusEnrollments(
 
 	var names []string
 
-	for name, res := range b.advTable(enrollKind) {
+	for name, res := range b.advTable(enrollKind()) {
 		if getString(res, "message_bus") == in.GetParent() {
 			names = append(names, name)
 		}

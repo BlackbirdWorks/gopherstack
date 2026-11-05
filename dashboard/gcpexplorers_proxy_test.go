@@ -108,6 +108,7 @@ func TestGCPEventarcProxy(t *testing.T) {
 		t.Helper()
 
 		ea := gcpeventarc.NewHandler(gcpeventarc.NewInMemoryBackend())
+		ea.Backend.SetOperationDelay(0)
 		_, err := ea.Backend.CreateTrigger(&eventarcpb.CreateTriggerRequest{
 			Parent: "projects/p/locations/us-central1", TriggerId: "trig1",
 			Trigger: &eventarcpb.Trigger{

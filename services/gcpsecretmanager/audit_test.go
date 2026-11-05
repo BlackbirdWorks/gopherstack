@@ -34,7 +34,10 @@ func TestAuditLogs(t *testing.T) {
 				t.Helper()
 				s := e.secret(t, "audited")
 				v := e.version(t, s.GetName(), "hunter2")
-				_, err := e.client.AccessSecretVersion(t.Context(), &secretmanagerpb.AccessSecretVersionRequest{Name: v.GetName()})
+				_, err := e.client.AccessSecretVersion(
+					t.Context(),
+					&secretmanagerpb.AccessSecretVersionRequest{Name: v.GetName()},
+				)
 				require.NoError(t, err)
 			},
 		},

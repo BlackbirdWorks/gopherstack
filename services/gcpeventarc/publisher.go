@@ -18,7 +18,10 @@ type publisherServer struct {
 }
 
 // Publish routes a CloudEvent (JSON text or CloudEvent proto) through the enrollments of a message bus.
-func (s *publisherServer) Publish(_ context.Context, in *publishingpb.PublishRequest) (*publishingpb.PublishResponse, error) {
+func (s *publisherServer) Publish(
+	_ context.Context,
+	in *publishingpb.PublishRequest,
+) (*publishingpb.PublishResponse, error) {
 	if in.GetMessageBus() == "" {
 		return nil, errInvalid("message_bus is required.")
 	}
@@ -45,7 +48,7 @@ func (s *publisherServer) Publish(_ context.Context, in *publishingpb.PublishReq
 
 func protoEventMap(ce *publishingpb.CloudEvent) map[string]any {
 	out := map[string]any{
-		"id": ce.GetId(), "source": ce.GetSource(), "specversion": ce.GetSpecVersion(), "type": ce.GetType(),
+		"id": ce.GetId(), fieldSource: ce.GetSource(), fieldSpecVersion: ce.GetSpecVersion(), attrType: ce.GetType(),
 	}
 
 	for k, v := range ce.GetAttributes() {

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"google.golang.org/genproto/googleapis/api/monitoredres"
-	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -17,7 +16,7 @@ import (
 type Policy struct {
 	// NameFunc overrides ResourceName for methods whose resource is not in a top-level name field.
 	NameFunc func(req, resp proto.Message) string
-	// Data names methods (short, e.g. "Commit") that are Data Access records; others matching AdminPrefixes are Admin Activity.
+	// Data names methods (short, e.g. "Commit") that are Data Access records.
 	Data map[string]Kind
 	// ResourceType is the monitored resource type recorded; empty uses audited_resource.
 	ResourceType string
@@ -81,7 +80,7 @@ func (e *Emitter) UnaryInterceptor(p Policy, now func() time.Time) grpc.UnarySer
 
 		if err != nil {
 			s := grpcstatus.Convert(err)
-			rec.Failure = &status.Status{Code: int32(s.Code()), Message: s.Message()}
+			rec.Failure = s.Proto()
 		}
 
 		e.Emit(ctx, rec)
@@ -90,15 +89,14 @@ func (e *Emitter) UnaryInterceptor(p Policy, now func() time.Time) grpc.UnarySer
 	}
 }
 
-var nameFields = []protoreflect.Name{"name", "database", "parent"}
-
 // ResourceName picks the audited resource: the response's name, else the request's name, database or parent.
 func ResourceName(req, resp proto.Message) string {
-	if n := stringField(resp, "name"); n != "" && !strings.HasPrefix(n, "operations/") && !strings.Contains(n, "/operations/") {
+	if n := stringField(resp, "name"); n != "" && !strings.HasPrefix(n, "operations/") &&
+		!strings.Contains(n, "/operations/") {
 		return n
 	}
 
-	for _, f := range nameFields {
+	for _, f := range []protoreflect.Name{"name", "database", "parent"} {
 		if n := stringField(req, f); n != "" {
 			return n
 		}

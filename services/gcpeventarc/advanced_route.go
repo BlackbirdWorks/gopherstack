@@ -32,7 +32,7 @@ type pipelineJob struct {
 	hops     int
 }
 
-func requiredAttrs() []string { return []string{"id", "source", "type", "specversion"} }
+func requiredAttrs() []string { return []string{"id", fieldSource, attrType, fieldSpecVersion} }
 
 // PublishToBus routes a CloudEvent (as a JSON object) through the enrollments of a message bus.
 func (b *InMemoryBackend) PublishToBus(bus string, event map[string]any) error {
@@ -50,13 +50,13 @@ func (b *InMemoryBackend) publishToBus(bus string, event map[string]any, hops in
 		}
 	}
 
-	if event["specversion"] != "1.0" {
-		return errInvalid("Unsupported CloudEvents specversion %v: want 1.0.", event["specversion"])
+	if event[fieldSpecVersion] != cloudEventsVersion {
+		return errInvalid("Unsupported CloudEvents specversion %v: want 1.0.", event[fieldSpecVersion])
 	}
 
 	b.mu.RLock("publishToBus")
 
-	if _, ok := b.advTable(busKind)[bus]; !ok {
+	if _, ok := b.advTable(busKind())[bus]; !ok {
 		b.mu.RUnlock()
 
 		return errNotFound("Message bus %q not found.", bus)
@@ -64,18 +64,18 @@ func (b *InMemoryBackend) publishToBus(bus string, event map[string]any, hops in
 
 	var jobs []pipelineJob
 
-	for _, name := range sortedNames(b.advTable(enrollKind)) {
-		e, _ := b.advTable(enrollKind)[name].(*eventarcpb.Enrollment)
+	for _, name := range sortedNames(b.advTable(enrollKind())) {
+		e, _ := b.advTable(enrollKind())[name].(*eventarcpb.Enrollment)
 		if e == nil || e.GetMessageBus() != bus {
 			continue
 		}
 
-		p, ok := b.advTable(pipelineKind)[e.GetDestination()].(*eventarcpb.Pipeline)
+		p, ok := b.advTable(pipelineKind())[e.GetDestination()].(*eventarcpb.Pipeline)
 		if !ok || !b.enrollmentMatches(e, event) {
 			continue
 		}
 
-		jobs = append(jobs, pipelineJob{pipeline: proto.Clone(p).(*eventarcpb.Pipeline), message: cloneMap(event), hops: hops})
+		jobs = append(jobs, pipelineJob{pipeline: clone(p), message: cloneMap(event), hops: hops})
 	}
 
 	b.mu.RUnlock()
@@ -166,8 +166,9 @@ func (b *InMemoryBackend) runJob(j pipelineJob) {
 	}
 
 	if j.attempt >= maxTries {
-		logger.Load(ctx).WarnContext(ctx, "gcpeventarc: pipeline delivery failed; max_attempts reached, dropping the message",
-			"pipeline", j.pipeline.GetName(), "attempts", j.attempt, "error", err)
+		logger.Load(ctx).
+			WarnContext(ctx, "gcpeventarc: pipeline delivery failed; max_attempts reached, dropping the message",
+				"pipeline", j.pipeline.GetName(), "attempts", j.attempt, "error", err)
 
 		return
 	}
@@ -396,13 +397,23 @@ func (b *InMemoryBackend) deliverHTTP(
 	return nil
 }
 
-func (b *InMemoryBackend) authorize(req *http.Request, cfg *eventarcpb.Pipeline_Destination_AuthenticationConfig, target string) {
+func (b *InMemoryBackend) authorize(
+	req *http.Request,
+	cfg *eventarcpb.Pipeline_Destination_AuthenticationConfig,
+	target string,
+) {
 	switch a := cfg.GetAuthenticationMethodDescriptor().(type) {
 	case *eventarcpb.Pipeline_Destination_AuthenticationConfig_GoogleOidc:
 		sa := a.GoogleOidc.GetServiceAccount()
-		req.Header.Set("Authorization", "Bearer "+gcpdispatch.OIDCToken(sa, a.GoogleOidc.GetAudience(), target, b.now()))
+		req.Header.Set(
+			"Authorization",
+			"Bearer "+gcpdispatch.OIDCToken(sa, a.GoogleOidc.GetAudience(), target, b.now()),
+		)
 	case *eventarcpb.Pipeline_Destination_AuthenticationConfig_OauthToken:
-		req.Header.Set("Authorization", "Bearer "+gcpdispatch.OAuthToken(a.OauthToken.GetServiceAccount(), a.OauthToken.GetScope()))
+		req.Header.Set(
+			"Authorization",
+			"Bearer "+gcpdispatch.OAuthToken(a.OauthToken.GetServiceAccount(), a.OauthToken.GetScope()),
+		)
 	}
 }
 
@@ -413,8 +424,8 @@ func (b *InMemoryBackend) routeToSources(project string, msg map[string]any) {
 
 	var buses []string
 
-	for _, name := range sortedNames(b.advTable(sourceKind)) {
-		s, _ := b.advTable(sourceKind)[name].(*eventarcpb.GoogleApiSource)
+	for _, name := range sortedNames(b.advTable(sourceKind())) {
+		s, _ := b.advTable(sourceKind())[name].(*eventarcpb.GoogleApiSource)
 		if s != nil && sourceWants(s, project) {
 			buses = append(buses, s.GetDestination())
 		}
@@ -425,7 +436,8 @@ func (b *InMemoryBackend) routeToSources(project string, msg map[string]any) {
 	for _, bus := range buses {
 		if err := b.publishToBus(bus, msg, 0); err != nil {
 			ctx := context.Background()
-			logger.Load(ctx).DebugContext(ctx, "gcpeventarc: could not route event to message bus", "bus", bus, "error", err)
+			logger.Load(ctx).
+				DebugContext(ctx, "gcpeventarc: could not route event to message bus", "bus", bus, "error", err)
 		}
 	}
 }
@@ -447,7 +459,7 @@ func sourceWants(s *eventarcpb.GoogleApiSource, project string) bool {
 // eventMessage is a CloudEvent in the JSON object form CEL expressions see as `message`.
 func eventMessage(id, source, typ, subject string, at time.Time, ext map[string]string, data []byte) map[string]any {
 	msg := map[string]any{
-		"specversion": "1.0", "id": id, "source": source, "type": typ,
+		fieldSpecVersion: cloudEventsVersion, "id": id, fieldSource: source, "type": typ,
 		"time": at.UTC().Format(time.RFC3339Nano), "datacontenttype": contentTypeJSON,
 	}
 

@@ -11,8 +11,8 @@ import (
 )
 
 type auditSink struct {
-	mu      sync.Mutex
 	entries []*loggingpb.LogEntry
+	mu      sync.Mutex
 }
 
 func (s *auditSink) WriteLogEntries(_ context.Context, req *loggingpb.WriteLogEntriesRequest) error {

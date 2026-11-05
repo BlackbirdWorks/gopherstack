@@ -15,8 +15,8 @@ func TestRetryPolicyDelivery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		policy    *eventarcpb.Trigger_RetryPolicy
+		name      string
 		wantRetry bool
 	}{
 		{name: "no policy redelivers through Pub/Sub", wantRetry: true},
@@ -55,8 +55,8 @@ func TestRetryPolicyValidation(t *testing.T) {
 
 	tests := []struct {
 		dest   func(e *env) *eventarcpb.Destination
-		name   string
 		policy *eventarcpb.Trigger_RetryPolicy
+		name   string
 		want   codes.Code
 	}{
 		{

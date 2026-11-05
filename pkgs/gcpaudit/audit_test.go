@@ -17,8 +17,8 @@ import (
 )
 
 type sink struct {
-	mu      sync.Mutex
 	entries []*loggingpb.LogEntry
+	mu      sync.Mutex
 }
 
 func (s *sink) WriteLogEntries(_ context.Context, req *loggingpb.WriteLogEntriesRequest) error {
@@ -35,9 +35,9 @@ func TestRecordEntry(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		rec          gcpaudit.Record
 		wantLog      string
 		wantResource string
+		rec          gcpaudit.Record
 	}{
 		{
 			name: "admin activity", wantLog: "projects/p/logs/cloudaudit.googleapis.com%2Factivity",
@@ -110,12 +110,20 @@ func TestUnaryInterceptorClassification(t *testing.T) {
 	tests := []struct {
 		name       string
 		method     string
-		wantLogged bool
 		wantLog    string
+		wantLogged bool
 	}{
-		{"admin prefix", "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret", true, "activity"},
-		{"data method", "/google.cloud.secretmanager.v1.SecretManagerService/AccessSecretVersion", true, "data_access"},
-		{"read is not audited", "/google.cloud.secretmanager.v1.SecretManagerService/GetSecret", false, ""},
+		{
+			name:       "admin prefix",
+			method:     "/google.cloud.secretmanager.v1.SecretManagerService/CreateSecret",
+			wantLogged: true,
+			wantLog:    "activity",
+		},
+		{
+			name: "data method", method: "/google.cloud.secretmanager.v1.SecretManagerService/AccessSecretVersion",
+			wantLogged: true, wantLog: "data_access",
+		},
+		{name: "read is not audited", method: "/google.cloud.secretmanager.v1.SecretManagerService/GetSecret"},
 	}
 
 	for _, tt := range tests {

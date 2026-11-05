@@ -120,7 +120,11 @@ func TestSnapshotRestoreAdvanced(t *testing.T) {
 
 	src := newEnv(t)
 	bus := src.createBus(t, "kept-bus")
-	pl := src.createPipeline(t, "kept-pipe", httpPipeline(src.dest.srv.URL+"/kept", `message.merge({"data": {"k": 1}})`, ""))
+	pl := src.createPipeline(
+		t,
+		"kept-pipe",
+		httpPipeline(src.dest.srv.URL+"/kept", `message.merge({"data": {"k": 1}})`, ""),
+	)
 	enr := src.createEnrollment(t, "kept-enr", bus, `message.type == "t"`, pl)
 
 	slow := newEnv(t)

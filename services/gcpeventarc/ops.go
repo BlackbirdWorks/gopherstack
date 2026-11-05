@@ -197,7 +197,10 @@ type opsServer struct {
 	b *InMemoryBackend
 }
 
-func (s opsServer) CancelOperation(_ context.Context, in *longrunningpb.CancelOperationRequest) (*emptypb.Empty, error) {
+func (s opsServer) CancelOperation(
+	_ context.Context,
+	in *longrunningpb.CancelOperationRequest,
+) (*emptypb.Empty, error) {
 	if err := s.b.cancelOp(in.GetName()); err != nil {
 		return nil, err
 	}

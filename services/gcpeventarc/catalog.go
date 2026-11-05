@@ -38,7 +38,7 @@ const (
 	defaultFirestoreNS  = "(default)"
 )
 
-func firestoreEventTypes() []string { return []string{"created", "updated", "deleted", "written"} }
+func firestoreEventTypes() []string { return []string{"created", "updated", kindDeleted, "written"} }
 
 func firestoreType(suffix string) string { return typeFirestorePrefix + suffix }
 
@@ -100,7 +100,11 @@ func filteringAttrs(t string) []attrSpec {
 	switch {
 	case t == typeAuditLog:
 		return []attrSpec{
-			{name: attrServiceName, description: "The Google API service name, e.g. storage.googleapis.com.", required: true},
+			{
+				name:        attrServiceName,
+				description: "The Google API service name, e.g. storage.googleapis.com.",
+				required:    true,
+			},
 			{name: attrMethodName, description: "The audited method name.", required: true},
 			{name: attrResourceName, description: "The audited resource name.", pathPattern: true},
 		}
@@ -179,9 +183,10 @@ func eventTypeCatalog(provider string) []*eventarcpb.EventType {
 }
 
 func filteringAttributes(t string) []*eventarcpb.FilteringAttribute {
-	var out []*eventarcpb.FilteringAttribute
+	specs := filteringAttrs(t)
+	out := make([]*eventarcpb.FilteringAttribute, 0, len(specs))
 
-	for _, a := range filteringAttrs(t) {
+	for _, a := range specs {
 		out = append(out, &eventarcpb.FilteringAttribute{
 			Attribute: a.name, Description: a.description, Required: a.required, PathPatternSupported: a.pathPattern,
 		})

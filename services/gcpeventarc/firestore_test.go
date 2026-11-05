@@ -64,7 +64,9 @@ func TestFirestoreDelivery(t *testing.T) {
 	}{
 		{
 			name: "created with a document path pattern, protobuf by default", trigType: "created",
-			extra: []*eventarcpb.EventFilter{{Attribute: "document", Value: "users/{id}", Operator: "match-path-pattern"}},
+			extra: []*eventarcpb.EventFilter{
+				{Attribute: "document", Value: "users/{id}", Operator: "match-path-pattern"},
+			},
 			act: func(t *testing.T, e *env) {
 				t.Helper()
 				e.createDoc(t, "orders", "o1", "skipped")
@@ -121,7 +123,11 @@ func TestFirestoreDelivery(t *testing.T) {
 			assert.Equal(t, tt.wantSubject, got.header.Get("Ce-Subject"))
 			assert.Equal(t, tt.wantCT, got.header.Get("Content-Type"))
 			assert.Equal(t, "(default)", got.header.Get("Ce-Database"))
-			assert.Equal(t, "//firestore.googleapis.com/projects/"+project+"/databases/(default)", got.header.Get("Ce-Source"))
+			assert.Equal(
+				t,
+				"//firestore.googleapis.com/projects/"+project+"/databases/(default)",
+				got.header.Get("Ce-Source"),
+			)
 			assert.NotEmpty(t, got.body)
 
 			if tt.wantCT != "application/json" {
@@ -174,16 +180,16 @@ func TestFirestoreTriggerValidation(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		filters []*eventarcpb.EventFilter
 		ct      string
+		filters []*eventarcpb.EventFilter
 		wantOK  bool
 	}{
-		{"valid", fsFilters("created"), "", true},
-		{"database required", []*eventarcpb.EventFilter{
+		{name: "valid", filters: fsFilters("created"), wantOK: true},
+		{name: "database required", filters: []*eventarcpb.EventFilter{
 			typeFilter("google.cloud.firestore.document.v1.created"), {Attribute: "namespace", Value: "(default)"},
-		}, "", false},
-		{"protobuf allowed", fsFilters("written"), "application/protobuf", true},
-		{"unknown event kind", fsFilters("exploded"), "", false},
+		}},
+		{name: "protobuf allowed", filters: fsFilters("written"), ct: "application/protobuf", wantOK: true},
+		{name: "unknown event kind", filters: fsFilters("exploded")},
 	}
 
 	for _, tt := range tests {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -16,16 +15,14 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var (
-	errCELResult   = errors.New("unexpected CEL result")
-	structValueTyp = reflect.TypeFor[*structpb.Value]()
-	celMap         = cel.MapType(cel.StringType, cel.DynType)
-)
+var errCELResult = errors.New("unexpected CEL result")
+
+func celMap() *cel.Type { return cel.MapType(cel.StringType, cel.DynType) }
 
 // newMessageEnv declares `message` (the CloudEvent as a map) and the transformation functions documented on
 // Pipeline.Mediation.Transformation.
 func newMessageEnv() (*cel.Env, error) {
-	env, err := cel.NewEnv(cel.Variable("message", celMap), cel.Lib(messageLib{}))
+	env, err := cel.NewEnv(cel.Variable("message", celMap()), cel.Lib(messageLib{}))
 	if err != nil {
 		return nil, fmt.Errorf("build CEL environment: %w", err)
 	}
@@ -41,13 +38,13 @@ func (messageLib) LibraryName() string { return "gcpeventarc.message" }
 
 func (messageLib) CompileOptions() []cel.EnvOption {
 	return []cel.EnvOption{
-		cel.Function("merge", cel.MemberOverload("map_merge", []*cel.Type{celMap, celMap}, celMap,
+		cel.Function("merge", cel.MemberOverload("map_merge", []*cel.Type{celMap(), celMap()}, celMap(),
 			cel.BinaryBinding(func(a, b ref.Val) ref.Val {
 				x, y := toNativeMap(a), toNativeMap(b)
 
 				return toVal(mergeMaps(x, y))
 			}))),
-		cel.Function("denormalize", cel.MemberOverload("map_denormalize", []*cel.Type{celMap}, celMap,
+		cel.Function("denormalize", cel.MemberOverload("map_denormalize", []*cel.Type{celMap()}, celMap(),
 			cel.UnaryBinding(func(a ref.Val) ref.Val {
 				out := map[string]any{}
 				flatten("", toNativeMap(a), out)
@@ -55,7 +52,7 @@ func (messageLib) CompileOptions() []cel.EnvOption {
 				return toVal(out)
 			}))),
 		cel.Function("setField", cel.MemberOverload("map_setfield",
-			[]*cel.Type{celMap, cel.StringType, cel.DynType}, celMap,
+			[]*cel.Type{celMap(), cel.StringType, cel.DynType}, celMap(),
 			cel.FunctionBinding(func(args ...ref.Val) ref.Val {
 				m := toNativeMap(args[0])
 				key, _ := args[1].Value().(string)
@@ -64,7 +61,7 @@ func (messageLib) CompileOptions() []cel.EnvOption {
 				return toVal(m)
 			}))),
 		cel.Function("removeFields", cel.MemberOverload("map_removefields",
-			[]*cel.Type{celMap, cel.ListType(cel.StringType)}, celMap,
+			[]*cel.Type{celMap(), cel.ListType(cel.StringType)}, celMap(),
 			cel.BinaryBinding(func(a, b ref.Val) ref.Val {
 				m := toNativeMap(a)
 
@@ -78,7 +75,7 @@ func (messageLib) CompileOptions() []cel.EnvOption {
 
 				return toVal(m)
 			}))),
-		cel.Function("toMap", cel.MemberOverload("list_tomap", []*cel.Type{cel.ListType(celMap)}, celMap,
+		cel.Function("toMap", cel.MemberOverload("list_tomap", []*cel.Type{cel.ListType(celMap())}, celMap(),
 			cel.UnaryBinding(func(a ref.Val) ref.Val {
 				out := map[string]any{}
 
@@ -105,13 +102,13 @@ func (messageLib) CompileOptions() []cel.EnvOption {
 			[]*cel.Type{cel.DynType}, cel.DynType,
 			cel.UnaryBinding(func(a ref.Val) ref.Val { return a }))),
 		cel.Function("toCloudEventJsonWithPayloadFormat", cel.MemberOverload("map_tocejson",
-			[]*cel.Type{celMap}, celMap,
+			[]*cel.Type{celMap()}, celMap(),
 			cel.UnaryBinding(func(a ref.Val) ref.Val { return a }))),
 	}
 }
 
 func toNative(v ref.Val) any {
-	if out, err := v.ConvertToNative(structValueTyp); err == nil {
+	if out, err := v.ConvertToNative(reflect.TypeFor[*structpb.Value]()); err == nil {
 		if sv, ok := out.(*structpb.Value); ok {
 			return sv.AsInterface()
 		}
@@ -223,5 +220,3 @@ func evalMessage(prg cel.Program, msg map[string]any) (ref.Val, error) {
 
 	return out, nil
 }
-
-func sortedKeys(m map[string]any) []string { return slices.Sorted(maps.Keys(m)) }

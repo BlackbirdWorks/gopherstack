@@ -11,8 +11,8 @@ import (
 )
 
 type auditSink struct {
-	mu      sync.Mutex
 	entries []*loggingpb.LogEntry
+	mu      sync.Mutex
 }
 
 func (s *auditSink) WriteLogEntries(_ context.Context, req *loggingpb.WriteLogEntriesRequest) error {
@@ -35,18 +35,6 @@ func (s *auditSink) logs(t *testing.T) []*audit.AuditLog {
 		var al audit.AuditLog
 		require.NoError(t, e.GetProtoPayload().UnmarshalTo(&al))
 		out = append(out, &al)
-	}
-
-	return out
-}
-
-func (s *auditSink) logNames() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	out := make([]string, 0, len(s.entries))
-	for _, e := range s.entries {
-		out = append(out, e.GetLogName())
 	}
 
 	return out

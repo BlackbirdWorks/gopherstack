@@ -175,7 +175,7 @@ func (b *InMemoryBackend) deliverToWorkflow(
 // workflowArgument is the CloudEvent in structured JSON form; binary (protobuf) data travels as data_base64.
 func workflowArgument(ev cloudEvent) ([]byte, error) {
 	out := map[string]any{
-		"specversion": "1.0", "id": ev.id, "source": ev.source, "type": ev.typ,
+		fieldSpecVersion: cloudEventsVersion, "id": ev.id, fieldSource: ev.source, attrType: ev.typ,
 	}
 
 	for k, v := range ev.ext {
@@ -261,7 +261,7 @@ func (b *InMemoryBackend) send(ctx context.Context, t *eventarcpb.Trigger, targe
 
 	req.Header.Set("Content-Type", contentTypeFor(t))
 	gcpserve.MarkInternal(req)
-	req.Header.Set("Ce-Specversion", "1.0")
+	req.Header.Set("Ce-Specversion", cloudEventsVersion)
 	req.Header.Set("Ce-Id", ev.id)
 	req.Header.Set("Ce-Source", ev.source)
 	req.Header.Set("Ce-Type", ev.typ)
@@ -314,8 +314,13 @@ func audience(target string) string {
 	return u.Scheme + "://" + u.Host
 }
 
-var coreAttrs = map[string]bool{
-	attrCEID: true, attrCESource: true, attrCEType: true, attrCESubject: true, attrCETime: true,
+func isCoreAttr(k string) bool {
+	switch k {
+	case attrCEID, attrCESource, attrCEType, attrCESubject, attrCETime:
+		return true
+	}
+
+	return false
 }
 
 // extensionAttrs returns the CloudEvents extension attributes carried as ce-* transport attributes.
@@ -324,7 +329,7 @@ func extensionAttrs(attrs map[string]string) map[string]string {
 
 	for k, v := range attrs {
 		name, ok := strings.CutPrefix(k, "ce-")
-		if !ok || coreAttrs[k] || name == "" {
+		if !ok || isCoreAttr(k) || name == "" {
 			continue
 		}
 
@@ -340,15 +345,11 @@ func extensionAttrs(attrs map[string]string) map[string]string {
 
 // fanout is one event offered to every trigger it matches.
 type fanout struct {
-	// build returns the transport attributes and data for the matched trigger and its event type.
-	build func(t *eventarcpb.Trigger, typ string) (map[string]string, []byte, error)
-	// attrs are the filterable attributes of the event.
-	attrs map[string]string
-	// types are the event types that deliver it: a trigger's "type" filter must be one of them.
-	types []string
-	// message is the event as a JSON CloudEvent for message buses; nil keeps it off them.
+	build   func(t *eventarcpb.Trigger, typ string) (map[string]string, []byte, error)
+	attrs   map[string]string
 	message func() map[string]any
 	project string
+	types   []string
 }
 
 // publishEvent publishes the event to the transport topic of every trigger whose filters it satisfies.

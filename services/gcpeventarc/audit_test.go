@@ -80,7 +80,11 @@ func TestAuditLogDelivery(t *testing.T) {
 			got := e.dest.next(t)
 			assert.Equal(t, "/audit", got.path)
 			assert.Equal(t, "google.cloud.audit.log.v1.written", got.header.Get("Ce-Type"))
-			assert.Equal(t, "//cloudaudit.googleapis.com/projects/"+project+"/logs/"+tt.wantLog, got.header.Get("Ce-Source"))
+			assert.Equal(
+				t,
+				"//cloudaudit.googleapis.com/projects/"+project+"/logs/"+tt.wantLog,
+				got.header.Get("Ce-Source"),
+			)
 			assert.Equal(t, "storage.googleapis.com/"+tt.wantResource, got.header.Get("Ce-Subject"))
 			assert.Equal(t, tt.method, got.header.Get("Ce-Methodname"))
 			assert.Equal(t, tt.wantResource, got.header.Get("Ce-Resourcename"))
@@ -133,12 +137,15 @@ func TestAuditTriggerValidation(t *testing.T) {
 	}{
 		{"valid", auditFilters("storage.googleapis.com", "storage.buckets.create"), codes.OK},
 		{"method required", []*eventarcpb.EventFilter{
-			typeFilter("google.cloud.audit.log.v1.written"), {Attribute: "serviceName", Value: "storage.googleapis.com"},
+			typeFilter(
+				"google.cloud.audit.log.v1.written",
+			), {Attribute: "serviceName", Value: "storage.googleapis.com"},
 		}, codes.InvalidArgument},
 		{"unknown attribute", auditFilters("storage.googleapis.com", "m",
 			&eventarcpb.EventFilter{Attribute: "bucket", Value: "b"}), codes.InvalidArgument},
 		{"path pattern on method", []*eventarcpb.EventFilter{
-			typeFilter("google.cloud.audit.log.v1.written"), {Attribute: "serviceName", Value: "s"},
+			typeFilter("google.cloud.audit.log.v1.written"),
+			{Attribute: "serviceName", Value: "s"},
 			{Attribute: "methodName", Value: "m*", Operator: "match-path-pattern"},
 		}, codes.InvalidArgument},
 	}

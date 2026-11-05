@@ -58,8 +58,8 @@ type env struct {
 
 // testClock is a manually advanced timer source standing in for time.AfterFunc.
 type testClock struct {
-	mu     sync.Mutex
 	timers []*fakeTimer
+	mu     sync.Mutex
 }
 
 type fakeTimer struct {
