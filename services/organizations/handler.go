@@ -385,6 +385,8 @@ func baseErrorTable() map[error]awserr.APIError {
 			HTTPStatus: http.StatusBadRequest,
 		},
 		ErrAccessDeniedManagedPolicy: {Code: "AccessDeniedException", HTTPStatus: http.StatusBadRequest},
+		ErrNonDetachablePolicy:       {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
+		ErrInvalidPolicyPrincipal:    {Code: "InvalidInputException", HTTPStatus: http.StatusBadRequest},
 	}
 }
 

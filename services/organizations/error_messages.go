@@ -170,6 +170,14 @@ func constraintErrorDetails() map[error]errorDetail {
 			message: "You can't remove an account that is a delegated administrator for a service.",
 			reason:  "CANNOT_REMOVE_DELEGATED_ADMINISTRATOR_FROM_ORG",
 		},
+		ErrNonDetachablePolicy: {
+			message: "You can't detach this Amazon Web Services managed policy.",
+			reason:  "NON_DETACHABLE_POLICY",
+		},
+		ErrInvalidPolicyPrincipal: {
+			message: "You specified an invalid principal element in the policy.",
+			reason:  "INVALID_PRINCIPAL",
+		},
 		ErrAccessDeniedManagedPolicy: {
 			message: "You can't modify or delete an Amazon Web Services managed policy.",
 		},
