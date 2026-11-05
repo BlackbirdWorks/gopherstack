@@ -2,10 +2,12 @@ package gcpmonitoring
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"time"
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
+	distpb "google.golang.org/genproto/googleapis/api/distribution"
 	metricpb "google.golang.org/genproto/googleapis/api/metric"
 	"google.golang.org/genproto/googleapis/api/monitoredres"
 )
@@ -94,8 +96,20 @@ func alignBucket(
 		return nextOlder(s, lo, hi, bEnd)
 	}
 
+	if s.vtype == vtDist && (a == alignDelta || a == alignSum) {
+		return distDeltaOrSum(a, s, lo, hi)
+	}
+
 	if a == alignDelta || a == alignRate {
 		return deltaOrRate(a, s, lo, hi, period)
+	}
+
+	if a == alignInterpolate {
+		return interpolate(s, hi, bEnd)
+	}
+
+	if a == alignPercentChange {
+		return percentChange(s, bEnd, period)
 	}
 
 	if len(in) == 0 {
@@ -107,6 +121,10 @@ func alignBucket(
 	}
 
 	if s.vtype == vtDist {
+		if a == alignCount {
+			return intValue(int64(len(in))), true
+		}
+
 		return distMean(in)
 	}
 
@@ -224,6 +242,10 @@ func reduceValues(
 		return nil, false
 	}
 
+	if vt == vtDist {
+		return reduceDists(r, vals)
+	}
+
 	nums := make([]float64, len(vals))
 
 	var trues int64
@@ -236,7 +258,17 @@ func reduceValues(
 		}
 	}
 
-	total := int64(len(vals))
+	return reduceNumbers(r, nums, trues, vt)
+}
+
+func reduceNumbers(
+	r reducer, nums []float64, trues int64, vt metricpb.MetricDescriptor_ValueType,
+) (*monitoringpb.TypedValue, bool) {
+	if q, isP := reducerPercentile(r); isP {
+		return doubleValue(quantile(nums, q)), true
+	}
+
+	total := int64(len(nums))
 
 	switch r {
 	case reduceCount:
@@ -300,4 +332,137 @@ func stddev(xs []float64) float64 {
 	}
 
 	return math.Sqrt(ss / float64(len(xs)-1))
+}
+
+// interpolate moves a GAUGE to the bucket end by linear interpolation between the points around it.
+func interpolate(s *aSeries, hi int, bEnd time.Time) (*monitoringpb.TypedValue, bool) {
+	if hi > 0 && endOf(s.pts[hi-1]).Equal(bEnd) {
+		return s.pts[hi-1].GetValue(), true
+	}
+
+	if hi == 0 || hi >= len(s.pts) {
+		return nil, false
+	}
+
+	t0, t1 := endOf(s.pts[hi-1]), endOf(s.pts[hi])
+	v0, v1 := number(s.pts[hi-1].GetValue()), number(s.pts[hi].GetValue())
+	frac := float64(bEnd.Sub(t0)) / float64(t1.Sub(t0))
+
+	return numberOf(s.vtype, v0+(v1-v0)*frac), true
+}
+
+// movingMeanWindow is the smoothing window of ALIGN_PERCENT_CHANGE.
+const movingMeanWindow = 10 * time.Minute
+
+// movingMean averages the non-negative values in (t-10m, t].
+func movingMean(pts []*monitoringpb.Point, t time.Time) (float64, bool) {
+	var total float64
+
+	n := 0
+
+	for _, p := range pts {
+		e := endOf(p)
+		if e.After(t) || !e.After(t.Add(-movingMeanWindow)) {
+			continue
+		}
+
+		if v := number(p.GetValue()); v >= 0 {
+			total += v
+			n++
+		}
+	}
+
+	if n == 0 {
+		return 0, false
+	}
+
+	return total / float64(n), true
+}
+
+// percentChange is ((current - previous) / previous) * 100 over 10-minute moving means.
+func percentChange(s *aSeries, bEnd time.Time, period time.Duration) (*monitoringpb.TypedValue, bool) {
+	cur, ok1 := movingMean(s.pts, bEnd)
+	prev, ok2 := movingMean(s.pts, bEnd.Add(-period))
+
+	if !ok1 || !ok2 {
+		return nil, false
+	}
+
+	switch {
+	case prev == 0 && cur == 0:
+		return doubleValue(0), true
+	case prev == 0:
+		return doubleValue(math.Inf(1)), true
+	}
+
+	return doubleValue((cur - prev) / prev * percentScale), true
+}
+
+// distDeltaOrSum merges the distributions of a bucket (DELTA, SUM) or takes their change (CUMULATIVE DELTA).
+func distDeltaOrSum(a aligner, s *aSeries, lo, hi int) (*monitoringpb.TypedValue, bool) {
+	if hi <= lo {
+		return nil, false
+	}
+
+	if s.kind == kindDelta || a == alignSum {
+		ds := make([]*distpb.Distribution, 0, hi-lo)
+		for _, p := range s.pts[lo:hi] {
+			ds = append(ds, p.GetValue().GetDistributionValue())
+		}
+
+		return distValue(mergeDist(ds)), true
+	}
+
+	last := s.pts[hi-1].GetValue().GetDistributionValue()
+
+	if lo > 0 && startOf(s.pts[lo-1]).Equal(startOf(s.pts[hi-1])) {
+		return distValue(subtractDist(last, s.pts[lo-1].GetValue().GetDistributionValue())), true
+	}
+
+	return distValue(last), true
+}
+
+// quantile is the p-th percentile (0..100) by linear interpolation between the closest ranks.
+func quantile(xs []float64, p float64) float64 {
+	sorted := slices.Clone(xs)
+	slices.Sort(sorted)
+
+	pos := p / percentScale * float64(len(sorted)-1)
+	lo := int(math.Floor(pos))
+	hi := min(lo+1, len(sorted)-1)
+
+	return sorted[lo] + (sorted[hi]-sorted[lo])*(pos-float64(lo))
+}
+
+func reduceDists(r reducer, vals []*monitoringpb.TypedValue) (*monitoringpb.TypedValue, bool) {
+	ds := make([]*distpb.Distribution, len(vals))
+	for i, v := range vals {
+		ds[i] = v.GetDistributionValue()
+	}
+
+	merged := mergeDist(ds)
+
+	if q, isP := reducerPercentile(r); isP {
+		v, ok := percentile(merged, q)
+		if !ok {
+			return nil, false
+		}
+
+		return doubleValue(v), true
+	}
+
+	switch r {
+	case reduceSum:
+		return distValue(merged), true
+	case reduceMean:
+		if merged.GetCount() == 0 {
+			return nil, false
+		}
+
+		return doubleValue(merged.GetMean()), true
+	case reduceCount:
+		return intValue(int64(len(vals))), true
+	default:
+		return nil, false
+	}
 }

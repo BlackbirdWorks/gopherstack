@@ -118,6 +118,42 @@ func held(pts []*monitoringpb.Point, t time.Time, hold time.Duration) (float64, 
 	return 0, false
 }
 
+// forecastTraining is how far back the forecast looks for points to fit.
+const forecastTraining = 6 * time.Hour
+
+// forecastValue fits a least-squares line to the points of the training window ending at t and extrapolates it
+// to t+horizon.
+func forecastValue(pts []*monitoringpb.Point, t time.Time, horizon time.Duration) (float64, bool) {
+	var n, sx, sy, sxx, sxy float64
+
+	for _, p := range pts {
+		e := endOf(p)
+		if e.After(t) || !e.After(t.Add(-forecastTraining)) {
+			continue
+		}
+
+		x, y := e.Sub(t).Seconds(), number(p.GetValue())
+		n++
+		sx += x
+		sy += y
+		sxx += x * x
+		sxy += x * y
+	}
+
+	if n == 0 {
+		return 0, false
+	}
+
+	den := n*sxx - sx*sx
+	if den == 0 {
+		return sy / n, true
+	}
+
+	slope := (n*sxy - sx*sy) / den
+
+	return (sy-slope*sx)/n + slope*horizon.Seconds(), true
+}
+
 func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricThreshold, now time.Time) observation {
 	period := periodOf(t.GetAggregations())
 	hold := max(period, staleness)
@@ -128,9 +164,21 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 		threshold: t.GetThresholdValue(), met: true,
 	}
 
+	horizon := t.GetForecastOptions().GetForecastHorizon().AsDuration()
+
 	for k := range steps {
-		v, ok := held(s.pts, now.Add(-time.Duration(k)*period), hold)
-		if !ok || !compare(t.GetComparison(), v, t.GetThresholdValue()) {
+		at := now.Add(-time.Duration(k) * period)
+		v, ok := held(s.pts, at, hold)
+		violates := ok && compare(t.GetComparison(), v, t.GetThresholdValue())
+
+		if horizon > 0 {
+			pred, has := forecastValue(s.pts, at, horizon)
+			if has && compare(t.GetComparison(), pred, t.GetThresholdValue()) {
+				v, ok, violates = pred, true, true
+			}
+		}
+
+		if !ok || !violates {
 			o.met = false
 		}
 
@@ -142,13 +190,17 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 	return o
 }
 
-func (b *InMemoryBackend) thresholdObservationsLocked(
-	project string, t *monitoringpb.AlertPolicy_Condition_MetricThreshold, now time.Time, extra []*seriesRec,
-) []observation {
-	period := periodOf(t.GetAggregations())
-	span := t.GetDuration().AsDuration() + max(period, staleness)
+func (b *InMemoryBackend) thresholdSeriesLocked(
+	project string, t *monitoringpb.AlertPolicy_Condition_MetricThreshold, win window, extra []*seriesRec,
+	period time.Duration, now time.Time,
+) []*aSeries {
+	if sel, ok, _ := parseSLOSelector(t.GetFilter()); ok {
+		steps := max(1, int((t.GetDuration().AsDuration()+period-1)/period))
 
-	q, ok := conditionQuery(project, t.GetFilter(), t.GetAggregations(), window{start: now.Add(-span), end: now})
+		return b.sloSelectorSeriesLocked(sel, period, steps, now)
+	}
+
+	q, ok := conditionQuery(project, t.GetFilter(), t.GetAggregations(), win)
 	if !ok {
 		return nil
 	}
@@ -160,6 +212,82 @@ func (b *InMemoryBackend) thresholdObservationsLocked(
 		return nil
 	}
 
+	if t.GetDenominatorFilter() == "" {
+		return series
+	}
+
+	dq, ok := conditionQuery(project, t.GetDenominatorFilter(), t.GetDenominatorAggregations(), win)
+	if !ok {
+		return nil
+	}
+
+	dq.extra = extra
+
+	den, err := b.selectLocked(dq)
+	if err != nil {
+		return nil
+	}
+
+	return ratioSeries(series, den)
+}
+
+func ratioKey(s *aSeries) string {
+	var sb strings.Builder
+
+	sb.WriteString(s.resource.GetType())
+	writeLabels(&sb, s.resource.GetLabels())
+	sb.WriteByte(0)
+	writeLabels(&sb, s.metric.GetLabels())
+
+	return sb.String()
+}
+
+// ratioSeries divides each numerator series by the denominator series with the same labels, point by point.
+func ratioSeries(num, den []*aSeries) []*aSeries {
+	byKey := make(map[string]*aSeries, len(den))
+	for _, d := range den {
+		byKey[ratioKey(d)] = d
+	}
+
+	var out []*aSeries
+
+	for _, n := range num {
+		d, ok := byKey[ratioKey(n)]
+		if !ok {
+			continue
+		}
+
+		at := make(map[int64]float64, len(d.pts))
+		for _, p := range d.pts {
+			at[endOf(p).UnixNano()] = number(p.GetValue())
+		}
+
+		r := &aSeries{
+			metric: n.metric, resource: n.resource, metadata: n.metadata, kind: kindGauge, vtype: vtDouble,
+		}
+
+		for _, p := range n.pts {
+			if dv, has := at[endOf(p).UnixNano()]; has && dv != 0 {
+				r.pts = append(r.pts, pointAt(endOf(p), endOf(p), doubleValue(number(p.GetValue())/dv)))
+			}
+		}
+
+		if len(r.pts) > 0 {
+			out = append(out, r)
+		}
+	}
+
+	return out
+}
+
+func (b *InMemoryBackend) thresholdObservationsLocked(
+	project string, t *monitoringpb.AlertPolicy_Condition_MetricThreshold, now time.Time, extra []*seriesRec,
+) []observation {
+	period := periodOf(t.GetAggregations())
+	span := t.GetDuration().AsDuration() + max(period, staleness)
+	win := window{start: now.Add(-span), end: now}
+
+	series := b.thresholdSeriesLocked(project, t, win, extra, period, now)
 	out := make([]observation, 0, len(series))
 	for _, s := range series {
 		out = append(out, observeThreshold(s, t, now))
@@ -236,13 +364,15 @@ func clearMet(obs []observation) []observation {
 }
 
 func (b *InMemoryBackend) conditionObservationsLocked(
-	project string, c *policyCondition, now time.Time, extra []*seriesRec,
+	project string, c *policyCondition, now time.Time, extra []*seriesRec, ext external,
 ) []observation {
 	switch cond := c.GetCondition().(type) {
 	case *monitoringpb.AlertPolicy_Condition_ConditionThreshold:
 		return b.thresholdObservationsLocked(project, cond.ConditionThreshold, now, extra)
 	case *monitoringpb.AlertPolicy_Condition_ConditionAbsent:
 		return b.absentObservationsLocked(project, cond.ConditionAbsent, now, extra)
+	case *monitoringpb.AlertPolicy_Condition_ConditionPrometheusQueryLanguage:
+		return b.promObservationsLocked(c, cond.ConditionPrometheusQueryLanguage, ext.prom[c.GetName()], now)
 	}
 
 	return nil
@@ -421,9 +551,10 @@ func (b *InMemoryBackend) closeOrphansLocked(now time.Time) {
 // evaluateAlerts evaluates every enabled policy against the stored series at the backend clock's time.
 func (b *InMemoryBackend) evaluateAlerts(ctx context.Context) {
 	extras := b.logSeriesForPolicies()
+	now := b.currentTime()
+	ext := b.runExternal(ctx, now)
 
 	b.mu.Lock("evaluateAlerts")
-	now := b.now()
 	b.closeOrphansLocked(now)
 
 	var pending []notification
@@ -438,11 +569,14 @@ func (b *InMemoryBackend) evaluateAlerts(ctx context.Context) {
 		per := make([][]observation, len(p.GetConditions()))
 
 		for i, c := range p.GetConditions() {
-			per[i] = b.conditionObservationsLocked(project, c, now, extras[project])
+			per[i] = b.conditionObservationsLocked(project, c, now, extras[project], ext)
 		}
 
 		pending = append(pending, b.reconcileLocked(project, p, combine(p, per), now)...)
+		pending = append(pending, b.logConditionsLocked(project, p, ext, now)...)
 	}
+
+	b.pruneRuntimeLocked()
 
 	b.mu.Unlock()
 
@@ -506,6 +640,23 @@ func (b *InMemoryBackend) RunLoop(ctx context.Context, interval time.Duration) {
 			return
 		case <-t.C:
 			b.Tick(ctx)
+		}
+	}
+}
+
+// pruneRuntimeLocked drops evaluation state of conditions that no longer exist.
+func (b *InMemoryBackend) pruneRuntimeLocked() {
+	live := map[string]struct{}{}
+
+	for _, p := range b.policies {
+		for _, c := range p.GetConditions() {
+			live[c.GetName()] = struct{}{}
+		}
+	}
+
+	for name := range b.condRT {
+		if _, ok := live[name]; !ok {
+			delete(b.condRT, name)
 		}
 	}
 }

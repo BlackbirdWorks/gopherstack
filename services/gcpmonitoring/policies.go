@@ -93,7 +93,7 @@ func validateCondition(i int, c *policyCondition) error {
 			return errInvalid("Field %s.condition_matched_log.filter had an invalid value: a filter is required.", path)
 		}
 
-		return nil
+		return validateLogExtractors(path+".condition_matched_log", cond.ConditionMatchedLog.GetLabelExtractors())
 	case *monitoringpb.AlertPolicy_Condition_ConditionMonitoringQueryLanguage:
 		if cond.ConditionMonitoringQueryLanguage.GetQuery() == "" {
 			return errInvalid("Field %s.condition_monitoring_query_language.query had an invalid value: "+
@@ -102,19 +102,18 @@ func validateCondition(i int, c *policyCondition) error {
 
 		return nil
 	case *monitoringpb.AlertPolicy_Condition_ConditionPrometheusQueryLanguage:
-		if cond.ConditionPrometheusQueryLanguage.GetQuery() == "" {
-			return errInvalid("Field %s.condition_prometheus_query_language.query had an invalid value: "+
-				"a query is required.", path)
-		}
-
-		return nil
+		return validatePromCondition(path+".condition_prometheus_query_language", cond.ConditionPrometheusQueryLanguage)
 	}
 
 	return errInvalid("Field %s had an invalid value: a condition type must be set.", path)
 }
 
 func validateThreshold(path string, t *monitoringpb.AlertPolicy_Condition_MetricThreshold) error {
-	if err := validateQuery(path, t.GetFilter(), t.GetAggregations()); err != nil {
+	if _, isSLO, err := parseSLOSelector(t.GetFilter()); isSLO {
+		if err != nil {
+			return errInvalid("Field %s.filter had an invalid value of %q: %s", path, t.GetFilter(), err.Error())
+		}
+	} else if err = validateQuery(path, t.GetFilter(), t.GetAggregations()); err != nil {
 		return err
 	}
 
@@ -122,8 +121,12 @@ func validateThreshold(path string, t *monitoringpb.AlertPolicy_Condition_Metric
 		return errInvalid("Field %s.comparison had an invalid value: a comparison is required.", path)
 	}
 
-	if t.GetDenominatorFilter() != "" {
-		return errInvalid("Field %s.denominator_filter had an invalid value: ratio conditions are not supported.", path)
+	if err := validateRatio(path, t); err != nil {
+		return err
+	}
+
+	if err := validateForecast(path, t.GetForecastOptions()); err != nil {
+		return err
 	}
 
 	return validateTiming(path+".duration", t.GetDuration().AsDuration(), 0)
@@ -149,6 +152,10 @@ func (b *InMemoryBackend) validatePolicyLocked(project string, p *monitoringpb.A
 
 	for i, c := range p.GetConditions() {
 		if err := validateCondition(i, c); err != nil {
+			return err
+		}
+
+		if err := b.checkSLOSelectorLocked(i, c); err != nil {
 			return err
 		}
 	}
@@ -400,4 +407,79 @@ func policyPrompts(p *monitoringpb.AlertPolicy) (bool, bool) {
 
 	return slices.Contains(prompts, monitoringpb.AlertPolicy_AlertStrategy_OPENED),
 		slices.Contains(prompts, monitoringpb.AlertPolicy_AlertStrategy_CLOSED)
+}
+
+const (
+	minForecastHorizon = time.Hour
+	maxForecastHorizon = 60 * time.Hour
+)
+
+func validateForecast(path string, f *monitoringpb.AlertPolicy_Condition_MetricThreshold_ForecastOptions) error {
+	if f == nil {
+		return nil
+	}
+
+	if h := f.GetForecastHorizon().AsDuration(); h < minForecastHorizon || h > maxForecastHorizon {
+		return errInvalid("Field %s.forecast_options.forecast_horizon had an invalid value of %q: the horizon "+
+			"must be between 1 hour and 60 hours.", path, h)
+	}
+
+	return nil
+}
+
+// validateRatio checks the denominator of a ratio condition: both sides need the same alignment period and
+// grouping so that their series line up.
+func validateRatio(path string, t *monitoringpb.AlertPolicy_Condition_MetricThreshold) error {
+	if t.GetDenominatorFilter() == "" {
+		if len(t.GetDenominatorAggregations()) > 0 {
+			return errInvalid("Field %s.denominator_aggregations had an invalid value: a denominator_filter "+
+				"is required.", path)
+		}
+
+		return nil
+	}
+
+	if err := validateQuery(path+".denominator", t.GetDenominatorFilter(), t.GetDenominatorAggregations()); err != nil {
+		return err
+	}
+
+	if periodOf(t.GetAggregations()) != periodOf(t.GetDenominatorAggregations()) {
+		return errInvalid("Field %s.denominator_aggregations had an invalid value: the alignment period must "+
+			"match the aggregations of the numerator.", path)
+	}
+
+	if !slices.Equal(groupOf(t.GetAggregations()), groupOf(t.GetDenominatorAggregations())) {
+		return errInvalid("Field %s.denominator_aggregations had an invalid value: group_by_fields must "+
+			"match the aggregations of the numerator.", path)
+	}
+
+	return nil
+}
+
+func groupOf(aggs []*monitoringpb.Aggregation) []string {
+	var out []string
+
+	for _, a := range aggs {
+		out = append(out, a.GetGroupByFields()...)
+	}
+
+	slices.Sort(out)
+
+	return out
+}
+
+func (b *InMemoryBackend) checkSLOSelectorLocked(i int, c *policyCondition) error {
+	t := c.GetConditionThreshold()
+	if t == nil {
+		return nil
+	}
+
+	if sel, ok, _ := parseSLOSelector(t.GetFilter()); ok {
+		if _, exists := b.slos[sel.slo]; !exists {
+			return errInvalid("Field alert_policy.conditions[%d].condition_threshold.filter had an invalid value: "+
+				"the service level objective %s does not exist.", i, sel.slo)
+		}
+	}
+
+	return nil
 }

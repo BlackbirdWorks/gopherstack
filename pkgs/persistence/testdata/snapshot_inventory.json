@@ -16712,6 +16712,7 @@
       "Incident.EndedAt time.Time `json:\"endedAt\"`",
       "Incident.ID string `json:\"id\"`",
       "Incident.Key string `json:\"key\"`",
+      "Incident.LastSeen time.Time `json:\"lastSeen\"`",
       "Incident.MetricLabels map[string]string `json:\"metricLabels,omitempty\"`",
       "Incident.MetricType string `json:\"metricType\"`",
       "Incident.Observed float64 `json:\"observed\"`",
