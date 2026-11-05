@@ -164,23 +164,30 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 		return nil, nil, ferr
 	}
 
-	b.startTasksOutsideLock(work)
+	async := b.startTasksOutsideLock(work)
 
-	// Snapshot final task states to build the API response.
-	b.mu.RLock("RunTask-response")
-	defer b.mu.RUnlock()
+	// Snapshot before launching so async tasks are reported PROVISIONING, as AWS does.
+	tasks := func() []Task {
+		b.mu.RLock("RunTask-response")
+		defer b.mu.RUnlock()
 
-	tasks := make([]Task, 0, len(work))
-	for _, w := range work {
-		tasks = append(tasks, b.taskWithLiveTagsLocked(w.task))
-	}
+		out := make([]Task, 0, len(work))
+		for _, w := range work {
+			out = append(out, b.taskWithLiveTagsLocked(w.task))
+		}
+
+		return out
+	}()
+
+	b.launchAll(async)
 
 	return tasks, failures, nil
 }
 
-// startTasksOutsideLock hands real-runner tasks to their launch goroutine (RunTask returns while they are
-// PROVISIONING) and finishes runner-less tasks inline.
-func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
+// startTasksOutsideLock finishes runner-less tasks inline and returns the real-runner tasks for launchAll.
+func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) []taskWork {
+	var async []taskWork
+
 	for _, w := range work {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
 
@@ -204,7 +211,16 @@ func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 			continue
 		}
 
-		b.launchAsync(w, clusterName)
+		async = append(async, w)
+	}
+
+	return async
+}
+
+// launchAll starts the launch goroutine of each task; they stay PROVISIONING until it picks them up.
+func (b *InMemoryBackend) launchAll(async []taskWork) {
+	for _, w := range async {
+		b.launchAsync(w, clusterKey(clusterFromTaskARN(w.task.TaskArn)))
 	}
 }
 
