@@ -51,6 +51,7 @@ const (
 // InMemoryBackend is the in-memory store for Redshift clusters.
 type InMemoryBackend struct {
 	dnsRegistrar   DNSRegistrar
+	slClock        func() time.Time
 	engine         *dbEngine
 	registry       *store.Registry
 	customDomains  *store.Table[CustomDomainAssociation]
@@ -130,7 +131,6 @@ type InMemoryBackend struct {
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
 	slLifecycleDelay        time.Duration
-	slClock                 func() time.Time
 	reconcileInterval       time.Duration
 	reconcileMu             sync.Mutex
 	reconcileOn             bool

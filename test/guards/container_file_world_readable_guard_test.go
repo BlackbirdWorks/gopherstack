@@ -60,7 +60,8 @@ func TestNoOwnerOnlyContainerFiles(t *testing.T) {
 	var offenders []string
 
 	err := filepath.WalkDir("test", func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasPrefix(filepath.ToSlash(path), "test/guards/") {
+		slashed := filepath.ToSlash(path)
+		if err != nil || d.IsDir() || !strings.HasSuffix(slashed, ".go") || strings.HasPrefix(slashed, "test/guards/") {
 			return err
 		}
 
