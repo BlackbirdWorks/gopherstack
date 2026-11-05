@@ -320,20 +320,7 @@ func (b *InMemoryBackend) sweepGroupsLocked() {
 
 		rec.Members = kept
 		b.healVanishedLocked(rec.Project, rec)
-	}
-}
-
-// rollOutdatedLocked recreates members whose template is not one of the group's target versions.
-func (b *InMemoryBackend) rollOutdatedLocked(project string, rec *migRec) {
-	targets := map[string]bool{}
-	for _, v := range rec.Mgr.Versions {
-		targets[v.InstanceTemplate] = true
-	}
-
-	for _, m := range liveMembers(rec) {
-		if !targets[m.Template] {
-			_ = b.recreateMemberLocked(project, rec, m)
-		}
+		b.rollStepLocked(rec.Project, rec)
 	}
 }
 
@@ -364,7 +351,8 @@ type memberAction struct {
 	action string
 }
 
-func (b *InMemoryBackend) memberActionLocked(project string, m *memberRec) (memberAction, bool) {
+func (b *InMemoryBackend) memberActionLocked(rec *migRec, m *memberRec) (memberAction, bool) {
+	project := rec.Project
 	now := b.now().UTC()
 	if m.Deleting {
 		if !now.Before(m.DeleteAt) {
@@ -388,6 +376,10 @@ func (b *InMemoryBackend) memberActionLocked(project string, m *memberRec) (memb
 		return memberAction{action: actCreating, inst: r}, true
 	}
 
+	if needsVerify(rec, m) {
+		return memberAction{action: actVerifying, inst: r}, true
+	}
+
 	return memberAction{action: actNone, inst: r}, true
 }
 
@@ -398,7 +390,7 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 	tc := map[string]int{}
 
 	for _, m := range rec.Members {
-		a, visible := b.memberActionLocked(rec.Project, m)
+		a, visible := b.memberActionLocked(rec, m)
 		if !visible {
 			continue
 		}
@@ -412,6 +404,8 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 			sum.Deleting++
 		case actRecreating:
 			sum.Recreating++
+		case actVerifying:
+			sum.Verifying++
 		}
 
 		if a.action != actNone {
@@ -457,7 +451,7 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 	var out []*computeapi.ManagedInstance
 
 	for _, m := range rec.Members {
-		a, visible := b.memberActionLocked(rec.Project, m)
+		a, visible := b.memberActionLocked(rec, m)
 		if !visible {
 			continue
 		}
@@ -470,6 +464,13 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 		if a.inst != nil {
 			mi.Id = a.inst.Inst.Id
 			mi.InstanceStatus = a.inst.status(b.now().UTC(), b.timing)
+			mi.InstanceHealth = b.healthStateLocked(rec, m)
+		}
+
+		if m.LastError != "" {
+			mi.LastAttempt = &computeapi.ManagedInstanceLastAttempt{Errors: &computeapi.ManagedInstanceLastAttemptErrors{
+				Errors: []*computeapi.ManagedInstanceLastAttemptErrorsErrors{{Code: "CONDITION_NOT_MET", Message: m.LastError}},
+			}}
 		}
 
 		out = append(out, mi)

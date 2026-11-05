@@ -27,6 +27,7 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	readTimeout       = 5 * time.Minute
 	idleTimeout       = 120 * time.Second
+	groupTickInterval = time.Second
 )
 
 type request struct {
@@ -201,6 +202,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.fail(c, apiErr)
 		}
 
+		if rt.collection == collMIG || rt.collection == collGroups {
+			h.Backend.TickGroups(r.Context())
+		}
+
 		body, err := readBody(c)
 		if err != nil {
 			return h.fail(c, err)
@@ -302,6 +307,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 	log.InfoContext(workerCtx, "gcpcompute: starting dedicated listener", "port", h.Port)
 
+	go h.tickLoop(ctx)
+
 	go func() {
 		if serveErr := srv.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
 			log.ErrorContext(workerCtx, "gcpcompute: listener stopped", "error", serveErr)
@@ -329,6 +336,20 @@ func (h *Handler) Shutdown(ctx context.Context) {
 
 		if closeErr := srv.Close(); closeErr != nil {
 			log.ErrorContext(ctx, "gcpcompute: forced close also failed", "error", closeErr)
+		}
+	}
+}
+
+func (h *Handler) tickLoop(ctx context.Context) {
+	t := time.NewTicker(groupTickInterval)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			h.Backend.TickGroups(ctx)
 		}
 	}
 }

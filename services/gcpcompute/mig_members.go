@@ -1,6 +1,8 @@
 package gcpcompute
 
 import (
+	"slices"
+
 	computeapi "google.golang.org/api/compute/v1"
 )
 
@@ -147,4 +149,103 @@ func (b *InMemoryBackend) listManagedInstances(project, scope, loc, name string)
 	}
 
 	return out, nil
+}
+
+type applyUpdatesRequest struct {
+	MinimalAction               string   `json:"minimalAction"`
+	MostDisruptiveAllowedAction string   `json:"mostDisruptiveAllowedAction"`
+	Instances                   []string `json:"instances"`
+	AllInstances                bool     `json:"allInstances"`
+}
+
+func validAction(field, v string) *APIError {
+	switch v {
+	case "", "NONE", "REFRESH", minActionRestart, minActionReplace:
+		return nil
+	}
+
+	return errField(field, v, "")
+}
+
+func migActionRank(a string) int {
+	return slices.Index([]string{"NONE", "REFRESH", minActionRestart, minActionReplace}, a)
+}
+
+func (b *InMemoryBackend) applyMIGUpdates(
+	project, scope, loc, name string,
+	in applyUpdatesRequest,
+) (*computeapi.Operation, error) {
+	if err := firstErr(validAction("minimalAction", in.MinimalAction),
+		validAction("mostDisruptiveAllowedAction", in.MostDisruptiveAllowedAction)); err != nil {
+		return nil, err
+	}
+
+	if in.AllInstances == (len(in.Instances) > 0) {
+		return nil, errInvalid(
+			"Invalid value for field 'instances': exactly one of allInstances and instances is required.")
+	}
+
+	b.mu.Lock("ApplyUpdatesToInstances")
+	defer b.mu.Unlock()
+
+	b.sweepGroupsLocked()
+
+	rec, err := b.getMIGLocked(project, scope, loc, name)
+	if err != nil {
+		return nil, err
+	}
+
+	ms := liveMembers(rec)
+
+	if !in.AllInstances {
+		if ms, err = b.resolveMembersLocked(project, rec, migInstancesRequest{Instances: in.Instances}); err != nil {
+			return nil, err
+		}
+	}
+
+	stale := map[*memberRec]bool{}
+	for _, m := range outdatedMembers(rec) {
+		stale[m] = true
+	}
+
+	for _, m := range ms {
+		b.applyUpdateLocked(project, rec, m, stale[m], in)
+	}
+
+	return b.newOpLocked(opMIG+"applyUpdatesToInstances", migOpTarget(project, rec.Mgr), b.timing.Done), nil
+}
+
+func (b *InMemoryBackend) applyUpdateLocked(
+	project string, rec *migRec, m *memberRec, stale bool, in applyUpdatesRequest,
+) {
+	need := ""
+
+	switch {
+	case stale:
+		need = minActionReplace
+	case in.MinimalAction == minActionReplace || in.MinimalAction == minActionRestart:
+		need = in.MinimalAction
+	}
+
+	if need == "" {
+		return
+	}
+
+	if allowed := in.MostDisruptiveAllowedAction; allowed != "" && migActionRank(need) > migActionRank(allowed) {
+		m.LastError = "The update needs " + need + ", more disruptive than the allowed " + allowed + "."
+
+		return
+	}
+
+	m.LastError = ""
+
+	if need == minActionRestart {
+		if r, ok := b.instances[key(project, m.Zone, m.Name)]; ok {
+			r.Phase, r.Since = phaseStart, b.now().UTC()
+		}
+
+		return
+	}
+
+	_ = b.recreateMemberLocked(project, rec, m)
 }

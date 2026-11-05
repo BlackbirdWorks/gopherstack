@@ -50,6 +50,13 @@ type routerRec struct {
 
 type memberRec struct {
 	DeleteAt   time.Time `json:"deleteAt"`
+	LastProbe  time.Time `json:"lastProbe,omitzero"`
+	Health     string    `json:"health,omitempty"`
+	LastError  string    `json:"lastError,omitempty"`
+	InstanceID uint64    `json:"instanceId,omitempty"`
+	HealthyRun   int     `json:"healthyRun,omitempty"`
+	UnhealthyRun int     `json:"unhealthyRun,omitempty"`
+	Verified   bool      `json:"verified,omitempty"`
 	Name       string    `json:"name"`
 	Zone       string    `json:"zone"`
 	Template   string    `json:"template"`
@@ -80,6 +87,7 @@ type opRec struct {
 type InMemoryBackend struct {
 	now            func() time.Time
 	sleep          func(context.Context, time.Duration)
+	prober         HealthProber
 	mu             *lockmetrics.RWMutex
 	networks       map[string]*computeapi.Network
 	subnets        map[string]*computeapi.Subnetwork
@@ -118,7 +126,7 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates an empty backend on the wall clock.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu: lockmetrics.New("gcpcompute"), now: time.Now, timing: DefaultTiming(), sleep: realSleep,
+		mu: lockmetrics.New("gcpcompute"), now: time.Now, timing: DefaultTiming(), sleep: realSleep, prober: newNetProber(),
 	}
 	b.resetMaps()
 
