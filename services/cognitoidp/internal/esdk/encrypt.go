@@ -59,7 +59,7 @@ func esdkSerializeEncryptionContext(encCtx map[string]string) []byte {
 	sort.Strings(keys)
 
 	pairs := min(len(keys), esdkMaxEncCtxPairs)
-	out := binary.BigEndian.AppendUint16(nil, uint16(pairs)) //nolint:gosec // clamped to 16 bits
+	out := binary.BigEndian.AppendUint16(nil, uint16(pairs))
 	for _, k := range keys {
 		out = binary.BigEndian.AppendUint16(out, uint16(len(k))) //nolint:gosec // ESDK caps keys at 16 bits
 		out = append(out, k...)
