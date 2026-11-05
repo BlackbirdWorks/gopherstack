@@ -10,9 +10,9 @@ const DefaultPollInterval = 30 * time.Second
 
 // Settings is the Kong-embedded configuration of the Azure AI Search emulator.
 type Settings struct {
-	TLSCertFile string `json:"tlsCertFile"  env:"AZURE_SEARCH_TLS_CERT"      name:"tls-cert"      help:"Path to a PEM certificate for the Azure AI Search HTTPS listener. Empty: generate a self-signed certificate on every start. Requires --azure-search-tls-key."`                 //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile  string `json:"tlsKeyFile"   env:"AZURE_SEARCH_TLS_KEY"       name:"tls-key"       help:"Path to the PEM key matching --azure-search-tls-cert."`                                                                                                                        //nolint:lll // config struct tags are intentionally verbose
-	Port        int    `json:"port"         env:"AZURE_SEARCH_PORT"          name:"port"          help:"Fixed TCP port for the Azure AI Search HTTPS listener; startup fails if it is unavailable."                                                                   default:"10015"` //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile string `json:"tlsCertFile" env:"AZURE_SEARCH_TLS_CERT" name:"tls-cert" help:"Path to a PEM certificate for the Azure AI Search HTTPS listener. Empty: generate a self-signed certificate on every start. Requires --azure-search-tls-key."`                 //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile  string `json:"tlsKeyFile"  env:"AZURE_SEARCH_TLS_KEY"  name:"tls-key"  help:"Path to the PEM key matching --azure-search-tls-cert."`                                                                                                                        //nolint:lll // config struct tags are intentionally verbose
+	Port        int    `json:"port"        env:"AZURE_SEARCH_PORT"     name:"port"     help:"Fixed TCP port for the Azure AI Search HTTPS listener; startup fails if it is unavailable."                                                                   default:"10015"` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the settings used when no ConfigProvider exists.
