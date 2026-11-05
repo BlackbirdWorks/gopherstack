@@ -123,7 +123,9 @@ func (b *InMemoryBackend) collectJobs(now time.Time) jobSet {
 			switch t := c.GetCondition().(type) {
 			case *monitoringpb.AlertPolicy_Condition_ConditionPrometheusQueryLanguage:
 				rt := b.condRT[c.GetName()]
-				if rt == nil || rt.lastEval.IsZero() || now.Sub(rt.lastEval) >= promIntervalOf(t.ConditionPrometheusQueryLanguage) {
+
+				every := promIntervalOf(t.ConditionPrometheusQueryLanguage)
+				if rt == nil || rt.lastEval.IsZero() || now.Sub(rt.lastEval) >= every {
 					js.proms = append(js.proms, extJob{cond: c, project: project})
 				}
 			case *monitoringpb.AlertPolicy_Condition_ConditionMatchedLog:

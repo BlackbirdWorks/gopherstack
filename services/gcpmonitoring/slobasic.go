@@ -82,7 +82,7 @@ func expandBasicSli(svc *monitoringpb.Service, basic *monitoringpb.BasicSli) (*m
 		return &monitoringpb.RequestBasedSli{Method: &monitoringpb.RequestBasedSli_DistributionCut{
 			DistributionCut: &monitoringpb.DistributionCut{
 				DistributionFilter: t.scoped(t.latency, basic.GetLocation()),
-				Range:              &monitoringpb.Range{Max: c.Latency.GetThreshold().AsDuration().Seconds() * msPerSec},
+				Range:              &monitoringpb.Range{Max: thresholdMillis(c.Latency)},
 			},
 		}}, true
 	}
@@ -106,4 +106,8 @@ func (b *InMemoryBackend) explicitSLOLocked(
 	}
 
 	return out
+}
+
+func thresholdMillis(l *monitoringpb.BasicSli_LatencyCriteria) float64 {
+	return l.GetThreshold().AsDuration().Seconds() * msPerSec
 }

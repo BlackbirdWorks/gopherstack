@@ -37,17 +37,17 @@ type rulesReply struct {
 		Groups []struct {
 			Name  string `json:"name"`
 			Rules []struct {
-				Name     string            `json:"name"`
-				Query    string            `json:"query"`
-				State    string            `json:"state"`
-				Type     string            `json:"type"`
-				Duration float64           `json:"duration"`
-				Labels   map[string]string `json:"labels"`
-				Alerts   []struct {
+				Labels map[string]string `json:"labels"`
+				Name   string            `json:"name"`
+				Query  string            `json:"query"`
+				State  string            `json:"state"`
+				Type   string            `json:"type"`
+				Alerts []struct {
 					Labels map[string]string `json:"labels"`
 					State  string            `json:"state"`
 					Value  string            `json:"value"`
 				} `json:"alerts"`
+				Duration float64 `json:"duration"`
 			} `json:"rules"`
 			Interval float64 `json:"interval"`
 		} `json:"groups"`
