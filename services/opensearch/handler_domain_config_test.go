@@ -312,9 +312,15 @@ func TestUpdateDomainConfig_AllOptions(t *testing.T) {
 		{
 			name: "update_advanced_security_options",
 			updateBody: map[string]any{
+				"EncryptionAtRestOptions":     map[string]any{"Enabled": true},
+				"NodeToNodeEncryptionOptions": map[string]any{"Enabled": true},
+				"DomainEndpointOptions":       map[string]any{"EnforceHTTPS": true},
 				"AdvancedSecurityOptions": map[string]any{
 					"Enabled":                     true,
 					"InternalUserDatabaseEnabled": true,
+					"MasterUserOptions": map[string]any{
+						"MasterUserName": "admin", "MasterUserPassword": "Sup3r-Secret!",
+					},
 				},
 			},
 			verify: func(t *testing.T, status map[string]any) {
@@ -489,10 +495,16 @@ func TestDescribeDomainConfig_FullConfig(t *testing.T) {
 		{
 			name: "with_advanced_security",
 			createBody: map[string]any{
-				"DomainName": "cfg-aso",
+				"DomainName":                  "cfg-aso",
+				"EncryptionAtRestOptions":     map[string]any{"Enabled": true},
+				"NodeToNodeEncryptionOptions": map[string]any{"Enabled": true},
+				"DomainEndpointOptions":       map[string]any{"EnforceHTTPS": true},
 				"AdvancedSecurityOptions": map[string]any{
 					"Enabled":                     true,
 					"InternalUserDatabaseEnabled": true,
+					"MasterUserOptions": map[string]any{
+						"MasterUserName": "admin", "MasterUserPassword": "Sup3r-Secret!",
+					},
 				},
 			},
 			wantKeys: []string{"EngineVersion", "ClusterConfig", "AdvancedSecurityOptions"},

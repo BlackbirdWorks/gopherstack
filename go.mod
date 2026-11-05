@@ -314,6 +314,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/opencontainers/image-spec v1.1.1
+	github.com/opensearch-project/opensearch-go/v4 v4.8.1
 	github.com/oracle/oci-go-sdk/v65 v65.126.2
 	github.com/parquet-go/parquet-go v0.32.0
 	github.com/pkg/sftp v1.13.11

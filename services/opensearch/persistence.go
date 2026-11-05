@@ -592,6 +592,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.workspaceCounter = snap.WorkspaceCounter
 
 	fixNilDomainTags(b)
+	b.seedAllSecurityLocked()
 
 	return nil
 }

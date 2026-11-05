@@ -808,7 +808,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 1 gap; 2 structural gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps; 1 structural gap |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 4 gaps; 1 structural gap; 1 deferred |
-| [OpenSearch](services/opensearch/README.md) | A | 19 | 1 gap; 1 structural gap |
+| [OpenSearch](services/opensearch/README.md) | A | 19 | 4 gaps; 1 structural gap |
 | [QuickSight](services/quicksight/README.md) | A | 81 | 3 gaps; 7 structural gaps |
 
 ### Security
