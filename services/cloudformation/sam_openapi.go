@@ -261,7 +261,7 @@ func (e *samOpenAPI) renameDefaultPath() {
 }
 
 func samCorsKeys() []string {
-	return []string{"AllowMethods", "AllowHeaders", samKeyOrigins, "MaxAge", "ExposeHeaders", "AllowCredentials"}
+	return []string{"AllowMethods", "AllowHeaders", samKeyOrigins, "MaxAge", "ExposeHeaders", samKeyAllowCreds}
 }
 
 func (e *samOpenAPI) addCors(cors any) error {
@@ -279,13 +279,13 @@ func (e *samOpenAPI) addCors(cors any) error {
 
 		return nil
 	}
-	if props["AllowCredentials"] == true && sameJSON(props[samKeyOrigins], []any{"*"}) {
+	if props[samKeyAllowCreds] == true && sameJSON(props[samKeyOrigins], []any{"*"}) {
 		return samErr(e.id, "Unable to add Cors configuration because 'AllowCredentials' can not be true when "+
 			"'AllowOrigin' is \"'*'\" or not set.")
 	}
 	for _, k := range samCorsKeys() {
 		v, ok := props[k]
-		if !ok || v == nil || (k == "AllowCredentials" && v != true) {
+		if !ok || v == nil || (k == samKeyAllowCreds && v != true) {
 			continue
 		}
 		cfg[strings.ToLower(k[:1])+k[1:]] = v
@@ -304,7 +304,7 @@ func (e *samOpenAPI) corsProps(cors any) (map[string]any, map[string]any, error)
 	case string:
 		return map[string]any{samKeyOrigins: []any{c}}, nil, nil
 	case map[string]any:
-		if _, isIntrinsic := intrinsicKey(c); isIntrinsic {
+		if isSAMIntrinsic(c) {
 			lowered, lerr := lowerCorsKeys(c)
 
 			return nil, lowered, lerr
@@ -331,17 +331,16 @@ func lowerCorsKeys(v map[string]any) (map[string]any, error) {
 	return decodeJSONMap(raw)
 }
 
-func intrinsicKey(m map[string]any) (string, bool) {
+// isSAMIntrinsic reports whether m is a single-key Ref, Condition or Fn::* call.
+func isSAMIntrinsic(m map[string]any) bool {
 	if len(m) != 1 {
-		return "", false
+		return false
 	}
 	for k := range m {
-		if k == samKeyRef || k == samKeyCondition || strings.HasPrefix(k, "Fn::") {
-			return k, true
-		}
+		return k == samKeyRef || k == samKeyCondition || strings.HasPrefix(k, "Fn::")
 	}
 
-	return "", false
+	return false
 }
 
 // finish drops empty containers the editor may have created and returns the document.

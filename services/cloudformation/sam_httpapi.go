@@ -139,7 +139,7 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 
 func (t *samTranslator) httpAPIEvent(ev *samEventCtx, name string, props map[string]any) error {
 	err := rejectUnknown(ev.id+name, props, keySet(samKeyAPIID, "Path", "Method", samKeyPayload,
-		samKeyTimeout, samKeyRouteSetting, "Stage", samAuthKey))
+		samKeyTimeout, samKeyRouteSetting, samDeploymentStub, samAuthKey))
 	if err != nil {
 		return err
 	}
@@ -256,9 +256,9 @@ func samHTTPStageID(apiID, stage string) string {
 	case stage == samDefaultStage:
 		return apiID + "ApiGatewayDefaultStage"
 	case isAlnum(stage):
-		return apiID + stage + "Stage"
+		return apiID + stage + samDeploymentStub
 	default:
-		return samLogicalID(apiID+"Stage", stage)
+		return samLogicalID(apiID+samDeploymentStub, stage)
 	}
 }
 
@@ -273,7 +273,7 @@ func (a *samHTTPAPI) apiProps() (map[string]any, error) {
 		if err := a.checkURIOnly(); err != nil {
 			return nil, err
 		}
-		loc, err := s3Location(a.id, "DefinitionUri", uri, "Bucket", "Key", "Version")
+		loc, err := s3Location(a.id, "DefinitionUri", uri, "Bucket", samKeyKey, "Version")
 		if err != nil {
 			return nil, err
 		}

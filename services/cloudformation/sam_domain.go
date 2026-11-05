@@ -83,13 +83,13 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	}
 	endpoint := samEndpointRegional
 	if e, ok := domain[samKeyEndpointConfig]; ok {
-		if endpoint, _ = e.(string); endpoint != samEndpointRegional {
+		if endpoint, _ = t.paramDefault(e).(string); endpoint != samEndpointRegional {
 			return samErr(a.id, "EndpointConfiguration for Custom Domains must be one of [REGIONAL].")
 		}
 	}
 	domainID := "ApiGatewayDomainNameV2" + samLogicalID("", domain[samKeyDomainName])
 	cfg := map[string]any{"CertificateArn": domain["CertificateArn"], "EndpointType": endpoint}
-	for _, k := range []string{"OwnershipVerificationCertificateArn", "SecurityPolicy"} {
+	for _, k := range []string{"OwnershipVerificationCertificateArn", samKSecurityPolicy} {
 		if domain[k] != nil {
 			cfg[k] = domain[k]
 		}
@@ -135,7 +135,7 @@ func (t *samTranslator) putHTTPMappings(a *samHTTPAPI, domain map[string]any, do
 
 func httpMapping(apiID, domainID, key string) map[string]any {
 	props := map[string]any{samKeyDomainName: samRef(domainID), samKeyAPIID: samRef(apiID),
-		"Stage": samRef(apiID + ".Stage")}
+		samDeploymentStub: samRef(apiID + ".Stage")}
 	if key != "" {
 		props["ApiMappingKey"] = key
 	}
@@ -223,4 +223,90 @@ func recordSetsFor(domain, cfg map[string]any, domainID, endpoint string) []any 
 	}
 
 	return out
+}
+
+func (t *samTranslator) emitRESTDomain(a *samAPI) error {
+	if a.props[samDomainKey] == nil {
+		return nil
+	}
+	domain, err := samDomainConfig(a.id, a.props[samDomainKey])
+	if err != nil {
+		return err
+	}
+	endpoint := samEndpointRegional
+	if e, ok := domain[samKeyEndpointConfig]; ok {
+		endpoint, _ = t.paramDefault(e).(string)
+	}
+	switch endpoint {
+	case samEndpointRegional, samEndpointEdge:
+	case "PRIVATE":
+		return samErr(a.id, "PRIVATE custom domains are not supported by this emulator's SAM transform.")
+	default:
+		return samErr(a.id, "EndpointConfiguration for Custom Domains must be one of [EDGE REGIONAL PRIVATE].")
+	}
+	domainID := "ApiGatewayDomainName" + samLogicalID("", domain[samKeyDomainName])
+	cfg := map[string]any{samKTypes: []any{endpoint}}
+	if v := domain["IpAddressType"]; v != nil {
+		cfg["IpAddressType"] = v
+	}
+	props := map[string]any{samKeyDomainName: domain[samKeyDomainName], samKeyEndpointConfig: cfg}
+	if endpoint == samEndpointRegional {
+		props["RegionalCertificateArn"] = domain["CertificateArn"]
+	} else {
+		props["CertificateArn"] = domain["CertificateArn"]
+	}
+	if m := mutualTLS(domain); m != nil {
+		props["MutualTlsAuthentication"] = m
+	}
+	optional := []string{samKSecurityPolicy, "EndpointAccessMode", samKPolicy, "OwnershipVerificationCertificateArn"}
+	for _, k := range optional {
+		if domain[k] != nil {
+			props[k] = domain[k]
+		}
+	}
+	if err = t.put(domainID, map[string]any{samKeyType: samTypeV1Domain, samKeyProps: props}); err != nil {
+		return err
+	}
+	if err = t.putRESTMappings(a, domain, domainID); err != nil {
+		return err
+	}
+
+	return t.putRecordSets(a.id, domain, domainID, endpoint)
+}
+
+func (t *samTranslator) putRESTMappings(a *samAPI, domain map[string]any, domainID string) error {
+	mapping := func(id string, base *string) error {
+		props := map[string]any{samKeyDomainName: samRef(domainID), samKRestAPIID: samRef(a.id),
+			samDeploymentStub: samRef(a.id + ".Stage")}
+		if base != nil {
+			props["BasePath"] = *base
+		}
+
+		return t.put(id, map[string]any{samKeyType: samTypeV1Mapping, samKeyProps: props})
+	}
+	paths := samDomainBasePaths(domain)
+	if paths == nil {
+		return mapping(a.id+"BasePathMapping", nil)
+	}
+	for _, p := range paths {
+		path, ok := p.(string)
+		if !ok {
+			return samErr(a.id, "Domain.BasePath must be a list of strings.")
+		}
+		var alnum strings.Builder
+		for _, r := range path {
+			if isAlnum(string(r)) {
+				alnum.WriteRune(r)
+			}
+		}
+		base := alnum.String()
+		if domain["NormalizeBasePath"] == false {
+			base = path
+		}
+		if err := mapping(a.id+alnum.String()+"BasePathMapping", &base); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -49,13 +50,7 @@ func jsonString(t *testing.T, v any) string {
 func normalizeSAMOutput(t *testing.T, res map[string]any) map[string]any {
 	t.Helper()
 
-	idmap := map[string]string{}
-	for id, r := range res {
-		typ, _ := r.(map[string]any)["Type"].(string)
-		if samHashSuffixRe.MatchString(id) && strings.HasPrefix(typ, "AWS::") {
-			idmap[id] = samHashSuffixRe.ReplaceAllString(id, "#")
-		}
-	}
+	idmap := hashedIDMap(t, res)
 
 	var walk func(v any) any
 	walk = func(v any) any {
@@ -191,4 +186,45 @@ func TestSAMGolden_Errors(t *testing.T) {
 			require.ErrorIs(t, err, cloudformation.ErrSAMTransform)
 		})
 	}
+}
+
+// hashedIDMap maps ids ending in a SAM hash to a stable name: the prefix plus "#", with an index when several
+// ids share a prefix (ordered by their content, so equal templates number alike).
+func hashedIDMap(t *testing.T, res map[string]any) map[string]string {
+	t.Helper()
+
+	groups := map[string][]string{}
+	for id, r := range res {
+		typ, _ := r.(map[string]any)["Type"].(string)
+		if samHashSuffixRe.MatchString(id) && strings.HasPrefix(typ, "AWS::") {
+			key := samHashSuffixRe.ReplaceAllString(id, "#")
+			groups[key] = append(groups[key], id)
+		}
+	}
+	plain := map[string]string{}
+	for key, ids := range groups {
+		for _, id := range ids {
+			plain[id] = key
+		}
+	}
+	strip := func(r any) string {
+		raw := jsonString(t, r)
+		for from, to := range plain {
+			raw = strings.ReplaceAll(raw, from, to)
+		}
+
+		return raw
+	}
+	out := map[string]string{}
+	for key, ids := range groups {
+		slices.SortFunc(ids, func(a, b string) int { return strings.Compare(strip(res[a]), strip(res[b])) })
+		for i, id := range ids {
+			out[id] = key
+			if len(ids) > 1 {
+				out[id] = key + strconv.Itoa(i)
+			}
+		}
+	}
+
+	return out
 }

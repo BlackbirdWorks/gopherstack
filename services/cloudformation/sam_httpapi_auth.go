@@ -126,7 +126,7 @@ func (az *samHTTPAuthorizer) scheme() map[string]any {
 	switch az.kind {
 	case samIAMAuthorizer:
 		return map[string]any{samKeyTypeLower: samTypeAPIKey, samKeyNameLower: samAuthHeader, "in": samLocHeader,
-			"x-amazon-apigateway-authtype": "awsSigv4"}
+			samKXAmazonApigatewayAuthtype: "awsSigv4"}
 	case samAuthTypeJWT:
 		jwt := map[string]any{}
 		for k, v := range asMap(az.cfg["JwtConfiguration"]) {
@@ -170,7 +170,7 @@ func (az *samHTTPAuthorizer) requestScheme() map[string]any {
 func httpIdentitySources(id map[string]any) []any {
 	out := []any{}
 	for _, p := range []struct{ key, prefix string }{
-		{"Headers", "$request.header."}, {"QueryStrings", "$request.querystring."},
+		{samKeyHeaders, "$request.header."}, {samKQueryStrings, "$request.querystring."},
 		{samKeyStageVars, "$stageVariables."}, {"Context", "$context."},
 	} {
 		for _, v := range asList(id[p.key]) {
@@ -245,7 +245,7 @@ func defaultAuthTarget(id, path, method string, v any, item map[string]any) (map
 	if norm == "any" {
 		norm = samAnyMethodKey
 	}
-	if norm == "options" || norm == "parameters" {
+	if norm == samKOptions || norm == "parameters" {
 		return nil, true, nil
 	}
 	if _, found := item[norm]; !found {

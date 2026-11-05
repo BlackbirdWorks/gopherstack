@@ -1,10 +1,5 @@
 package cloudformation
 
-import (
-	"maps"
-	"slices"
-)
-
 const (
 	samTypeBucket   = "AWS::S3::Bucket"
 	samTypeSchedule = "AWS::Scheduler::Schedule"
@@ -14,60 +9,6 @@ const (
 	samKeyTarget    = "Target"
 	samKeyInput     = "Input"
 )
-
-func (t *samTranslator) s3Event(ev *samEventCtx, name string, props map[string]any) error {
-	if err := rejectUnknown(ev.id+name, props, keySet("Bucket", "Events", "Filter")); err != nil {
-		return err
-	}
-	bucket, _ := asMap(props["Bucket"])[samKeyRef].(string)
-	if bucket == "" {
-		return samErr(
-			ev.id,
-			"Event [%s] of type S3 requires 'Bucket' to be a Ref to an AWS::S3::Bucket in this template.",
-			name,
-		)
-	}
-	events := asList(props["Events"])
-	if len(events) == 0 {
-		return samErr(ev.id, "Event [%s] of type S3 is missing required property 'Events'.", name)
-	}
-	for _, e := range events {
-		cfg := map[string]any{"Event": e, samKeyFunction: ev.fnArn()}
-		if props["Filter"] != nil {
-			cfg["Filter"] = props["Filter"]
-		}
-		t.s3Configs[bucket] = append(t.s3Configs[bucket], cfg)
-	}
-	perm := lambdaPermission(ev.target(), "s3.amazonaws.com", samGetAtt(bucket, attrNameArn))
-	asMap(perm[samKeyProps])["SourceAccount"] = samRef("AWS::AccountId")
-
-	return t.put(ev.id+name+"Permission", perm)
-}
-
-// finalizeS3Events adds each bucket's collected Lambda configurations to its NotificationConfiguration.
-func (t *samTranslator) finalizeS3Events() error {
-	for _, id := range slices.Sorted(maps.Keys(t.s3Configs)) {
-		b := asMap(t.out[id])
-		if b[samKeyType] != samTypeBucket {
-			return samErr(id, "S3 event Bucket must reference an AWS::S3::Bucket resource in this template.")
-		}
-		props := maps.Clone(asMap(b[samKeyProps]))
-		if props == nil {
-			props = map[string]any{}
-		}
-		nc := maps.Clone(asMap(props[samKeyNotifCfg]))
-		if nc == nil {
-			nc = map[string]any{}
-		}
-		nc[samKeyLambdaCfg] = slices.Concat(asList(nc[samKeyLambdaCfg]), t.s3Configs[id])
-		props[samKeyNotifCfg] = nc
-		nb := maps.Clone(b)
-		nb[samKeyProps] = props
-		t.out[id] = nb
-	}
-
-	return nil
-}
 
 func (t *samTranslator) scheduleV2Event(ev *samEventCtx, name string, props map[string]any) error {
 	err := rejectUnknown(ev.id+name, props, keySet(
@@ -129,7 +70,7 @@ func (t *samTranslator) scheduleV2Event(ev *samEventCtx, name string, props map[
 func scheduleProps(ev *samEventCtx, name string, props, target map[string]any) map[string]any {
 	sched := map[string]any{
 		samKeyTarget:         target,
-		"FlexibleTimeWindow": map[string]any{"Mode": "OFF"},
+		"FlexibleTimeWindow": map[string]any{samKMode: "OFF"},
 		samKeyState:          samStateEnabled,
 	}
 	for _, k := range []string{"ScheduleExpression", "ScheduleExpressionTimezone", "StartDate", "EndDate", samKeyState,
@@ -154,16 +95,16 @@ func schedulerInvokeRole(fnID string, boundary any) map[string]any {
 			samKeyVersion: samPolicyVersion,
 			samKeyStatement: []any{map[string]any{
 				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "sts:AssumeRole",
-				samKeyPrincipal: map[string]any{"Service": "scheduler.amazonaws.com"},
+				samKeyPrincipal: map[string]any{samKService: "scheduler.amazonaws.com"},
 			}},
 		},
 		"Policies": []any{map[string]any{
 			samKeyPolicyName: "SchedulerRoleLambdaInvokePolicy",
-			"PolicyDocument": map[string]any{
+			samKeyPolicyDoc: map[string]any{
 				samKeyVersion: samPolicyVersion,
 				samKeyStatement: []any{map[string]any{
 					samKeyEffect: stackPolicyEffectAllow, samKeyAction: samActionInvokeFn,
-					"Resource": samGetAtt(fnID, attrNameArn),
+					changeTypeResource: samGetAtt(fnID, attrNameArn),
 				}},
 			},
 		}},

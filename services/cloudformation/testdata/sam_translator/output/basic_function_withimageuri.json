@@ -1,0 +1,343 @@
+{
+  "Parameters": {
+    "SomeOtherParameter": {
+      "Default": "otherparam",
+      "Type": "String"
+    },
+    "SomeParameter": {
+      "Default": "param",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "CompleteImageFunction": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "Description": "Starter Lambda Function",
+        "Environment": {
+          "Variables": {
+            "Name": "Value",
+            "Name2": "Value2"
+          }
+        },
+        "FunctionName": "MyAwesomeFunction",
+        "ImageConfig": {
+          "Command": "/bin/sh",
+          "EntryPoint": "echo hello world!",
+          "WorkingDirectory": "/var/task"
+        },
+        "PackageType": "Image",
+        "Role": "arn:aws:iam::012345678901:role/lambda_basic_execution",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ],
+        "Timeout": 60,
+        "VpcConfig": {
+          "SecurityGroupIds": [
+            "sg-edcd9784"
+          ],
+          "SubnetIds": [
+            "subnet-9d4a7b6c",
+            "subnet-65ea5f08",
+            {
+              "Ref": "SomeParameter"
+            },
+            {
+              "Ref": "SomeOtherParameter"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithPolicies": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "PackageType": "Image",
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionWithPoliciesRole",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithPoliciesRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "FunctionWithPolicyDocument": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "PackageType": "Image",
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionWithPolicyDocumentRole",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithPolicyDocumentRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "dynamodb:*"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ]
+            },
+            "PolicyName": "FunctionWithPolicyDocumentRolePolicy0"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "FunctionWithRoleRef": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "PackageType": "Image",
+        "Role": {
+          "Fn::GetAtt": [
+            "MyFunctionRole",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalImageFunction": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "PackageType": "Image",
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalImageFunctionRole",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalImageFunctionPackageTypeAndImageConfig": {
+      "Properties": {
+        "Code": {
+          "ImageUri": "123456789.dkr.ecr.region.amazonaws.suffix/myimage:latest"
+        },
+        "ImageConfig": {
+          "Command": "/bin/sh",
+          "EntryPoint": "echo hello world!",
+          "WorkingDirectory": "/var/task"
+        },
+        "PackageType": "Image",
+        "Role": {
+          "Fn::GetAtt": [
+            "MinimalImageFunctionPackageTypeAndImageConfigRole",
+            "Arn"
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MinimalImageFunctionPackageTypeAndImageConfigRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MinimalImageFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "*",
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "root"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    }
+  }
+}

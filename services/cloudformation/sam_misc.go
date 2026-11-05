@@ -6,7 +6,7 @@ import (
 )
 
 func samTableAllowed() map[string]bool {
-	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, "Tags", "SSESpecification",
+	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, scopeTags, "SSESpecification",
 		"BillingMode", "PointInTimeRecoverySpecification")
 }
 
@@ -17,7 +17,7 @@ func samLayerAllowed() map[string]bool {
 
 func samSMAllowed() map[string]bool {
 	return keySet("Definition", "DefinitionUri", "DefinitionSubstitutions", "Role", "Policies",
-		"Name", "Type", "Tracing", "Logging", "Tags", "PermissionsBoundary", "Events")
+		"Name", "Type", "Tracing", "Logging", scopeTags, "PermissionsBoundary", samKeyEvents)
 }
 
 func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error {
@@ -52,8 +52,8 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 			tbl[k] = v
 		}
 	}
-	if tags := asMap(props["Tags"]); tags != nil {
-		tbl["Tags"] = samTagList(tags)
+	if tags := asMap(props[scopeTags]); tags != nil {
+		tbl[scopeTags] = samTagList(tags)
 	}
 	base := map[string]any{samKeyType: "AWS::DynamoDB::Table", samKeyProps: tbl}
 	carryAttrs(r, base)
@@ -100,7 +100,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 		return err
 	}
 	sm := map[string]any{}
-	for _, k := range []string{"DefinitionSubstitutions", "Logging", "Tags"} {
+	for _, k := range []string{"DefinitionSubstitutions", "Logging", scopeTags} {
 		if v, ok := props[k]; ok {
 			sm[k] = v
 		}
@@ -131,7 +131,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 		return err
 	}
 
-	return t.translateStateMachineEvents(id, asMap(props["Events"]))
+	return t.translateStateMachineEvents(id, asMap(props[samKeyEvents]))
 }
 
 func smDefinition(id string, props, sm map[string]any) error {
@@ -143,7 +143,7 @@ func smDefinition(id string, props, sm map[string]any) error {
 		}
 		sm["DefinitionString"] = string(raw)
 	case props["DefinitionUri"] != nil:
-		loc, err := s3Location(id, "DefinitionUri", props["DefinitionUri"], "Bucket", "Key", "Version")
+		loc, err := s3Location(id, "DefinitionUri", props["DefinitionUri"], "Bucket", samKeyKey, "Version")
 		if err != nil {
 			return err
 		}
@@ -156,17 +156,16 @@ func smDefinition(id string, props, sm map[string]any) error {
 }
 
 func (t *samTranslator) putSMRole(id string, props map[string]any) error {
-	var managed []any
-	inline, err := splitPolicies(id, props["Policies"], id+"Role", &managed)
-	if err != nil {
+	pol := &samRolePolicies{}
+	if err := t.applyPolicies(id, id+"Role", props["Policies"], pol); err != nil {
 		return err
 	}
 	role := map[string]any{
-		samKeyAssumeRole:    servicePrincipalTrust("states.amazonaws.com"),
-		"ManagedPolicyArns": toSubs(managed),
+		samKeyAssumeRole:  servicePrincipalTrust("states.amazonaws.com"),
+		samKeyManagedARNs: toSubs(pol.managed),
 	}
-	if len(inline) > 0 {
-		role["Policies"] = inline
+	if len(pol.inline) > 0 {
+		role["Policies"] = pol.inline
 	}
 	if props["PermissionsBoundary"] != nil {
 		role["PermissionsBoundary"] = props["PermissionsBoundary"]

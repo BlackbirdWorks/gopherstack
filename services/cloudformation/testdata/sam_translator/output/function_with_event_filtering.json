@@ -1,0 +1,283 @@
+{
+  "Resources": {
+    "DynamoDBTable": {
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "FilteredEventsFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "filtered_events.zip"
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "FilteredEventsFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "nodejs16.x",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FilteredEventsFunctionDynamoDBStreamEvent": {
+      "Properties": {
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "DynamoDBTable",
+            "StreamArn"
+          ]
+        },
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{ \"dynamodb\": { \"NewImage\": { \"value\": { \"S\": [\"test\"] } } } }"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        },
+        "StartingPosition": "TRIM_HORIZON"
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionKinesisStream": {
+      "Properties": {
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "KinesisStream",
+            "Arn"
+          ]
+        },
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{\"name\": \"value\"}"
+            },
+            {
+              "Pattern": "{\"name2\": \"value2\"}"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        },
+        "StartingPosition": "LATEST"
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionMSKEvent": {
+      "Properties": {
+        "EventSourceArn": "arn:aws:kafka:us-west-2:012345678901:cluster/mycluster/6cc0432b-8618-4f44-bccc-e1fbd8fb7c4d-2",
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{\"name\": \"value\"}"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        },
+        "StartingPosition": "LATEST",
+        "Topics": [
+          "MyDummyTestTopic"
+        ]
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionMyKafkaEvent": {
+      "Properties": {
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{\"name\": \"value\"}"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        },
+        "KmsKeyArn": "arn:aws:kms:us-west-2:123456789012:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+        "SelfManagedEventSource": {
+          "Endpoints": {
+            "KafkaBootstrapServers": [
+              "abc.xyz.com:9092"
+            ]
+          }
+        },
+        "SourceAccessConfigurations": [
+          {
+            "Type": "SASL_SCRAM_512_AUTH",
+            "URI": "arn:aws:secretsmanager:us-west-2:123456789012:secret:my-path/my-secret-name-1a2b3c"
+          },
+          {
+            "Type": "VPC_SUBNET",
+            "URI": "subnet:subnet-12345"
+          },
+          {
+            "Type": "VPC_SECURITY_GROUP",
+            "URI": "security_group:sg-67890"
+          }
+        ],
+        "Topics": [
+          "Topic1"
+        ]
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionMyMQQueue": {
+      "Properties": {
+        "EventSourceArn": "arn:aws:mq:us-east-2:123456789012:broker:MyBroker:b-1234a5b6-78cd-901e-2fgh-3i45j6k178l9",
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{\"name\": \"value\"}"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        },
+        "Queues": [
+          "Queue1"
+        ],
+        "SourceAccessConfigurations": [
+          {
+            "Type": "BASIC_AUTH",
+            "URI": "arn:aws:secretsmanager:us-west-2:123456789012:secret:my-path/my-secret-name-1a2b3c"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionMySqsEvent": {
+      "Properties": {
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "MySqsQueue",
+            "Arn"
+          ]
+        },
+        "FilterCriteria": {
+          "Filters": [
+            {
+              "Pattern": "{\"name\": \"value\"}"
+            }
+          ]
+        },
+        "FunctionName": {
+          "Ref": "FilteredEventsFunction"
+        }
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "FilteredEventsFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaDynamoDBExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaMSKExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:secretsmanager:us-west-2:123456789012:secret:my-path/my-secret-name-1a2b3c"
+                },
+                {
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeVpcs",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeSecurityGroups"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "SelfManagedKafkaExecutionRolePolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "secretsmanager:GetSecretValue"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:secretsmanager:us-west-2:123456789012:secret:my-path/my-secret-name-1a2b3c"
+                },
+                {
+                  "Action": [
+                    "mq:DescribeBroker"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "arn:aws:mq:us-east-2:123456789012:broker:MyBroker:b-1234a5b6-78cd-901e-2fgh-3i45j6k178l9"
+                },
+                {
+                  "Action": "kms:Decrypt",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/1abc23d4-567f-8ab9-cde0-1fab234c5d67"
+                  }
+                }
+              ]
+            },
+            "PolicyName": "SamAutoGeneratedAMQPolicy"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "KinesisStream": {
+      "Properties": {
+        "ShardCount": 1
+      },
+      "Type": "AWS::Kinesis::Stream"
+    },
+    "MySqsQueue": {
+      "Type": "AWS::SQS::Queue"
+    }
+  }
+}

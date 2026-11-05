@@ -91,7 +91,7 @@ func smDLQPolicy(policyName string, dlc map[string]any) []any {
 		samKeyPolicyDoc: map[string]any{
 			samKeyVersion: samPolicyVersion,
 			samKeyStatement: []any{map[string]any{
-				samKeyEffect: stackPolicyEffectAllow, samKeyAction: "sqs:SendMessage", samKeyResource: arn,
+				samKeyEffect: stackPolicyEffectAllow, samKeyAction: samKSqsSendMessage, samKeyResource: arn,
 			}},
 		},
 	}}
@@ -154,7 +154,7 @@ func (t *samTranslator) smRuleTarget(smID, name string, props map[string]any) (m
 
 func (t *samTranslator) smScheduleEvent(smID, name string, props map[string]any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, "Enabled", samKeyState, "Name", samKeyDesc,
+	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, "Name", samKeyDesc,
 		samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (t *samTranslator) smScheduleEvent(smID, name string, props map[string]any)
 func (t *samTranslator) smRuleEvent(smID, name string, props map[string]any) error {
 	id := smID + name
 	if err := rejectUnknown(id, props, keySet("Pattern", samKeyInput, "InputPath", "EventBusName", samKeyState,
-		"RuleName", samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
+		samKRuleName, samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
 		return err
 	}
 
@@ -189,8 +189,8 @@ func (t *samTranslator) smRuleEvent(smID, name string, props map[string]any) err
 		rule["EventBusName"] = props["EventBusName"]
 	}
 
-	if props["RuleName"] != nil {
-		rule[attrNameName] = props["RuleName"]
+	if props[samKRuleName] != nil {
+		rule[attrNameName] = props[samKRuleName]
 	}
 
 	return t.putSMRule(smID, name, rule, props)
@@ -257,7 +257,11 @@ func (t *samTranslator) smScheduleV2Event(smID, name string, props map[string]an
 
 func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Path", "Method", "RestApiId", samAuthKey, samUnescapeFlag)); err != nil {
+	if err := rejectUnknown(
+		id,
+		props,
+		keySet("Path", "Method", samKRestAPIID, samAuthKey, samUnescapeFlag),
+	); err != nil {
 		return err
 	}
 
@@ -268,12 +272,12 @@ func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) erro
 		return samErr(smID, "Event [%s] of type Api requires 'Path' and 'Method'.", name)
 	}
 
-	api, err := t.apiFor(smID, props["RestApiId"])
+	api, err := t.apiFor(smID, props[samKRestAPIID])
 	if err != nil {
 		return err
 	}
 
-	authorizer, apiKey, err := eventAuth(smID, name, props)
+	authorizer, apiKey, scopes, err := eventAuth(smID, name, props)
 	if err != nil {
 		return err
 	}
@@ -300,6 +304,7 @@ func (t *samTranslator) smAPIEvent(smID, name string, props map[string]any) erro
 			roleID:     roleID,
 			unescape:   unescape,
 			apiKey:     apiKey,
+			scopes:     scopes,
 		},
 	)
 
@@ -326,4 +331,15 @@ func smIntegration(rt samRoute) map[string]any {
 		samKeyTypeLower: "aws",
 		samKeyURI:       map[string]any{samKeyFnSub: smStartExecutionURI},
 	}
+}
+
+func ruleState(props map[string]any) any {
+	if s, ok := props[samKeyState]; ok {
+		return s
+	}
+	if en, ok := props[samKeyEnabled].(bool); ok && !en {
+		return samStateDisabled
+	}
+
+	return samStateEnabled
 }

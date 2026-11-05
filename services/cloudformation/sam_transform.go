@@ -10,60 +10,77 @@ import (
 )
 
 const (
-	samTransformName = "AWS::Serverless-2016-10-31"
-	samHashLen       = 10
-	samResPrefix     = "AWS::Serverless::"
-	samKeyProps      = "Properties"
-	samKeyType       = "Type"
-	samKeyRef        = "Ref"
-	samKeyFnSub      = "Fn::Sub"
-	samKeyDependsOn  = "DependsOn"
-	samKeyDesc       = "Description"
-	samKeyFnName     = "FunctionName"
-	samKeyCondition  = "Condition"
-	samKeyTableName  = "TableName"
-	samKeyTopicArn   = "TopicArn"
-	samTypeFunction  = "AWS::Lambda::Function"
-	samTypePerm      = "AWS::Lambda::Permission"
-	samTypeESM       = "AWS::Lambda::EventSourceMapping"
-	samTypeVersion   = "AWS::Lambda::Version"
-	samTypeAlias     = "AWS::Lambda::Alias"
-	samTypeLayer     = "AWS::Lambda::LayerVersion"
-	samTypeRule      = "AWS::Events::Rule"
-	samTypeSubscr    = "AWS::SNS::Subscription"
-	samTypeRestAPI   = "AWS::ApiGateway::RestApi"
-	samTypeDeploy    = "AWS::ApiGateway::Deployment"
-	samTypeStage     = "AWS::ApiGateway::Stage"
-	samStateEnabled  = "ENABLED"
-	samStateDisabled = "DISABLED"
-	samTypeString    = "String"
-	samKeyStageName  = "StageName"
-	samKeyResponses  = "responses"
-	samKeyTypeLower  = "type"
-	samTokenType     = "TOKEN"
-	samKeyAction     = "Action"
-	samKeyPrincipal  = "Principal"
-	samKeyState      = "State"
-	samKeyAssumeRole = "AssumeRolePolicyDocument"
-	samPolicyVersion = "2012-10-17"
-	samKeyStatement  = "Statement"
-	samKeyPolicyName = "PolicyName"
-	samKeyFunction   = "Function"
-	samJSONMime      = "application/json"
-	samAuthHeader    = "Authorization"
-	samKeyVersion    = "Version"
-	samKeyEffect     = "Effect"
-	samTypeAPIKey    = "apiKey"
-	samKeyHTTPMethod = "httpMethod"
-	samKeyURI        = "uri"
-	samKeyStageVars  = "StageVariables"
-	samCreatedBy     = "SAM"
-	samKeyDomainName = "DomainName"
-	samKeyCorsProp   = "Cors"
-	samKeyDelPolicy  = "DeletionPolicy"
-	samKeyUpdPolicy  = "UpdateReplacePolicy"
-	samLocPath       = "path"
-	samKeyOrigins    = "AllowOrigins"
+	samTransformName   = "AWS::Serverless-2016-10-31"
+	samHashLen         = 10
+	samResPrefix       = "AWS::Serverless::"
+	samKeyProps        = "Properties"
+	samKeyType         = "Type"
+	samKeyRef          = "Ref"
+	samKeyFnSub        = "Fn::Sub"
+	samKeyDependsOn    = "DependsOn"
+	samKeyDesc         = "Description"
+	samKeyFnName       = "FunctionName"
+	samKeyCondition    = "Condition"
+	samKeyTableName    = "TableName"
+	samKeyTopicArn     = "TopicArn"
+	samTypeFunction    = "AWS::Lambda::Function"
+	samTypePerm        = "AWS::Lambda::Permission"
+	samTypeESM         = "AWS::Lambda::EventSourceMapping"
+	samTypeVersion     = "AWS::Lambda::Version"
+	samTypeAlias       = "AWS::Lambda::Alias"
+	samTypeLayer       = "AWS::Lambda::LayerVersion"
+	samTypeRule        = "AWS::Events::Rule"
+	samTypeSubscr      = "AWS::SNS::Subscription"
+	samTypeRestAPI     = "AWS::ApiGateway::RestApi"
+	samTypeDeploy      = "AWS::ApiGateway::Deployment"
+	samTypeStage       = "AWS::ApiGateway::Stage"
+	samStateEnabled    = "ENABLED"
+	samStateDisabled   = "DISABLED"
+	samTypeString      = "String"
+	samKeyStageName    = "StageName"
+	samKeyResponses    = "responses"
+	samKeyTypeLower    = "type"
+	samTokenType       = "TOKEN"
+	samKeyAction       = "Action"
+	samKeyPrincipal    = "Principal"
+	samKeyState        = "State"
+	samKeyAssumeRole   = "AssumeRolePolicyDocument"
+	samPolicyVersion   = "2012-10-17"
+	samKeyStatement    = "Statement"
+	samKeyPolicyName   = "PolicyName"
+	samKeyFunction     = "Function"
+	samJSONMime        = "application/json"
+	samAuthHeader      = "Authorization"
+	samKeyVersion      = "Version"
+	samKeyEffect       = "Effect"
+	samTypeAPIKey      = "apiKey"
+	samKeyHTTPMethod   = "httpMethod"
+	samKeyURI          = "uri"
+	samKeyStageVars    = "StageVariables"
+	samCreatedBy       = "SAM"
+	samKeyDomainName   = "DomainName"
+	samKeyCorsProp     = "Cors"
+	samKeyDelPolicy    = "DeletionPolicy"
+	samKeyUpdPolicy    = "UpdateReplacePolicy"
+	samLocPath         = "path"
+	samKeyOrigins      = "AllowOrigins"
+	samFnJoin          = "Fn::Join"
+	samFnNot           = "Fn::Not"
+	samFnAnd           = "Fn::And"
+	samFnOr            = "Fn::Or"
+	samKeyHeaders      = "Headers"
+	samKeyEnabled      = "Enabled"
+	samKeyKeyID        = "KeyId"
+	samKeyManagedARNs  = "ManagedPolicyArns"
+	samKeyEvents       = "Events"
+	samDestLambda      = "Lambda"
+	samKeyAllowCreds   = "AllowCredentials"
+	samKeyImage        = "Image"
+	samKeyBatchSize    = "BatchSize"
+	samKeyDatabaseName = "DatabaseName"
+	samKeyKey          = "Key"
+	samKeyLogGroup     = "LogGroupName"
+	samTypeUserPool    = "AWS::Cognito::UserPool"
 )
 
 // ErrSAMTransform is returned when a SAM template cannot be expanded.
@@ -73,14 +90,20 @@ var ErrSAMTransform = errors.New("transform " + samTransformName + " failed with
 // samTranslator expands AWS::Serverless::* into plain CloudFormation; logical IDs follow
 // the SAM developer guide page "sam-specification-generated-resources".
 type samTranslator struct {
-	out       map[string]any
-	globals   map[string]map[string]any
-	apis      map[string]*samAPI
-	httpAPIs  map[string]*samHTTPAPI
-	s3Configs map[string][]any
-	refs      map[string]string
-	pass      map[string]any
-	params    map[string]any
+	out        map[string]any
+	globals    map[string]map[string]any
+	apis       map[string]*samAPI
+	httpAPIs   map[string]*samHTTPAPI
+	s3Configs  map[string][]any
+	s3Perms    map[string][]string
+	cognito    map[string][]samCognitoTrigger
+	input      map[string]any
+	refs       map[string]string
+	pass       map[string]any
+	params     map[string]any
+	conditions map[string]any
+	deploys    []*samDeployPref
+	sharedPlan samSharedPlan
 }
 
 func samErr(id, format string, args ...any) error {
@@ -124,13 +147,17 @@ func expandSAMDocument(doc map[string]any) (err error) {
 	}()
 
 	t := &samTranslator{
-		out:       map[string]any{},
-		globals:   map[string]map[string]any{},
-		apis:      map[string]*samAPI{},
-		httpAPIs:  map[string]*samHTTPAPI{},
-		s3Configs: map[string][]any{},
-		refs:      map[string]string{},
-		params:    map[string]any{},
+		out:        map[string]any{},
+		globals:    map[string]map[string]any{},
+		apis:       map[string]*samAPI{},
+		httpAPIs:   map[string]*samHTTPAPI{},
+		s3Configs:  map[string][]any{},
+		s3Perms:    map[string][]string{},
+		cognito:    map[string][]samCognitoTrigger{},
+		input:      asMap(doc["Resources"]),
+		refs:       map[string]string{},
+		params:     map[string]any{},
+		conditions: map[string]any{},
 	}
 	for name, p := range asMap(doc["Parameters"]) {
 		if def, ok := asMap(p)["Default"]; ok {
@@ -147,6 +174,14 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		return err
 	}
 	doc["Resources"] = rewriteSAMRefs(t.out, t.refs)
+	if len(t.conditions) > 0 {
+		conds := asMap(doc["Conditions"])
+		if conds == nil {
+			conds = map[string]any{}
+		}
+		maps.Copy(conds, t.conditions)
+		doc["Conditions"] = conds
+	}
 
 	return nil
 }
@@ -186,7 +221,14 @@ func (t *samTranslator) translate(res map[string]any) error {
 		return err
 	}
 
-	return t.finalizeS3Events()
+	if err := t.finalizeDeployments(); err != nil {
+		return err
+	}
+	if err := t.finalizeS3Events(); err != nil {
+		return err
+	}
+
+	return t.finalizeCognito()
 }
 
 func (t *samTranslator) registerAPIs(id string, r map[string]any) error {
@@ -343,10 +385,10 @@ func samTags(tags map[string]any) []any {
 	keys := slices.Sorted(maps.Keys(tags))
 	rest := make([]any, 0, len(keys))
 	for _, k := range keys {
-		rest = append(rest, map[string]any{"Key": k, "Value": tags[k]})
+		rest = append(rest, map[string]any{samKeyKey: k, samKValue: tags[k]})
 	}
 
-	return slices.Concat([]any{map[string]any{"Key": "lambda:createdBy", "Value": samCreatedBy}}, rest)
+	return slices.Concat([]any{map[string]any{samKeyKey: "lambda:createdBy", samKValue: samCreatedBy}}, rest)
 }
 
 // rewriteSAMRefs applies referenceable-property rewrites (Ref Fn.Alias etc.).

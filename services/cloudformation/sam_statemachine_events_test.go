@@ -47,7 +47,7 @@ func processedResources(t *testing.T, env *samEventEnv) map[string]map[string]an
 
 	require.NoError(
 		t,
-		json.Unmarshal([]byte(getTemplate(t, env.client, "sam-stack", types.TemplateStageProcessed)), &doc),
+		json.Unmarshal([]byte(getTemplate(t, env.client, types.TemplateStageProcessed)), &doc),
 	)
 
 	return doc.Resources
@@ -327,7 +327,7 @@ func TestSAMTransform_ApiEventExtras(t *testing.T) {
 			check: func(t *testing.T, paths, defs map[string]any) {
 				t.Helper()
 				assert.Equal(t, []any{map[string]any{"api_key": []any{}}}, dig(t, paths, "/a", "get", "security"))
-				assert.NotContains(t, dig(t, paths, "/b", "get"), "security")
+				assert.Equal(t, []any{}, dig(t, paths, "/b", "get", "security"))
 				assert.Contains(t, defs, "api_key")
 			},
 		},
