@@ -231,7 +231,7 @@ func (b *InMemoryBackend) repoOfFormat(
 func writePlain(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
-	_, _ = io.WriteString(w, msg+"\n") //nolint:gosec // text/plain, never rendered
+	_, _ = io.WriteString(w, msg+"\n")
 }
 
 func writeJSONBody(w http.ResponseWriter, code int, v any) {
