@@ -24,6 +24,7 @@ func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 	)
 	wireAzureEventGrid(byName)
 	wireAzureAppConfig(byName)
+	wireAzureSearch(byName)
 	wireAzureContainerRegistry(byName)
 	wireAzureFunctions(byName)
 	wireAzureFile(byName)

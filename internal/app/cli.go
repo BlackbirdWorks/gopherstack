@@ -104,6 +104,7 @@ import (
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
+	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
@@ -669,6 +670,7 @@ type CLI struct {
 	AzureACR                      azureacrbackend.Settings            `embed:"" prefix:"azure-acr-"`
 	AzureFunctions                azurefunctionsbackend.Settings      `embed:"" prefix:"azure-functions-"`
 	AzureRedis                    azureredisbackend.Settings          `embed:"" prefix:"azure-redis-"`
+	AzureSearch                   azuresearchbackend.Settings         `embed:"" prefix:"azure-search-"`
 	AzureSQL                      azuresqlbackend.Settings            `embed:"" prefix:"azure-sql-"`
 	CosmosDB                      cosmosdbbackend.Settings            `embed:"" prefix:"cosmosdb-"`
 	GCPArtifactRegistry           gcparbackend.Settings               `embed:"" prefix:"gcp-artifacts-"`
@@ -1043,6 +1045,9 @@ func (c *CLI) GetCosmosDBSettings() cosmosdbbackend.Settings {
 func (c *CLI) GetAzureAppConfigSettings() azureappconfigbackend.Settings {
 	return c.AzureAppConfig
 }
+
+// GetAzureSearchSettings returns Azure AI Search settings (azuresearch.ConfigProvider).
+func (c *CLI) GetAzureSearchSettings() azuresearchbackend.Settings { return c.AzureSearch }
 
 // GetAzureRedisSettings returns Azure Cache for Redis settings (azureredis.ConfigProvider).
 func (c *CLI) GetAzureRedisSettings() azureredisbackend.Settings { return c.AzureRedis }
@@ -2813,6 +2818,7 @@ func fixedServicePorts(cli CLI) []fixedServicePort {
 		{"AzureEventHubsAMQPTLS", "azureeventhubs-amqp-tls", cli.AzureEventHubs.AMQPTLSPort},
 		{"AzureEventGrid", "azureeventgrid", cli.AzureEventGrid.Port},
 		{"AzureAppConfig", "azureappconfig", cli.AzureAppConfig.Port},
+		{"AzureSearch", "azuresearch", cli.AzureSearch.Port},
 		{"AzureContainerRegistry", "azurecontainerregistry", cli.AzureACR.Port},
 		{"AzureFunctions", "azurefunctions", cli.AzureFunctions.Port},
 		{"AzureARM", "azurearm", cli.AzureARM.Port},
@@ -5346,6 +5352,7 @@ func getLeadingRecentServiceProviders() []service.Provider {
 		&azureacrbackend.Provider{},
 		&azurefunctionsbackend.Provider{},
 		&azureredisbackend.Provider{},
+		&azuresearchbackend.Provider{},
 		&azuresqlbackend.Provider{},
 		&azurestoragevhostbackend.Provider{},
 		&azurekeyvaultbackend.Provider{},
