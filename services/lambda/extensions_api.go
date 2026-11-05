@@ -488,15 +488,15 @@ func (r *extensionRegistry) next(ctx context.Context, id string) (extensionEvent
 	events := ext.events
 
 	if first {
+		// publish before releasing the init gate: platform.extension must precede platform.start
+		if r.hub != nil {
+			r.hub.extensionReady(ext.name, ext.subscribed)
+		}
+
 		r.markReadyLocked()
 	}
 
-	name, subscribed, hub := ext.name, ext.subscribed, r.hub
 	r.mu.Unlock()
-
-	if first && hub != nil {
-		hub.extensionReady(name, subscribed)
-	}
 
 	select {
 	case ev := <-events:

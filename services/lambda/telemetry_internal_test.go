@@ -863,3 +863,30 @@ func TestLineSplitter(t *testing.T) {
 		})
 	}
 }
+
+func TestExtensionReadyPublishedBeforeInitGate(t *testing.T) {
+	t.Parallel()
+
+	reg := newExtensionRegistry()
+	reg.hub = newTelemetryHub()
+	t.Cleanup(reg.close)
+
+	_, id, status, rerr := reg.register("tel-ext", []string{extEventInvoke}, false)
+	require.Nil(t, rerr)
+	require.Equal(t, http.StatusOK, status)
+
+	reg.setExternal([]string{"tel-ext"})
+
+	reg.hub.mu.Lock("test")
+
+	go func() { _, _ = reg.next(t.Context(), id) }()
+
+	select {
+	case <-reg.ready:
+		t.Error("init gate opened before platform.extension was published")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	reg.hub.mu.Unlock()
+	<-reg.ready
+}
