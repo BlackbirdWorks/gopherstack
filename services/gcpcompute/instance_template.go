@@ -85,26 +85,32 @@ func (b *InMemoryBackend) insertTemplate(
 		return nil, err
 	}
 
-	if in.SourceInstance != "" {
-		return nil, errField(
-			"resource.sourceInstance",
-			in.SourceInstance,
-			"Creating a template from an instance is not supported by this emulator.",
-		)
-	}
-
 	k := templateKey(project, region, in.Name)
 	if _, dup := b.templates[k]; dup {
 		return nil, errExists(templatePath(project, region, in.Name))
 	}
 
-	if err := b.normalizePropsLocked(in.Properties); err != nil {
+	props := in.Properties
+
+	if in.SourceInstance != "" {
+		derived, err := b.propsFromInstanceLocked(project, in)
+		if err != nil {
+			return nil, err
+		}
+
+		props = derived
+	} else if in.SourceInstanceParams != nil {
+		return nil, errInvalid("Invalid value for field 'resource.sourceInstanceParams': requires sourceInstance.")
+	}
+
+	if err := b.normalizePropsLocked(props); err != nil {
 		return nil, err
 	}
 
 	t := &computeapi.InstanceTemplate{
 		Kind: "compute#instanceTemplate", Id: newID(), CreationTimestamp: b.stamp(), Name: in.Name,
-		Description: in.Description, Properties: in.Properties,
+		Description: in.Description, Properties: props, SourceInstance: in.SourceInstance,
+		SourceInstanceParams: in.SourceInstanceParams,
 	}
 
 	if region == "" {

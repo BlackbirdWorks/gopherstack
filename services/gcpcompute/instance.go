@@ -298,6 +298,9 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 
 		if in.Name == "" {
 			in.Name = instName
+			if idx > 0 {
+				in.Name += "-" + deviceName(ad.DeviceName, idx)
+			}
 		}
 
 		made, err := b.createDiskLocked(project, zone, in)
