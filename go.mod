@@ -3,6 +3,7 @@ module github.com/blackbirdworks/gopherstack
 go 1.27.3
 
 require (
+	cel.dev/cel-go v0.33.2
 	cloud.google.com/go/apigateway v1.17.0
 	cloud.google.com/go/artifactregistry v1.27.0
 	cloud.google.com/go/batch v1.24.1
@@ -297,6 +298,7 @@ require (
 	github.com/go-stomp/stomp/v3 v3.1.5
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
+	github.com/google/rpmpack v0.7.1
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
@@ -325,6 +327,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/twmb/franz-go v1.22.1
 	github.com/twmb/franz-go/pkg/kmsg v1.15.0
+	github.com/ulikunitz/xz v0.5.17
 	github.com/vektah/gqlparser/v2 v2.5.62
 	github.com/willscott/go-nfs v0.0.4
 	github.com/willscott/go-nfs-client v0.0.0-20240104095149-b44639837b00
@@ -370,6 +373,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.3 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/antlr/antlr4 v0.0.0-20181218183524-be58ebffde8e // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.8 // indirect
@@ -382,6 +386,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
+	github.com/cavaliergopher/cpio v1.0.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -458,6 +463,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
+	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.12 // indirect

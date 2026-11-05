@@ -57,6 +57,16 @@ func (r *runner) publish(ctx context.Context) *stepFailure {
 		failure = r.uploadArtifacts(ctx, res)
 	}
 
+	if failure == nil {
+		if err := r.uploadPackages(res); err != nil {
+			r.log.system("ERROR: failed to upload artifacts: " + err.Error())
+
+			failure = &stepFailure{
+				status: cloudbuildpb.Build_FAILURE, detail: "failed to upload artifacts: " + err.Error(),
+			}
+		}
+	}
+
 	r.b.update(r.ref, func(pb *cloudbuildpb.Build) { pb.Results = res })
 
 	return failure

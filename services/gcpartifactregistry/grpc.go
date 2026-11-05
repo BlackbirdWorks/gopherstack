@@ -262,3 +262,15 @@ func (s *server) UpdateVPCSCConfig(
 ) (*artifactregistrypb.VPCSCConfig, error) {
 	return s.b.UpdateVPCSCConfig(in)
 }
+
+func (s *server) ImportAptArtifacts(
+	ctx context.Context, in *artifactregistrypb.ImportAptArtifactsRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ImportAptArtifacts(ctx, in)
+}
+
+func (s *server) ImportYumArtifacts(
+	ctx context.Context, in *artifactregistrypb.ImportYumArtifactsRequest,
+) (*longrunningpb.Operation, error) {
+	return s.b.ImportYumArtifacts(ctx, in)
+}

@@ -55,6 +55,10 @@ func validateRepository(in *artifactregistrypb.Repository) error {
 		return errInvalid("docker_config is only valid for DOCKER repositories.")
 	}
 
+	if err := validateCleanupPolicies(in); err != nil {
+		return err
+	}
+
 	if in.GetMode() == artifactregistrypb.Repository_VIRTUAL_REPOSITORY && in.GetVirtualRepositoryConfig() == nil {
 		return errInvalid("virtual_repository_config is required for VIRTUAL_REPOSITORY mode.")
 	}
@@ -253,12 +257,18 @@ func (b *InMemoryBackend) UpdateRepository(
 		return nil, errNotFound("Repository %q not found.", ref.full())
 	}
 
-	if err = applyMask(rec.pb, in.GetRepository(), paths); err != nil {
+	next := cloneRepo(rec.pb)
+	if err = applyMask(next, in.GetRepository(), paths); err == nil {
+		err = validateCleanupPolicies(next)
+	}
+
+	if err != nil {
 		b.mu.Unlock()
 
 		return nil, err
 	}
 
+	rec.pb = next
 	rec.pb.UpdateTime = b.ts()
 	out := cloneRepo(rec.pb)
 	b.mu.Unlock()
@@ -334,4 +344,29 @@ func (b *InMemoryBackend) DeleteRepository(
 	}
 
 	return b.done(ref.parent(), &emptypb.Empty{})
+}
+
+// doneAny finishes an operation whose response is one of the media-upload responses the Go client library does
+// not define (see uploadtypes.go); the artifacts fill its single repeated field.
+func (b *InMemoryBackend) doneAny(parent, typeName string, msgs ...proto.Message) (*longrunningpb.Operation, error) {
+	resp, err := newUploadResponse(typeName, msgs)
+	if err != nil {
+		return nil, errInternal(err)
+	}
+
+	op, err := gcplroDone(parent, &artifactregistrypb.OperationMetadata{}, resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.ops.Put(op), nil
+}
+
+func gcplroDone(parent string, meta, resp proto.Message) (*longrunningpb.Operation, error) {
+	op, err := gcplro.Done(parent+"/operations/operation-"+uuid.NewString(), meta, resp)
+	if err != nil {
+		return nil, errInternal(err)
+	}
+
+	return op, nil
 }

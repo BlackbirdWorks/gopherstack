@@ -171,7 +171,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 	norm := pyNormalize(name)
 	if norm != name {
 		prefix := repoPrefix(isPkgHost(r), pythonRoute, rc)
-		//nolint:gosec // same-origin path: repository prefix plus an escaped normalised name
+
 		http.Redirect(w, r, prefix+"/simple/"+url.PathEscape(norm)+"/", http.StatusMovedPermanently)
 
 		return
@@ -197,7 +197,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 			_ = json.Unmarshal(nf.file.Doc, &d)
 
 			filename := nf.id[strings.LastIndex(nf.id, ":")+1:]
-			href := "/python/" + rc.ref.project + "/" + rc.ref.id + "/packages/" + url.PathEscape(norm) + "/" +
+			href := repoPrefix(false, pythonRoute, rc) + "/packages/" + url.PathEscape(norm) + "/" +
 				url.PathEscape(v.version) + "/" + url.PathEscape(filename) + "#sha256=" + d.SHA256
 
 			attr := ""

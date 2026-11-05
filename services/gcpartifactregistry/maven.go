@@ -278,5 +278,5 @@ func (b *InMemoryBackend) getMaven(w http.ResponseWriter, r *http.Request, rc re
 	}
 
 	w.Header().Set("Content-Type", mavenContentType(t.filename))
-	_, _ = w.Write(data) //nolint:gosec // artifact download, never rendered
+	_, _ = w.Write(data)
 }
