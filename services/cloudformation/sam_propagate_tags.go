@@ -14,7 +14,7 @@ const samKeyPropagateTags = "PropagateTags"
 var (
 	samTagListTypes = keySet(samTypeStack, resTypeDynamoDBTable, samTypeCDApp, samTypeCDGroup, resTypeIAMRole,
 		"AWS::IoT::TopicRule", samTypeRestAPI, samTypeStage, samTypeV1Domain,
-		"AWS::ApiGateway::DomainNameV2", "AWS::ApiGateway::UsagePlan", "AWS::ApiGateway::ApiKey", resTypeSNSTopic,
+		"AWS::ApiGateway::UsagePlan", "AWS::ApiGateway::ApiKey", resTypeSNSTopic,
 		"AWS::SQS::Queue", samTypeFunction, samTypeBucket, "AWS::StepFunctions::StateMachine")
 	samTagMapTypes = keySet("AWS::ApiGatewayV2::Stage", "AWS::ApiGatewayV2::DomainName")
 )
