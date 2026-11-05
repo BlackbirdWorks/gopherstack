@@ -25,7 +25,9 @@ func testDataKey() []byte { return bytes.Repeat([]byte{0x11}, 32) }
 
 func (fixedKeys) GenerateDataKey(_ context.Context, keyID string, _ map[string]string) (*cognitoidp.DataKey, error) {
 	return &cognitoidp.DataKey{
-		KeyARN: "arn:aws:kms:us-east-1:000000000000:key/" + keyID, Plaintext: testDataKey(), Ciphertext: []byte("wrapped:" + keyID),
+		KeyARN:     "arn:aws:kms:us-east-1:000000000000:key/" + keyID,
+		Plaintext:  testDataKey(),
+		Ciphertext: []byte("wrapped:" + keyID),
 	}, nil
 }
 

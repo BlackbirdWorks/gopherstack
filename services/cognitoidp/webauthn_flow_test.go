@@ -231,7 +231,9 @@ func TestWebAuthnRegistrationAndPasskeySignIn(t *testing.T) {
 				require.NoError(t, selErr)
 
 				out = &cognitoidpsdk.InitiateAuthOutput{
-					ChallengeName: sel.ChallengeName, Session: sel.Session, ChallengeParameters: sel.ChallengeParameters,
+					ChallengeName:       sel.ChallengeName,
+					Session:             sel.Session,
+					ChallengeParameters: sel.ChallengeParameters,
 				}
 			}
 
