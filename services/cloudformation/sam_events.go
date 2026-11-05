@@ -166,6 +166,7 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 			scopes:     scopes,
 			auth:       asMap(props[samAuthKey]),
 		},
+		t.pass,
 	)
 	suffix := api.permSuffix()
 	perm := lambdaPermission(
@@ -230,7 +231,7 @@ func eventAuth(fnID, name string, props map[string]any) (string, *bool, any, err
 	if err := rejectUnknown(
 		fnID+name,
 		auth,
-		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole"),
+		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy"),
 	); err != nil {
 		return "", nil, nil, err
 	}

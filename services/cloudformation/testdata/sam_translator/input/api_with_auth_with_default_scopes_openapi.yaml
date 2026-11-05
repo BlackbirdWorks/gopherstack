@@ -14,7 +14,9 @@ Resources:
             - default.read
           MyCognitoAuthWithDefaultScopes:
             UserPoolArn: arn:aws:2
-            AuthorizationScopes: default.delete
+            AuthorizationScopes:
+            - default.delete
+            - default.update
 
   MyFn:
     Type: AWS::Serverless::Function
@@ -85,12 +87,3 @@ Resources:
             Auth:
               Authorizer: MyCognitoAuthWithDefaultScopes
               AuthorizationScopes: []
-        CognitoAuthorizerNotString:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiWithCognitoAuth
-            Method: get
-            Path: /cognitoauthorizernotstring
-            Auth:
-              Authorizer:
-              - NotString

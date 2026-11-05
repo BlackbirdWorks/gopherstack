@@ -14,15 +14,26 @@ func samCorsSettings(id string, cors any) (map[string]any, error) {
 	case string:
 		return map[string]any{"AllowOrigin": c}, nil
 	case map[string]any:
-		if c["AllowOrigin"] == nil {
-			return nil, samErr(id, "Cors requires 'AllowOrigin'.")
+		if isSAMIntrinsic(c) {
+			return map[string]any{"AllowOrigin": c}, nil
 		}
 		if err := rejectUnknown(id, c, keySet("AllowOrigin", "AllowMethods", "AllowHeaders", "MaxAge",
 			samKeyAllowCreds)); err != nil {
 			return nil, err
 		}
 
-		return c, nil
+		out := maps.Clone(c)
+		if _, has := out["AllowOrigin"]; !has {
+			out["AllowOrigin"] = "'*'"
+		} else if out["AllowOrigin"] == nil || out["AllowOrigin"] == "" {
+			return nil, samErr(id, "Invalid input. Value for AllowedOrigins is required")
+		}
+		if out[samKeyAllowCreds] == true && out["AllowOrigin"] == "'*'" {
+			return nil, samErr(id, "Unable to add Cors configuration because 'AllowCredentials' can not be true when "+
+				"'AllowOrigin' is \"'*'\" or not set")
+		}
+
+		return out, nil
 	default:
 		return nil, samErr(id, "Cors must be an origin string or a CorsConfiguration object.")
 	}
@@ -35,14 +46,20 @@ func addCorsPreflight(id string, paths map[string]any, cors any) error {
 		return err
 	}
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
-		item := asMap(paths[path])
-		if item == nil {
-			return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
+		contents, ok := conditionalContents(paths[path])
+		if !ok {
+			return samErr(id, "Value of Fn::If must be a list.")
 		}
-		if _, exists := item[samKOptions]; exists {
-			continue
+		for _, c := range contents {
+			item := asMap(c)
+			if item == nil {
+				return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
+			}
+			if _, exists := item[samKOptions]; exists {
+				continue
+			}
+			item[samKOptions] = corsOptionsOperation(cfg, item)
 		}
-		item[samKOptions] = corsOptionsOperation(cfg, item)
 	}
 
 	return nil

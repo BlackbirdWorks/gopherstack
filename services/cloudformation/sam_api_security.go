@@ -64,21 +64,27 @@ func (a *samAPI) applyDefaultSecurity(doc map[string]any) error {
 		}
 	}
 
-	return nil
+	return a.applyResourcePolicy(doc)
 }
 
 // forEachIntegrationOp visits every operation that has an API Gateway integration, in a stable order.
 func forEachIntegrationOp(doc map[string]any, fn func(path, method string, op map[string]any) error) error {
 	paths := asMap(doc["paths"])
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
-		item := asMap(paths[path])
-		for _, method := range slices.Sorted(maps.Keys(item)) {
-			op := asMap(item[method])
-			if op == nil || op[samIntegrationKey] == nil {
-				continue
-			}
-			if err := fn(path, method, op); err != nil {
-				return err
+		contents, _ := conditionalContents(paths[path])
+		for _, c := range contents {
+			item := asMap(c)
+			for _, method := range slices.Sorted(maps.Keys(item)) {
+				ops, _ := conditionalContents(item[method])
+				for _, o := range ops {
+					op := asMap(o)
+					if op == nil || op[samIntegrationKey] == nil {
+						continue
+					}
+					if err := fn(path, method, op); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}

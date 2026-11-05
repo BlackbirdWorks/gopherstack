@@ -38,6 +38,7 @@ type samRoute struct {
 	fnID, path, method, authorizer string
 	// roleID is set for state machine routes: the API Gateway invoke role.
 	roleID   string
+	condition string
 	params   []samReqParam
 	unescape bool
 }
@@ -54,6 +55,8 @@ type samAPI struct {
 	routes    []samRoute
 	explicit  bool
 	plainRef  bool
+	delPolicies []string
+	updPolicies []string
 }
 
 func (rt samRoute) invokeRef() string {
@@ -82,8 +85,14 @@ func (a *samAPI) idValue() any {
 	return samRef(a.id)
 }
 
-func (a *samAPI) addRoute(rt samRoute) {
+// addRoute records an Api event; pass carries the owning function's Condition and policies.
+func (a *samAPI) addRoute(rt samRoute, pass map[string]any) {
+	rt.condition, _ = pass[samKeyCondition].(string)
 	a.routes = append(a.routes, rt)
+	dp, _ := pass[samKeyDelPolicy].(string)
+	up, _ := pass[samKeyUpdPolicy].(string)
+	a.delPolicies = append(a.delPolicies, dp)
+	a.updPolicies = append(a.updPolicies, up)
 }
 
 func (t *samTranslator) registerAPI(id string, r map[string]any) error {
@@ -149,10 +158,13 @@ func (t *samTranslator) finalizeAPIs() error {
 func (t *samTranslator) emitAPI(a *samAPI) error {
 	t.pass = passAttrs(a.raw)
 	defer func() { t.pass = nil }()
+	if !a.explicit {
+		maps.Copy(t.pass, t.implicitAttrs(a))
+	}
 	if err := t.prepareAuth(a); err != nil {
 		return err
 	}
-	body, err := a.body()
+	body, err := a.body(t)
 	if err != nil {
 		return err
 	}
@@ -223,7 +235,7 @@ func (t *samTranslator) prepareAuth(a *samAPI) error {
 		return err
 	}
 	for _, rt := range a.routes {
-		if n := rt.authorizer; n != "" && n != samAuthNone && (a.auth == nil || a.auth.defs[n] == nil) {
+		if n := rt.authorizer; n != "" && n != samAuthNone && n != samSecIAM && (a.auth == nil || a.auth.defs[n] == nil) {
 			return samErr(rt.fnID, "Authorizer '%s' is not defined in Auth.Authorizers of API [%s].", n, a.id)
 		}
 	}
@@ -262,7 +274,7 @@ func (a *samAPI) managed() bool {
 
 // body returns the Swagger/OpenAPI document: the user's DefinitionBody or a fresh skeleton, with Api event
 // paths, Cors, Auth, Models, GatewayResponses, BinaryMediaTypes and DisableExecuteApiEndpoint merged in.
-func (a *samAPI) body() (map[string]any, error) {
+func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	doc, err := a.baseDocument()
 	if err != nil {
 		return nil, err
@@ -277,7 +289,9 @@ func (a *samAPI) body() (map[string]any, error) {
 	if err = a.addRoutePaths(doc, paths); err != nil {
 		return nil, err
 	}
-	doc["paths"] = paths
+	if len(paths) > 0 || doc["paths"] != nil || a.props["DefinitionBody"] == nil {
+		doc["paths"] = paths
+	}
 	if cors, ok := a.props[samKeyCorsProp]; ok {
 		if err = addCorsPreflight(a.id, paths, cors); err != nil {
 			return nil, err
@@ -290,6 +304,7 @@ func (a *samAPI) body() (map[string]any, error) {
 	if err = a.addDocExtensions(doc); err != nil {
 		return nil, err
 	}
+	a.applyConditions(t, paths)
 	// SAM post-processes once per feature that rewrites the document (Auth, Models) and once more at the end;
 	// the CORS header schema wrapper therefore nests once per pass.
 	passes := 1
@@ -378,12 +393,20 @@ func (a *samAPI) mergeRoute(doc, paths map[string]any, rt samRoute) error {
 		return nil
 	}
 	op := routeOperation(rt)
+	if rt.condition != samCondUnconditional {
+		if integ := asMap(op[samIntegrationKey]); integ != nil {
+			integ["uri"] = samIf(rt.condition, integ["uri"])
+		}
+	}
 	a.addIAMCredentials(rt, op)
 	if sec := a.eventSecurity(rt); len(sec) > 0 {
 		op["security"] = sec
 	}
 	if rt.apiKey != nil && *rt.apiKey {
 		addAPIKeyDefinition(doc)
+	}
+	if rt.authorizer == samSecIAM {
+		addIAMDefinition(doc)
 	}
 	for k, v := range existing {
 		if _, has := op[k]; !has {
@@ -393,7 +416,7 @@ func (a *samAPI) mergeRoute(doc, paths map[string]any, rt samRoute) error {
 	item[verb] = op
 	paths[rt.path] = item
 
-	return nil
+	return a.applyEventResourcePolicy(doc, rt, item)
 }
 
 func (a *samAPI) addSecurityDefinitions(doc map[string]any) {

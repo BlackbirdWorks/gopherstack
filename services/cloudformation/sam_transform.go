@@ -344,6 +344,11 @@ func mergeSAMGlobals(global, local map[string]any) map[string]any {
 
 			continue
 		}
+		if isSAMIntrinsic(asMap(lv)) || isSAMIntrinsic(asMap(gv)) {
+			out[k] = lv
+
+			continue
+		}
 		switch l := lv.(type) {
 		case map[string]any:
 			if g, isMap := gv.(map[string]any); isMap {

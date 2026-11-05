@@ -40,6 +40,7 @@ type samHTTPRoute struct {
 	event    string
 	path     string
 	method   string
+	pass     map[string]any
 }
 
 func (r samHTTPRoute) key() string {
@@ -179,6 +180,7 @@ func (t *samTranslator) httpAPIEvent(ev *samEventCtx, name string, props map[str
 		}
 	}
 	rt.fn = ev.target()
+	rt.pass = maps.Clone(t.pass)
 	api.routes = append(api.routes, rt)
 
 	return nil
@@ -206,7 +208,11 @@ func (t *samTranslator) putHTTPPermissions(a *samHTTPAPI) error {
 			continue
 		}
 		perm := lambdaPermission(rt.fn, "apigateway.amazonaws.com", httpAPISourceArn(a.idValue(), rt))
-		if err := t.put(samPermissionID(rt.fnID+rt.event, ""), perm); err != nil {
+		saved := t.pass
+		t.pass = rt.pass
+		err := t.put(samPermissionID(rt.fnID+rt.event, ""), perm)
+		t.pass = saved
+		if err != nil {
 			return err
 		}
 	}
