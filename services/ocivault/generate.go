@@ -12,23 +12,27 @@ import (
 )
 
 const (
+	jsonNull      = "null"
+	rsa2048       = 2048
+	rsa3072       = 3072
+	rsa4096       = 4096
 	genPassphrase = "PASSPHRASE"
 	genSSHKey     = "SSH_KEY"
 	genBytes      = "BYTES"
 
-	tmplSecretsPassword = "SECRETS_DEFAULT_PASSWORD"
-	tmplDBPassword      = "DBAAS_DEFAULT_PASSWORD"
+	tmplSecretsDefault = "SECRETS_DEFAULT_PASSWORD"
+	tmplDBDefault      = "DBAAS_DEFAULT_PASSWORD"
 
 	phPassphrase = "%GENERATED_PASSPHRASE%"
 	phBytes      = "%GENERATED_BYTES%"
 	phPublic     = "%GENERATED_PUBLIC_KEY%"
 	phPrivate    = "%GENERATED_PRIVATE_KEY%"
 
-	defaultPassphraseLen = 16
-	minSecretsPassLen    = 8
-	maxSecretsPassLen    = 128
-	minDBPassLen         = 12
-	maxDBPassLen         = 30
+	defaultPhraseLen = 16
+	minSecretsLen    = 8
+	maxSecretsLen    = 128
+	minDBLen         = 12
+	maxDBLen         = 30
 
 	upperChars   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	lowerChars   = "abcdefghijklmnopqrstuvwxyz"
@@ -36,6 +40,9 @@ const (
 	secretsExtra = "!@#$%^&*()-_=+"
 	dbExtra      = "#_"
 )
+
+//nolint:gochecknoglobals // read-only template table
+var rsaBits = map[string]int{"RSA_2048": rsa2048, "RSA_3072": rsa3072, "RSA_4096": rsa4096}
 
 // GenerationContext is the polymorphic secretGenerationContext body.
 type GenerationContext struct {
@@ -46,8 +53,8 @@ type GenerationContext struct {
 }
 
 func parseGeneration(raw json.RawMessage) (*GenerationContext, *APIError) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil //nolint:nilnil // absent context
+	if len(raw) == 0 || string(raw) == jsonNull {
+		return nil, nil
 	}
 
 	var g GenerationContext
@@ -95,18 +102,18 @@ func (g *GenerationContext) validate() *APIError {
 }
 
 func (g *GenerationContext) validatePassphrase() *APIError {
-	lo, hi := minSecretsPassLen, maxSecretsPassLen
+	lo, hi := minSecretsLen, maxSecretsLen
 
 	switch g.GenerationTemplate {
-	case tmplSecretsPassword:
-	case tmplDBPassword:
-		lo, hi = minDBPassLen, maxDBPassLen
+	case tmplSecretsDefault:
+	case tmplDBDefault:
+		lo, hi = minDBLen, maxDBLen
 	default:
 		return errParam("PASSPHRASE generationTemplate must be SECRETS_DEFAULT_PASSWORD or DBAAS_DEFAULT_PASSWORD")
 	}
 
 	if g.PassphraseLength == 0 {
-		g.PassphraseLength = defaultPassphraseLen
+		g.PassphraseLength = defaultPhraseLen
 	}
 
 	if g.PassphraseLength < lo || g.PassphraseLength > hi {
@@ -129,7 +136,7 @@ func randIndex(n int) (int, error) {
 // passphrase returns a password with at least one upper, lower and digit character.
 func passphrase(template string, n int) (string, error) {
 	extra := secretsExtra
-	if template == tmplDBPassword {
+	if template == tmplDBDefault {
 		extra = dbExtra
 	}
 
@@ -195,7 +202,7 @@ func (g *GenerationContext) generate() ([]byte, error) {
 }
 
 func (g *GenerationContext) generateSSH() ([]byte, error) {
-	bits := map[string]int{"RSA_2048": 2048, "RSA_3072": 3072, "RSA_4096": 4096}[g.GenerationTemplate]
+	bits := rsaBits[g.GenerationTemplate]
 
 	k, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {

@@ -73,7 +73,7 @@ func (b *InMemoryBackend) GetBlobPAR(uri string) ([]byte, error) {
 	return b.GetBlob(ns, bucket, object)
 }
 
-func parsePARURI(raw string) (token, ns, bucket, object string, err error) {
+func parsePARURI(raw string) (string, string, string, string, error) {
 	u, perr := url.Parse(raw)
 	if perr != nil {
 		return "", "", "", "", errParam("Invalid pre-authenticated request URI")

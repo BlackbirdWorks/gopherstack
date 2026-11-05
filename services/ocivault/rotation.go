@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iso8601"
@@ -54,16 +56,16 @@ type RotationConfig struct {
 
 // SecretRotation is a secret's stored rotation state.
 type SecretRotation struct {
+	LastRotation *time.Time `json:"lastRotation,omitempty"`
+	NextRotation *time.Time `json:"nextRotation,omitempty"`
 	transition
-	LastRotation *time.Time     `json:"lastRotation,omitempty"`
-	NextRotation *time.Time     `json:"nextRotation,omitempty"`
-	Config       RotationConfig `json:"config"`
-	Status       string         `json:"status"`
+	Status string         `json:"status"`
+	Config RotationConfig `json:"config"`
 }
 
 func parseRotation(raw json.RawMessage) (*RotationConfig, *APIError) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil, nil //nolint:nilnil // absent config
+	if len(raw) == 0 || string(raw) == jsonNull {
+		return nil, nil
 	}
 
 	var c RotationConfig
@@ -77,7 +79,9 @@ func parseRotation(raw json.RawMessage) (*RotationConfig, *APIError) {
 	case t.TargetSystemType == targetADB && t.AdbID != "":
 	case t.TargetSystemType == targetFunction && t.FunctionID != "":
 	default:
-		return nil, errParam("rotationConfig.targetSystemDetails needs targetSystemType ADB with adbId or FUNCTION with functionId")
+		return nil, errParam(
+			"rotationConfig.targetSystemDetails needs targetSystemType ADB with adbId or FUNCTION with functionId",
+		)
 	}
 
 	if c.RotationInterval != "" {
@@ -132,7 +136,7 @@ func (b *InMemoryBackend) setGeneration(s *Secret, g *GenerationContext, auto *b
 func generatedContent(g *GenerationContext) (*SecretContent, *APIError) {
 	raw, err := g.generate()
 	if err != nil {
-		return nil, newErr(500, "InternalServerError", "secret generation failed")
+		return nil, newErr(http.StatusInternalServerError, "InternalServerError", "secret generation failed")
 	}
 
 	return &SecretContent{ContentType: contentBase64, Content: base64.StdEncoding.EncodeToString(raw)}, nil
@@ -188,8 +192,8 @@ func (b *InMemoryBackend) CancelSecretRotation(id, ifMatch string) error {
 }
 
 type rotationRun struct {
-	target  TargetSystemDetails
 	invoke  FunctionInvoker
+	target  TargetSystemDetails
 	current int64
 }
 
@@ -282,6 +286,9 @@ func (b *InMemoryBackend) runSteps(ctx context.Context, id string, run rotationR
 
 	return b.promotePending(id)
 }
+
+// ErrFunctionFailed marks a rotation function call that did not succeed.
+var ErrFunctionFailed = errors.New("ocivault: rotation function failed")
 
 type rotationError string
 

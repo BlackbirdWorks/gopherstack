@@ -121,9 +121,8 @@ func (b *InMemoryBackend) touchKey(k *Key) {
 	b.stampKey(k)
 }
 
-func replicaEndpoints(v *Vault, region, hostPort string) (crypto, mgmt string) {
-	return "http://" + v.Prefix + "-" + region + "-crypto.localhost" + hostPort,
-		"http://" + v.Prefix + "-" + region + "-management.localhost" + hostPort
+func replicaEndpoint(v *Vault, region, kind, hostPort string) string {
+	return "http://" + v.Prefix + "-" + region + "-" + kind + ".localhost" + hostPort
 }
 
 // CreateVaultReplica adds a replica of a virtual private vault in another region.
@@ -148,7 +147,7 @@ func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplic
 		return aerr
 	}
 
-	if v.VaultType != "VIRTUAL_PRIVATE" {
+	if v.VaultType != vaultTypePrivate {
 		return errParam("Only virtual private vaults can be replicated")
 	}
 
@@ -160,7 +159,11 @@ func (b *InMemoryBackend) CreateVaultReplica(id, ifMatch string, in CreateReplic
 		return errExists("Vault " + id + " is already replicated to another region; delete that replica first")
 	}
 
-	r := &VaultReplica{Region: in.ReplicaRegion, TimeCreated: b.nowUTC(), ReplicationID: b.newReplOp([]string{in.ReplicaRegion})}
+	r := &VaultReplica{
+		Region:        in.ReplicaRegion,
+		TimeCreated:   b.nowUTC(),
+		ReplicationID: b.newReplOp([]string{in.ReplicaRegion}),
+	}
 	b.begin(&r.Status, &r.transition, replCreating, replCreated)
 	v.Replicas = append(v.Replicas, r)
 	v.ReplicationID, v.Etag = r.ReplicationID, newEtag()
@@ -228,8 +231,11 @@ func (b *InMemoryBackend) ListVaultReplicas(id, hostPort string, o ListOpts) (pa
 	out := make([]replicaSummaryWire, 0, len(pg.Data))
 
 	for _, r := range pg.Data {
-		c, m := replicaEndpoints(v, r.Region, hostPort)
-		out = append(out, replicaSummaryWire{CryptoEndpoint: c, ManagementEndpoint: m, Region: r.Region, Status: r.Status})
+		out = append(out, replicaSummaryWire{
+			CryptoEndpoint:     replicaEndpoint(v, r.Region, "crypto", hostPort),
+			ManagementEndpoint: replicaEndpoint(v, r.Region, "management", hostPort),
+			Region:             r.Region, Status: r.Status,
+		})
 	}
 
 	return page.Page[replicaSummaryWire]{Data: out, Next: pg.Next}, nil
@@ -267,7 +273,7 @@ func (b *InMemoryBackend) pruneRepl(now time.Time) {
 }
 
 // replicaHint reports whether an endpoint hint ("<prefix>-<region>") names a replica; it returns the prefix.
-func replicaHint(hint string) (prefix, region string, ok bool) {
+func replicaHint(hint string) (string, string, bool) {
 	if len(hint) <= prefixLen+1 || hint[prefixLen] != '-' {
 		return "", "", false
 	}

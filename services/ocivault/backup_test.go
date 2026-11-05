@@ -2,7 +2,7 @@ package ocivault_test
 
 import (
 	"bytes"
-	"crypto/md5" //nolint:gosec // Content-MD5 header under test
+	"crypto/md5"
 	"encoding/base64"
 	"io"
 	"net/http"
@@ -83,7 +83,7 @@ func (be *backupEnv) deleteVault(t *testing.T) {
 }
 
 func md5b64(b []byte) string {
-	sum := md5.Sum(b) //nolint:gosec // header under test
+	sum := md5.Sum(b)
 
 	return base64.StdEncoding.EncodeToString(sum[:])
 }
@@ -116,7 +116,7 @@ func TestBackupDeleteRestoreRoundTrip(t *testing.T) {
 			vLoc, kLoc := be.loc(t, tt.backup, "vault.bk"), be.loc(t, tt.backup, "key.bk")
 
 			bv, err := be.e.vaults.BackupVault(ctx, keymanagement.BackupVaultRequest{
-				VaultId: be.v.Id, BackupVaultDetails: keymanagement.BackupVaultDetails{BackupLocation: vLoc},
+				VaultId: be.v.Id, BackupLocation: vLoc,
 			})
 			require.NoError(t, err)
 			assert.Equal(t, keymanagement.VaultLifecycleStateBackupInProgress, bv.LifecycleState)
@@ -124,7 +124,7 @@ func TestBackupDeleteRestoreRoundTrip(t *testing.T) {
 			be.e.settle()
 
 			bk, err := be.m.BackupKey(ctx, keymanagement.BackupKeyRequest{
-				KeyId: key.Id, BackupKeyDetails: keymanagement.BackupKeyDetails{BackupLocation: kLoc},
+				KeyId: key.Id, BackupLocation: kLoc,
 			})
 			require.NoError(t, err)
 			assert.Equal(t, keymanagement.KeyLifecycleStateBackupInProgress, bk.LifecycleState)
@@ -183,8 +183,8 @@ func restoreVault(
 	}
 
 	r, err := be.e.vaults.RestoreVaultFromObjectStore(t.Context(), keymanagement.RestoreVaultFromObjectStoreRequest{
-		CompartmentId:                      new(testCompartment),
-		RestoreVaultFromObjectStoreDetails: keymanagement.RestoreVaultFromObjectStoreDetails{BackupLocation: loc},
+		CompartmentId:  new(testCompartment),
+		BackupLocation: loc,
 	})
 	require.NoError(t, err)
 
@@ -207,7 +207,7 @@ func restoreKey(
 	}
 
 	r, err := be.m.RestoreKeyFromObjectStore(t.Context(), keymanagement.RestoreKeyFromObjectStoreRequest{
-		RestoreKeyFromObjectStoreDetails: keymanagement.RestoreKeyFromObjectStoreDetails{BackupLocation: loc},
+		BackupLocation: loc,
 	})
 	require.NoError(t, err)
 
@@ -222,13 +222,13 @@ func TestRestoreRules(t *testing.T) {
 	key := be.e.mkKey(t, be.m, "k", aes256(), "")
 
 	_, err := be.e.vaults.BackupVault(ctx, keymanagement.BackupVaultRequest{
-		VaultId: be.v.Id, BackupVaultDetails: keymanagement.BackupVaultDetails{BackupLocation: be.bucketLoc("v")},
+		VaultId: be.v.Id, BackupLocation: be.bucketLoc("v"),
 	})
 	require.NoError(t, err)
 	be.e.settle()
 
 	_, err = be.m.BackupKey(ctx, keymanagement.BackupKeyRequest{
-		KeyId: key.Id, BackupKeyDetails: keymanagement.BackupKeyDetails{BackupLocation: be.bucketLoc("k")},
+		KeyId: key.Id, BackupLocation: be.bucketLoc("k"),
 	})
 	require.NoError(t, err)
 	be.e.settle()
@@ -252,7 +252,10 @@ func TestRestoreRules(t *testing.T) {
 			name: "vault still exists",
 			call: func() error {
 				_, e := be.e.vaults.RestoreVaultFromFile(ctx, keymanagement.RestoreVaultFromFileRequest{
-					CompartmentId: new(testCompartment), RestoreVaultFromFileDetails: io.NopCloser(bytes.NewReader(vBlob)),
+					CompartmentId: new(
+						testCompartment,
+					),
+					RestoreVaultFromFileDetails: io.NopCloser(bytes.NewReader(vBlob)),
 				})
 
 				return e
@@ -296,7 +299,10 @@ func TestRestoreRules(t *testing.T) {
 			name: "md5 mismatch",
 			call: func() error {
 				_, e := be.m.RestoreKeyFromFile(ctx, keymanagement.RestoreKeyFromFileRequest{
-					RestoreKeyFromFileDetails: io.NopCloser(bytes.NewReader(kBlob)), ContentMd5: new(md5b64([]byte("x"))),
+					RestoreKeyFromFileDetails: io.NopCloser(
+						bytes.NewReader(kBlob),
+					),
+					ContentMd5: new(md5b64([]byte("x"))),
 				})
 
 				return e
@@ -307,10 +313,9 @@ func TestRestoreRules(t *testing.T) {
 			name: "missing bucket",
 			call: func() error {
 				_, e := be.m.BackupKey(ctx, keymanagement.BackupKeyRequest{
-					KeyId: key.Id, BackupKeyDetails: keymanagement.BackupKeyDetails{
-						BackupLocation: keymanagement.BackupLocationBucket{
-							Namespace: new(be.os.Namespace()), BucketName: new("nope"), ObjectName: new("o"),
-						},
+					KeyId: key.Id,
+					BackupLocation: keymanagement.BackupLocationBucket{
+						Namespace: new(be.os.Namespace()), BucketName: new("nope"), ObjectName: new("o"),
 					},
 				})
 
@@ -322,9 +327,7 @@ func TestRestoreRules(t *testing.T) {
 			name: "restore object absent",
 			call: func() error {
 				_, e := be.m.RestoreKeyFromObjectStore(ctx, keymanagement.RestoreKeyFromObjectStoreRequest{
-					RestoreKeyFromObjectStoreDetails: keymanagement.RestoreKeyFromObjectStoreDetails{
-						BackupLocation: be.bucketLoc("absent"),
-					},
+					BackupLocation: be.bucketLoc("absent"),
 				})
 
 				return e
@@ -355,7 +358,7 @@ func TestBackupSurvivesSnapshotRestore(t *testing.T) {
 	key := be.e.mkKey(t, be.m, "k", aes256(), "")
 
 	_, err := be.m.BackupKey(t.Context(), keymanagement.BackupKeyRequest{
-		KeyId: key.Id, BackupKeyDetails: keymanagement.BackupKeyDetails{BackupLocation: be.bucketLoc("k")},
+		KeyId: key.Id, BackupLocation: be.bucketLoc("k"),
 	})
 	require.NoError(t, err)
 

@@ -7,33 +7,29 @@ type vaultWire struct {
 	TimeOfDeletion     *time.Time                `json:"timeOfDeletion,omitempty"`
 	FreeformTags       map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags        map[string]map[string]any `json:"definedTags,omitempty"`
-	CompartmentID      string                    `json:"compartmentId"`
-	CryptoEndpoint     string                    `json:"cryptoEndpoint"`
+	ReplicaDetails     *replicationRef           `json:"replicaDetails,omitempty"`
+	LifecycleState     string                    `json:"lifecycleState"`
 	DisplayName        string                    `json:"displayName"`
 	ID                 string                    `json:"id"`
-	LifecycleState     string                    `json:"lifecycleState"`
+	CryptoEndpoint     string                    `json:"cryptoEndpoint"`
 	ManagementEndpoint string                    `json:"managementEndpoint"`
 	VaultType          string                    `json:"vaultType"`
 	WrappingKeyID      string                    `json:"wrappingkeyId"`
 	RestoredFromVault  string                    `json:"restoredFromVaultId,omitempty"`
-	ReplicaDetails     *replicationRef           `json:"replicaDetails,omitempty"`
+	CompartmentID      string                    `json:"compartmentId"`
 	IsVaultReplicable  bool                      `json:"isVaultReplicable"`
 	IsPrimary          bool                      `json:"isPrimary"`
 }
 
-func vaultView(v *Vault, hostPort, state string) vaultWire {
-	if state == "" {
-		state = v.State
-	}
-
+func vaultView(v *Vault, hostPort string) vaultWire {
 	return vaultWire{
 		TimeCreated: v.TimeCreated, TimeOfDeletion: v.TimeOfDeletion, FreeformTags: v.FreeformTags,
 		DefinedTags: v.DefinedTags, CompartmentID: v.CompartmentID,
 		CryptoEndpoint:     "http://" + v.Prefix + "-crypto.localhost" + hostPort,
 		ManagementEndpoint: "http://" + v.Prefix + "-management.localhost" + hostPort,
-		DisplayName:        v.DisplayName, ID: v.ID, LifecycleState: state, VaultType: v.VaultType,
+		DisplayName:        v.DisplayName, ID: v.ID, LifecycleState: v.State, VaultType: v.VaultType,
 		WrappingKeyID: v.WrappingKeyID, IsPrimary: true, RestoredFromVault: v.RestoredFrom,
-		ReplicaDetails: refOf(v.ReplicationID), IsVaultReplicable: v.VaultType == "VIRTUAL_PRIVATE",
+		ReplicaDetails: refOf(v.ReplicationID), IsVaultReplicable: v.VaultType == vaultTypePrivate,
 	}
 }
 
@@ -52,7 +48,7 @@ type vaultSummaryWire struct {
 }
 
 func vaultSummary(v *Vault, hostPort string) vaultSummaryWire {
-	w := vaultView(v, hostPort, "")
+	w := vaultView(v, hostPort)
 
 	return vaultSummaryWire{
 		TimeCreated: w.TimeCreated, TimeOfDeletion: w.TimeOfDeletion, FreeformTags: w.FreeformTags,
@@ -82,15 +78,11 @@ type keyWire struct {
 	IsAutoRotationEnabled  bool                      `json:"isAutoRotationEnabled"`
 }
 
-func keyView(k *Key, state string) keyWire {
-	if state == "" {
-		state = k.State
-	}
-
+func keyView(k *Key) keyWire {
 	return keyWire{
 		TimeCreated: k.TimeCreated, TimeOfDeletion: k.TimeOfDeletion, AutoKeyRotationDetails: k.Rotation,
 		FreeformTags: k.FreeformTags, DefinedTags: k.DefinedTags, CompartmentID: k.CompartmentID,
-		CurrentKeyVersion: k.CurrentVersion, DisplayName: k.DisplayName, ID: k.ID, LifecycleState: state,
+		CurrentKeyVersion: k.CurrentVersion, DisplayName: k.DisplayName, ID: k.ID, LifecycleState: k.State,
 		ProtectionMode: k.ProtectionMode, VaultID: k.VaultID, KeyShape: k.Shape, IsPrimary: true,
 		IsAutoRotationEnabled: k.AutoRotation, RestoredFromKey: k.RestoredFrom,
 		ReplicaDetails: refOf(k.ReplicationID),

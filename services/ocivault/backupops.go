@@ -51,7 +51,11 @@ func fileBody(q *req) ([]byte, error) {
 	enc := base64.StdEncoding.EncodeToString(sum[:])
 
 	if want := q.r.Header.Get("Content-MD5"); want != "" && want != enc {
-		return nil, newErr(http.StatusBadRequest, "InvalidDigest", "The Content-MD5 you specified did not match what we received")
+		return nil, newErr(
+			http.StatusBadRequest,
+			"InvalidDigest",
+			"The Content-MD5 you specified did not match what we received",
+		)
 	}
 
 	q.header("opc-content-md5", enc)

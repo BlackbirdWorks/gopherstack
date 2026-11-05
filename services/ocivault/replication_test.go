@@ -30,7 +30,7 @@ func (e *env) replicate(t *testing.T, v keymanagement.Vault, region string) erro
 	t.Helper()
 
 	_, err := e.vaults.CreateVaultReplica(t.Context(), keymanagement.CreateVaultReplicaRequest{
-		VaultId: v.Id, CreateVaultReplicaDetails: keymanagement.CreateVaultReplicaDetails{ReplicaRegion: new(region)},
+		VaultId: v.Id, ReplicaRegion: new(region),
 	})
 
 	return err
@@ -98,7 +98,10 @@ func TestVaultReplicaLifecycle(t *testing.T) {
 	e.settle()
 	assert.Equal(t, keymanagement.ReplicaDetailsStatusReplicated, status())
 
-	rm, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(e.prov, *e.replicas(t, v)[0].ManagementEndpoint)
+	rm, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(
+		e.prov,
+		*e.replicas(t, v)[0].ManagementEndpoint,
+	)
 	require.NoError(t, err)
 
 	_, err = rm.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: k.Id})
@@ -121,7 +124,7 @@ func TestVaultReplicaLifecycle(t *testing.T) {
 	assert.Equal(t, "IncorrectState", svcErr(t, err).GetCode())
 
 	_, err = e.vaults.DeleteVaultReplica(ctx, keymanagement.DeleteVaultReplicaRequest{
-		VaultId: v.Id, DeleteVaultReplicaDetails: keymanagement.DeleteVaultReplicaDetails{ReplicaRegion: new(replicaRegion)},
+		VaultId: v.Id, ReplicaRegion: new(replicaRegion),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, keymanagement.VaultReplicaSummaryStatusDeleting, e.replicas(t, v)[0].Status)
@@ -156,9 +159,8 @@ func TestVaultReplicaRules(t *testing.T) {
 		{func() error { return e.replicate(t, private, "eu-frankfurt-1") }, "second region", "Conflict", 409},
 		{func() error {
 			_, err := e.vaults.DeleteVaultReplica(t.Context(), keymanagement.DeleteVaultReplicaRequest{
-				VaultId: private.Id, DeleteVaultReplicaDetails: keymanagement.DeleteVaultReplicaDetails{
-					ReplicaRegion: new("eu-frankfurt-1"),
-				},
+				VaultId:       private.Id,
+				ReplicaRegion: new("eu-frankfurt-1"),
 			})
 
 			return err

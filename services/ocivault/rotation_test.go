@@ -18,11 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var errTargetUnreachable = errors.New("target unreachable")
+
 const rotFn = "ocid1.fnfunc.oc1..rotator"
 
 type stepLog struct {
-	mu    sync.Mutex
 	steps []string
+	mu    sync.Mutex
 }
 
 func (l *stepLog) add(s string) {
@@ -84,10 +86,10 @@ func TestRotateSecretStages(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		fnCreates bool
 		target    vault.TargetSystemDetails
+		name      string
 		wantSteps []string
+		fnCreates bool
 	}{
 		{
 			name: "function target, service creates pending", target: fnTarget(),
@@ -123,10 +125,8 @@ func TestRotateSecretStages(t *testing.T) {
 				if tt.fnCreates && p.Step == "CREATE_PENDING_VERSION" {
 					_, err := se.e.vsecret.UpdateSecret(ctx, vault.UpdateSecretRequest{
 						SecretId: s.Id,
-						UpdateSecretDetails: vault.UpdateSecretDetails{
-							SecretContent: vault.Base64SecretContentDetails{
-								Content: new(b64([]byte("from-fn"))), Stage: vault.SecretContentDetailsStagePending,
-							},
+						SecretContent: vault.Base64SecretContentDetails{
+							Content: new(b64([]byte("from-fn"))), Stage: vault.SecretContentDetailsStagePending,
 						},
 					})
 					require.NoError(t, err)
@@ -161,7 +161,11 @@ func TestRotateSecretStages(t *testing.T) {
 				assert.NotEqual(t, "v1", bundleText(t, b))
 			}
 
-			prev, err := se.bundle(t, s.Id, func(r *secrets.GetSecretBundleRequest) { r.Stage = secrets.GetSecretBundleStagePrevious })
+			prev, err := se.bundle(
+				t,
+				s.Id,
+				func(r *secrets.GetSecretBundleRequest) { r.Stage = secrets.GetSecretBundleStagePrevious },
+			)
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, *prev.VersionNumber)
 		})
@@ -177,13 +181,18 @@ func TestRotationFailureKeepsCurrent(t *testing.T) {
 		_ = json.Unmarshal(body, &p)
 
 		if p.Step == "UPDATE_TARGET_SYSTEM" {
-			return errors.New("target unreachable")
+			return errTargetUnreachable
 		}
 
 		return nil
 	})
 
-	s := se.rotating(t, "rot", vault.RotationConfig{TargetSystemDetails: fnTarget(), RotationInterval: new("P30D")}, true)
+	s := se.rotating(
+		t,
+		"rot",
+		vault.RotationConfig{TargetSystemDetails: fnTarget(), RotationInterval: new("P30D")},
+		true,
+	)
 
 	_, err := se.e.vsecret.RotateSecret(t.Context(), vault.RotateSecretRequest{SecretId: s.Id})
 	require.NoError(t, err)
@@ -321,7 +330,7 @@ func TestRotationValidation(t *testing.T) {
 func TestGeneratedSecrets(t *testing.T) {
 	t.Parallel()
 
-	hasClass := func(s, set string) bool { return strings.ContainsAny(s, set) }
+	hasClass := strings.ContainsAny
 
 	tests := []struct {
 		gen   vault.SecretGenerationContext
@@ -334,8 +343,11 @@ func TestGeneratedSecrets(t *testing.T) {
 			check: func(t *testing.T, got string) {
 				t.Helper()
 				assert.Len(t, got, 20)
-				assert.True(t, hasClass(got, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && hasClass(got, "abcdefghijklmnopqrstuvwxyz") &&
-					hasClass(got, "0123456789"))
+				assert.True(
+					t,
+					hasClass(got, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && hasClass(got, "abcdefghijklmnopqrstuvwxyz") &&
+						hasClass(got, "0123456789"),
+				)
 			},
 		},
 		{
@@ -376,7 +388,9 @@ func TestGeneratedSecrets(t *testing.T) {
 		},
 		{
 			name: "ssh key",
-			gen:  vault.SshKeyGenerationContext{GenerationTemplate: vault.SshKeyGenerationContextGenerationTemplate2048},
+			gen: vault.SshKeyGenerationContext{
+				GenerationTemplate: vault.SshKeyGenerationContextGenerationTemplate2048,
+			},
 			check: func(t *testing.T, got string) {
 				t.Helper()
 

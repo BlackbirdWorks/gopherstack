@@ -6,41 +6,40 @@ import (
 )
 
 type secretWire struct {
-	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	TimeCreated      time.Time                 `json:"timeCreated"`
+	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
 	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
 	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
 	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
-	RotationStatus   string                    `json:"rotationStatus,omitempty"`
-	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
-	TimeCreated      time.Time                 `json:"timeCreated"`
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	Metadata         map[string]any            `json:"metadata,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
 	CurrentVersion   *int64                    `json:"currentVersionNumber,omitempty"`
 	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
-	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
-	Metadata         map[string]any            `json:"metadata,omitempty"`
+	LifecycleState   string                    `json:"lifecycleState"`
 	CompartmentID    string                    `json:"compartmentId"`
 	ID               string                    `json:"id"`
-	LifecycleState   string                    `json:"lifecycleState"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
 	SecretName       string                    `json:"secretName"`
 	VaultID          string                    `json:"vaultId"`
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
 	SecretRules      []json.RawMessage         `json:"secretRules,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 }
 
 type secretSummaryWire struct {
-	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	TimeCreated      time.Time                 `json:"timeCreated"`
+	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
 	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
 	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
 	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
-	RotationStatus   string                    `json:"rotationStatus,omitempty"`
-	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
-	TimeCreated      time.Time                 `json:"timeCreated"`
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
-	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
-	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
 	CompartmentID    string                    `json:"compartmentId"`
 	ID               string                    `json:"id"`
 	LifecycleState   string                    `json:"lifecycleState"`
@@ -48,6 +47,7 @@ type secretSummaryWire struct {
 	VaultID          string                    `json:"vaultId"`
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 }
 
 type secretVersionWire struct {
@@ -198,7 +198,7 @@ func (s *Secret) rotationConfig() *RotationConfig {
 	return &c
 }
 
-func (s *Secret) rotationTimes() (last, next *time.Time, status string) {
+func (s *Secret) rotationTimes() (*time.Time, *time.Time, string) {
 	if s.Rotation == nil {
 		return nil, nil, ""
 	}

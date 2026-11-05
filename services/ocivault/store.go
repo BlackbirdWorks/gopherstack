@@ -29,18 +29,18 @@ const (
 
 // InMemoryBackend holds every vault, key and secret under one lock.
 type InMemoryBackend struct {
+	blobs     BlobStore
 	mu        *lockmetrics.RWMutex
 	now       func() time.Time
 	vaults    map[string]*Vault
 	keys      map[string]*Key
 	secrets   map[string]*Secret
 	Auth      *ociauth.Registry
-	seq       int64
-	blobs     BlobStore
 	invoke    FunctionInvoker
 	repl      map[string]*replOp
-	delay     time.Duration
 	backupKey []byte
+	seq       int64
+	delay     time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -189,25 +189,7 @@ func (b *InMemoryBackend) VaultIDForHost(hint string) (string, *APIError) {
 	defer b.mu.RUnlock()
 
 	if hint != "" {
-		if _, ok := b.vaults[hint]; ok {
-			return hint, nil
-		}
-
-		if prefix, region, ok := replicaHint(hint); ok {
-			for id, v := range b.vaults {
-				if v.Prefix == prefix && v.liveReplica(region) != nil {
-					return id, nil
-				}
-			}
-		}
-
-		for id, v := range b.vaults {
-			if v.Prefix == hint {
-				return id, nil
-			}
-		}
-
-		return "", errNotFound("vault endpoint " + hint)
+		return b.vaultForHint(hint)
 	}
 
 	var found string
@@ -229,4 +211,20 @@ func (b *InMemoryBackend) VaultIDForHost(hint string) (string, *APIError) {
 	}
 
 	return found, nil
+}
+
+func (b *InMemoryBackend) vaultForHint(hint string) (string, *APIError) {
+	if _, ok := b.vaults[hint]; ok {
+		return hint, nil
+	}
+
+	prefix, region, isReplica := replicaHint(hint)
+
+	for id, v := range b.vaults {
+		if v.Prefix == hint || (isReplica && v.Prefix == prefix && v.liveReplica(region) != nil) {
+			return id, nil
+		}
+	}
+
+	return "", errNotFound("vault endpoint " + hint)
 }

@@ -71,7 +71,7 @@ type expiryRule struct {
 }
 
 func rejectReplication(repl json.RawMessage) *APIError {
-	if t := bytes.TrimSpace(repl); len(t) > 0 && string(t) != "null" {
+	if t := bytes.TrimSpace(repl); len(t) > 0 && string(t) != jsonNull {
 		return errParam("replicationConfig is not supported by this emulator")
 	}
 
@@ -290,46 +290,54 @@ func validateCreateSecret(in *CreateSecretIn) *APIError {
 	return validateRules(in.SecretRules)
 }
 
+func prepareCreate(in *CreateSecretIn) (*RotationConfig, *GenerationContext, bool, *APIError) {
+	rot, aerr := parseRotation(in.RotationConfig)
+	if aerr != nil {
+		return nil, nil, false, aerr
+	}
+
+	gen, aerr := parseGeneration(in.SecretGenerationContext)
+	if aerr != nil {
+		return nil, nil, false, aerr
+	}
+
+	auto := in.EnableAutoGeneration != nil && *in.EnableAutoGeneration
+	if auto && (gen == nil || in.SecretContent != nil) {
+		return nil, nil, false, errParam("enableAutoGeneration requires secretGenerationContext and no secretContent")
+	}
+
+	if auto {
+		c, gerr := generatedContent(gen)
+		if gerr != nil {
+			return nil, nil, false, gerr
+		}
+
+		in.SecretContent = c
+	}
+
+	return rot, gen, auto, nil
+}
+
 // CreateSecret creates a secret and, when content is given, version 1.
 func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, error) {
 	if aerr := validateCreateSecret(&in); aerr != nil {
 		return secretWire{}, "", aerr
 	}
 
-	rot, aerr := parseRotation(in.RotationConfig)
+	rot, gen, auto, aerr := prepareCreate(&in)
 	if aerr != nil {
 		return secretWire{}, "", aerr
-	}
-
-	gen, aerr := parseGeneration(in.SecretGenerationContext)
-	if aerr != nil {
-		return secretWire{}, "", aerr
-	}
-
-	auto := in.EnableAutoGeneration != nil && *in.EnableAutoGeneration
-	if auto && (gen == nil || in.SecretContent != nil) {
-		return secretWire{}, "", errParam(
-			"enableAutoGeneration requires secretGenerationContext and no secretContent")
-	}
-
-	if auto {
-		c, gerr := generatedContent(gen)
-		if gerr != nil {
-			return secretWire{}, "", gerr
-		}
-
-		in.SecretContent = c
 	}
 
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
-	if _, aerr := b.activeVault(in.VaultID); aerr != nil {
-		return secretWire{}, "", aerr
+	if _, verr := b.activeVault(in.VaultID); verr != nil {
+		return secretWire{}, "", verr
 	}
 
-	if _, aerr := b.secretKey(in.VaultID, in.KeyID); aerr != nil {
-		return secretWire{}, "", aerr
+	if _, kerr := b.secretKey(in.VaultID, in.KeyID); kerr != nil {
+		return secretWire{}, "", kerr
 	}
 
 	if b.nameTaken(in.VaultID, in.SecretName) {
@@ -347,8 +355,8 @@ func (b *InMemoryBackend) CreateSecret(in CreateSecretIn) (secretWire, string, e
 	b.setRotation(s, rot)
 
 	if in.SecretContent != nil {
-		if aerr := b.addSecretVersion(s, in.SecretContent); aerr != nil {
-			return secretWire{}, "", aerr
+		if cerr := b.addSecretVersion(s, in.SecretContent); cerr != nil {
+			return secretWire{}, "", cerr
 		}
 	}
 

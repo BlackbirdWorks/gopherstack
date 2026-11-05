@@ -146,7 +146,7 @@ func (b *InMemoryBackend) ImportKey(vaultID string, in ImportKeyIn) (keyWire, st
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // ImportKeyVersion adds wrapped external key material as a new current version.

@@ -11,7 +11,17 @@ import (
 
 func buildOps() map[string]opFunc {
 	ops := map[string]opFunc{}
-	for _, m := range []map[string]opFunc{vaultOps(), keyOps(), cryptoOps(), secretOps(), bundleOps(), backupOps(), replicaOps()} {
+	groups := []map[string]opFunc{
+		vaultOps(),
+		keyOps(),
+		cryptoOps(),
+		secretOps(),
+		bundleOps(),
+		backupOps(),
+		replicaOps(),
+	}
+
+	for _, m := range groups {
 		maps.Copy(ops, m)
 	}
 

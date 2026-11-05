@@ -122,8 +122,8 @@ type vaultBackup struct {
 }
 
 type keyBackup struct {
-	Key   Key   `json:"key"`
 	Vault Vault `json:"vault"`
+	Key   Key   `json:"key"`
 }
 
 func newBackupKey() []byte {
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) BackupVault(id, ifMatch, hostPort string, in BackupIn)
 	}
 
 	b.begin(&v.State, &v.transition, stateBackupInProgress, stateActive)
-	view, etag := vaultView(v, hostPort, ""), v.Etag
+	view, etag := vaultView(v, hostPort), v.Etag
 	b.mu.Unlock()
 
 	if aerr = writeBlob(store, loc, blob); aerr != nil {
@@ -285,7 +285,7 @@ func (b *InMemoryBackend) BackupKey(vaultID, keyID, ifMatch string, in BackupIn)
 	}
 
 	b.begin(&k.State, &k.transition, stateBackupInProgress, prev)
-	view, etag := keyView(k, ""), k.Etag
+	view, etag := keyView(k), k.Etag
 	b.mu.Unlock()
 
 	if aerr = writeBlob(store, loc, blob); aerr != nil {
@@ -321,7 +321,7 @@ func (b *InMemoryBackend) RestoreVault(compartment, hostPort string, blob []byte
 	b.begin(&v.State, &v.transition, stateRestoring, stateActive)
 	b.vaults[v.ID] = &v
 
-	return vaultView(&v, hostPort, ""), v.Etag, nil
+	return vaultView(&v, hostPort), v.Etag, nil
 }
 
 // RestoreKey recreates a key and its versions in its original vault from a backup file.
@@ -355,5 +355,5 @@ func (b *InMemoryBackend) RestoreKey(vaultScope string, blob []byte) (keyWire, s
 	b.keys[k.ID] = &k
 	b.stampKey(&k)
 
-	return keyView(&k, ""), k.Etag, nil
+	return keyView(&k), k.Etag, nil
 }

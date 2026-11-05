@@ -144,7 +144,7 @@ func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, st
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // keyFor resolves a key inside an optional vault scope.
@@ -185,7 +185,7 @@ func (b *InMemoryBackend) GetKey(vaultID, keyID string) (keyWire, string, error)
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func (f KeyFilter) match(k *Key) bool {
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) UpdateKey(vaultID, keyID, ifMatch string, in UpdateKey
 
 	b.touchKey(k)
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func (b *InMemoryBackend) applyRotationUpdate(k *Key, in UpdateKeyIn) *APIError {
@@ -310,7 +310,7 @@ func (b *InMemoryBackend) setKeyState(vaultID, keyID, ifMatch, from, to, shown s
 	b.touchKey(k)
 	b.begin(&k.State, &k.transition, shown, to)
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // EnableKey moves a DISABLED key to ENABLED.
@@ -346,7 +346,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(vaultID, keyID, ifMatch string, at
 	b.begin(&k.State, &k.transition, stateSchedulingDelete, statePendingDeletion)
 	b.stampKey(k)
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // CancelKeyDeletion restores the state a key had before deletion was scheduled.
@@ -368,7 +368,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch string) (key
 	b.begin(&k.State, &k.transition, stateCancellingDelete, prev)
 	b.stampKey(k)
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func cmpOr(a, def string) string {

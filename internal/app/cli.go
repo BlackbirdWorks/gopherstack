@@ -3888,7 +3888,7 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 			}
 
 			if out.Status >= http.StatusMultipleChoices {
-				return fmt.Errorf("rotation function returned status %d", out.Status)
+				return fmt.Errorf("%w: status %d", ocivaultbackend.ErrFunctionFailed, out.Status)
 			}
 
 			return nil

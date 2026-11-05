@@ -63,7 +63,7 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 		return vaultWire{}, "", aerr
 	}
 
-	if in.VaultType != "DEFAULT" && in.VaultType != "VIRTUAL_PRIVATE" {
+	if in.VaultType != "DEFAULT" && in.VaultType != vaultTypePrivate {
 		return vaultWire{}, "", errParam("vaultType must be DEFAULT or VIRTUAL_PRIVATE")
 	}
 
@@ -80,7 +80,7 @@ func (b *InMemoryBackend) CreateVault(in CreateVaultIn, hostPort string) (vaultW
 	b.begin(&v.State, &v.transition, stateCreating, stateActive)
 	b.vaults[v.ID] = v
 
-	return vaultView(v, hostPort, ""), v.Etag, nil
+	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // GetVault returns one vault.
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) GetVault(id, hostPort string) (vaultWire, string, erro
 		return vaultWire{}, "", aerr
 	}
 
-	return vaultView(v, hostPort, ""), v.Etag, nil
+	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // ListVaults lists the vaults of a compartment.
@@ -156,7 +156,7 @@ func (b *InMemoryBackend) UpdateVault(id, ifMatch, hostPort string, in UpdateVau
 
 	v.Etag = newEtag()
 
-	return vaultView(v, hostPort, ""), v.Etag, nil
+	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // ScheduleVaultDeletion moves an ACTIVE vault to PENDING_DELETION.
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) ScheduleVaultDeletion(
 	v.TimeOfDeletion, v.Etag = &t, newEtag()
 	b.begin(&v.State, &v.transition, stateSchedulingDelete, statePendingDeletion)
 
-	return vaultView(v, hostPort, ""), v.Etag, nil
+	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // CancelVaultDeletion returns a PENDING_DELETION vault to ACTIVE.
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) CancelVaultDeletion(id, ifMatch, hostPort string) (vau
 	v.TimeOfDeletion, v.Etag = nil, newEtag()
 	b.begin(&v.State, &v.transition, stateCancellingDelete, stateActive)
 
-	return vaultView(v, hostPort, ""), v.Etag, nil
+	return vaultView(v, hostPort), v.Etag, nil
 }
 
 // ChangeVaultCompartment moves a vault; its keys and secrets follow.

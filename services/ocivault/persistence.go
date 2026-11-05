@@ -16,9 +16,9 @@ type backendSnapshot struct {
 	Vaults    map[string]*Vault   `json:"vaults"`
 	Keys      map[string]*Key     `json:"keys"`
 	Secrets   map[string]*Secret  `json:"secrets"`
+	Repl      map[string]*replOp  `json:"replication,omitempty"`
 	Auth      []ociauth.KeyRecord `json:"authKeys"`
 	BackupKey []byte              `json:"backupKey,omitempty"`
-	Repl      map[string]*replOp  `json:"replication,omitempty"`
 	Version   int                 `json:"version"`
 	Seq       int64               `json:"seq"`
 }
@@ -31,7 +31,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	defer b.mu.RUnlock()
 
 	return persistence.MarshalSnapshot(ctx, "ocivault", backendSnapshot{
-		Version: snapshotVersion, Vaults: b.vaults, Keys: b.keys, Secrets: b.secrets, Auth: keys, Seq: b.seq, BackupKey: b.backupKey, Repl: b.repl,
+		Version:   snapshotVersion,
+		Vaults:    b.vaults,
+		Keys:      b.keys,
+		Secrets:   b.secrets,
+		Auth:      keys,
+		Seq:       b.seq,
+		BackupKey: b.backupKey,
+		Repl:      b.repl,
 	})
 }
 
