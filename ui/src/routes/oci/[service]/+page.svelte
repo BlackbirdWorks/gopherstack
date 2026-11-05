@@ -10,6 +10,7 @@
 	import DatabaseDashboard from '#lib/components/oci/DatabaseDashboard.svelte';
 	import DnsDashboard from '#lib/components/oci/DnsDashboard.svelte';
 	import EventsDashboard from '#lib/components/oci/EventsDashboard.svelte';
+	import FileStorageDashboard from '#lib/components/oci/FileStorageDashboard.svelte';
 	import FunctionsDashboard from '#lib/components/oci/FunctionsDashboard.svelte';
 	import IdentityDashboard from '#lib/components/oci/IdentityDashboard.svelte';
 	import LoadBalancerDashboard from '#lib/components/oci/LoadBalancerDashboard.svelte';
@@ -74,6 +75,8 @@
 	<DnsDashboard />
 {:else if service?.id === 'database'}
 	<DatabaseDashboard />
+{:else if service?.id === 'filestorage'}
+	<FileStorageDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="oci-service-placeholder">
 	{#if !service}

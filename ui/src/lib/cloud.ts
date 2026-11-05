@@ -198,6 +198,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     defaultPort: 10006,
   },
   {
+    id: "logic",
+    label: "Logic Apps",
+    description:
+      "Azure Logic Apps workflows, triggers and runs with action timelines (served by Resource Manager)",
+    healthName: "AzureARM",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
     id: "entra",
     label: "Entra ID & access",
     description:
@@ -625,6 +634,14 @@ export const OCI_SERVICES: readonly OciService[] = [
     healthName: "OCIDatabase",
     portLabel: "ocidatabase",
     defaultPort: 8170,
+  },
+  {
+    id: "filestorage",
+    label: "File Storage",
+    description: "Oracle Cloud file systems, snapshots, mount targets and NFS exports",
+    healthName: "OCIFileStorage",
+    portLabel: "ocifilestorage",
+    defaultPort: 8171,
   },
 ];
 

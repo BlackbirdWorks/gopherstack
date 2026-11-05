@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -158,7 +159,22 @@ func logicProxyView(doc any) {
 	}
 }
 
-type logicAccess struct{ inner *echo.Echo }
+type logicAccess struct {
+	inner *echo.Echo
+	host  string
+}
+
+// withHost makes the emulator build URLs on the caller's host name; the port is left out so it uses its own.
+func (a logicAccess) withHost(c *echo.Context) logicAccess {
+	host := c.Request().Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	a.host = host
+
+	return a
+}
 
 type logicIDs struct{ sub, rg, wf string }
 
@@ -202,6 +218,10 @@ func (a logicAccess) do(ctx context.Context, method, path, query string, body []
 	}
 
 	req := httptest.NewRequestWithContext(ctx, method, target, bytes.NewReader(body))
+	if a.host != "" {
+		req.Host = a.host
+	}
+
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -263,6 +283,8 @@ func logicNoStore(c *echo.Context) {
 
 // callback returns the signed callback URL of one trigger. It is the only route that sends a signature out.
 func (a logicAccess) callback(c *echo.Context) error {
+	a = a.withHost(c)
+
 	ids, extra, ok := logicParams(c, "trigger")
 	if !ok {
 		return azureACIFail(c, http.StatusBadRequest, "InvalidRequestUri", "invalid Logic Apps request")

@@ -3,10 +3,12 @@ package dashboard_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -232,6 +234,14 @@ func TestAzureLogicProxyCallbackIsExplicit(t *testing.T) {
 	assert.Equal(t, http.MethodPost, cb.Method)
 	assert.Contains(t, cb.Value, "/_logic/workflows/")
 	assert.Contains(t, cb.Value, "sig=")
+
+	hostReq := httptest.NewRequest(http.MethodPost, logicAccess+"/callback"+logicIDs+"/manual", http.NoBody)
+	hostReq.Host = "files.test:18400"
+	hostRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(echo.NewContext(hostReq, hostRec)))
+	require.Equal(t, http.StatusOK, hostRec.Code, hostRec.Body.String())
+	assert.Contains(t, hostRec.Body.String(), `"value":"https://files.test:`)
+	assert.NotContains(t, hostRec.Body.String(), "files.test:18400")
 
 	generic := lbDo(t, h, http.MethodPost, logicRoot+logicWF+"/triggers/manual/listCallbackUrl"+logicAPI, "{}")
 	assert.Equal(t, http.StatusBadRequest, generic.Code)
