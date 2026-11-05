@@ -53,6 +53,16 @@ func (b *InMemoryBackend) datasetLocked(project, id string) (*Dataset, error) {
 
 // CreateDataset implements datasets.insert.
 func (b *InMemoryBackend) CreateDataset(project string, body map[string]any) (map[string]any, error) {
+	out, err := b.createDataset(project, body)
+	if err == nil {
+		b.auditCall("google.cloud.bigquery.v2.DatasetService.InsertDataset",
+			"projects/"+project+"/datasets/"+refIDs(body, "datasetReference")["datasetId"], project)
+	}
+
+	return out, err
+}
+
+func (b *InMemoryBackend) createDataset(project string, body map[string]any) (map[string]any, error) {
 	ref := refIDs(body, "datasetReference")
 	id := ref["datasetId"]
 
@@ -144,6 +154,16 @@ func (b *InMemoryBackend) UpdateDataset(project, id string, body map[string]any,
 
 // DeleteDataset implements datasets.delete.
 func (b *InMemoryBackend) DeleteDataset(project, id string, deleteContents bool) error {
+	err := b.deleteDataset(project, id, deleteContents)
+	if err == nil {
+		b.auditCall("google.cloud.bigquery.v2.DatasetService.DeleteDataset",
+			"projects/"+project+"/datasets/"+id, project)
+	}
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteDataset(project, id string, deleteContents bool) error {
 	b.mu.Lock("DeleteDataset")
 	defer b.mu.Unlock()
 

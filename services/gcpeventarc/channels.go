@@ -27,9 +27,9 @@ func orderTriggers(all []*eventarcpb.Trigger, orderBy string) error {
 		switch field {
 		case fieldName:
 			return t.GetName(), true
-		case "create_time":
+		case fieldCreateTime:
 			return timeKey(t.GetCreateTime()), true
-		case "update_time":
+		case fieldUpdateTime:
 			return timeKey(t.GetUpdateTime()), true
 		}
 
@@ -185,9 +185,9 @@ func (b *InMemoryBackend) ListChannels(in *eventarcpb.ListChannelsRequest) (*eve
 		switch field {
 		case fieldName:
 			return c.GetName(), true
-		case "create_time":
+		case fieldCreateTime:
 			return timeKey(c.GetCreateTime()), true
-		case "update_time":
+		case fieldUpdateTime:
 			return timeKey(c.GetUpdateTime()), true
 		}
 

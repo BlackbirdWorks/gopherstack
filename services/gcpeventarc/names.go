@@ -15,10 +15,16 @@ var (
 )
 
 const (
-	wildcardLocation = "-"
-	maxLabels        = 64
-	googleChannelCfg = "googleChannelConfig"
-	fieldName        = "name"
+	fieldSource        = "source"
+	fieldCreateTime    = "create_time"
+	fieldUpdateTime    = "update_time"
+	kindDeleted        = "deleted"
+	cloudEventsVersion = "1.0"
+	fieldSpecVersion   = "specversion"
+	wildcardLocation   = "-"
+	maxLabels          = 64
+	googleChannelCfg   = "googleChannelConfig"
+	fieldName          = "name"
 )
 
 // parseRes splits a resource name into the ids that follow the given collection kinds.

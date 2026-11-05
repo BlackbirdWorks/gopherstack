@@ -56,7 +56,7 @@ func (b *InMemoryBackend) queueLocked(t ObjectEventType, o *Object) {
 }
 
 func (b *InMemoryBackend) queueLinkedLocked(t ObjectEventType, o *Object, overwrote, overwrittenBy int64) {
-	if (len(b.observers) == 0 && b.notifier == nil) || o == nil {
+	if (len(b.observers) == 0 && b.notifier == nil && !b.Audit.Enabled()) || o == nil {
 		return
 	}
 
@@ -78,6 +78,7 @@ func (b *InMemoryBackend) flushEvents() {
 		}
 
 		b.dispatchNotifications(ev)
+		b.auditObject(ev)
 	}
 }
 

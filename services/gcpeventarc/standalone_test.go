@@ -40,6 +40,7 @@ func TestStandaloneBackend(t *testing.T) {
 			t.Parallel()
 
 			b := gcpeventarc.NewInMemoryBackend()
+			b.SetOperationDelay(0)
 			b.SetServices(tt.services)
 			b.SetPushBase(tt.pushBase)
 

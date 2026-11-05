@@ -16544,6 +16544,7 @@
   },
   "gcpeventarc": {
     "fields": [
+      "backendSnapshot.Advanced map[string]map[string]json.RawMessage `json:\"advanced,omitempty\"`",
       "backendSnapshot.Channels map[string]channelSnap `json:\"channels\"`",
       "backendSnapshot.Configs map[string]json.RawMessage `json:\"configs\"`",
       "backendSnapshot.Connections map[string]json.RawMessage `json:\"connections\"`",

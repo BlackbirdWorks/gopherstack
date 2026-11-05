@@ -28,6 +28,7 @@ families:
   routing_isolation: {status: ok, note: "Own gRPC server bound in StartWorker to --gcp-firestore-port / GCP_FIRESTORE_PORT (default 8080, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool. The official client honours FIRESTORE_EMULATOR_HOST."}
   auth: {status: partial, note: "No request is authenticated or authorised and security rules are not evaluated."}
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. gRPC calls are not fed to the shared telemetry operation metrics."}
+  audit_logs: {status: ok, note: "Commit, BatchWrite, CreateDocument, UpdateDocument and DeleteDocument are Data Access write records (google.firestore.v1.Firestore.*, resource the first written document or the database) written through pkgs/gcpaudit when a sink is set; reads and admin operations are not recorded."}
 items_still_open:
   - "The bidirectional Write stream and ExecutePipeline return UNIMPLEMENTED; the official Go client uses Commit and BatchWrite instead."
   - "Only the (default)-style database named in the resource path is addressed implicitly; database creation and admin APIs (indexes, exports) are not served."
