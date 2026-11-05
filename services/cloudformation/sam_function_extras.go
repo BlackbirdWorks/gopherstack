@@ -157,6 +157,7 @@ func (t *samTranslator) eventInvokeDestination(id, logicalID, event string, d ma
 	if err = t.put(generated, res); err != nil {
 		return nil, nil, err
 	}
+	t.refs[id+".Destination"+suffix] = generated
 	dest = ref
 	if propCond != "" {
 		dest = map[string]any{fnIf: []any{propCond, ref, destARN}}

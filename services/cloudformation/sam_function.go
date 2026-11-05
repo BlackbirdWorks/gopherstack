@@ -201,7 +201,8 @@ func (t *samTranslator) functionRoleValue(id string, props map[string]any) (bool
 	case isNoValue(yes):
 		return true, map[string]any{fnIf: []any{name, generated, no}}, name, nil
 	case isNoValue(no):
-		notName := t.addNotCondition(id, name)
+		notName := "NOT" + name
+		t.conditions[notName] = map[string]any{samFnNot: []any{map[string]any{samKeyCondition: name}}}
 
 		return true, map[string]any{fnIf: []any{name, yes, generated}}, notName, nil
 	}

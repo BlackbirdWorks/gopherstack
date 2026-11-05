@@ -124,6 +124,18 @@ func (a *samAPI) addModels(doc map[string]any) error {
 		return nil
 	}
 	defs := asMap(doc["definitions"])
+	if _, isV3 := doc["openapi"]; isV3 {
+		comps := asMap(doc["components"])
+		if comps == nil {
+			comps = map[string]any{}
+			doc["components"] = comps
+		}
+		defs = asMap(comps["schemas"])
+		if defs == nil {
+			defs = map[string]any{}
+		}
+		comps["schemas"] = defs
+	}
 	if defs == nil {
 		defs = map[string]any{}
 	}
@@ -137,7 +149,9 @@ func (a *samAPI) addModels(doc map[string]any) error {
 		}
 		defs[strings.ToLower(name)] = schema
 	}
-	doc["definitions"] = defs
+	if _, isV3 := doc["openapi"]; !isV3 {
+		doc["definitions"] = defs
+	}
 
 	return nil
 }

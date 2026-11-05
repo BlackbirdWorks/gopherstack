@@ -39,6 +39,7 @@ type samRoute struct {
 	// roleID is set for state machine routes: the API Gateway invoke role.
 	roleID   string
 	condition string
+	model    *samRequestModel
 	params   []samReqParam
 	unescape bool
 }
@@ -307,7 +308,7 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	if err = a.applyDefaultSecurity(doc); err != nil {
 		return nil, err
 	}
-	if err = a.addDocExtensions(doc); err != nil {
+	if err = a.addDocExtensions(t, doc); err != nil {
 		return nil, err
 	}
 	a.applyConditions(t, paths)
@@ -342,9 +343,10 @@ func (a *samAPI) baseDocument() (map[string]any, error) {
 }
 
 // addDocExtensions applies the Api properties that live in the swagger document.
-func (a *samAPI) addDocExtensions(doc map[string]any) error {
+func (a *samAPI) addDocExtensions(t *samTranslator, doc map[string]any) error {
 	if m := a.props["BinaryMediaTypes"]; m != nil && asList(m) != nil {
 		addBinaryMediaTypes(doc, m)
+		doc[samKeyBinaryMedia] = t.resolveParamRefs(doc[samKeyBinaryMedia])
 	}
 	if err := a.addGatewayResponses(doc); err != nil {
 		return err
@@ -399,6 +401,7 @@ func (a *samAPI) mergeRoute(doc, paths map[string]any, rt samRoute) error {
 		return nil
 	}
 	op := routeOperation(rt)
+	rt.model.apply(doc, op)
 	if rt.condition != samCondUnconditional {
 		if integ := asMap(op[samIntegrationKey]); integ != nil {
 			integ["uri"] = samIf(rt.condition, integ["uri"])

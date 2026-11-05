@@ -129,7 +129,7 @@ func lambdaPermission(fnID, principal string, sourceArn any) map[string]any {
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
 	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", samKRestAPIID, samAuthKey,
-		"RequestParameters", "TimeoutInMillis")); err != nil {
+		"RequestParameters", "TimeoutInMillis", "RequestModel")); err != nil {
 		return err
 	}
 	path, _ := props["Path"].(string)
@@ -153,6 +153,10 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
+	model, err := t.parseRequestModel(ev.id, name, api, method, path, props["RequestModel"])
+	if err != nil {
+		return err
+	}
 	api.addRoute(
 		samRoute{
 			fnID:       ev.id,
@@ -163,6 +167,7 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 			apiKey:     apiKey,
 			params:     params,
 			timeout:    timeout,
+			model:      model,
 			scopes:     scopes,
 			auth:       asMap(props[samAuthKey]),
 		},

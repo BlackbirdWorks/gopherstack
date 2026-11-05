@@ -77,7 +77,7 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	if a.props[samDomainKey] == nil {
 		return nil
 	}
-	domain, err := samDomainConfig(a.id, a.props[samDomainKey])
+	domain, err := samDomainConfig(a.id, t.resolveParamRefs(a.props[samDomainKey]))
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 	if a.props[samDomainKey] == nil {
 		return nil
 	}
-	domain, err := samDomainConfig(a.id, a.props[samDomainKey])
+	domain, err := samDomainConfig(a.id, t.resolveParamRefs(a.props[samDomainKey]))
 	if err != nil {
 		return err
 	}

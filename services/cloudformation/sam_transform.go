@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -357,6 +358,33 @@ func (t *samTranslator) resolveParamRefs(v any) any {
 	}
 
 	return v
+}
+
+var samSubVarPattern = regexp.MustCompile(`\$\{([^}!]+)\}`)
+
+// resolveStringParam substitutes template parameter defaults into a Ref or Fn::Sub string property.
+func (t *samTranslator) resolveStringParam(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 1 {
+		return v
+	}
+	if m[samKeyRef] != nil {
+		return t.paramDefault(v)
+	}
+	s, isStr := m[samKeyFnSub].(string)
+	if !isStr {
+		return v
+	}
+	s = samSubVarPattern.ReplaceAllStringFunc(s, func(ref string) string {
+		name := ref[2 : len(ref)-1]
+		if def, ok := t.params[name].(string); ok {
+			return def
+		}
+
+		return ref
+	})
+
+	return map[string]any{samKeyFnSub: s}
 }
 
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
