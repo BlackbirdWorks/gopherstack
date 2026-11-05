@@ -27,7 +27,9 @@ func (f *fakeIssuer) IssueBuildCredentials(_ context.Context, role, _ string) (B
 		return BuildCredentials{}, f.err
 	}
 
-	return BuildCredentials{AccessKeyID: "ASIATESTKEY", SecretAccessKey: "sekrit-key", SessionToken: "sekrit-token"}, nil
+	return BuildCredentials{
+		AccessKeyID: "ASIATESTKEY", SecretAccessKey: "sekrit-key", SessionToken: "sekrit-token",
+	}, nil
 }
 
 func specProject(spec string) ProjectConfig {

@@ -129,7 +129,9 @@ func (r *buildRunner) s3KeyedBase() (string, string, bool) {
 		return "", "", false
 	}
 
-	return bucket, strings.Trim(prefix+"/"+cacheScope(c, r.build.ProjectName)+"/"+cacheKeyedDir+"/"+r.cacheVersion(), "/") + "/", true
+	scope := cacheScope(c, r.build.ProjectName)
+
+	return bucket, strings.Trim(prefix+"/"+scope+"/"+cacheKeyedDir+"/"+r.cacheVersion(), "/") + "/", true
 }
 
 func (r *buildRunner) s3KeyedObject(key string) (string, string, bool) {

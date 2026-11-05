@@ -58,6 +58,7 @@ func lambdaEndpointURL(dockerHost, port string) string {
 // execution-role credentials.
 func wireLambdaRuntimeEnv(cli *CLI, byName map[string]service.Registerable) {
 	wireLambdaWeb(cli, byName)
+	wireCodeBuildRuntimeEnv(cli, byName)
 
 	lambdaH, ok := byName["Lambda"].(*lambdabackend.Handler)
 	if !ok {

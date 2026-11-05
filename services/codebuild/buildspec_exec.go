@@ -242,7 +242,8 @@ func commandScript(cmds []string, srcDir string, succeeding, shareShell bool) st
 
 	if shareShell {
 		fmt.Fprintf(&sb, "cd \"$(cat %s 2>/dev/null || echo %s)\" || exit 1\n", cbCwdFile, shQuote(srcDir))
-		fmt.Fprintf(&sb, "trap 'pwd > %s; chmod 666 %s 2>/dev/null; export -p > %s' EXIT\n", cbCwdFile, cbCwdFile, cbEnvFile)
+		fmt.Fprintf(&sb, "trap 'pwd > %s; chmod 666 %s 2>/dev/null; export -p > %s' EXIT\n",
+			cbCwdFile, cbCwdFile, cbEnvFile)
 	} else {
 		sb.WriteString("cd " + shQuote(srcDir) + " || exit 1\n")
 	}

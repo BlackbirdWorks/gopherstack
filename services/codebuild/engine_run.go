@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -472,7 +473,7 @@ func (r *buildRunner) exportEnv() outcome {
 	r.masked = append(masked, rtMasked...)
 	r.log.masked = r.masked
 
-	all := append(append(r.builtinEnv(r.srcDir), rtEnv...), resolved...)
+	all := slices.Concat(r.builtinEnv(r.srcDir), rtEnv, resolved)
 
 	r.envMap = make(map[string]string, len(all))
 	for _, v := range all {

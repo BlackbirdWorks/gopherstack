@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const skipRuntimesMsg = "Skipping install of runtimes. Runtime version selection is not supported by this build image"
+
 const (
 	codeBuildServicePrincipal = "codebuild.amazonaws.com"
 	sessionPrefix             = "AWSCodeBuild-"
@@ -78,7 +80,7 @@ func (r *buildRunner) announceRuntimes(ph specPhase) {
 	}
 
 	if !strings.HasPrefix(image, awsStandardImagePfx) {
-		r.log.write(r.ctx, marker("Skipping install of runtimes. Runtime version selection is not supported by this build image"))
+		r.log.write(r.ctx, marker("%s", skipRuntimesMsg))
 
 		return
 	}
