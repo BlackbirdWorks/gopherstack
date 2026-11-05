@@ -747,7 +747,9 @@ func TestFGAC_AccountPasswordChange(t *testing.T) {
 	_, err = env.sdk.UpdateDomainConfig(t.Context(), &opensearchsdk.UpdateDomainConfigInput{
 		DomainName: aws.String(fgacDomain),
 		AdvancedSecurityOptions: &types.AdvancedSecurityOptionsInput{
-			JWTOptions: &types.JWTOptionsInput{Enabled: aws.Bool(true), JwksUrl: aws.String("https://example.com/jwks")},
+			JWTOptions: &types.JWTOptionsInput{
+				Enabled: aws.Bool(true), JwksUrl: aws.String("https://example.com/jwks"),
+			},
 		},
 	})
 	require.NoError(t, err)
