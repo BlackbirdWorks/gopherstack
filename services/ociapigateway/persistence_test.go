@@ -5,10 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/apigateway"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/oracle/oci-go-sdk/v65/apigateway"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,7 +124,7 @@ func TestSnapshotRestoreNewResources(t *testing.T) {
 	sub := e.mkSubscriber(t, "persist-tok", plan)
 
 	_, err := e.api.CreateSdk(t.Context(), apigateway.CreateSdkRequest{
-		CreateSdkDetails: apigateway.CreateSdkDetails{ApiId: a.Id, TargetLanguage: new("JAVA")},
+		ApiId: a.Id, TargetLanguage: new("JAVA"),
 	})
 	require.NoError(t, err)
 
@@ -149,7 +150,7 @@ func TestSnapshotRestoreNewResources(t *testing.T) {
 
 	content, _, _, err := other.APIContent(*a.Id)
 	require.NoError(t, err)
-	assert.Equal(t, petsYAML, content)
+	assert.YAMLEq(t, petsYAML, content)
 
 	// the TLS material and CA bundles survive, so mutual TLS keeps working on a restored backend
 	h := ociapigateway.NewHandler(other)
@@ -164,8 +165,13 @@ func TestSnapshotRestoreNewResources(t *testing.T) {
 
 	other.Sweep()
 
-	open := e.mkDeployment(t, *e.gw.Id, "/m", `{"requestPolicies":{"mutualTls":{"isVerifiedCertificateRequired":true}},`+
-		`"routes":[`+stock("/hi", `"GET"`, "secure")+`]}`)
+	open := e.mkDeployment(
+		t,
+		*e.gw.Id,
+		"/m",
+		`{"requestPolicies":{"mutualTls":{"isVerifiedCertificateRequired":true}},`+
+			`"routes":[`+stock("/hi", `"GET"`, "secure")+`]}`,
+	)
 	require.NotEmpty(t, open)
 
 	snap = e.handler.Snapshot(t.Context())

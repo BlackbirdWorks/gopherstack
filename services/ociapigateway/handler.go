@@ -333,21 +333,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	})
 
 	workerCtx := logger.WithWorker(ctx, "ociapigateway", "listener")
-	log := logger.Load(workerCtx)
 
-	log.InfoContext(workerCtx, "ociapigateway: starting dedicated listener", "port", h.Port)
+	logger.Load(workerCtx).InfoContext(workerCtx, "ociapigateway: starting dedicated listener", "port", h.Port)
 
-	h.wg.Go(func() {
-		if serveErr := srv.Serve(plainLn); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) && !errors.Is(serveErr, net.ErrClosed) {
-			log.ErrorContext(workerCtx, "ociapigateway: listener stopped", "error", serveErr)
-		}
-	})
-
-	h.wg.Go(func() {
-		if serveErr := tlsSrv.Serve(tlsLn); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) && !errors.Is(serveErr, net.ErrClosed) {
-			log.ErrorContext(workerCtx, "ociapigateway: TLS listener stopped", "error", serveErr)
-		}
-	})
+	h.serveOn(workerCtx, srv, plainLn, "listener stopped")
+	h.serveOn(workerCtx, tlsSrv, tlsLn, "TLS listener stopped")
 
 	h.wg.Go(func() {
 		t := time.NewTicker(sweepInterval)
@@ -366,6 +356,17 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	})
 
 	return nil
+}
+
+func (h *Handler) serveOn(ctx context.Context, srv *http.Server, ln net.Listener, stopped string) {
+	log := logger.Load(ctx)
+
+	h.wg.Go(func() {
+		err := srv.Serve(ln)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+			log.ErrorContext(ctx, "ociapigateway: "+stopped, "error", err)
+		}
+	})
 }
 
 // Shutdown stops the listener and the sweeper.

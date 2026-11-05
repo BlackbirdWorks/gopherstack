@@ -137,7 +137,9 @@ func specType(doc map[string]any) string {
 	return ""
 }
 
-var openAPIMethods = []string{"get", "put", "post", "delete", "options", "head", "patch"} //nolint:gochecknoglobals // immutable
+func openAPIMethods() []string {
+	return []string{"get", "put", "post", "delete", "options", "head", "patch"}
+}
 
 // apiRoutes turns the OpenAPI paths into deployment routes with stock-response backends.
 func apiRoutes(doc map[string]any) []map[string]any {
@@ -157,7 +159,7 @@ func apiRoutes(doc map[string]any) []map[string]any {
 
 		var methods []string
 
-		for _, m := range openAPIMethods {
+		for _, m := range openAPIMethods() {
 			if _, ok := item[m]; ok {
 				methods = append(methods, strings.ToUpper(m))
 			}
@@ -169,7 +171,7 @@ func apiRoutes(doc map[string]any) []map[string]any {
 
 		routes = append(routes, map[string]any{
 			"path": p, "methods": methods,
-			"backend": map[string]any{"type": backendStock, "status": http.StatusOK, "body": ""},
+			"backend": map[string]any{keyType: backendStock, "status": http.StatusOK, "body": ""},
 		})
 	}
 
@@ -189,8 +191,11 @@ func apiChecks(content string) []apiValidationDetails {
 
 	if specType(doc) == "" {
 		out = append(out, apiValidationDetails{
-			Name: "OpenAPI version", Result: resultError,
-			Details: []apiValidationDetail{{Msg: "the document declares neither openapi nor swagger", Severity: resultError}},
+			Name:   "OpenAPI version",
+			Result: resultError,
+			Details: []apiValidationDetail{
+				{Msg: "the document declares neither openapi nor swagger", Severity: resultError},
+			},
 		})
 	} else {
 		out = append(out, apiValidationDetails{Name: "OpenAPI version", Result: resultOK})
@@ -301,24 +306,10 @@ func (b *InMemoryBackend) ListAPIs(compartment, name, state string, o ListOpts) 
 	b.mu.RLock("ListAPIs")
 	defer b.mu.RUnlock()
 
-	var all []*API
-
-	for _, a := range b.apis {
-		if a.Compartment == compartment && stateMatches(a.State, state) &&
-			(name == "" || strs.Equal(a.DisplayName, name)) {
-			all = append(all, a)
-		}
-	}
-
-	pg := paginate(all, o, func(a *API) string { return a.DisplayName },
-		func(a *API) (time.Time, int64) { return a.TimeCreated, 0 })
-
-	out := make([]APIWire, 0, len(pg.Data))
-	for _, a := range pg.Data {
-		out = append(out, apiView(a))
-	}
-
-	return page.Page[APIWire]{Data: out, Next: pg.Next}, nil
+	return listOf(b.apis, o, func(a *API) bool {
+		return a.Compartment == compartment && stateMatches(a.State, state) &&
+			(name == "" || strs.Equal(a.DisplayName, name))
+	}, func(a *API) string { return a.DisplayName }, func(a *API) time.Time { return a.TimeCreated }, apiView), nil
 }
 
 func (b *InMemoryBackend) activeAPI(id, ifMatch string, deleting bool) (*API, *APIError) {
@@ -397,17 +388,10 @@ func (b *InMemoryBackend) ChangeAPICompartment(id, ifMatch string, in changeComp
 		return "", err
 	}
 
-	if lerr := checkLocked(a.Locks, false); lerr != nil {
-		return "", lerr
-	}
-
-	if err = b.checkMove(a.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	a.Compartment, a.TimeUpdated, a.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateAPI, a.Compartment, entityAPI, id, actionUpdated, b.nowUTC().Add(b.transition)), nil
+	return b.move(moveSpec{
+		id: id, op: wrUpdateAPI, entity: entityAPI, locks: a.Locks, compartment: &a.Compartment,
+		etag: &a.Etag, updated: &a.TimeUpdated,
+	}, ifMatch, in.CompartmentID)
 }
 
 // APIContent returns the stored OpenAPI document, its etag and base64 SHA-256.

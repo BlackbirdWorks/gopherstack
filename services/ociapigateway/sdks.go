@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	entitySdk = "sdk"
+	entitySdk      = "sdk"
+	sdkLangVersion = "1.0"
 
 	wrCreateSdk = "CREATE_SDK"
 	wrDeleteSdk = "DELETE_SDK"
@@ -85,11 +86,11 @@ type sdkLanguageWire struct {
 
 //nolint:gochecknoglobals // immutable catalog, recalled from the OCI console (unverified)
 var sdkLanguages = []sdkLanguageWire{
-	{Name: "JAVA", Version: "1.0", DisplayName: "Java"},
-	{Name: "PYTHON", Version: "1.0", DisplayName: "Python"},
-	{Name: "TYPESCRIPT", Version: "1.0", DisplayName: "TypeScript"},
-	{Name: "ANDROID", Version: "1.0", DisplayName: "Android"},
-	{Name: "SWIFT", Version: "1.0", DisplayName: "Swift"},
+	{Name: "JAVA", Version: sdkLangVersion, DisplayName: "Java"},
+	{Name: "PYTHON", Version: sdkLangVersion, DisplayName: "Python"},
+	{Name: "TYPESCRIPT", Version: sdkLangVersion, DisplayName: "TypeScript"},
+	{Name: "ANDROID", Version: sdkLangVersion, DisplayName: "Android"},
+	{Name: "SWIFT", Version: sdkLangVersion, DisplayName: "Swift"},
 }
 
 // ListSdkLanguageTypes lists the target languages SDK resources can name.
@@ -175,24 +176,10 @@ func (b *InMemoryBackend) ListSDKs(sdkID, apiID, name, state string, o ListOpts)
 	b.mu.RLock("ListSDKs")
 	defer b.mu.RUnlock()
 
-	var all []*SDK
-
-	for _, s := range b.sdks {
-		if (sdkID == "" || s.ID == sdkID) && (apiID == "" || s.APIID == apiID) && stateMatches(s.State, state) &&
-			(name == "" || strs.Equal(s.DisplayName, name)) {
-			all = append(all, s)
-		}
-	}
-
-	pg := paginate(all, o, func(s *SDK) string { return s.DisplayName },
-		func(s *SDK) (time.Time, int64) { return s.TimeCreated, 0 })
-
-	out := make([]SdkWire, 0, len(pg.Data))
-	for _, s := range pg.Data {
-		out = append(out, sdkView(s))
-	}
-
-	return page.Page[SdkWire]{Data: out, Next: pg.Next}, nil
+	return listOf(b.sdks, o, func(s *SDK) bool {
+		return (sdkID == "" || s.ID == sdkID) && (apiID == "" || s.APIID == apiID) && stateMatches(s.State, state) &&
+			(name == "" || strs.Equal(s.DisplayName, name))
+	}, func(s *SDK) string { return s.DisplayName }, func(s *SDK) time.Time { return s.TimeCreated }, sdkView), nil
 }
 
 // UpdateSDK changes the name, tags or parameters of an SDK resource.

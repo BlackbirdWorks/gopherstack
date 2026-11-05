@@ -271,17 +271,10 @@ func (b *InMemoryBackend) ChangeDeploymentCompartment(id, ifMatch string, in cha
 		return "", err
 	}
 
-	if lerr := checkLocked(d.Locks, false); lerr != nil {
-		return "", lerr
-	}
-
-	if err = b.checkMove(d.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	d.CompartmentID, d.TimeUpdated, d.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateDeploy, d.CompartmentID, entityDeploy, id, actionUpdated, b.nowUTC().Add(b.transition)), nil
+	return b.move(moveSpec{
+		id: id, op: wrUpdateDeploy, entity: entityDeploy, locks: d.Locks, compartment: &d.CompartmentID,
+		etag: &d.Etag, updated: &d.TimeUpdated,
+	}, ifMatch, in.CompartmentID)
 }
 
 func (h *Handler) createDeployment(q *req) error {

@@ -49,7 +49,15 @@ func (e *env) lockables(t *testing.T) map[string]string {
 
 	comp := `"compartmentId":"` + testCompartment + `"`
 	apiID := idOf(t, e.post(t, "/apis", `{`+comp+`,"displayName":"lock-api"}`, http.StatusAccepted))
-	sdkID := idOf(t, e.post(t, "/sdks", `{"apiId":"`+apiID+`","targetLanguage":"JAVA","displayName":"lock-sdk"}`, http.StatusAccepted))
+	sdkID := idOf(
+		t,
+		e.post(
+			t,
+			"/sdks",
+			`{"apiId":"`+apiID+`","targetLanguage":"JAVA","displayName":"lock-sdk"}`,
+			http.StatusAccepted,
+		),
+	)
 	planID := idOf(t, e.post(t, "/usagePlans",
 		`{`+comp+`,"displayName":"lock-plan","entitlements":[{"name":"e","targets":[{"deploymentId":"`+dep+`"}]}]}`,
 		http.StatusAccepted))
@@ -60,9 +68,13 @@ func (e *env) lockables(t *testing.T) map[string]string {
 	e.settle()
 
 	return map[string]string{
-		"gateways": "/gateways/" + *gw.Id, "deployments": "/deployments/" + dep, "certificates": "/certificates/" + *cert.Id,
-		"apis": "/apis/" + apiID, "sdks": "/sdks/" + sdkID, "usagePlans": "/usagePlans/" + planID,
-		"subscribers": "/subscribers/" + subID,
+		"gateways":     "/gateways/" + *gw.Id,
+		"deployments":  "/deployments/" + dep,
+		"certificates": "/certificates/" + *cert.Id,
+		"apis":         "/apis/" + apiID,
+		"sdks":         "/sdks/" + sdkID,
+		"usagePlans":   "/usagePlans/" + planID,
+		"subscribers":  "/subscribers/" + subID,
 	}
 }
 
@@ -74,6 +86,8 @@ func TestResourceLocksBlockDeletion(t *testing.T) {
 
 	for kind, path := range res {
 		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+
 			url := e.base + apiBase + path
 
 			body := e.post(t, path+"/actions/addLock", `{"type":"DELETE","message":"keep"}`, http.StatusOK)
@@ -107,9 +121,7 @@ func TestFullLockBlocksUpdateViaSDK(t *testing.T) {
 
 	added, err := e.gw.AddGatewayLock(t.Context(), apigateway.AddGatewayLockRequest{
 		GatewayId: gw.Id,
-		AddResourceLockDetails: apigateway.AddResourceLockDetails{
-			Type: apigateway.AddResourceLockDetailsTypeFull, Message: new("frozen"),
-		},
+		Type:      apigateway.AddResourceLockDetailsTypeFull, Message: new("frozen"),
 	})
 	require.NoError(t, err)
 	require.Len(t, added.Locks, 1)
@@ -117,20 +129,18 @@ func TestFullLockBlocksUpdateViaSDK(t *testing.T) {
 	assert.NotEqual(t, *gw.Id+"x", *added.Etag)
 
 	_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
-		GatewayId: gw.Id, UpdateGatewayDetails: apigateway.UpdateGatewayDetails{DisplayName: new("renamed")},
+		GatewayId: gw.Id, DisplayName: new("renamed"),
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 
 	_, err = e.gw.RemoveGatewayLock(t.Context(), apigateway.RemoveGatewayLockRequest{
 		GatewayId: gw.Id,
-		RemoveResourceLockDetails: apigateway.RemoveResourceLockDetails{
-			Type: apigateway.RemoveResourceLockDetailsTypeFull,
-		},
+		Type:      apigateway.RemoveResourceLockDetailsTypeFull,
 	})
 	require.NoError(t, err)
 
 	_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
-		GatewayId: gw.Id, UpdateGatewayDetails: apigateway.UpdateGatewayDetails{DisplayName: new("renamed")},
+		GatewayId: gw.Id, DisplayName: new("renamed"),
 	})
 	require.NoError(t, err)
 }
@@ -140,11 +150,9 @@ func TestLocksAtCreateAreEnforced(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	created, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-		CreateGatewayDetails: apigateway.CreateGatewayDetails{
-			CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-			SubnetId: new(testSubnet), DisplayName: new("born-locked"),
-			Locks: []apigateway.AddResourceLockDetails{{Type: apigateway.AddResourceLockDetailsTypeDelete}},
-		},
+		CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+		SubnetId: new(testSubnet), DisplayName: new("born-locked"),
+		Locks: []apigateway.AddResourceLockDetails{{Type: apigateway.AddResourceLockDetailsTypeDelete}},
 	})
 	require.NoError(t, err)
 	require.Len(t, created.Locks, 1)
@@ -161,15 +169,29 @@ func TestCancelWorkRequest(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	created := e.createGateway(t, "cancel")
 
-	_, err := e.wr.CancelWorkRequest(t.Context(), apigateway.CancelWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId})
+	_, err := e.wr.CancelWorkRequest(
+		t.Context(),
+		apigateway.CancelWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 
-	got, err := e.wr.GetWorkRequest(t.Context(), apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId})
+	got, err := e.wr.GetWorkRequest(
+		t.Context(),
+		apigateway.GetWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, apigateway.WorkRequestStatusCanceled, got.Status)
 
-	_, err = e.wr.CancelWorkRequest(t.Context(), apigateway.CancelWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId})
-	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "a finished work request cannot be canceled again")
+	_, err = e.wr.CancelWorkRequest(
+		t.Context(),
+		apigateway.CancelWorkRequestRequest{WorkRequestId: created.OpcWorkRequestId},
+	)
+	assert.Equal(
+		t,
+		http.StatusConflict,
+		svcErr(t, err).GetHTTPStatusCode(),
+		"a finished work request cannot be canceled again",
+	)
 
 	_, err = e.wr.CancelWorkRequest(t.Context(), apigateway.CancelWorkRequestRequest{WorkRequestId: new("ocid1.none")})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
@@ -179,6 +201,9 @@ func TestCancelWorkRequest(t *testing.T) {
 	done := e.createGateway(t, "cancel-done")
 	e.settle()
 
-	_, err = e.wr.CancelWorkRequest(t.Context(), apigateway.CancelWorkRequestRequest{WorkRequestId: done.OpcWorkRequestId})
+	_, err = e.wr.CancelWorkRequest(
+		t.Context(),
+		apigateway.CancelWorkRequestRequest{WorkRequestId: done.OpcWorkRequestId},
+	)
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode())
 }

@@ -22,13 +22,13 @@ func buildOps() map[string]opFunc {
 func baseOps() map[string]opFunc {
 	return map[string]opFunc{
 		opCancelWorkRequest: (*Handler).cancelWorkRequest,
-		opCreateAPI: (*Handler).createAPI, opGetAPI: (*Handler).getAPI, opListAPIs: (*Handler).listAPIs,
+		opCreateAPI:         (*Handler).createAPI, opGetAPI: (*Handler).getAPI, opListAPIs: (*Handler).listAPIs,
 		opUpdateAPI: (*Handler).updateAPI, opDeleteAPI: (*Handler).deleteAPI,
 		opChangeAPIComp: (*Handler).changeAPICompartment, opGetAPIContent: (*Handler).getAPIContent,
 		opGetAPIDeploySpec: (*Handler).getAPIDeploymentSpecification, opGetAPIValidations: (*Handler).getAPIValidations,
 		opCreateSdk: (*Handler).createSDK, opGetSdk: (*Handler).getSDK, opListSdks: (*Handler).listSDKs,
 		opUpdateSdk: (*Handler).updateSDK, opDeleteSdk: (*Handler).deleteSDK,
-		opListSdkLangs: (*Handler).listSdkLanguageTypes,
+		opListSdkLangs:    (*Handler).listSdkLanguageTypes,
 		opCreateUsagePlan: (*Handler).createUsagePlan, opGetUsagePlan: (*Handler).getUsagePlan,
 		opListUsagePlans: (*Handler).listUsagePlans, opUpdateUsagePlan: (*Handler).updateUsagePlan,
 		opDeleteUsagePlan: (*Handler).deleteUsagePlan, opChangeUPComp: (*Handler).changeUsagePlanCompartment,

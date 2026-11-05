@@ -198,6 +198,40 @@ func (b *InMemoryBackend) checkMove(current, ifMatch, target string) *APIError {
 	return b.checkCompartment(target)
 }
 
+// moveSpec points at the fields a ChangeCompartment call touches.
+type moveSpec struct {
+	updated     *time.Time
+	compartment *string
+	etag        *string
+	conflict    func(target string) *APIError
+	id          string
+	op          string
+	entity      string
+	locks       []Lock
+}
+
+// move applies a ChangeCompartment call: lock and etag checks, optional conflict check, then the move.
+func (b *InMemoryBackend) move(m moveSpec, ifMatch, target string) (string, error) {
+	if lerr := checkLocked(m.locks, false); lerr != nil {
+		return "", lerr
+	}
+
+	if err := b.checkMove(*m.etag, ifMatch, target); err != nil {
+		return "", err
+	}
+
+	if m.conflict != nil {
+		if cerr := m.conflict(target); cerr != nil {
+			return "", cerr
+		}
+	}
+
+	now := b.nowUTC()
+	*m.compartment, *m.updated, *m.etag = target, now, newEtag()
+
+	return b.newWR(m.op, target, m.entity, m.id, actionUpdated, now.Add(b.transition)), nil
+}
+
 func (b *InMemoryBackend) transitionAt() *time.Time {
 	t := b.nowUTC().Add(b.transition)
 
@@ -253,6 +287,28 @@ func paginate[T any](items []T, o ListOpts, name func(T) string, created func(T)
 	})
 
 	return page.New(items, o.Page, o.Limit, defaultListLimit)
+}
+
+// listOf filters, sorts, pages and renders the values of a resource map.
+func listOf[R, W any](
+	m map[string]*R, o ListOpts, keep func(*R) bool, name func(*R) string, created func(*R) time.Time, view func(*R) W,
+) page.Page[W] {
+	var all []*R
+
+	for _, r := range m {
+		if keep(r) {
+			all = append(all, r)
+		}
+	}
+
+	pg := paginate(all, o, name, func(r *R) (time.Time, int64) { return created(r), 0 })
+
+	out := make([]W, 0, len(pg.Data))
+	for _, r := range pg.Data {
+		out = append(out, view(r))
+	}
+
+	return page.Page[W]{Data: out, Next: pg.Next}
 }
 
 func due(at *time.Time, now time.Time) bool { return at != nil && !at.After(now) }

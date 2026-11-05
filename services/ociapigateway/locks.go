@@ -10,6 +10,8 @@ const (
 	lockFull   = "FULL"
 	lockDelete = "DELETE"
 
+	lockOpsPerKind = 2
+
 	kindGateway     = "Gateway"
 	kindDeployment  = "Deployment"
 	kindCertificate = "Certificate"

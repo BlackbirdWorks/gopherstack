@@ -454,7 +454,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 		return authResult{}
 	}
 
-	payload := map[string]any{"type": "TOKEN", "token": token}
+	payload := map[string]any{keyType: "TOKEN", "token": token}
 
 	if len(a.Parameters) > 0 {
 		data := make(map[string]string, len(a.Parameters))
@@ -462,7 +462,7 @@ func (b *InMemoryBackend) customAuth(ctx context.Context, a *authDoc, token stri
 			data[name] = rv.lookup(expr)
 		}
 
-		payload = map[string]any{"type": "USER_DEFINED", "data": data}
+		payload = map[string]any{keyType: "USER_DEFINED", "data": data}
 	}
 
 	body, _ := json.Marshal(payload) //nolint:errchkjson // static shape

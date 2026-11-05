@@ -24,19 +24,21 @@ const (
 	keysStatic = "STATIC_KEYS"
 	keysRemote = "REMOTE_JWKS"
 
-	methodAny      = "ANY"
-	maxStatusCode  = 599
-	minStatusCode  = 100
-	maxRoutes      = 1000
-	maxSpecDepth   = 2
-	fnOCIDPrefix   = "ocid1.fnfunc."
-	rateKeyClient  = "CLIENT_IP"
-	rateKeyTotal   = "TOTAL"
-	selectorSingle = "SINGLE"
-	anyOf          = "ANY_OF"
-	wildcardKey    = "WILDCARD"
-	authzAnonymous = "ANONYMOUS"
-	jsonNull       = "null"
+	methodAny       = "ANY"
+	maxStatusCode   = 599
+	minStatusCode   = 100
+	maxRoutes       = 1000
+	maxSpecDepth    = 2
+	fnOCIDPrefix    = "ocid1.fnfunc."
+	rateKeyClient   = "CLIENT_IP"
+	rateKeyTotal    = "TOTAL"
+	selectorSingle  = "SINGLE"
+	anyOf           = "ANY_OF"
+	wildcardKey     = "WILDCARD"
+	authzAnonymous  = "ANONYMOUS"
+	jsonNull        = "null"
+	keyType         = "type"
+	msgUnauthorized = "Unauthorized"
 )
 
 type headerSpec struct {
@@ -114,11 +116,11 @@ type validationDoc struct {
 	Additional          *additionalDoc    `json:"additionalValidationPolicy"`
 	ClientDetails       *clientDetailsDoc `json:"clientDetails"`
 	SourceURI           *sourceURIDoc     `json:"sourceUriDetails"`
-	URI                 string         `json:"uri"`
-	Type                string         `json:"type"`
-	MaxCacheHours       *int           `json:"maxCacheDurationInHours"`
-	IsSslVerifyDisabled *bool          `json:"isSslVerifyDisabled"`
-	Keys                []staticKeyDoc `json:"keys"`
+	URI                 string            `json:"uri"`
+	Type                string            `json:"type"`
+	MaxCacheHours       *int              `json:"maxCacheDurationInHours"`
+	IsSslVerifyDisabled *bool             `json:"isSslVerifyDisabled"`
+	Keys                []staticKeyDoc    `json:"keys"`
 }
 
 type publicKeysDoc struct {
@@ -198,10 +200,10 @@ type authzDoc struct {
 }
 
 type routeRequestPolicies struct {
-	Authorization       *authzDoc       `json:"authorization"`
-	Cors                *corsDoc        `json:"cors"`
-	HeaderTransform     *transformDoc   `json:"headerTransformations"`
-	QueryTransform      *transformDoc   `json:"queryParameterTransformations"`
+	Authorization       *authzDoc           `json:"authorization"`
+	Cors                *corsDoc            `json:"cors"`
+	HeaderTransform     *transformDoc       `json:"headerTransformations"`
+	QueryTransform      *transformDoc       `json:"queryParameterTransformations"`
 	QueryValidations    *paramValidationDoc `json:"queryParameterValidations"`
 	HeaderValidations   *paramValidationDoc `json:"headerValidations"`
 	BodyValidation      *bodyValidationDoc  `json:"bodyValidation"`
@@ -209,8 +211,8 @@ type routeRequestPolicies struct {
 }
 
 type routeResponsePolicies struct {
-	HeaderTransform    *transformDoc   `json:"headerTransformations"`
-	ResponseCacheStore *cacheStoreDoc  `json:"responseCacheStore"`
+	HeaderTransform    *transformDoc  `json:"headerTransformations"`
+	ResponseCacheStore *cacheStoreDoc `json:"responseCacheStore"`
 }
 
 type routeDoc struct {
@@ -334,7 +336,6 @@ func validateRequestPolicies(p *requestPolicies) *APIError {
 
 	return validateAuth(p.Authentication)
 }
-
 
 func validateCors(c *corsDoc, where string) *APIError {
 	if c == nil {

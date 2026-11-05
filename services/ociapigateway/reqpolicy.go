@@ -154,7 +154,9 @@ func validateDynamicAuth(d *dynamicAuthDoc) *APIError {
 	}
 
 	if _, _, ok := parseVariable(d.SelectionSource.Selector); !ok {
-		return errParam("dynamicAuthentication selector must be request.path[..], request.query[..] or request.headers[..]")
+		return errParam(
+			"dynamicAuthentication selector must be request.path[..], request.query[..] or request.headers[..]",
+		)
 	}
 
 	if len(d.Servers) == 0 {
@@ -250,7 +252,7 @@ func validateCacheLookup(c *cacheLookupDoc) *APIError {
 		}
 
 		if m := cacheAdditionRe.FindStringSubmatch(a); m == nil {
-			return errParam("cacheKeyAdditions entries must be request.query[..], request.headers[..], request.auth[..] or request.host")
+			return errParam("cacheKeyAdditions entries must be request.{query,headers,auth}[..] or request.host")
 		}
 	}
 
@@ -368,7 +370,10 @@ func validateRequest(r *http.Request, rp *routeRequestPolicies, body []byte) (st
 		{modeOf(rp.QueryValidations), failsQueryOnly(r, rp)},
 	}
 	if rp.BodyValidation != nil {
-		checks = append(checks, struct{ mode, fail string }{rp.BodyValidation.Mode, failsBody(r, rp.BodyValidation, body)})
+		checks = append(
+			checks,
+			struct{ mode, fail string }{rp.BodyValidation.Mode, failsBody(r, rp.BodyValidation, body)},
+		)
 	}
 
 	permissive := ""

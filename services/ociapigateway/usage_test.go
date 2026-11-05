@@ -19,9 +19,7 @@ func (e *env) mkPlan(t *testing.T, name string, ents ...apigateway.Entitlement) 
 	t.Helper()
 
 	resp, err := e.plans.CreateUsagePlan(t.Context(), apigateway.CreateUsagePlanRequest{
-		CreateUsagePlanDetails: apigateway.CreateUsagePlanDetails{
-			CompartmentId: new(testCompartment), DisplayName: new(name), Entitlements: ents,
-		},
+		CompartmentId: new(testCompartment), DisplayName: new(name), Entitlements: ents,
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -33,10 +31,8 @@ func (e *env) mkSubscriber(t *testing.T, token string, plans ...string) string {
 	t.Helper()
 
 	resp, err := e.sub.CreateSubscriber(t.Context(), apigateway.CreateSubscriberRequest{
-		CreateSubscriberDetails: apigateway.CreateSubscriberDetails{
-			CompartmentId: new(testCompartment), UsagePlans: plans, DisplayName: new("sub-" + token),
-			Clients: []apigateway.Client{{Name: new("client-" + token), Token: new(token)}},
-		},
+		CompartmentId: new(testCompartment), UsagePlans: plans, DisplayName: new("sub-" + token),
+		Clients: []apigateway.Client{{Name: new("client-" + token), Token: new(token)}},
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -66,7 +62,10 @@ func TestUsagePlanAndSubscriberCRUD(t *testing.T) {
 	require.Len(t, got.Entitlements, 1)
 	assert.Equal(t, dep, *got.Entitlements[0].Targets[0].DeploymentId)
 
-	list, err := e.plans.ListUsagePlans(t.Context(), apigateway.ListUsagePlansRequest{CompartmentId: new(testCompartment)})
+	list, err := e.plans.ListUsagePlans(
+		t.Context(),
+		apigateway.ListUsagePlansRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.Items, 1)
 	assert.Equal(t, "e1", *list.Items[0].Entitlements[0].Name)
@@ -77,15 +76,16 @@ func TestUsagePlanAndSubscriberCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "tok-1", *sub.Clients[0].Token)
 
-	subs, err := e.sub.ListSubscribers(t.Context(), apigateway.ListSubscribersRequest{CompartmentId: new(testCompartment)})
+	subs, err := e.sub.ListSubscribers(
+		t.Context(),
+		apigateway.ListSubscribersRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "client-tok-1", *subs.Items[0].Clients[0].Name)
 
 	_, err = e.sub.CreateSubscriber(t.Context(), apigateway.CreateSubscriberRequest{
-		CreateSubscriberDetails: apigateway.CreateSubscriberDetails{
-			CompartmentId: new(testCompartment), UsagePlans: []string{planID},
-			Clients: []apigateway.Client{{Name: new("dup"), Token: new("tok-1")}},
-		},
+		CompartmentId: new(testCompartment), UsagePlans: []string{planID},
+		Clients: []apigateway.Client{{Name: new("dup"), Token: new("tok-1")}},
 	})
 	assert.Equal(t, http.StatusConflict, svcErr(t, err).GetHTTPStatusCode(), "client tokens are unique")
 
@@ -122,9 +122,7 @@ func TestUsagePlanValidation(t *testing.T) {
 			t.Parallel()
 
 			_, err := e.plans.CreateUsagePlan(t.Context(), apigateway.CreateUsagePlanRequest{
-				CreateUsagePlanDetails: apigateway.CreateUsagePlanDetails{
-					CompartmentId: new(testCompartment), Entitlements: tt.ents,
-				},
+				CompartmentId: new(testCompartment), Entitlements: tt.ents,
 			})
 			assert.GreaterOrEqual(t, svcErr(t, err).GetHTTPStatusCode(), http.StatusBadRequest)
 		})
@@ -145,7 +143,7 @@ func TestUsagePlanRateLimit(t *testing.T) {
 	e.mkSubscriber(t, "other-tok", plan)
 
 	hdr := map[string]string{"X-Api-Key": "rate-tok"}
-	codes := []int{}
+	codes := make([]int, 0, 3)
 
 	for range 3 {
 		codes = append(codes, e.call(t, *gw.Id, http.MethodGet, "/p/u", hdr, "").status)
@@ -156,8 +154,12 @@ func TestUsagePlanRateLimit(t *testing.T) {
 	limited := e.call(t, *gw.Id, http.MethodGet, "/p/u", hdr, "")
 	assert.Equal(t, "1", limited.header.Get("Retry-After"))
 
-	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/p/u", map[string]string{"X-Api-Key": "other-tok"}, "").status,
-		"each subscriber has its own bucket")
+	assert.Equal(
+		t,
+		200,
+		e.call(t, *gw.Id, http.MethodGet, "/p/u", map[string]string{"X-Api-Key": "other-tok"}, "").status,
+		"each subscriber has its own bucket",
+	)
 
 	e.clock.Advance(time.Second)
 	assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, "/p/u", hdr, "").status)
@@ -191,7 +193,12 @@ func TestUsagePlanQuota(t *testing.T) {
 			e.mkSubscriber(t, "quota-tok", plan)
 
 			url := "/p/u?key=quota-tok"
-			assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, url, nil, "").status, "token from the query location")
+			assert.Equal(
+				t,
+				200,
+				e.call(t, *gw.Id, http.MethodGet, url, nil, "").status,
+				"token from the query location",
+			)
 			assert.Equal(t, 200, e.call(t, *gw.Id, http.MethodGet, url, nil, "").status)
 
 			over := e.call(t, *gw.Id, http.MethodGet, url, nil, "")

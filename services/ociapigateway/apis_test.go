@@ -27,9 +27,7 @@ func (e *env) mkAPI(t *testing.T, name, content string) apigateway.CreateApiResp
 	t.Helper()
 
 	resp, err := e.api.CreateApi(t.Context(), apigateway.CreateApiRequest{
-		CreateApiDetails: apigateway.CreateApiDetails{
-			CompartmentId: new(testCompartment), DisplayName: new(name), Content: new(content),
-		},
+		CompartmentId: new(testCompartment), DisplayName: new(name), Content: new(content),
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -56,12 +54,15 @@ func TestAPIResource(t *testing.T) {
 
 	raw, err := io.ReadAll(content.Content)
 	require.NoError(t, err)
-	assert.Equal(t, petsYAML, string(raw))
+	assert.YAMLEq(t, petsYAML, string(raw))
 
 	sum := sha256.Sum256(raw)
 	assert.Equal(t, base64.StdEncoding.EncodeToString(sum[:]), *content.XContentSha256)
 
-	spec, err := e.api.GetApiDeploymentSpecification(t.Context(), apigateway.GetApiDeploymentSpecificationRequest{ApiId: created.Id})
+	spec, err := e.api.GetApiDeploymentSpecification(
+		t.Context(),
+		apigateway.GetApiDeploymentSpecificationRequest{ApiId: created.Id},
+	)
 	require.NoError(t, err)
 	require.Len(t, spec.Routes, 2)
 	assert.Equal(t, "/pets", *spec.Routes[0].Path)
@@ -81,7 +82,7 @@ func TestAPIResource(t *testing.T) {
 	require.Len(t, list.Items, 1)
 
 	_, err = e.api.UpdateApi(t.Context(), apigateway.UpdateApiRequest{
-		ApiId: created.Id, UpdateApiDetails: apigateway.UpdateApiDetails{Content: new("openapi: 3.0.1\npaths: {}\n")},
+		ApiId: created.Id, Content: new("openapi: 3.0.1\npaths: {}\n"),
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -131,7 +132,7 @@ func TestAPIRejectsUnparseableContent(t *testing.T) {
 	e := newEnv(t, envOpts{})
 
 	_, err := e.api.CreateApi(t.Context(), apigateway.CreateApiRequest{
-		CreateApiDetails: apigateway.CreateApiDetails{CompartmentId: new(testCompartment), Content: new("a: [unclosed")},
+		CompartmentId: new(testCompartment), Content: new("a: [unclosed"),
 	})
 	assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 }
@@ -142,15 +143,16 @@ func TestSDKResource(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	a := e.mkAPI(t, "sdk-api", petsYAML)
 
-	langs, err := e.api.ListSdkLanguageTypes(t.Context(), apigateway.ListSdkLanguageTypesRequest{CompartmentId: new(testCompartment)})
+	langs, err := e.api.ListSdkLanguageTypes(
+		t.Context(),
+		apigateway.ListSdkLanguageTypesRequest{CompartmentId: new(testCompartment)},
+	)
 	require.NoError(t, err)
 	require.NotEmpty(t, langs.Items)
 
 	created, err := e.api.CreateSdk(t.Context(), apigateway.CreateSdkRequest{
-		CreateSdkDetails: apigateway.CreateSdkDetails{
-			ApiId: a.Id, TargetLanguage: langs.Items[0].Name, DisplayName: new("s1"),
-			Parameters: map[string]string{"k": "v"},
-		},
+		ApiId: a.Id, TargetLanguage: langs.Items[0].Name, DisplayName: new("s1"),
+		Parameters: map[string]string{"k": "v"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, testCompartment, *created.CompartmentId)
@@ -158,7 +160,7 @@ func TestSDKResource(t *testing.T) {
 	e.settle()
 
 	updated, err := e.api.UpdateSdk(t.Context(), apigateway.UpdateSdkRequest{
-		SdkId: created.Id, UpdateSdkDetails: apigateway.UpdateSdkDetails{DisplayName: new("s2")},
+		SdkId: created.Id, DisplayName: new("s2"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "s2", *updated.DisplayName)
@@ -169,7 +171,7 @@ func TestSDKResource(t *testing.T) {
 	require.Len(t, list.Items, 1)
 
 	_, err = e.api.CreateSdk(t.Context(), apigateway.CreateSdkRequest{
-		CreateSdkDetails: apigateway.CreateSdkDetails{ApiId: new("ocid1.none"), TargetLanguage: new("JAVA")},
+		ApiId: new("ocid1.none"), TargetLanguage: new("JAVA"),
 	})
 	assert.Equal(t, http.StatusNotFound, svcErr(t, err).GetHTTPStatusCode())
 

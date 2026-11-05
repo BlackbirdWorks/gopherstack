@@ -17,14 +17,14 @@ func (e *env) mkCachedGateway(t *testing.T, name string) apigateway.Gateway {
 	t.Helper()
 
 	created, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-		CreateGatewayDetails: apigateway.CreateGatewayDetails{
-			CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-			SubnetId: new(testSubnet), DisplayName: new(name),
-			ResponseCacheDetails: apigateway.ExternalRespCache{
-				Servers:                           []apigateway.ResponseCacheRespServer{{Host: new("cache.invalid"), Port: new(6379)}},
-				AuthenticationSecretId:            new("ocid1.vaultsecret.oc1..cache"),
-				AuthenticationSecretVersionNumber: new(int64(1)),
+		CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+		SubnetId: new(testSubnet), DisplayName: new(name),
+		ResponseCacheDetails: apigateway.ExternalRespCache{
+			Servers: []apigateway.ResponseCacheRespServer{
+				{Host: new("cache.invalid"), Port: new(6379)},
 			},
+			AuthenticationSecretId:            new("ocid1.vaultsecret.oc1..cache"),
+			AuthenticationSecretVersionNumber: new(int64(1)),
 		},
 	})
 	require.NoError(t, err)
@@ -40,7 +40,9 @@ func (e *env) mkCachedGateway(t *testing.T, name string) apigateway.Gateway {
 	return got.Gateway
 }
 
-func cachedSpec(backendURL, lookupExtra string, ttl int) string {
+func cachedSpec(backendURL, lookupExtra string) string {
+	const ttl = 60
+
 	return `{"routes":[{"path":"/c","methods":["GET"],"backend":{"type":"HTTP_BACKEND","url":"` + backendURL + `"},` +
 		`"requestPolicies":{"responseCacheLookup":{"type":"SIMPLE_LOOKUP_POLICY","isEnabled":true` + lookupExtra + `}},` +
 		`"responsePolicies":{"responseCacheStore":{"type":"FIXED_TTL_STORE_POLICY","timeToLiveInSeconds":` +
@@ -61,7 +63,7 @@ func TestResponseCache(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkCachedGateway(t, "cached")
-	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, `,"cacheKeyAdditions":["request.headers[Accept]"]`, 60))
+	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, `,"cacheKeyAdditions":["request.headers[Accept]"]`))
 
 	first := e.call(t, *gw.Id, http.MethodGet, "/k/c?ignored=1", map[string]string{"Accept": "a/b"}, "")
 	assert.Equal(t, "MISS", first.header.Get("X-Cache-Status"))
@@ -104,8 +106,8 @@ func TestResponseCacheRules(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkCachedGateway(t, "cached-rules")
-	e.mkDeployment(t, *gw.Id, "/pub", cachedSpec(backend.URL, "", 60))
-	e.mkDeployment(t, *gw.Id, "/priv", cachedSpec(backend.URL, `,"isPrivateCachingEnabled":true`, 60))
+	e.mkDeployment(t, *gw.Id, "/pub", cachedSpec(backend.URL, ""))
+	e.mkDeployment(t, *gw.Id, "/priv", cachedSpec(backend.URL, `,"isPrivateCachingEnabled":true`))
 
 	status := func(prefix, method string, h map[string]string, q string) string {
 		return e.call(t, *gw.Id, method, prefix+"/c"+q, h, "").header.Get("X-Cache-Status")
@@ -113,7 +115,12 @@ func TestResponseCacheRules(t *testing.T) {
 
 	auth := map[string]string{"Authorization": "Bearer t"}
 
-	assert.Equal(t, "BYPASS", status("/pub", http.MethodGet, auth, ""), "credentialed requests skip the cache by default")
+	assert.Equal(
+		t,
+		"BYPASS",
+		status("/pub", http.MethodGet, auth, ""),
+		"credentialed requests skip the cache by default",
+	)
 	assert.Equal(t, "BYPASS", status("/pub", http.MethodGet, auth, ""))
 	assert.Equal(t, "MISS", status("/priv", http.MethodGet, auth, ""))
 	assert.Equal(t, "HIT", status("/priv", http.MethodGet, auth, ""), "isPrivateCachingEnabled caches them")
@@ -121,7 +128,7 @@ func TestResponseCacheRules(t *testing.T) {
 	assert.Equal(t, "MISS", status("/pub", http.MethodGet, nil, "?fail=1"))
 	assert.Equal(t, "MISS", status("/pub", http.MethodGet, nil, "?fail=1"), "5xx responses are never stored")
 
-	assert.Equal(t, "", status("/pub", http.MethodPost, nil, ""), "only GET, HEAD and OPTIONS are cached")
+	assert.Empty(t, status("/pub", http.MethodPost, nil, ""), "only GET, HEAD and OPTIONS are cached")
 }
 
 func TestResponseCacheNeedsGatewayCache(t *testing.T) {
@@ -132,7 +139,7 @@ func TestResponseCacheNeedsGatewayCache(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	gw := e.mkGateway(t, "uncached")
-	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, "", 60))
+	e.mkDeployment(t, *gw.Id, "/k", cachedSpec(backend.URL, ""))
 
 	assert.Equal(t, "BYPASS", e.call(t, *gw.Id, http.MethodGet, "/k/c", nil, "").header.Get("X-Cache-Status"))
 }
@@ -142,13 +149,18 @@ func TestGatewayResponseCacheValidation(t *testing.T) {
 
 	e := newEnv(t, envOpts{})
 	tests := []struct {
-		name   string
 		detail apigateway.ResponseCacheDetails
+		name   string
 	}{
-		{"no servers", apigateway.ExternalRespCache{
-			Servers: []apigateway.ResponseCacheRespServer{}, AuthenticationSecretId: new("s"), AuthenticationSecretVersionNumber: new(int64(1)),
-		}},
-		{"no secret", apigateway.ExternalRespCache{
+		{
+			name: "no servers",
+			detail: apigateway.ExternalRespCache{
+				Servers:                           []apigateway.ResponseCacheRespServer{},
+				AuthenticationSecretId:            new("s"),
+				AuthenticationSecretVersionNumber: new(int64(1)),
+			},
+		},
+		{name: "no secret", detail: apigateway.ExternalRespCache{
 			Servers: []apigateway.ResponseCacheRespServer{{Host: new("h"), Port: new(1)}},
 		}},
 	}
@@ -158,10 +170,8 @@ func TestGatewayResponseCacheValidation(t *testing.T) {
 			t.Parallel()
 
 			_, err := e.gw.CreateGateway(t.Context(), apigateway.CreateGatewayRequest{
-				CreateGatewayDetails: apigateway.CreateGatewayDetails{
-					CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
-					SubnetId: new(testSubnet), ResponseCacheDetails: tt.detail,
-				},
+				CompartmentId: new(testCompartment), EndpointType: apigateway.GatewayEndpointTypePublic,
+				SubnetId: new(testSubnet), ResponseCacheDetails: tt.detail,
 			})
 			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 		})

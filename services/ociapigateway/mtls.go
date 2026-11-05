@@ -153,7 +153,7 @@ func (b *InMemoryBackend) checkMTLS(r *http.Request, tgt target) denial {
 		return denial{}
 	}
 
-	refuse := denial{status: http.StatusUnauthorized, msg: "Unauthorized"}
+	refuse := denial{status: http.StatusUnauthorized, msg: msgUnauthorized}
 
 	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 		return refuse

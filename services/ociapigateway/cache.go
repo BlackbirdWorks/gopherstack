@@ -14,6 +14,7 @@ const (
 	cacheTypeExternal = "EXTERNAL_RESP_CACHE"
 	cacheTypeNone     = "NONE"
 	cacheMaxEntries   = 10000
+	maxTCPPort        = 65535
 	cacheMaxBody      = 1 << 20
 	cacheStatusHeader = "X-Cache-Status"
 	cacheHit          = "HIT"
@@ -26,8 +27,8 @@ var cacheAdditionRe = regexp.MustCompile(`^request\.(query|headers|auth)\[[^\]]+
 type cacheEntry struct {
 	expires time.Time
 	header  http.Header
-	body    []byte
 	dep     string
+	body    []byte
 	status  int
 }
 
@@ -108,9 +109,7 @@ type routeCache struct {
 }
 
 // cachePlan decides whether and how the request uses the response cache.
-func cachePlan(
-	tgt target, route *compiledRoute, r *http.Request, rv *reqView, claims map[string]any,
-) routeCache {
+func cachePlan(tgt target, route *compiledRoute, r *http.Request, claims map[string]any) routeCache {
 	var lookup *cacheLookupDoc
 
 	if p := route.doc.RequestPolicies; p != nil {
@@ -135,7 +134,7 @@ func cachePlan(
 
 	parts := []string{tgt.depID, r.Method, r.URL.Path}
 	for _, add := range lookup.Additions {
-		parts = append(parts, add+"="+additionValue(add, r, rv, claims))
+		parts = append(parts, add+"="+additionValue(add, r, claims))
 	}
 
 	rc.key = strings.Join(parts, "\x00")
@@ -164,7 +163,7 @@ func privateRequest(rp *requestPolicies, r *http.Request) bool {
 	return a.TokenQueryParam != nil && *a.TokenQueryParam != "" && r.URL.Query().Has(*a.TokenQueryParam)
 }
 
-func additionValue(add string, r *http.Request, rv *reqView, claims map[string]any) string {
+func additionValue(add string, r *http.Request, claims map[string]any) string {
 	if add == "request.host" {
 		return r.Host
 	}
@@ -229,10 +228,10 @@ type respCacheServer struct {
 }
 
 type respCacheDetails struct {
+	AuthSecretVersion *int64            `json:"authenticationSecretVersionNumber"`
 	AuthSecretID      string            `json:"authenticationSecretId"`
 	Type              string            `json:"type"`
 	Servers           []respCacheServer `json:"servers"`
-	AuthSecretVersion *int64            `json:"authenticationSecretVersionNumber"`
 }
 
 // validateResponseCache checks a gateway's responseCacheDetails (NONE or EXTERNAL_RESP_CACHE).
@@ -250,24 +249,28 @@ func validateResponseCache(raw json.RawMessage) *APIError {
 	case cacheTypeNone:
 		return nil
 	case cacheTypeExternal:
-		if len(d.Servers) == 0 {
-			return errParam("responseCacheDetails.servers must not be empty")
-		}
-
-		for _, s := range d.Servers {
-			if s.Host == nil || *s.Host == "" || s.Port == nil || *s.Port < 1 || *s.Port > 65535 { //nolint:mnd // TCP port range
-				return errParam("responseCacheDetails.servers need a host and a port between 1 and 65535")
-			}
-		}
-
-		if d.AuthSecretID == "" || d.AuthSecretVersion == nil || *d.AuthSecretVersion < 1 {
-			return errParam("responseCacheDetails needs authenticationSecretId and authenticationSecretVersionNumber")
-		}
-
-		return nil
+		return validateExternalCache(&d)
 	default:
 		return errParam("responseCacheDetails.type must be NONE or EXTERNAL_RESP_CACHE")
 	}
+}
+
+func validateExternalCache(d *respCacheDetails) *APIError {
+	if len(d.Servers) == 0 {
+		return errParam("responseCacheDetails.servers must not be empty")
+	}
+
+	for _, s := range d.Servers {
+		if s.Host == nil || *s.Host == "" || s.Port == nil || *s.Port < 1 || *s.Port > maxTCPPort {
+			return errParam("responseCacheDetails.servers need a host and a port between 1 and 65535")
+		}
+	}
+
+	if d.AuthSecretID == "" || d.AuthSecretVersion == nil || *d.AuthSecretVersion < 1 {
+		return errParam("responseCacheDetails needs authenticationSecretId and authenticationSecretVersionNumber")
+	}
+
+	return nil
 }
 
 // forgetGatewayCache drops the cached responses of every deployment on the gateway.

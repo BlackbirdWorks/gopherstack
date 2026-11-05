@@ -3,6 +3,7 @@ package ociapigateway
 import (
 	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func windowEnd(unit string, t time.Time) time.Time {
 	case unitWeek:
 		daysSinceMonday := (int(t.Weekday()) + 6) % 7 //nolint:mnd // Monday-based week
 
-		return time.Date(t.Year(), t.Month(), t.Day()-daysSinceMonday+7, 0, 0, 0, 0, time.UTC) //nolint:mnd // days per week
+		return time.Date(t.Year(), t.Month(), t.Day()-daysSinceMonday+7, 0, 0, 0, 0, time.UTC)
 	default:
 		return time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, time.UTC)
 	}
@@ -91,15 +92,15 @@ func (u *usageTracker) refund(key string) {
 }
 
 type appliedEntitlement struct {
-	key   string
 	rate  *RateLimit
 	quota *Quota
+	key   string
 }
 
 // usageVerdict is the outcome of usage-plan enforcement; a zero status admits the request.
 type usageVerdict struct {
-	refund []string
 	msg    string
+	refund []string
 	status int
 	retry  int
 }
@@ -128,44 +129,41 @@ func clientTokenOf(r *http.Request, locations []string) string {
 	return ""
 }
 
+func ownsToken(s *Subscriber, token string) bool {
+	return slices.ContainsFunc(s.Clients, func(c Client) bool { return c.Token == token })
+}
+
+// planEntitlements lists the entitlements of the subscriber's usage plans that target the deployment.
+func (b *InMemoryBackend) planEntitlements(s *Subscriber, depID string) []appliedEntitlement {
+	var out []appliedEntitlement
+
+	for _, planID := range s.UsagePlans {
+		p := b.usagePlans[planID]
+		if p == nil || !servable(p.State) {
+			continue
+		}
+
+		for _, e := range p.Entitlements {
+			if targets(e.Targets, depID) {
+				out = append(out, appliedEntitlement{
+					key: planID + "|" + e.Name + "|" + s.ID, rate: e.RateLimit, quota: e.Quota,
+				})
+			}
+		}
+	}
+
+	return out
+}
+
 // entitlementsFor finds the subscriber owning the token and the entitlements that target the deployment.
 func (b *InMemoryBackend) entitlementsFor(token, depID string) ([]appliedEntitlement, bool) {
 	b.mu.RLock("entitlementsFor")
 	defer b.mu.RUnlock()
 
 	for _, s := range b.subscribers {
-		if !servable(s.State) {
-			continue
+		if servable(s.State) && ownsToken(s, token) {
+			return b.planEntitlements(s, depID), true
 		}
-
-		owns := false
-
-		for _, c := range s.Clients {
-			owns = owns || c.Token == token
-		}
-
-		if !owns {
-			continue
-		}
-
-		var out []appliedEntitlement
-
-		for _, planID := range s.UsagePlans {
-			p := b.usagePlans[planID]
-			if p == nil || !servable(p.State) {
-				continue
-			}
-
-			for _, e := range p.Entitlements {
-				if targets(e.Targets, depID) {
-					out = append(out, appliedEntitlement{
-						key: planID + "|" + e.Name + "|" + s.ID, rate: e.RateLimit, quota: e.Quota,
-					})
-				}
-			}
-		}
-
-		return out, true
 	}
 
 	return nil, false
@@ -189,12 +187,12 @@ func (b *InMemoryBackend) enforceUsage(r *http.Request, pol *usagePlansDoc, depI
 
 	token := clientTokenOf(r, pol.TokenLocations)
 	if token == "" {
-		return usageVerdict{status: http.StatusUnauthorized, msg: "Unauthorized"}
+		return usageVerdict{status: http.StatusUnauthorized, msg: msgUnauthorized}
 	}
 
 	ents, known := b.entitlementsFor(token, depID)
 	if !known {
-		return usageVerdict{status: http.StatusUnauthorized, msg: "Unauthorized"}
+		return usageVerdict{status: http.StatusUnauthorized, msg: msgUnauthorized}
 	}
 
 	if len(ents) == 0 {

@@ -341,28 +341,17 @@ func (b *InMemoryBackend) ChangeGatewayCompartment(id, ifMatch string, in change
 		return "", err
 	}
 
-	if lerr := checkLocked(g.Locks, false); lerr != nil {
-		return "", lerr
-	}
+	return b.move(moveSpec{
+		id: id, op: wrUpdateGateway, entity: entityGateway, locks: g.Locks, compartment: &g.CompartmentID,
+		etag: &g.Etag, updated: &g.TimeUpdated,
+		conflict: func(target string) *APIError {
+			if b.gatewayNameTaken(target, g.DisplayName, g.ID) {
+				return errConflict("a gateway named " + g.DisplayName + " already exists in the target compartment")
+			}
 
-	if err = b.checkMove(g.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	if b.gatewayNameTaken(in.CompartmentID, g.DisplayName, g.ID) {
-		return "", errConflict("a gateway named " + g.DisplayName + " already exists in the target compartment")
-	}
-
-	g.CompartmentID, g.TimeUpdated, g.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(
-		wrUpdateGateway,
-		g.CompartmentID,
-		entityGateway,
-		id,
-		actionUpdated,
-		b.nowUTC().Add(b.transition),
-	), nil
+			return nil
+		},
+	}, ifMatch, in.CompartmentID)
 }
 
 func (h *Handler) createGateway(q *req) error {

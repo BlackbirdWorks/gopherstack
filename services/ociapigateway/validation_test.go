@@ -9,7 +9,8 @@ import (
 )
 
 func validatedSpec(policies string) string {
-	return `{"routes":[{"path":"/v","methods":["POST"],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"ok"},` +
+	return `{"routes":[{"path":"/v","methods":["POST"],` +
+		`"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200,"body":"ok"},` +
 		`"requestPolicies":{` + policies + `}}]}`
 }
 
@@ -72,7 +73,11 @@ func TestRequestValidation(t *testing.T) {
 		{
 			name:     "body exact content type with parameters",
 			policies: `"bodyValidation":{"required":true,"content":{"application/json":{"validationType":"NONE"}}}`,
-			headers:  map[string]string{"Content-Type": "application/json; charset=utf-8"}, body: "{}", want: http.StatusOK,
+			headers: map[string]string{
+				"Content-Type": "application/json; charset=utf-8",
+			},
+			body: "{}",
+			want: http.StatusOK,
 		},
 		{
 			name:     "body subtype wildcard",
@@ -118,7 +123,10 @@ func TestRequestValidationSpecErrors(t *testing.T) {
 		name     string
 		policies string
 	}{
-		{"json schema validation type", `"bodyValidation":{"content":{"application/json":{"validationType":"JSON_SCHEMA"}}}`},
+		{
+			"json schema validation type",
+			`"bodyValidation":{"content":{"application/json":{"validationType":"JSON_SCHEMA"}}}`,
+		},
 		{"empty content", `"bodyValidation":{"content":{}}`},
 		{"bad mode", `"headerValidations":{"validationMode":"STRICT","headers":[{"name":"a"}]}`},
 		{"unnamed header", `"headerValidations":{"headers":[{"required":true}]}`},
@@ -145,7 +153,9 @@ func TestHeaderValidationObjectFormFromDocs(t *testing.T) {
 	gw := e.mkGateway(t, "validation-doc")
 
 	body := `{"gatewayId":"` + *gw.Id + `","compartmentId":"` + testCompartment + `","pathPrefix":"/d","specification":` +
-		validatedSpec(`"headerValidations":{"headers":{"name":"X-Username","required":true},"validationMode":"ENFORCING"}`) + `}`
+		validatedSpec(
+			`"headerValidations":{"headers":{"name":"X-Username","required":true},"validationMode":"ENFORCING"}`,
+		) + `}`
 	e.post(t, "/deployments", body, http.StatusAccepted)
 	e.settle()
 

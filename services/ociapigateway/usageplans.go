@@ -34,8 +34,8 @@ const (
 
 // RateLimit caps requests per unit of time; the only documented unit is SECOND.
 type RateLimit struct {
-	Value int    `json:"value"`
 	Unit  string `json:"unit"`
+	Value int    `json:"value"`
 }
 
 // Quota caps requests per calendar period.
@@ -242,7 +242,8 @@ func validateLimits(e *Entitlement) *APIError {
 			return errParam("quota needs a positive value and unit MINUTE, HOUR, DAY, WEEK or MONTH")
 		}
 
-		if q.ResetPolicy != resetCalendar || (q.OperationOnBreach != breachReject && q.OperationOnBreach != breachAllow) {
+		if q.ResetPolicy != resetCalendar ||
+			(q.OperationOnBreach != breachReject && q.OperationOnBreach != breachAllow) {
 			return errParam("quota needs resetPolicy CALENDAR and operationOnBreach REJECT or ALLOW")
 		}
 	}
@@ -361,24 +362,11 @@ func (b *InMemoryBackend) ListUsagePlans(
 	b.mu.RLock("ListUsagePlans")
 	defer b.mu.RUnlock()
 
-	var all []*UsagePlan
-
-	for _, p := range b.usagePlans {
-		if p.Compartment == compartment && stateMatches(p.State, state) &&
-			(name == "" || strs.Equal(p.DisplayName, name)) {
-			all = append(all, p)
-		}
-	}
-
-	pg := paginate(all, o, func(p *UsagePlan) string { return p.DisplayName },
-		func(p *UsagePlan) (time.Time, int64) { return p.TimeCreated, 0 })
-
-	out := make([]UsagePlanWire, 0, len(pg.Data))
-	for _, p := range pg.Data {
-		out = append(out, usagePlanSummary(p))
-	}
-
-	return page.Page[UsagePlanWire]{Data: out, Next: pg.Next}, nil
+	return listOf(b.usagePlans, o, func(p *UsagePlan) bool {
+		return p.Compartment == compartment && stateMatches(p.State, state) &&
+			(name == "" || strs.Equal(p.DisplayName, name))
+	}, func(p *UsagePlan) string { return p.DisplayName }, func(p *UsagePlan) time.Time { return p.TimeCreated },
+		usagePlanSummary), nil
 }
 
 func (b *InMemoryBackend) activeUsagePlan(id, ifMatch string, deleting bool) (*UsagePlan, *APIError) {
@@ -464,18 +452,10 @@ func (b *InMemoryBackend) ChangeUsagePlanCompartment(id, ifMatch string, in chan
 		return "", err
 	}
 
-	if lerr := checkLocked(p.Locks, false); lerr != nil {
-		return "", lerr
-	}
-
-	if err = b.checkMove(p.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	p.Compartment, p.TimeUpdated, p.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateUsagePlan, p.Compartment, entityUsagePlan, id, actionUpdated,
-		b.nowUTC().Add(b.transition)), nil
+	return b.move(moveSpec{
+		id: id, op: wrUpdateUsagePlan, entity: entityUsagePlan, locks: p.Locks, compartment: &p.Compartment,
+		etag: &p.Etag, updated: &p.TimeUpdated,
+	}, ifMatch, in.CompartmentID)
 }
 
 // CreateSubscriber creates a subscriber.
@@ -547,24 +527,11 @@ func (b *InMemoryBackend) ListSubscribers(
 	b.mu.RLock("ListSubscribers")
 	defer b.mu.RUnlock()
 
-	var all []*Subscriber
-
-	for _, s := range b.subscribers {
-		if s.Compartment == compartment && stateMatches(s.State, state) &&
-			(name == "" || strs.Equal(s.DisplayName, name)) {
-			all = append(all, s)
-		}
-	}
-
-	pg := paginate(all, o, func(s *Subscriber) string { return s.DisplayName },
-		func(s *Subscriber) (time.Time, int64) { return s.TimeCreated, 0 })
-
-	out := make([]SubscriberWire, 0, len(pg.Data))
-	for _, s := range pg.Data {
-		out = append(out, subscriberView(s, false))
-	}
-
-	return page.Page[SubscriberWire]{Data: out, Next: pg.Next}, nil
+	return listOf(b.subscribers, o, func(s *Subscriber) bool {
+		return s.Compartment == compartment && stateMatches(s.State, state) &&
+			(name == "" || strs.Equal(s.DisplayName, name))
+	}, func(s *Subscriber) string { return s.DisplayName }, func(s *Subscriber) time.Time { return s.TimeCreated },
+		func(s *Subscriber) SubscriberWire { return subscriberView(s, false) }), nil
 }
 
 func (b *InMemoryBackend) activeSubscriber(id, ifMatch string, deleting bool) (*Subscriber, *APIError) {
@@ -650,18 +617,10 @@ func (b *InMemoryBackend) ChangeSubscriberCompartment(id, ifMatch string, in cha
 		return "", err
 	}
 
-	if lerr := checkLocked(s.Locks, false); lerr != nil {
-		return "", lerr
-	}
-
-	if err = b.checkMove(s.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	s.Compartment, s.TimeUpdated, s.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateSubscribe, s.Compartment, entitySubscribe, id, actionUpdated,
-		b.nowUTC().Add(b.transition)), nil
+	return b.move(moveSpec{
+		id: id, op: wrUpdateSubscribe, entity: entitySubscribe, locks: s.Locks, compartment: &s.Compartment,
+		etag: &s.Etag, updated: &s.TimeUpdated,
+	}, ifMatch, in.CompartmentID)
 }
 
 func (h *Handler) createUsagePlan(q *req) error {

@@ -140,12 +140,17 @@ var router = restroute.New(append(lockRoutes(), []restroute.Route{
 }...))
 
 func lockRoutes() []restroute.Route {
-	out := make([]restroute.Route, 0, 2*len(lockKinds))
+	out := make([]restroute.Route, 0, lockOpsPerKind*len(lockKinds))
 
 	for _, k := range lockKinds {
-		out = append(out,
+		out = append(
+			out,
 			restroute.Route{Method: http.MethodPost, Path: k.path + "/actions/addLock", Op: "Add" + k.kind + "Lock"},
-			restroute.Route{Method: http.MethodPost, Path: k.path + "/actions/removeLock", Op: "Remove" + k.kind + "Lock"},
+			restroute.Route{
+				Method: http.MethodPost,
+				Path:   k.path + "/actions/removeLock",
+				Op:     "Remove" + k.kind + "Lock",
+			},
 		)
 	}
 

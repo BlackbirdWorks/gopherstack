@@ -137,13 +137,15 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 
 	gwB.SetTransition(0)
 
-	var gw struct{ ID string }
+	var gw map[string]any
 
 	require.NoError(t, json.Unmarshal([]byte(post("/gateways",
 		`{"compartmentId":"c","endpointType":"PUBLIC","subnetId":"s"}`)), &gw))
 
 	gwB.Sweep()
-	post("/deployments", `{"gatewayId":"`+gw.ID+`","compartmentId":"c","pathPrefix":"/i","specification":{"routes":[`+
+
+	gwID, _ := gw["id"].(string)
+	post("/deployments", `{"gatewayId":"`+gwID+`","compartmentId":"c","pathPrefix":"/i","specification":{"routes":[`+
 		`{"path":"/x","methods":["GET"],"backend":{"type":"STOCK_RESPONSE_BACKEND","status":200}}],`+
 		`"requestPolicies":{"authentication":{"type":"TOKEN_AUTHENTICATION","tokenHeader":"Authorization",`+
 		`"tokenAuthScheme":"Bearer","validationPolicy":{"type":"REMOTE_DISCOVERY",`+
@@ -151,7 +153,12 @@ func TestWireOCIAPIGatewayResolvesVaultSecrets(t *testing.T) {
 		`"sourceUriDetails":{"type":"DISCOVERY_URI","uri":"`+idp.URL+`/.well-known/openid-configuration"}}}}}}`)
 	gwB.Sweep()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base[:len(base)-len("/20190501")]+"/_apigw/"+gw.ID+"/i/x", nil)
+	req, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		base[:len(base)-len("/20190501")]+"/_apigw/"+gwID+"/i/x",
+		nil,
+	)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer opaque")
 

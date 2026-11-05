@@ -77,21 +77,21 @@ type Deployment struct {
 
 // Certificate is a TLS certificate usable by a gateway.
 type Certificate struct {
-	TimeCreated       time.Time       `json:"timeCreated"`
-	TimeUpdated       time.Time       `json:"timeUpdated"`
-	TimeNotValidAfter time.Time       `json:"timeNotValidAfter"`
-	Tags              Tags            `json:"tags"`
-	TransitionAt      *time.Time      `json:"transitionAt,omitempty"`
-	Locks             []Lock          `json:"locks,omitempty"`
-	ID                string          `json:"id"`
-	CompartmentID     string          `json:"compartmentId"`
-	DisplayName       string          `json:"displayName"`
-	CertPEM           string          `json:"certificate"`
-	Intermediate      string          `json:"intermediateCertificates,omitempty"`
-	PrivateKey        string          `json:"privateKey,omitempty"`
-	State             string          `json:"state"`
-	Etag              string          `json:"etag"`
-	SubjectNames      []string        `json:"subjectNames"`
+	TimeCreated       time.Time  `json:"timeCreated"`
+	TimeUpdated       time.Time  `json:"timeUpdated"`
+	TimeNotValidAfter time.Time  `json:"timeNotValidAfter"`
+	Tags              Tags       `json:"tags"`
+	TransitionAt      *time.Time `json:"transitionAt,omitempty"`
+	Locks             []Lock     `json:"locks,omitempty"`
+	ID                string     `json:"id"`
+	CompartmentID     string     `json:"compartmentId"`
+	DisplayName       string     `json:"displayName"`
+	CertPEM           string     `json:"certificate"`
+	Intermediate      string     `json:"intermediateCertificates,omitempty"`
+	PrivateKey        string     `json:"privateKey,omitempty"`
+	State             string     `json:"state"`
+	Etag              string     `json:"etag"`
+	SubjectNames      []string   `json:"subjectNames"`
 }
 
 // WorkRequest records an asynchronous operation.

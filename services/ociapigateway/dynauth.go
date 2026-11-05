@@ -182,7 +182,10 @@ func (b *InMemoryBackend) introspect(ctx context.Context, a *authDoc, token stri
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(v.ClientDetails.ClientID+":"+secret)))
+	req.Header.Set(
+		"Authorization",
+		"Basic "+base64.StdEncoding.EncodeToString([]byte(v.ClientDetails.ClientID+":"+secret)),
+	)
 
 	resp, err := b.client.Do(req)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 
 const (
 	halfComplete  = 50
+	wrInProgress  = "IN_PROGRESS"
 	entityGateway = "gateway"
 	entityDeploy  = "deployment"
 	entityCert    = "certificate"
@@ -99,9 +100,9 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 	now := b.nowUTC()
 	out := WorkRequestWire{
 		OperationType: wr.Operation, ID: wr.ID, CompartmentID: wr.CompartmentID, TimeAccepted: wr.Accepted,
-		Status: "IN_PROGRESS", PercentComplete: halfComplete, TimeStarted: &wr.Accepted,
+		Status: wrInProgress, PercentComplete: halfComplete, TimeStarted: &wr.Accepted,
 		Resources: []wrResourceWire{{
-			EntityType: wr.EntityType, ActionType: "IN_PROGRESS", Identifier: wr.EntityID,
+			EntityType: wr.EntityType, ActionType: wrInProgress, Identifier: wr.EntityID,
 			EntityURI: base + entityPath(wr.EntityType) + wr.EntityID,
 		}},
 	}
@@ -112,7 +113,7 @@ func (b *InMemoryBackend) wrView(wr *WorkRequest) WorkRequestWire {
 
 		if wr.Canceled {
 			out.Status, out.PercentComplete = "CANCELED", halfComplete
-			out.Resources[0].ActionType = "IN_PROGRESS"
+			out.Resources[0].ActionType = wrInProgress
 		}
 	}
 

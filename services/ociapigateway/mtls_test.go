@@ -112,9 +112,7 @@ func newTLSEnv(t *testing.T) *tlsEnv {
 	})
 
 	cert, err := e.api.CreateCertificate(t.Context(), apigateway.CreateCertificateRequest{
-		CreateCertificateDetails: apigateway.CreateCertificateDetails{
-			CompartmentId: new(testCompartment), Certificate: &srv.certPE, PrivateKey: &srv.keyPE,
-		},
+		CompartmentId: new(testCompartment), Certificate: &srv.certPE, PrivateKey: &srv.keyPE,
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -122,10 +120,9 @@ func newTLSEnv(t *testing.T) *tlsEnv {
 	require.NoError(t, e.backend.RegisterCABundle(caBundleID, clientCA.pem))
 
 	_, err = e.gw.UpdateGateway(t.Context(), apigateway.UpdateGatewayRequest{
-		GatewayId: gw.Id,
-		UpdateGatewayDetails: apigateway.UpdateGatewayDetails{
-			CertificateId: cert.Id, CaBundles: []apigateway.CaBundle{apigateway.CertificatesCaBundle{CaBundleId: new(caBundleID)}},
-		},
+		GatewayId:     gw.Id,
+		CertificateId: cert.Id,
+		CaBundles:     []apigateway.CaBundle{apigateway.CertificatesCaBundle{CaBundleId: new(caBundleID)}},
 	})
 	require.NoError(t, err)
 	e.settle()
@@ -144,7 +141,12 @@ func (e *tlsEnv) get(t *testing.T, path string, certs ...tls.Certificate) (int, 
 	roots.AddCert(e.serverCA.cert)
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: roots, ServerName: e.serverName, Certificates: certs, MinVersion: tls.VersionTLS12},
+		TLSClientConfig: &tls.Config{
+			RootCAs:      roots,
+			ServerName:   e.serverName,
+			Certificates: certs,
+			MinVersion:   tls.VersionTLS12,
+		},
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return (&net.Dialer{}).DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(e.port))
 		},
@@ -209,7 +211,12 @@ func TestMutualTLS(t *testing.T) {
 		t.Parallel()
 
 		assert.Equal(t, 200, e.call(t, *e.gw.Id, http.MethodGet, "/open/hi", nil, "").status)
-		assert.Equal(t, 401, e.call(t, *e.gw.Id, http.MethodGet, "/m/hi", nil, "").status, "no certificate over plain http")
+		assert.Equal(
+			t,
+			401,
+			e.call(t, *e.gw.Id, http.MethodGet, "/m/hi", nil, "").status,
+			"no certificate over plain http",
+		)
 	})
 
 	t.Run("unknown server name fails the handshake", func(t *testing.T) {
