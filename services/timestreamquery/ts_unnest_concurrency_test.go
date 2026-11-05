@@ -11,6 +11,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
 
+const unnestShapeQuery = `WITH s AS (SELECT host, create_time_series(time, measure_value::double) AS r ` +
+	`FROM db.t GROUP BY host) SELECT t.v%d FROM s CROSS JOIN UNNEST(r) AS t (ts%d, v%d)`
+
 func TestQuery_UnnestConcurrentDistinctShapes(t *testing.T) {
 	t.Parallel()
 
@@ -24,14 +27,8 @@ func TestQuery_UnnestConcurrentDistinctShapes(t *testing.T) {
 	counts := make([]int, workers)
 
 	for i := range workers {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			q := fmt.Sprintf(
-				`WITH s AS (SELECT host, create_time_series(time, measure_value::double) AS r FROM db.t GROUP BY host) `+
-					`SELECT t.v%d FROM s CROSS JOIN UNNEST(r) AS t (ts%d, v%d)`, i, i, i)
+		wg.Go(func() {
+			q := fmt.Sprintf(unnestShapeQuery, i, i, i)
 
 			page, err := b.QueryWithOptions(t.Context(), timestreamquery.QueryOptions{QueryString: q})
 			errs[i] = err
@@ -39,7 +36,7 @@ func TestQuery_UnnestConcurrentDistinctShapes(t *testing.T) {
 			if err == nil {
 				counts[i] = len(page.Rows)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
