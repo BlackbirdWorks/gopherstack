@@ -316,6 +316,10 @@ func registerLocalProviders(
 	apim := NewAPIMProvider()
 	apim.SetAllowExternal(settings.APIMAllowExternal)
 	registry.Register(apim)
+
+	logic := NewLogicProvider()
+	logic.SetAllowExternal(settings.LogicAllowExternal)
+	registry.Register(logic)
 	registry.Register(web)
 	registry.Register(network)
 	registry.Register(msi)

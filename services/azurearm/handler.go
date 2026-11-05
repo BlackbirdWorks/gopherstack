@@ -143,6 +143,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return nil
 		}
 
+		if lp, ok := h.logicProvider(); ok && strings.HasPrefix(r.URL.Path, logicDataPrefix) &&
+			lp.ServeDataPlane(c.Response(), r) {
+			return nil
+		}
+
 		host := hostFromHostHeader(r.Host)
 		ctx := WithRequestHost(r.Context(), host)
 		c.SetRequest(r.WithContext(ctx))
@@ -452,7 +457,7 @@ func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 		appConfigRoutes, containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
-		storageFileServiceRoutes, apimRoutes, armResourceRoutes,
+		storageFileServiceRoutes, apimRoutes, logicRoutes, armResourceRoutes,
 	} {
 		if handled, err := matchRoutes(table, h, c, segs); handled {
 			return err
