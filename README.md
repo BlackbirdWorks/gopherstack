@@ -836,7 +836,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 1 gap; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 71 | 6 gaps; 3 structural gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 1 gap; 2 structural gaps; 1 deferred |
-| [IAM](services/iam/README.md) | A | 38 | 4 gaps; 4 structural gaps |
+| [IAM](services/iam/README.md) | A | 38 | 5 gaps; 4 structural gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 1 gap; 5 structural gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 1 gap |
 | [IAM Identity Center OIDC](services/ssooidc/README.md) | B | 4 | 1 gap; 1 structural gap |
@@ -863,7 +863,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cost Explorer](services/ce/README.md) | A | 37 | 1 gap; 5 structural gaps; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 structural gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 1 gap; 2 structural gaps; 1 deferred |
-| [Organizations](services/organizations/README.md) | A | 63 | 2 structural gaps |
+| [Organizations](services/organizations/README.md) | A | 63 | 1 gap; 2 structural gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 gaps; 1 structural gap; 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 structural gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 2 structural gaps; 1 deferred |

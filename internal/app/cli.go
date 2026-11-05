@@ -13383,6 +13383,7 @@ func setupRegistry(
 				Recorder:          iamRecorder,
 				Audit:             iamAudit,
 				SCPs:              scps,
+				ResourceOwners:    resourceOwnersFor(scps != nil, services),
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))

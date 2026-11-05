@@ -9,10 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 63 (63 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- RCPFullAWSAccess policy id (p-RCPFullAWSAccess) is recalled by analogy with p-FullAWSAccess; the User Guide names the managed policy but not its id (unverified). The policy is created when RCPs are first enabled rather than at organization creation.
 
 ### Structural gaps
 

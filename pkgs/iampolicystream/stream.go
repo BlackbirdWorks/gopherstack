@@ -31,6 +31,7 @@ const (
 	ReasonImplicitDeny     = "implicit-deny"
 	ReasonUnresolvedCaller = "unresolved-principal"
 	ReasonServiceControl   = "service-control-policy"
+	ReasonResourceControl  = "resource-control-policy"
 )
 
 // Deny-kind values recorded on a denied Event.
@@ -47,6 +48,7 @@ const (
 	PolicyBoundary = "permission-boundary"
 	PolicyIdentity = "identity"
 	PolicySCP      = "service-control-policy"
+	PolicyRCP      = "resource-control-policy"
 )
 
 // PolicyRef names the policy that produced the deciding statement. Owner is the
