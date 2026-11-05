@@ -120,8 +120,8 @@ func TestAdvancedBusToPipelineDelivery(t *testing.T) {
 			},
 		},
 		{
-			name:  "CEL transformation merges and sets fields",
-			match: `message.type == "order.created" && message.data.n > 5`,
+			name:      "CEL transformation merges and sets fields",
+			match:     `message.type == "order.created" && message.data.n > 5`,
 			transform: `message.merge({"data": {"extra": "x"}}).setField("data.order", "o-2")`,
 			check: func(t *testing.T, got request) {
 				t.Helper()
