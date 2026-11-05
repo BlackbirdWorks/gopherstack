@@ -217,6 +217,10 @@ func (b *InMemoryBackend) servePrometheus(w http.ResponseWriter, r *http.Request
 		b.promLabelNames(w, project, vals)
 	case op == "metadata":
 		b.promMetadata(w, project, vals)
+	case op == "rules":
+		b.promRules(w, project, vals)
+	case op == "alerts":
+		b.promAlerts(w, project)
 	case strings.HasPrefix(op, "label/") && strings.HasSuffix(op, "/values"):
 		b.promLabelValues(w, project, strings.TrimSuffix(strings.TrimPrefix(op, "label/"), "/values"), vals)
 	default:

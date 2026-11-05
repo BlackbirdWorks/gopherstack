@@ -53,6 +53,8 @@ type uptimeRec struct {
 type InMemoryBackend struct {
 	pub          Publisher
 	logs         LogMetricSource
+	entries      LogEntrySource
+	condRT       map[string]*condRuntime
 	policies     map[string]*monitoringpb.AlertPolicy
 	mu           *lockmetrics.RWMutex
 	httpc        *http.Client
@@ -94,6 +96,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.services = make(map[string]*monitoringpb.Service)
 	b.slos = make(map[string]*monitoringpb.ServiceLevelObjective)
 	b.incidents = make(map[string]*Incident)
+	b.condRT = make(map[string]*condRuntime)
 	b.deliveries = nil
 }
 

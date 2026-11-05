@@ -24,10 +24,18 @@ type (
 )
 
 const (
-	alignNone       = monitoringpb.Aggregation_ALIGN_NONE
-	alignDelta      = monitoringpb.Aggregation_ALIGN_DELTA
-	alignRate       = monitoringpb.Aggregation_ALIGN_RATE
-	alignNextOlder  = monitoringpb.Aggregation_ALIGN_NEXT_OLDER
+	alignNone      = monitoringpb.Aggregation_ALIGN_NONE
+	alignDelta     = monitoringpb.Aggregation_ALIGN_DELTA
+	alignRate      = monitoringpb.Aggregation_ALIGN_RATE
+	alignNextOlder = monitoringpb.Aggregation_ALIGN_NEXT_OLDER
+
+	alignInterpolate   = monitoringpb.Aggregation_ALIGN_INTERPOLATE
+	alignPercentChange = monitoringpb.Aggregation_ALIGN_PERCENT_CHANGE
+	reducePct99        = monitoringpb.Aggregation_REDUCE_PERCENTILE_99
+	reducePct95        = monitoringpb.Aggregation_REDUCE_PERCENTILE_95
+	reducePct50        = monitoringpb.Aggregation_REDUCE_PERCENTILE_50
+	reducePct05        = monitoringpb.Aggregation_REDUCE_PERCENTILE_05
+
 	alignMin        = monitoringpb.Aggregation_ALIGN_MIN
 	alignMax        = monitoringpb.Aggregation_ALIGN_MAX
 	alignMean       = monitoringpb.Aggregation_ALIGN_MEAN
@@ -75,6 +83,21 @@ func percentileOf(a aligner) (float64, bool) {
 	}
 }
 
+func reducerPercentile(r reducer) (float64, bool) {
+	switch r {
+	case reducePct99:
+		return pct99, true
+	case reducePct95:
+		return pct95, true
+	case reducePct50:
+		return pct50, true
+	case reducePct05:
+		return pct05, true
+	default:
+		return 0, false
+	}
+}
+
 func alignerApplies(a aligner, k metricpb.MetricDescriptor_MetricKind, vt metricpb.MetricDescriptor_ValueType) bool {
 	if _, isP := percentileOf(a); isP {
 		return vt == vtDist
@@ -83,9 +106,17 @@ func alignerApplies(a aligner, k metricpb.MetricDescriptor_MetricKind, vt metric
 	switch a {
 	case alignNone, alignNextOlder:
 		return true
-	case alignDelta, alignRate:
+	case alignInterpolate:
+		return k == kindGauge && isNumeric(vt)
+	case alignPercentChange:
+		return (k == kindGauge || k == kindDelta) && isNumeric(vt)
+	case alignDelta:
+		return isAccumulating(k) && (isNumeric(vt) || vt == vtDist)
+	case alignRate:
 		return isAccumulating(k) && isNumeric(vt)
-	case alignMin, alignMax, alignSum, alignStddev:
+	case alignSum:
+		return !isCumulativeKind(k) && (isNumeric(vt) || vt == vtDist)
+	case alignMin, alignMax, alignStddev:
 		return !isCumulativeKind(k) && isNumeric(vt)
 	case alignMean:
 		return !isCumulativeKind(k) && (isNumeric(vt) || vt == vtDist)
@@ -104,7 +135,9 @@ func reducerApplies(r reducer, vt metricpb.MetricDescriptor_ValueType) bool {
 	switch r {
 	case reduceNone, reduceCount:
 		return true
-	case reduceMean, reduceMin, reduceMax, reduceSum, reduceStddev:
+	case reduceMean, reduceSum, reducePct99, reducePct95, reducePct50, reducePct05:
+		return isNumeric(vt) || vt == vtDist
+	case reduceMin, reduceMax, reduceStddev:
 		return isNumeric(vt)
 	case reduceCountTrue, reduceCountFalse, reduceFracTrue:
 		return vt == vtBool
@@ -124,7 +157,7 @@ func outputTypes(
 	switch a {
 	case alignDelta:
 		return kindDelta, vt
-	case alignRate:
+	case alignRate, alignPercentChange:
 		return kindGauge, vtDouble
 	case alignMean, alignStddev:
 		return k, vtDouble
