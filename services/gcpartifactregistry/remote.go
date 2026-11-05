@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,14 +56,20 @@ func (b *InMemoryBackend) upstreamClient() *http.Client {
 }
 
 var publicUpstreams = map[string]string{ //nolint:gochecknoglobals // immutable catalog
-	"DOCKER_HUB": "https://registry-1.docker.io", "MAVEN_CENTRAL": "https://repo.maven.apache.org/maven2",
-	"NPMJS": "https://registry.npmjs.org", "PYPI": "https://pypi.org",
-	"DEBIAN": "https://deb.debian.org/debian", "UBUNTU": "http://archive.ubuntu.com/ubuntu",
+	"DOCKER_HUB":      "https://registry-1.docker.io",
+	"MAVEN_CENTRAL":   "https://repo.maven.apache.org/maven2",
+	"NPMJS":           "https://registry.npmjs.org",
+	"PYPI":            "https://pypi.org",
+	"DEBIAN":          "https://deb.debian.org/debian",
+	"UBUNTU":          "http://archive.ubuntu.com/ubuntu",
 	"DEBIAN_SNAPSHOT": "https://snapshot.debian.org/archive/debian",
-	"CENTOS":          "https://vault.centos.org", "CENTOS_DEBUG": "https://debuginfo.centos.org",
-	"CENTOS_VAULT": "https://vault.centos.org", "CENTOS_STREAM": "https://mirror.stream.centos.org",
-	"ROCKY": "https://download.rockylinux.org/pub/rocky", "FEDORA_LINUX": "https://dl.fedoraproject.org/pub/fedora/linux",
-	"EPEL": "https://dl.fedoraproject.org/pub/epel",
+	"CENTOS":          "https://vault.centos.org",
+	"CENTOS_DEBUG":    "https://debuginfo.centos.org",
+	"CENTOS_VAULT":    "https://vault.centos.org",
+	"CENTOS_STREAM":   "https://mirror.stream.centos.org",
+	"ROCKY":           "https://download.rockylinux.org/pub/rocky",
+	"FEDORA_LINUX":    "https://dl.fedoraproject.org/pub/fedora/linux",
+	"EPEL":            "https://dl.fedoraproject.org/pub/epel",
 }
 
 // upstreamBase resolves the remote repository's upstream URL: its custom or common repository URI, else the
@@ -89,14 +96,20 @@ func upstreamBase(cfg *artifactregistrypb.RemoteRepositoryConfig) (string, error
 		uri = firstNonEmpty(uri, a.GetCustomRepository().GetUri())
 
 		if pr := a.GetPublicRepository(); uri == "" && pr != nil {
-			return strings.TrimRight(publicUpstreams[pr.GetRepositoryBase().String()]+"/"+pr.GetRepositoryPath(), "/"), nil
+			return strings.TrimRight(
+				publicUpstreams[pr.GetRepositoryBase().String()]+"/"+pr.GetRepositoryPath(),
+				"/",
+			), nil
 		}
 	case cfg.GetYumRepository() != nil:
 		y := cfg.GetYumRepository()
 		uri = firstNonEmpty(uri, y.GetCustomRepository().GetUri())
 
 		if pr := y.GetPublicRepository(); uri == "" && pr != nil {
-			return strings.TrimRight(publicUpstreams[pr.GetRepositoryBase().String()]+"/"+pr.GetRepositoryPath(), "/"), nil
+			return strings.TrimRight(
+				publicUpstreams[pr.GetRepositoryBase().String()]+"/"+pr.GetRepositoryPath(),
+				"/",
+			), nil
 		}
 	}
 
@@ -243,7 +256,7 @@ func (b *InMemoryBackend) remoteNPM(w http.ResponseWriter, r *http.Request, rc r
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(out) //nolint:gosec // JSON packument
+		_, _ = w.Write(out)
 	case strings.HasPrefix(tail, "-/"):
 		if b.localHit(w, r, rc, p) {
 			return
@@ -414,8 +427,10 @@ func (b *InMemoryBackend) remotePyProject(w http.ResponseWriter, r *http.Request
 
 	var sb strings.Builder
 
-	sb.WriteString("<!DOCTYPE html>\n<html><head><meta name=\"pypi:repository-version\" content=\"1.0\"><title>Links for " +
-		html.EscapeString(norm) + "</title></head><body>\n")
+	sb.WriteString(
+		"<!DOCTYPE html>\n<html><head><meta name=\"pypi:repository-version\" content=\"1.0\"><title>Links for " +
+			html.EscapeString(norm) + "</title></head><body>\n",
+	)
 
 	for _, l := range parsePyLinks(string(data), u) {
 		href := prefix + "/packages/" + url.PathEscape(norm) + "/" + url.PathEscape(pyVersionOf(l.filename)) + "/" +
@@ -429,7 +444,9 @@ func (b *InMemoryBackend) remotePyProject(w http.ResponseWriter, r *http.Request
 			attr = " data-requires-python=\"" + l.requires + "\""
 		}
 
-		sb.WriteString("<a href=\"" + html.EscapeString(href) + "\"" + attr + ">" + html.EscapeString(l.filename) + "</a><br>\n")
+		sb.WriteString(
+			"<a href=\"" + html.EscapeString(href) + "\"" + attr + ">" + html.EscapeString(l.filename) + "</a><br>\n",
+		)
 	}
 
 	sb.WriteString("</body></html>\n")
@@ -533,7 +550,7 @@ func (b *InMemoryBackend) remoteMaven(w http.ResponseWriter, r *http.Request, rc
 	if t.checksum != "" {
 		h := checksumHash(t.checksum)
 		_, _ = h.Write(data)
-		writeBytes(w, "text/plain", []byte(fmt.Sprintf("%x", h.Sum(nil))))
+		writeBytes(w, "text/plain", []byte(hex.EncodeToString(h.Sum(nil))))
 
 		return
 	}

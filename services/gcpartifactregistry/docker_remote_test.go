@@ -19,7 +19,9 @@ func dockerUpstream(uri string) *apb {
 	return &apb{RemoteSource: &artifactregistrypb.RemoteRepositoryConfig_DockerRepository_{
 		DockerRepository: &artifactregistrypb.RemoteRepositoryConfig_DockerRepository{
 			Upstream: &artifactregistrypb.RemoteRepositoryConfig_DockerRepository_CustomRepository_{
-				CustomRepository: &artifactregistrypb.RemoteRepositoryConfig_DockerRepository_CustomRepository{Uri: uri},
+				CustomRepository: &artifactregistrypb.RemoteRepositoryConfig_DockerRepository_CustomRepository{
+					Uri: uri,
+				},
 			},
 		},
 	}}
@@ -42,7 +44,8 @@ func tokenRegistry(t *testing.T, challenges *atomic.Int32) *httptest.Server {
 
 		if r.Method == http.MethodGet && r.Header.Get("Authorization") != "Bearer anon" {
 			challenges.Add(1)
-			w.Header().Set("WWW-Authenticate", `Bearer realm="`+srv.URL+`/token",service="upstream",scope="repository:app:pull"`)
+			w.Header().
+				Set("WWW-Authenticate", `Bearer realm="`+srv.URL+`/token",service="upstream",scope="repository:app:pull"`)
 			w.WriteHeader(http.StatusUnauthorized)
 
 			return
@@ -84,7 +87,12 @@ func TestRemoteDockerRepositoryPullsThrough(t *testing.T) {
 	require.Equal(t, http.StatusOK, blob.Status)
 	assert.Equal(t, img.Layer, blob.Body)
 
-	assert.Equal(t, []string{img.Digest}, versionIDs(t, e, "dock-remote", "app"), "the pulled image is a version of the package")
+	assert.Equal(
+		t,
+		[]string{img.Digest},
+		versionIDs(t, e, "dock-remote", "app"),
+		"the pulled image is a version of the package",
+	)
 
 	up.Close()
 	e.handler.Backend.SetRemoteUpstreams(false)
@@ -94,7 +102,10 @@ func TestRemoteDockerRepositoryPullsThrough(t *testing.T) {
 
 	missing := c.Do(http.MethodGet, "/v2/"+project+"/dock-remote/app/manifests/v2", nil, accept)
 	assert.GreaterOrEqual(t, missing.Status, http.StatusBadRequest)
-	assert.True(t, strings.Contains(string(missing.Body), "UNAVAILABLE") || strings.Contains(string(missing.Body), "UNKNOWN"))
+	assert.True(
+		t,
+		strings.Contains(string(missing.Body), "UNAVAILABLE") || strings.Contains(string(missing.Body), "UNKNOWN"),
+	)
 }
 
 func TestVirtualDockerRepositoryReadsUpstreams(t *testing.T) {
@@ -103,7 +114,11 @@ func TestVirtualDockerRepositoryReadsUpstreams(t *testing.T) {
 	e := newEnv(t, "")
 	e.createRepo(t, "dock-a", dockerRepo())
 	e.createRepo(t, "dock-b", dockerRepo())
-	e.createRepo(t, "dock-virt", virtualRepo(artifactregistrypb.Repository_DOCKER, [2]any{"dock-a", 1}, [2]any{"dock-b", 5}))
+	e.createRepo(
+		t,
+		"dock-virt",
+		virtualRepo(artifactregistrypb.Repository_DOCKER, [2]any{"dock-a", 1}, [2]any{"dock-b", 5}),
+	)
 
 	c := e.docker(t)
 	onlyA := pushTo(c, "dock-a", "svc", "v1")

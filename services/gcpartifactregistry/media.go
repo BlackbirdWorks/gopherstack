@@ -25,22 +25,23 @@ const (
 	uploadMultipart    = "multipart"
 	uploadMedia        = "media"
 	uploadResumable    = "resumable"
+	metaLimit          = 1 << 20
 	sessionTTL         = 7 * 24 * time.Hour
 	statusResumeIncomp = 308
 )
 
 // uploadKind is one media-upload endpoint: its path suffix and the handler that stores the bytes.
 type uploadKind struct {
-	suffix string
 	store  func(b *InMemoryBackend, parent string, meta, data []byte) (*longrunningpb.Operation, error)
+	suffix string
 }
 
 func uploadKinds() []uploadKind {
 	return []uploadKind{
-		{"/genericArtifacts:create", storeGeneric},
-		{"/aptArtifacts:create", storeApt},
-		{"/yumArtifacts:create", storeYum},
-		{"/goModules:create", storeGoModule},
+		{suffix: "/genericArtifacts:create", store: storeGeneric},
+		{suffix: "/aptArtifacts:create", store: storeApt},
+		{suffix: "/yumArtifacts:create", store: storeYum},
+		{suffix: "/goModules:create", store: storeGoModule},
 	}
 }
 
@@ -109,7 +110,7 @@ func readMultipartParts(r *http.Request) ([]byte, []byte, error) {
 		return nil, nil, errInvalid("%v", errNoData)
 	}
 
-	meta, err := io.ReadAll(io.LimitReader(metaPart, 1<<20))
+	meta, err := io.ReadAll(io.LimitReader(metaPart, metaLimit))
 	if err != nil {
 		return nil, nil, errInvalid("Reading the upload metadata failed: %v", err)
 	}
@@ -140,7 +141,7 @@ func writeOperation(w http.ResponseWriter, op *longrunningpb.Operation) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	_, _ = w.Write([]byte(`{"operation":` + string(raw) + `}`)) //nolint:gosec // JSON response
+	_, _ = w.Write([]byte(`{"operation":` + string(raw) + `}`))
 }
 
 func (b *InMemoryBackend) serveMediaUpload(w http.ResponseWriter, r *http.Request, k uploadKind) {
@@ -188,7 +189,7 @@ func (b *InMemoryBackend) serveResumable(w http.ResponseWriter, r *http.Request,
 	case r.URL.Query().Get(uploadIDParam) != "":
 		b.putResumable(w, r, k)
 	case r.Method == http.MethodPost:
-		meta, err := readBody(r, 1<<20)
+		meta, err := readBody(r, metaLimit)
 		if err != nil {
 			writeRESTError(w, err)
 
@@ -203,10 +204,7 @@ func (b *InMemoryBackend) serveResumable(w http.ResponseWriter, r *http.Request,
 		b.sessions[id] = &uploadSession{created: now, parent: parent, suffix: k.suffix, meta: meta}
 		b.mu.Unlock()
 
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
+		scheme := requestScheme(r)
 
 		q := r.URL.Query()
 		q.Set(uploadIDParam, id)
@@ -227,44 +225,56 @@ func (b *InMemoryBackend) sweepSessionsLocked(now time.Time) {
 	}
 }
 
+// byteRange is a parsed Content-Range: total is -1 when unknown and query marks "bytes */total".
+type byteRange struct {
+	start, end, total int64
+	query             bool
+}
+
 // parseContentRange reads "bytes a-b/total" (total -1 when "*") or "bytes */total".
-func parseContentRange(h string) (start, end, total int64, query bool, err error) {
+func parseContentRange(h string) (byteRange, error) {
+	bad := errInvalid("Malformed Content-Range %q.", h)
+
 	spec, ok := strings.CutPrefix(h, "bytes ")
 	if !ok {
-		return 0, 0, 0, false, errInvalid("Malformed Content-Range %q.", h)
+		return byteRange{}, bad
 	}
 
 	rng, tot, ok := strings.Cut(spec, "/")
 	if !ok {
-		return 0, 0, 0, false, errInvalid("Malformed Content-Range %q.", h)
+		return byteRange{}, bad
 	}
 
-	total = -1
+	br := byteRange{total: -1}
 
 	if tot != "*" {
-		if total, err = strconv.ParseInt(tot, 10, 64); err != nil {
-			return 0, 0, 0, false, errInvalid("Malformed Content-Range %q.", h)
+		var err error
+		if br.total, err = strconv.ParseInt(tot, 10, 64); err != nil {
+			return byteRange{}, bad
 		}
 	}
 
 	if rng == "*" {
-		return 0, 0, total, true, nil
+		br.query = true
+
+		return br, nil
 	}
 
-	a, z, ok := strings.Cut(rng, "-")
+	from, to, ok := strings.Cut(rng, "-")
 	if !ok {
-		return 0, 0, 0, false, errInvalid("Malformed Content-Range %q.", h)
+		return byteRange{}, bad
 	}
 
-	if start, err = strconv.ParseInt(a, 10, 64); err == nil {
-		end, err = strconv.ParseInt(z, 10, 64)
+	var err error
+	if br.start, err = strconv.ParseInt(from, 10, 64); err == nil {
+		br.end, err = strconv.ParseInt(to, 10, 64)
 	}
 
-	if err != nil || end < start {
-		return 0, 0, 0, false, errInvalid("Malformed Content-Range %q.", h)
+	if err != nil || br.end < br.start {
+		return byteRange{}, bad
 	}
 
-	return start, end, total, false, nil
+	return br, nil
 }
 
 // resumeRange answers an incomplete upload with 308, or with 200 and X-Http-Status-Code-Override when the
@@ -296,7 +306,7 @@ func (b *InMemoryBackend) putResumable(w http.ResponseWriter, r *http.Request, k
 		return
 	}
 
-	start, end, total, query, err := b.contentRange(r, len(chunk))
+	br, err := requestRange(r, len(chunk))
 	if err != nil {
 		writeRESTError(w, err)
 
@@ -315,7 +325,7 @@ func (b *InMemoryBackend) putResumable(w http.ResponseWriter, r *http.Request, k
 
 	have := len(s.buf)
 
-	if query || start != int64(have) {
+	if br.query || br.start != int64(have) {
 		b.mu.Unlock()
 		resumeRange(w, r, have)
 
@@ -323,7 +333,7 @@ func (b *InMemoryBackend) putResumable(w http.ResponseWriter, r *http.Request, k
 	}
 
 	s.buf = append(s.buf, chunk...)
-	complete := total >= 0 && int64(len(s.buf)) == total && end+1 == total || total >= 0 && len(chunk) == 0 && total == 0
+	complete := br.total >= 0 && int64(len(s.buf)) == br.total
 
 	if int64(len(s.buf)) > maxGenericBytes {
 		delete(b.sessions, id)
@@ -347,20 +357,20 @@ func (b *InMemoryBackend) putResumable(w http.ResponseWriter, r *http.Request, k
 	b.finishUpload(w, k, s.parent, s.meta, s.buf)
 }
 
-func (b *InMemoryBackend) contentRange(r *http.Request, n int) (int64, int64, int64, bool, error) {
+func requestRange(r *http.Request, n int) (byteRange, error) {
 	h := r.Header.Get("Content-Range")
 	if h == "" {
-		return 0, int64(n) - 1, int64(n), false, nil
+		return byteRange{start: 0, end: int64(n) - 1, total: int64(n)}, nil
 	}
 
-	start, end, total, query, err := parseContentRange(h)
+	br, err := parseContentRange(h)
 	if err != nil {
-		return 0, 0, 0, false, err
+		return byteRange{}, err
 	}
 
-	if !query && end-start+1 != int64(n) {
-		return 0, 0, 0, false, errInvalid("Content-Range %q does not match the %d bytes sent.", h, n)
+	if !br.query && br.end-br.start+1 != int64(n) {
+		return byteRange{}, errInvalid("Content-Range %q does not match the %d bytes sent.", h, n)
 	}
 
-	return start, end, total, query, nil
+	return br, nil
 }

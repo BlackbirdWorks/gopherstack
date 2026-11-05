@@ -2,6 +2,7 @@ package gcpartifactregistry
 
 import (
 	"bytes"
+	"maps"
 	"net/http"
 	"sort"
 
@@ -40,17 +41,17 @@ func (b *bufResponse) status() int {
 }
 
 func (b *bufResponse) replay(w http.ResponseWriter) {
-	for k, v := range b.header {
-		w.Header()[k] = v
-	}
+	maps.Copy(w.Header(), b.header)
 
 	w.WriteHeader(b.status())
-	_, _ = w.Write(b.body.Bytes()) //nolint:gosec // replays an artifact response unchanged
+	_, _ = w.Write(b.body.Bytes())
 }
 
 // upstreamsOf lists a virtual repository's upstream repositories, highest priority first.
 func (b *InMemoryBackend) upstreamsOf(rc repoCtx) []repoCtx {
-	policies := append([]*artifactregistrypb.UpstreamPolicy(nil), rc.pb.GetVirtualRepositoryConfig().GetUpstreamPolicies()...)
+	policies := append(
+		[]*artifactregistrypb.UpstreamPolicy(nil),
+		rc.pb.GetVirtualRepositoryConfig().GetUpstreamPolicies()...)
 
 	sort.SliceStable(policies, func(i, j int) bool {
 		if policies[i].GetPriority() != policies[j].GetPriority() {

@@ -22,7 +22,7 @@ const maxGoModFile = 16 << 20
 
 var zipRootRe = regexp.MustCompile(`^(.+?)@(v[^/]+)/`)
 
-func moduleFileIDs(path, version string) (zipID, modID, infoID string) {
+func moduleFileIDs(path, version string) (string, string, string) {
 	base := path + "/@v/" + version
 
 	return base + ".zip", base + ".mod", base + ".info"
@@ -64,8 +64,8 @@ func goModFromZip(zr *zip.Reader, path, version string) []byte {
 }
 
 type goInfo struct {
-	Version string    `json:"Version"`
 	Time    time.Time `json:"Time"`
+	Version string    `json:"Version"`
 }
 
 func (b *InMemoryBackend) addGoModule(ref repoRef, data []byte) (*artifactregistrypb.GoModule, error) {
@@ -175,8 +175,8 @@ func (b *InMemoryBackend) serveGo(w http.ResponseWriter, r *http.Request, rc rep
 		return
 	}
 
-	switch {
-	case tail == "list":
+	switch tail {
+	case "list":
 		var rel []string
 
 		for _, v := range versions {
@@ -188,7 +188,7 @@ func (b *InMemoryBackend) serveGo(w http.ResponseWriter, r *http.Request, rc rep
 		}
 
 		writeBytes(w, "text/plain; charset=utf-8", []byte(strings.Join(rel, "\n")+"\n"))
-	case tail == "@latest":
+	case "@latest":
 		b.serveGoFile(w, r, rc, mod, versions[len(versions)-1], ".info")
 	default:
 		b.serveGoVersion(w, r, rc, mod, tail)
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) serveGoVersion(w http.ResponseWriter, r *http.Request,
 func (b *InMemoryBackend) serveGoFile(w http.ResponseWriter, r *http.Request, rc repoCtx, mod, version, ext string) {
 	zipID, modID, infoID := moduleFileIDs(mod, version)
 
-	id, ctype := "", ""
+	var id, ctype string
 
 	switch ext {
 	case ".zip":

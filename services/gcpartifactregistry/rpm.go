@@ -8,11 +8,13 @@ import (
 )
 
 const (
-	rpmLeadLen    = 96
-	rpmHdrMagic   = 0x8eade801
-	rpmIndexLen   = 16
-	rpmMaxEntries = 1 << 16
-	rpmAlign      = 8
+	rpmLeadLen     = 96
+	rpmHdrMagic    = 0x8eade801
+	rpmIndexLen    = 16
+	rpmMaxEntries  = 1 << 16
+	rpmInt32Len    = 4
+	rpmHdrPreamble = 16
+	rpmAlign       = 8
 
 	tagName        = 1000
 	tagVersion     = 1001
@@ -74,7 +76,7 @@ func readRPMHeader(data []byte, pos int) ([]rpmIndexEntry, []byte, int, error) {
 
 	n := int(binary.BigEndian.Uint32(data[pos+8:]))
 	size := int(binary.BigEndian.Uint32(data[pos+12:]))
-	idxStart := pos + 16
+	idxStart := pos + rpmHdrPreamble
 
 	if n < 0 || n > rpmMaxEntries || size < 0 || idxStart+n*rpmIndexLen+size > len(data) {
 		return nil, nil, 0, errNotRPM
@@ -108,9 +110,11 @@ func cstring(store []byte, off int) (string, int) {
 	return string(store[off : off+end]), off + end + 1
 }
 
-func (m *rpmMeta) absorb(e rpmIndexEntry, store []byte) (strs []string, ints []uint32) {
+// values decodes an index entry into its strings or int32s.
+func values(e rpmIndexEntry, store []byte) ([]string, []uint32) {
 	switch e.typ {
 	case typeString, typeI18N, typeStringArray:
+		strs := make([]string, 0, max(e.count, 1))
 		off := e.off
 
 		for range max(e.count, 1) {
@@ -119,18 +123,24 @@ func (m *rpmMeta) absorb(e rpmIndexEntry, store []byte) (strs []string, ints []u
 			s, off = cstring(store, off)
 			strs = append(strs, s)
 		}
+
+		return strs, nil
 	case typeInt32:
+		ints := make([]uint32, 0, e.count)
+
 		for i := range e.count {
-			o := e.off + i*4
-			if o+4 > len(store) {
+			o := e.off + i*rpmInt32Len
+			if o+rpmInt32Len > len(store) {
 				break
 			}
 
 			ints = append(ints, binary.BigEndian.Uint32(store[o:]))
 		}
-	}
 
-	return strs, ints
+		return nil, ints
+	default:
+		return nil, nil
+	}
 }
 
 func zipDeps(names, vers []string, flags []uint32) []rpmDep {
@@ -172,42 +182,58 @@ func parseRPM(data []byte) (*rpmMeta, error) {
 
 	m := &rpmMeta{strs: map[int]string{}, ints: map[int]uint32{}, hdrStart: hdrStart, hdrEnd: end}
 
-	var provN, provV, reqN, reqV []string
-
-	var provF, reqF []uint32
+	var cols depColumns
 
 	for _, e := range entries {
-		ss, is := m.absorb(e, store)
-
-		switch e.tag {
-		case tagProvideName:
-			provN = ss
-		case tagProvideVer:
-			provV = ss
-		case tagProvideFlag:
-			provF = is
-		case tagRequireName:
-			reqN = ss
-		case tagRequireVer:
-			reqV = ss
-		case tagRequireFlag:
-			reqF = is
-		default:
-			if len(ss) > 0 {
-				m.strs[e.tag] = ss[0]
-			}
-
-			if len(is) > 0 {
-				m.ints[e.tag] = is[0]
-			}
+		ss, is := values(e, store)
+		if !cols.take(e.tag, ss, is) {
+			m.set(e.tag, ss, is)
 		}
 	}
 
-	m.provides, m.requires = zipDeps(provN, provV, provF), zipDeps(reqN, reqV, reqF)
+	m.provides, m.requires = zipDeps(cols.provN, cols.provV, cols.provF), zipDeps(cols.reqN, cols.reqV, cols.reqF)
 
 	if m.strs[tagName] == "" || m.strs[tagVersion] == "" || m.strs[tagArch] == "" {
 		return nil, fmt.Errorf("%w: header lacks name, version or arch", errNotRPM)
 	}
 
 	return m, nil
+}
+
+// depColumns collects the parallel provides and requires arrays.
+type depColumns struct {
+	provN, provV, reqN, reqV []string
+	provF, reqF              []uint32
+}
+
+// take stores a provides or requires column and reports whether the tag was one.
+func (c *depColumns) take(tag int, ss []string, is []uint32) bool {
+	switch tag {
+	case tagProvideName:
+		c.provN = ss
+	case tagProvideVer:
+		c.provV = ss
+	case tagProvideFlag:
+		c.provF = is
+	case tagRequireName:
+		c.reqN = ss
+	case tagRequireVer:
+		c.reqV = ss
+	case tagRequireFlag:
+		c.reqF = is
+	default:
+		return false
+	}
+
+	return true
+}
+
+func (m *rpmMeta) set(tag int, ss []string, is []uint32) {
+	if len(ss) > 0 {
+		m.strs[tag] = ss[0]
+	}
+
+	if len(is) > 0 {
+		m.ints[tag] = is[0]
+	}
 }

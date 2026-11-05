@@ -27,6 +27,12 @@ type PackageRegistry interface {
 	PublishGoModule(project, repo string, zipData []byte) (pkg, modulePath, version string, err error)
 }
 
+const (
+	repoURLSegs   = 2
+	wheelMinParts = 2
+	tarFileMode   = 0o644
+)
+
 var (
 	errNoPackages = errors.New("the Artifact Registry emulator is not available to this build")
 	errBadRepoURL = errors.New("repository must be https://<location>-<format>.pkg.dev/<project>/<repository>")
@@ -34,14 +40,14 @@ var (
 )
 
 // repoURL splits https://$REGION-<format>.pkg.dev/$PROJECT/$REPOSITORY.
-func arRepoURL(raw string) (project, repo string, err error) {
+func arRepoURL(raw string) (string, string, error) {
 	u, perr := url.Parse(raw)
 	if perr != nil || !strings.HasSuffix(u.Host, ".pkg.dev") {
 		return "", "", fmt.Errorf("%w: got %q", errBadRepoURL, raw)
 	}
 
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != repoURLSegs || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("%w: got %q", errBadRepoURL, raw)
 	}
 
@@ -74,7 +80,7 @@ func (r *runner) uploadPackages(res *cloudbuildpb.Results) error {
 		}
 	}
 
-	if res.ArtifactTiming == nil {
+	if res.GetArtifactTiming() == nil {
 		res.ArtifactTiming = &cloudbuildpb.TimeSpan{StartTime: start, EndTime: r.b.ts()}
 	} else {
 		res.ArtifactTiming.StartTime = start
@@ -117,7 +123,15 @@ func (r *runner) uploadMaven(res *cloudbuildpb.Results) error {
 
 		ext := filepath.Ext(rel)
 
-		pkg, err := r.svc.Packages.PublishMaven(project, repo, m.GetGroupId(), m.GetArtifactId(), m.GetVersion(), ext, data)
+		pkg, err := r.svc.Packages.PublishMaven(
+			project,
+			repo,
+			m.GetGroupId(),
+			m.GetArtifactId(),
+			m.GetVersion(),
+			ext,
+			data,
+		)
 		if err != nil {
 			return fmt.Errorf("maven artifact %s:%s:%s: %w", m.GetGroupId(), m.GetArtifactId(), m.GetVersion(), err)
 		}
@@ -139,7 +153,7 @@ func pyNameVersion(filename string) (string, string, bool) {
 	stem, isWheel := strings.CutSuffix(filename, ".whl")
 	if isWheel {
 		parts := strings.Split(stem, "-")
-		if len(parts) < 2 {
+		if len(parts) < wheelMinParts {
 			return "", "", false
 		}
 
@@ -236,7 +250,9 @@ func packNPM(dir string) ([]byte, error) {
 			return rerr
 		}
 
-		if werr = tw.WriteHeader(&tar.Header{Name: "package/" + filepath.ToSlash(rel), Mode: 0o644, Size: int64(len(data))}); werr != nil {
+		if werr = tw.WriteHeader(
+			&tar.Header{Name: "package/" + filepath.ToSlash(rel), Mode: tarFileMode, Size: int64(len(data))},
+		); werr != nil {
 			return werr //nolint:wrapcheck // wrapped by the caller
 		}
 
@@ -308,7 +324,11 @@ func (r *runner) uploadGo(res *cloudbuildpb.Results) error {
 		}
 
 		var buf bytes.Buffer
-		if err = modzip.CreateFromDir(&buf, module.Version{Path: g.GetModulePath(), Version: g.GetModuleVersion()}, dir); err != nil {
+		if err = modzip.CreateFromDir(
+			&buf,
+			module.Version{Path: g.GetModulePath(), Version: g.GetModuleVersion()},
+			dir,
+		); err != nil {
 			return fmt.Errorf("zip go module %s: %w", g.GetModulePath(), err)
 		}
 

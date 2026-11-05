@@ -3,6 +3,7 @@ package gcpartifactregistry_test
 import (
 	"bytes"
 	"errors"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	arapi "google.golang.org/api/artifactregistry/v1"
+	"google.golang.org/api/googleapi"
 )
 
 type memStore map[string][]byte
@@ -50,20 +52,33 @@ func TestResumableUploads(t *testing.T) {
 	e.createRepo(t, "gen-res", genericRepo())
 
 	svc := restService(t, e)
-	deb := makeDeb(t, "resumable", "3.0", "amd64")
 
-	res, err := svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName("apt-res"), &arapi.UploadAptArtifactRequest{}).
-		ResumableMedia(t.Context(), bytes.NewReader(deb), int64(len(deb)), "application/octet-stream").
-		Context(t.Context()).Do()
+	rng := rand.New(rand.NewPCG(1, 2))
+	payload := make([]byte, 600<<10)
+
+	for i := range payload {
+		payload[i] = byte(rng.UintN(256))
+	}
+
+	chunk := googleapi.ChunkSize(googleapi.MinUploadChunkSize)
+
+	deb := makeDebWithPayload(t, "resumable", "3.0", "amd64", string(payload))
+	require.Greater(t, len(deb), 2*googleapi.MinUploadChunkSize)
+
+	res, err := aptUpload(svc, "apt-res").
+		Media(bytes.NewReader(deb), chunk).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.True(t, res.Operation.Done)
 
-	payload := bytes.Repeat([]byte("0123456789abcdef"), 4096)
+	_, packages := getBody(
+		t,
+		"http://127.0.0.1:"+e.port+"/apt/projects/"+project+"/dists/apt-res/main/binary-amd64/Packages",
+	)
+	assert.Equal(t, sum256(deb), fieldOf(string(packages), "SHA256"), "every chunk arrived")
 
 	gen, err := svc.Projects.Locations.Repositories.GenericArtifacts.Upload(repoName("gen-res"),
 		&arapi.UploadGenericArtifactRequest{PackageId: "blob", VersionId: "1.0", Filename: "blob.bin"}).
-		ResumableMedia(t.Context(), bytes.NewReader(payload), int64(len(payload)), "application/octet-stream").
-		Context(t.Context()).Do()
+		Media(bytes.NewReader(payload), chunk).Context(t.Context()).Do()
 	require.NoError(t, err)
 	assert.True(t, gen.Operation.Done)
 
@@ -96,8 +111,14 @@ func TestResumableChunkProtocol(t *testing.T) {
 		return resp
 	}
 
-	init := do(http.MethodPost, endpoint+"?uploadType=resumable",
-		[]byte(`{"packageId":"chunky","versionId":"1","filename":"c.txt"}`), map[string]string{"Content-Type": "application/json"})
+	init := do(
+		http.MethodPost,
+		endpoint+"?uploadType=resumable",
+		[]byte(
+			`{"packageId":"chunky","versionId":"1","filename":"c.txt"}`,
+		),
+		map[string]string{"Content-Type": "application/json"},
+	)
 	require.Equal(t, http.StatusOK, init.StatusCode)
 
 	loc := init.Header.Get("Location")
@@ -115,13 +136,26 @@ func TestResumableChunkProtocol(t *testing.T) {
 	assert.Equal(t, 308, status.StatusCode)
 	assert.Equal(t, "bytes=0-9", status.Header.Get("Range"), "a status query reports the persisted bytes")
 
-	gap := do(http.MethodPut, loc, payload[15:], map[string]string{"Content-Range": "bytes 15-" + strconv.Itoa(len(payload)-1) + "/" + total})
+	gap := do(
+		http.MethodPut,
+		loc,
+		payload[15:],
+		map[string]string{"Content-Range": "bytes 15-" + strconv.Itoa(len(payload)-1) + "/" + total},
+	)
 	assert.Equal(t, 308, gap.StatusCode, "a chunk that skips bytes is not appended")
 
-	last := do(http.MethodPut, loc, payload[10:], map[string]string{"Content-Range": "bytes 10-" + strconv.Itoa(len(payload)-1) + "/" + total})
+	last := do(
+		http.MethodPut,
+		loc,
+		payload[10:],
+		map[string]string{"Content-Range": "bytes 10-" + strconv.Itoa(len(payload)-1) + "/" + total},
+	)
 	assert.Equal(t, http.StatusOK, last.StatusCode)
 
-	code, _ := getBody(t, "http://127.0.0.1:"+e.port+"/v1/"+repoName("gen-chunks")+"/files/chunky:1:c.txt:download?alt=media")
+	code, _ := getBody(
+		t,
+		"http://127.0.0.1:"+e.port+"/v1/"+repoName("gen-chunks")+"/files/chunky:1:c.txt:download?alt=media",
+	)
 	assert.Equal(t, http.StatusOK, code)
 
 	unknown := do(http.MethodPut, endpoint+"?uploadType=resumable&upload_id=nope", payload, nil)
@@ -147,9 +181,11 @@ func TestImportAptAndYumFromStorage(t *testing.T) {
 
 	op, err := e.client.ImportAptArtifacts(ctx, &artifactregistrypb.ImportAptArtifactsRequest{
 		Parent: repoName("apt-imp"),
-		Source: &artifactregistrypb.ImportAptArtifactsRequest_GcsSource{GcsSource: &artifactregistrypb.ImportAptArtifactsGcsSource{
-			Uris: []string{"gs://bkt/debs/*.deb"}, UseWildcards: true,
-		}},
+		Source: &artifactregistrypb.ImportAptArtifactsRequest_GcsSource{
+			GcsSource: &artifactregistrypb.ImportAptArtifactsGcsSource{
+				Uris: []string{"gs://bkt/debs/*.deb"}, UseWildcards: true,
+			},
+		},
 	})
 	require.NoError(t, err)
 
@@ -163,15 +199,20 @@ func TestImportAptAndYumFromStorage(t *testing.T) {
 	_, err = op.Metadata()
 	require.NoError(t, err)
 
-	_, packages := getBody(t, "http://127.0.0.1:"+e.port+"/apt/projects/"+project+"/dists/apt-imp/main/binary-amd64/Packages")
+	_, packages := getBody(
+		t,
+		"http://127.0.0.1:"+e.port+"/apt/projects/"+project+"/dists/apt-imp/main/binary-amd64/Packages",
+	)
 	assert.Contains(t, string(packages), "Package: a\n")
 	assert.Contains(t, string(packages), "Package: b\n")
 
 	yop, err := e.client.ImportYumArtifacts(ctx, &artifactregistrypb.ImportYumArtifactsRequest{
 		Parent: repoName("yum-imp"),
-		Source: &artifactregistrypb.ImportYumArtifactsRequest_GcsSource{GcsSource: &artifactregistrypb.ImportYumArtifactsGcsSource{
-			Uris: []string{"gs://bkt/rpms/c.rpm", "gs://bkt/rpms/missing.rpm"},
-		}},
+		Source: &artifactregistrypb.ImportYumArtifactsRequest_GcsSource{
+			GcsSource: &artifactregistrypb.ImportYumArtifactsGcsSource{
+				Uris: []string{"gs://bkt/rpms/c.rpm", "gs://bkt/rpms/missing.rpm"},
+			},
+		},
 	})
 	require.NoError(t, err)
 
@@ -182,9 +223,11 @@ func TestImportAptAndYumFromStorage(t *testing.T) {
 
 	_, err = e.client.ImportAptArtifacts(ctx, &artifactregistrypb.ImportAptArtifactsRequest{
 		Parent: repoName("yum-imp"),
-		Source: &artifactregistrypb.ImportAptArtifactsRequest_GcsSource{GcsSource: &artifactregistrypb.ImportAptArtifactsGcsSource{
-			Uris: []string{"gs://bkt/debs/a_1.0_amd64.deb"},
-		}},
+		Source: &artifactregistrypb.ImportAptArtifactsRequest_GcsSource{
+			GcsSource: &artifactregistrypb.ImportAptArtifactsGcsSource{
+				Uris: []string{"gs://bkt/debs/a_1.0_amd64.deb"},
+			},
+		},
 	})
 	require.Error(t, err, "importing into a repository of another format is refused")
 }

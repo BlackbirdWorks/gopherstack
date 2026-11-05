@@ -123,10 +123,7 @@ func (b *InMemoryBackend) dockerPullDenied(r *http.Request, dp dockerPath) bool 
 }
 
 func challengeDocker(w http.ResponseWriter, r *http.Request) {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	scheme := requestScheme(r)
 
 	w.Header().Set("WWW-Authenticate", `Bearer realm="`+scheme+`://`+r.Host+`/v2/token",service="`+r.Host+`"`)
 	writeRegError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Unauthenticated request.")

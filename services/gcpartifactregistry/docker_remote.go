@@ -18,7 +18,9 @@ import (
 const (
 	dockerHubHost   = "registry-1.docker.io"
 	maxDockerBody   = 1 << 28
-	manifestAccepts = "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+	manifestAccepts = "application/vnd.oci.image.index.v1+json, " +
+		"application/vnd.docker.distribution.manifest.list.v2+json, " +
+		"application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
 )
 
 var errDockerAuth = errors.New("the upstream registry refused authentication")
@@ -107,7 +109,12 @@ func (b *InMemoryBackend) fillDockerRemote(w http.ResponseWriter, r *http.Reques
 			code, reg = http.StatusNotFound, "MANIFEST_UNKNOWN"
 		}
 
-		writeRegError(w, code, reg, "Remote repository: "+err.Error()+" (enable fetching with --gcp-artifacts-remote-upstreams)")
+		writeRegError(
+			w,
+			code,
+			reg,
+			"Remote repository: "+err.Error()+" (enable fetching with --gcp-artifacts-remote-upstreams)",
+		)
 
 		return true
 	}
@@ -337,7 +344,10 @@ func (b *InMemoryBackend) anonymousToken(ctx context.Context, challenge string) 
 }
 
 // fetchWith is fetch with an Accept header and an optional Bearer token.
-func (b *InMemoryBackend) fetchWith(ctx context.Context, rawURL, accept, token string) ([]byte, int, http.Header, error) {
+func (b *InMemoryBackend) fetchWith(
+	ctx context.Context,
+	rawURL, accept, token string,
+) ([]byte, int, http.Header, error) {
 	b.mu.RLock("fetchWith")
 	enabled := b.remote.enabled
 	b.mu.RUnlock()

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
 	"os"
 	"sort"
 	"time"
@@ -21,4 +22,17 @@ func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
 
 	return hex.EncodeToString(sum[:])
+}
+
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
+)
+
+func requestScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return schemeHTTPS
+	}
+
+	return schemeHTTP
 }

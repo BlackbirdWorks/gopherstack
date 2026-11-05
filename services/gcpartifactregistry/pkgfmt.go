@@ -3,6 +3,7 @@ package gcpartifactregistry
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -31,8 +32,8 @@ const (
 // through an upstream, view is the virtual repository whose URLs the response must carry.
 type repoCtx struct {
 	pb   *artifactregistrypb.Repository
-	ref  repoRef
 	view *repoRef
+	ref  repoRef
 }
 
 var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven|apt|yum|go)\.pkg\.dev(:\d+)?$`)
@@ -230,7 +231,7 @@ func (b *InMemoryBackend) repoOfFormat(
 func writePlain(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(code)
-	_, _ = w.Write([]byte(msg + "\n")) //nolint:gosec // text/plain, never rendered
+	_, _ = io.WriteString(w, msg+"\n") //nolint:gosec // text/plain, never rendered
 }
 
 func writeJSONBody(w http.ResponseWriter, code int, v any) {

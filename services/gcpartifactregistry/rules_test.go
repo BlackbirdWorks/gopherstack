@@ -234,8 +234,16 @@ func TestRuleConditions(t *testing.T) {
 		want int
 		code codes.Code
 	}{
-		{name: "future time does not apply", expr: `request.time < timestamp("2000-01-01T00:00:00Z")`, want: http.StatusOK},
-		{name: "past time applies", expr: `request.time > timestamp("2000-01-01T00:00:00Z")`, want: http.StatusForbidden},
+		{
+			name: "future time does not apply",
+			expr: `request.time < timestamp("2000-01-01T00:00:00Z")`,
+			want: http.StatusOK,
+		},
+		{
+			name: "past time applies",
+			expr: `request.time > timestamp("2000-01-01T00:00:00Z")`,
+			want: http.StatusForbidden,
+		},
 		{name: "package match", expr: `resource.package == "app"`, want: http.StatusForbidden},
 		{name: "package mismatch", expr: `resource.package == "other"`, want: http.StatusOK},
 		{name: "syntax error", expr: `resource.package ==`, code: codes.InvalidArgument},
@@ -251,12 +259,18 @@ func TestRuleConditions(t *testing.T) {
 			Condition: &expr.Expr{Expression: tt.expr},
 		}
 
-		_, err := e.client.CreateRule(ctx, &artifactregistrypb.CreateRuleRequest{Parent: parent, RuleId: id, Rule: rule})
+		_, err := e.client.CreateRule(
+			ctx,
+			&artifactregistrypb.CreateRuleRequest{Parent: parent, RuleId: id, Rule: rule},
+		)
 		assert.Equal(t, tt.code, status.Code(err), tt.name)
 
 		if tt.code == codes.OK {
 			assert.Equal(t, tt.want, pull(), tt.name)
-			require.NoError(t, e.client.DeleteRule(ctx, &artifactregistrypb.DeleteRuleRequest{Name: parent + "/rules/" + id}))
+			require.NoError(
+				t,
+				e.client.DeleteRule(ctx, &artifactregistrypb.DeleteRuleRequest{Name: parent + "/rules/" + id}),
+			)
 		}
 	}
 }

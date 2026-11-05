@@ -44,10 +44,10 @@ func validateCleanupPolicies(r *artifactregistrypb.Repository) error {
 // cleanupVersion is one version as the cleanup engine sees it.
 type cleanupVersion struct {
 	created time.Time
+	leaf    leafRef
 	pkg     string
 	version string
 	tags    []string
-	leaf    leafRef
 }
 
 func hasPrefixIn(s string, prefixes []string) bool {
@@ -80,8 +80,8 @@ func (v cleanupVersion) matches(c *artifactregistrypb.CleanupPolicyCondition, no
 
 	age := now.Sub(v.created)
 
-	return (c.OlderThan == nil || age > c.GetOlderThan().AsDuration()) &&
-		(c.NewerThan == nil || age < c.GetNewerThan().AsDuration())
+	return (c.GetOlderThan() == nil || age > c.GetOlderThan().AsDuration()) &&
+		(c.GetNewerThan() == nil || age < c.GetNewerThan().AsDuration())
 }
 
 // mostRecentKept returns the versions the repository's mostRecentVersions keep policies protect.
@@ -158,7 +158,11 @@ type CleanupResult struct {
 	DryRun     bool
 }
 
-func (b *InMemoryBackend) cleanupCandidates(ctx context.Context, ref repoRef, format artifactregistrypb.Repository_Format) []cleanupVersion {
+func (b *InMemoryBackend) cleanupCandidates(
+	ctx context.Context,
+	ref repoRef,
+	format artifactregistrypb.Repository_Format,
+) []cleanupVersion {
 	if format == artifactregistrypb.Repository_DOCKER {
 		var out []cleanupVersion
 
@@ -225,7 +229,12 @@ func (b *InMemoryBackend) RunCleanup(ctx context.Context) []CleanupResult {
 			continue
 		}
 
-		t := target{ref: ref, format: pb.GetFormat(), dryRun: pb.GetCleanupPolicyDryRun(), immut: pb.GetDockerConfig().GetImmutableTags()}
+		t := target{
+			ref:    ref,
+			format: pb.GetFormat(),
+			dryRun: pb.GetCleanupPolicyDryRun(),
+			immut:  pb.GetDockerConfig().GetImmutableTags(),
+		}
 		for _, p := range pb.GetCleanupPolicies() {
 			t.policies = append(t.policies, p)
 		}
@@ -240,7 +249,7 @@ func (b *InMemoryBackend) RunCleanup(ctx context.Context) []CleanupResult {
 
 	sort.Slice(targets, func(i, j int) bool { return targets[i].ref.full() < targets[j].ref.full() })
 
-	var results []CleanupResult
+	results := make([]CleanupResult, 0, len(targets))
 
 	for _, t := range targets {
 		docker := t.format == artifactregistrypb.Repository_DOCKER
@@ -252,7 +261,8 @@ func (b *InMemoryBackend) RunCleanup(ctx context.Context) []CleanupResult {
 
 			if !t.dryRun {
 				if err := b.deleteForCleanup(ctx, v, docker); err != nil {
-					logger.Load(ctx).WarnContext(ctx, "gcpartifactregistry: cleanup delete failed", "version", name, "error", err)
+					logger.Load(ctx).
+						WarnContext(ctx, "gcpartifactregistry: cleanup delete failed", "version", name, "error", err)
 
 					continue
 				}

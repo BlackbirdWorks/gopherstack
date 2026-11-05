@@ -38,7 +38,11 @@ type env struct {
 	opts    []option.ClientOption
 }
 
-func newEnv(t *testing.T, dataDir string) *env { return newEnvWith(t, dataDir, nil) }
+func newEnv(t *testing.T, dataDir string) *env {
+	t.Helper()
+
+	return newEnvWith(t, dataDir, nil)
+}
 
 // newEnvWith is newEnv with a hook that configures the backend before the listener starts.
 func newEnvWith(t *testing.T, dataDir string, setup func(*gcpartifactregistry.InMemoryBackend)) *env {

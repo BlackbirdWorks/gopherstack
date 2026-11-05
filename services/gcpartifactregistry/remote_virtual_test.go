@@ -2,7 +2,7 @@ package gcpartifactregistry_test
 
 import (
 	"bytes"
-	"crypto/sha1" //nolint:gosec // Maven .sha1 checksum
+	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -39,7 +39,9 @@ func pythonUpstream(uri string) *apb {
 	return &apb{RemoteSource: &artifactregistrypb.RemoteRepositoryConfig_PythonRepository_{
 		PythonRepository: &artifactregistrypb.RemoteRepositoryConfig_PythonRepository{
 			Upstream: &artifactregistrypb.RemoteRepositoryConfig_PythonRepository_CustomRepository_{
-				CustomRepository: &artifactregistrypb.RemoteRepositoryConfig_PythonRepository_CustomRepository{Uri: uri},
+				CustomRepository: &artifactregistrypb.RemoteRepositoryConfig_PythonRepository_CustomRepository{
+					Uri: uri,
+				},
 			},
 		},
 	}}
@@ -87,7 +89,10 @@ func versionIDs(t *testing.T, e *env, repo, pkg string) []string {
 func TestRemoteNPMRepository(t *testing.T) {
 	t.Parallel()
 
-	tarball := tarGz(t, map[string]string{"package/package.json": `{"name":"left-pad","version":"1.3.0","description":"pads"}`})
+	tarball := tarGz(
+		t,
+		map[string]string{"package/package.json": `{"name":"left-pad","version":"1.3.0","description":"pads"}`},
+	)
 
 	var tarballHits atomic.Int32
 
@@ -127,7 +132,9 @@ func TestRemoteNPMRepository(t *testing.T) {
 
 	var doc struct {
 		Versions map[string]struct {
-			Dist struct{ Tarball string } `json:"dist"`
+			Dist struct {
+				Tarball string `json:"tarball"`
+			} `json:"dist"`
 		} `json:"versions"`
 	}
 	require.NoError(t, json.Unmarshal(body, &doc))
@@ -136,7 +143,12 @@ func TestRemoteNPMRepository(t *testing.T) {
 	code, got := getBody(t, doc.Versions["1.3.0"].Dist.Tarball)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, tarball, got)
-	assert.Equal(t, []string{"1.3.0"}, versionIDs(t, e, "npm-remote", "left-pad"), "the fetched tarball is cached as a version")
+	assert.Equal(
+		t,
+		[]string{"1.3.0"},
+		versionIDs(t, e, "npm-remote", "left-pad"),
+		"the fetched tarball is cached as a version",
+	)
 
 	up.Close()
 
@@ -159,8 +171,14 @@ func TestRemotePythonRepository(t *testing.T) {
 	up = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/simple/requests/":
-			_, _ = w.Write([]byte(`<html><body><a href="` + up.URL + `/files/requests-2.0.0-py3-none-any.whl#sha256=` + sum256(wheel) +
-				`" data-requires-python="&gt;=3.8">requests-2.0.0-py3-none-any.whl</a></body></html>`))
+			_, _ = w.Write(
+				[]byte(
+					`<html><body><a href="` + up.URL + `/files/requests-2.0.0-py3-none-any.whl#sha256=` + sum256(
+						wheel,
+					) +
+						`" data-requires-python="&gt;=3.8">requests-2.0.0-py3-none-any.whl</a></body></html>`,
+				),
+			)
 		case "/files/requests-2.0.0-py3-none-any.whl":
 			_, _ = w.Write(wheel)
 		default:
@@ -177,7 +195,13 @@ func TestRemotePythonRepository(t *testing.T) {
 
 	code, page := getBody(t, base+"/simple/Requests/")
 	require.Equal(t, http.StatusOK, code)
-	assert.Contains(t, string(page), base[len("http://127.0.0.1:"+e.port):]+"/packages/requests/2.0.0/requests-2.0.0-py3-none-any.whl#sha256="+sum256(wheel))
+	assert.Contains(
+		t,
+		string(page),
+		base[len("http://127.0.0.1:"+e.port):]+"/packages/requests/2.0.0/requests-2.0.0-py3-none-any.whl#sha256="+sum256(
+			wheel,
+		),
+	)
 	assert.Contains(t, string(page), `data-requires-python="&gt;=3.8"`)
 
 	code, got := getBody(t, base+"/packages/requests/2.0.0/requests-2.0.0-py3-none-any.whl")
@@ -222,7 +246,7 @@ func TestRemoteMavenRepository(t *testing.T) {
 	getBody(t, base+"/com/acme/lib/1.0/lib-1.0.jar")
 	assert.Equal(t, int32(1), hits.Load(), "the second read comes from the cache")
 
-	sum := sha1.Sum(jar) //nolint:gosec // Maven .sha1 checksum
+	sum := sha1.Sum(jar)
 	code, got = getBody(t, base+"/com/acme/lib/1.0/lib-1.0.jar.sha1")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, hex.EncodeToString(sum[:]), string(got))
@@ -271,7 +295,7 @@ func TestRemoteAptRepository(t *testing.T) {
 }
 
 func virtualRepo(format artifactregistrypb.Repository_Format, ups ...[2]any) *artifactregistrypb.Repository {
-	var policies []*artifactregistrypb.UpstreamPolicy
+	policies := make([]*artifactregistrypb.UpstreamPolicy, 0, len(ups))
 	for i, u := range ups {
 		policies = append(policies, &artifactregistrypb.UpstreamPolicy{
 			Id: "up" + string(rune('a'+i)), Repository: repoName(u[0].(string)), Priority: int32(u[1].(int)),

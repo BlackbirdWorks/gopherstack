@@ -20,6 +20,7 @@ const (
 	arMagic     = "!<arch>\n"
 	arHeaderLen = 60
 	maxControl  = 1 << 20
+	arAlign     = 2
 )
 
 var errNotDeb = errors.New("not a Debian binary package")
@@ -27,10 +28,10 @@ var errNotDeb = errors.New("not a Debian binary package")
 // debControl is a parsed binary package: the raw control stanza and the fields the index needs.
 type debControl struct {
 	fields  map[string]string
-	order   []string
 	Package string
 	Version string
 	Arch    string
+	order   []string
 }
 
 func decompress(name string, r io.Reader) (io.Reader, error) {
@@ -77,7 +78,7 @@ func arMember(data []byte, prefix string) (string, []byte, error) {
 			return name, body, nil
 		}
 
-		pos += arHeaderLen + size + size%2
+		pos += arHeaderLen + size + size%arAlign
 	}
 
 	return "", nil, fmt.Errorf("%w: no %s member", errNotDeb, prefix)

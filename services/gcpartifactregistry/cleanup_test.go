@@ -10,14 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 	arapi "google.golang.org/api/artifactregistry/v1"
 
-	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+
+	"github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 )
 
-var epoch = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+func epochTime() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
 
 const day = 24 * time.Hour
 
@@ -52,7 +53,10 @@ func keepRecent(id string, n int32, prefixes ...string) *artifactregistrypb.Clea
 	return &artifactregistrypb.CleanupPolicy{
 		Id: id, Action: artifactregistrypb.CleanupPolicy_KEEP,
 		ConditionType: &artifactregistrypb.CleanupPolicy_MostRecentVersions{
-			MostRecentVersions: &artifactregistrypb.CleanupPolicyMostRecentVersions{PackageNamePrefixes: prefixes, KeepCount: &n},
+			MostRecentVersions: &artifactregistrypb.CleanupPolicyMostRecentVersions{
+				PackageNamePrefixes: prefixes,
+				KeepCount:           &n,
+			},
 		},
 	}
 }
@@ -67,14 +71,14 @@ func policyRepo(dryRun bool, policies ...*artifactregistrypb.CleanupPolicy) *art
 		CleanupPolicies: map[string]*artifactregistrypb.CleanupPolicy{},
 	}
 	for _, p := range policies {
-		r.CleanupPolicies[p.Id] = p
+		r.CleanupPolicies[p.GetId()] = p
 	}
 
 	return r
 }
 
 // uploadAt uploads pkg@version to a generic repository with the backend clock at when.
-func uploadAt(t *testing.T, e *env, svc *arapi.Service, clock *fakeClock, when time.Time, pkg, version string) {
+func uploadAt(t *testing.T, svc *arapi.Service, clock *fakeClock, when time.Time, pkg, version string) {
 	t.Helper()
 
 	clock.set(when)
@@ -112,10 +116,10 @@ func TestCleanupPolicies(t *testing.T) {
 	tests := []struct {
 		name     string
 		policies []*artifactregistrypb.CleanupPolicy
-		dryRun   bool
 		wantApp  []string
 		wantLib  []string
 		wantGone int
+		dryRun   bool
 	}{
 		{
 			name:     "older than",
@@ -123,14 +127,22 @@ func TestCleanupPolicies(t *testing.T) {
 			wantApp:  []string{"3"}, wantLib: []string{"3"}, wantGone: 4,
 		},
 		{
-			name:     "newer than",
-			policies: []*artifactregistrypb.CleanupPolicy{del("d", &artifactregistrypb.CleanupPolicyCondition{NewerThan: durationpb.New(15 * day)})},
-			wantApp:  []string{"1", "2"}, wantLib: []string{"1", "2"}, wantGone: 2,
+			name: "newer than",
+			policies: []*artifactregistrypb.CleanupPolicy{
+				del("d", &artifactregistrypb.CleanupPolicyCondition{NewerThan: durationpb.New(15 * day)}),
+			},
+			wantApp:  []string{"1", "2"},
+			wantLib:  []string{"1", "2"},
+			wantGone: 2,
 		},
 		{
 			name: "keep beats delete",
 			policies: []*artifactregistrypb.CleanupPolicy{
-				del("d", older(5*day)), keep("k", &artifactregistrypb.CleanupPolicyCondition{VersionNamePrefixes: []string{"1"}}),
+				del(
+					"d",
+					older(5*day),
+				),
+				keep("k", &artifactregistrypb.CleanupPolicyCondition{VersionNamePrefixes: []string{"1"}}),
 			},
 			wantApp: []string{"1"}, wantLib: []string{"1"}, wantGone: 4,
 		},
@@ -156,9 +168,20 @@ func TestCleanupPolicies(t *testing.T) {
 			wantApp: []string{"1", "2", "3"}, wantLib: nil, wantGone: 3,
 		},
 		{
-			name:     "conditions are anded",
-			policies: []*artifactregistrypb.CleanupPolicy{del("d", &artifactregistrypb.CleanupPolicyCondition{PackageNamePrefixes: []string{"app"}, OlderThan: durationpb.New(15 * day), VersionNamePrefixes: []string{"1"}})},
-			wantApp:  []string{"2", "3"}, wantLib: []string{"1", "2", "3"}, wantGone: 1,
+			name: "conditions are anded",
+			policies: []*artifactregistrypb.CleanupPolicy{
+				del(
+					"d",
+					&artifactregistrypb.CleanupPolicyCondition{
+						PackageNamePrefixes: []string{"app"},
+						OlderThan:           durationpb.New(15 * day),
+						VersionNamePrefixes: []string{"1"},
+					},
+				),
+			},
+			wantApp:  []string{"2", "3"},
+			wantLib:  []string{"1", "2", "3"},
+			wantGone: 1,
 		},
 		{
 			name:     "dry run deletes nothing",
@@ -172,7 +195,7 @@ func TestCleanupPolicies(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			clock := newFakeClock(epoch)
+			clock := newFakeClock(epochTime())
 			e := newEnv(t, "")
 			e.handler.Backend.SetClock(clock.now)
 			e.createRepo(t, "cleanup", policyRepo(tt.dryRun, tt.policies...))
@@ -181,11 +204,11 @@ func TestCleanupPolicies(t *testing.T) {
 
 			for i, v := range []string{"1", "2", "3"} {
 				for _, pkg := range []string{"app", "lib"} {
-					uploadAt(t, e, svc, clock, epoch.Add(time.Duration(i)*10*day), pkg, v)
+					uploadAt(t, svc, clock, epochTime().Add(time.Duration(i)*10*day), pkg, v)
 				}
 			}
 
-			clock.set(epoch.Add(30 * day))
+			clock.set(epochTime().Add(30 * day))
 
 			results := e.handler.Backend.RunCleanup(t.Context())
 			require.Len(t, results, 1)
@@ -201,7 +224,7 @@ func TestCleanupPolicies(t *testing.T) {
 func TestCleanupWorkerRunsOnTick(t *testing.T) {
 	t.Parallel()
 
-	clock := newFakeClock(epoch)
+	clock := newFakeClock(epochTime())
 	ticks := make(chan time.Time)
 
 	e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) {
@@ -212,7 +235,7 @@ func TestCleanupWorkerRunsOnTick(t *testing.T) {
 	e.createRepo(t, "cleanup", policyRepo(false, del("d", older(day))))
 
 	svc := restService(t, e)
-	uploadAt(t, e, svc, clock, epoch, "app", "1")
+	uploadAt(t, svc, clock, epochTime(), "app", "1")
 
 	clock.advance(2 * day)
 	ticks <- clock.now()
@@ -226,14 +249,26 @@ func TestCleanupPolicyValidation(t *testing.T) {
 	e := newEnv(t, "")
 
 	tests := []struct {
-		name   string
 		policy *artifactregistrypb.CleanupPolicy
+		name   string
 	}{
-		{"delete without condition", &artifactregistrypb.CleanupPolicy{Id: "x", Action: artifactregistrypb.CleanupPolicy_DELETE}},
-		{"no action", &artifactregistrypb.CleanupPolicy{Id: "x", ConditionType: &artifactregistrypb.CleanupPolicy_Condition{Condition: older(day)}}},
-		{"delete most recent", &artifactregistrypb.CleanupPolicy{
-			Id: "x", Action: artifactregistrypb.CleanupPolicy_DELETE,
-			ConditionType: &artifactregistrypb.CleanupPolicy_MostRecentVersions{MostRecentVersions: &artifactregistrypb.CleanupPolicyMostRecentVersions{}},
+		{
+			name:   "delete without condition",
+			policy: &artifactregistrypb.CleanupPolicy{Id: "x", Action: artifactregistrypb.CleanupPolicy_DELETE},
+		},
+		{
+			name: "no action",
+			policy: &artifactregistrypb.CleanupPolicy{
+				Id:            "x",
+				ConditionType: &artifactregistrypb.CleanupPolicy_Condition{Condition: older(day)},
+			},
+		},
+		{name: "delete most recent", policy: &artifactregistrypb.CleanupPolicy{
+			Id:     "x",
+			Action: artifactregistrypb.CleanupPolicy_DELETE,
+			ConditionType: &artifactregistrypb.CleanupPolicy_MostRecentVersions{
+				MostRecentVersions: &artifactregistrypb.CleanupPolicyMostRecentVersions{},
+			},
 		}},
 	}
 
@@ -263,7 +298,7 @@ func tt0() *artifactregistrypb.CleanupPolicy {
 func TestCleanupDockerTagState(t *testing.T) {
 	t.Parallel()
 
-	clock := newFakeClock(epoch)
+	clock := newFakeClock(epochTime())
 	e := newEnvWith(t, "", func(b *gcpartifactregistry.InMemoryBackend) { b.SetClock(clock.now) })
 
 	repo := dockerRepo()
@@ -271,7 +306,10 @@ func TestCleanupDockerTagState(t *testing.T) {
 		"tagged": del("tagged", &artifactregistrypb.CleanupPolicyCondition{
 			TagState: artifactregistrypb.CleanupPolicyCondition_TAGGED.Enum(), OlderThan: durationpb.New(day),
 		}),
-		"keep-release": keep("keep-release", &artifactregistrypb.CleanupPolicyCondition{TagPrefixes: []string{"release"}}),
+		"keep-release": keep(
+			"keep-release",
+			&artifactregistrypb.CleanupPolicyCondition{TagPrefixes: []string{"release"}},
+		),
 	}
 	e.createRepo(t, "dock", repo)
 

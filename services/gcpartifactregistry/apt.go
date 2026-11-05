@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"crypto/md5"  //nolint:gosec // apt Release files list MD5Sum
 	"crypto/sha1" //nolint:gosec // apt Release files list SHA1
-	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 	"sort"
@@ -18,9 +17,11 @@ import (
 )
 
 const (
-	aptComponent = "main"
-	archAll      = "all"
-	aptDateFmt   = "Mon, 02 Jan 2006 15:04:05 UTC"
+	aptComponent     = "main"
+	archAll          = "all"
+	releaseSizeWidth = 16
+	indexesPerArch   = 2
+	aptDateFmt       = "Mon, 02 Jan 2006 15:04:05 UTC"
 )
 
 var defaultAptArchs = []string{"amd64", "arm64"} //nolint:gochecknoglobals // immutable catalog
@@ -114,9 +115,9 @@ func storeApt(b *InMemoryBackend, parent string, _, data []byte) (*longrunningpb
 
 type debEntry struct {
 	file *genFile
-	ctl  debControl
 	path string
 	pkg  string
+	ctl  debControl
 }
 
 func (b *InMemoryBackend) debEntries(rc repoCtx) []debEntry {
@@ -148,13 +149,11 @@ func (e debEntry) stanza() string {
 		sb.WriteString(k + ": " + e.ctl.fields[k] + "\n")
 	}
 
-	sum1, sum256, sumMD5 := sha1.Sum(e.file.Data), sha256.Sum256(e.file.Data), md5.Sum(e.file.Data) //nolint:gosec // apt
-
 	sb.WriteString("Filename: " + e.path + "\n")
 	sb.WriteString("Size: " + strconv.Itoa(len(e.file.Data)) + "\n")
-	sb.WriteString("MD5sum: " + hex.EncodeToString(sumMD5[:]) + "\n")
-	sb.WriteString("SHA1: " + hex.EncodeToString(sum1[:]) + "\n")
-	sb.WriteString("SHA256: " + hex.EncodeToString(sum256[:]) + "\n")
+	sb.WriteString("MD5sum: " + md5Hex(e.file.Data) + "\n")
+	sb.WriteString("SHA1: " + sha1Hex(e.file.Data) + "\n")
+	sb.WriteString("SHA256: " + sha256Hex(e.file.Data) + "\n")
 
 	return sb.String()
 }
@@ -212,7 +211,7 @@ func releaseFile(dist string, entries []debEntry, date time.Time) []byte {
 		data []byte
 	}
 
-	var idxs []idx
+	idxs := make([]idx, 0, indexesPerArch*len(archs))
 
 	for _, a := range archs {
 		p := packagesIndex(entries, a)
@@ -227,12 +226,12 @@ func releaseFile(dist string, entries []debEntry, date time.Time) []byte {
 	sb.WriteString("Architectures: " + strings.Join(archs, " ") + "\nComponents: " + aptComponent + "\n")
 
 	for _, h := range []struct {
-		name string
 		sum  func([]byte) string
+		name string
 	}{
-		{"MD5Sum", func(d []byte) string { s := md5.Sum(d); return hex.EncodeToString(s[:]) }}, //nolint:gosec // apt
-		{"SHA1", func(d []byte) string { s := sha1.Sum(d); return hex.EncodeToString(s[:]) }},  //nolint:gosec // apt
-		{"SHA256", func(d []byte) string { s := sha256.Sum256(d); return hex.EncodeToString(s[:]) }},
+		{name: "MD5Sum", sum: md5Hex},
+		{name: "SHA1", sum: sha1Hex},
+		{name: "SHA256", sum: sha256Hex},
 	} {
 		sb.WriteString(h.name + ":\n")
 
@@ -247,7 +246,7 @@ func releaseFile(dist string, entries []debEntry, date time.Time) []byte {
 func padSize(n int) string {
 	s := strconv.Itoa(n)
 
-	return strings.Repeat(" ", max(0, 16-len(s))) + s
+	return strings.Repeat(" ", max(0, releaseSizeWidth-len(s))) + s
 }
 
 func (b *InMemoryBackend) serveApt(w http.ResponseWriter, r *http.Request, rc repoCtx, p string) {
@@ -326,5 +325,17 @@ func (b *InMemoryBackend) serveDeb(w http.ResponseWriter, r *http.Request, rc re
 func writeBytes(w http.ResponseWriter, contentType string, data []byte) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data) //nolint:gosec // artifact download, never rendered
+	_, _ = w.Write(data)
+}
+
+func md5Hex(d []byte) string {
+	s := md5.Sum(d) //nolint:gosec // apt Release lists MD5Sum
+
+	return hex.EncodeToString(s[:])
+}
+
+func sha1Hex(d []byte) string {
+	s := sha1.Sum(d) //nolint:gosec // apt Release lists SHA1
+
+	return hex.EncodeToString(s[:])
 }

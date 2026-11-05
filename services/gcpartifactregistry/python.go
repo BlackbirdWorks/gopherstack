@@ -171,7 +171,7 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 	norm := pyNormalize(name)
 	if norm != name {
 		prefix := repoPrefix(isPkgHost(r), pythonRoute, rc)
-		//nolint:gosec // same-origin path: repository prefix plus an escaped normalised name
+
 		http.Redirect(w, r, prefix+"/simple/"+url.PathEscape(norm)+"/", http.StatusMovedPermanently)
 
 		return

@@ -23,9 +23,12 @@ func buildRealDeb(t *testing.T, name, version, compression string) []byte {
 	}
 
 	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "DEBIAN"), 0o755)) //nolint:gosec // dpkg-deb requires 0755
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "DEBIAN"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "usr", "bin"), 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "usr", "bin", name), []byte("#!/bin/sh\necho "+name+"-ran\n"), 0o755)) //nolint:gosec // executable fixture
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(root, "usr", "bin", name), []byte("#!/bin/sh\necho "+name+"-ran\n"), 0o755),
+	)
 
 	control := "Package: " + name + "\nVersion: " + version + "\nArchitecture: all\nMaintainer: T <t@example.com>\n" +
 		"Description: " + name + "\n real dpkg fixture\n"
@@ -61,16 +64,25 @@ func TestAptParsesPackagesBuiltByDpkg(t *testing.T) {
 			deb := buildRealDeb(t, "realtool", "1:4.5~rc1-2", comp)
 			svc := restService(t, e)
 
-			res, err := svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName("dpkg"), &arapi.UploadAptArtifactRequest{}).
-				Media(bytes.NewReader(deb)).Context(t.Context()).Do()
+			res, err := aptUpload(svc, "dpkg").
+				Media(bytes.NewReader(deb)).
+				Context(t.Context()).
+				Do()
 			require.NoError(t, err)
 			assert.True(t, res.Operation.Done)
 
-			_, packages := getBody(t, "http://127.0.0.1:"+e.port+"/apt/projects/"+project+"/dists/dpkg/main/binary-amd64/Packages")
+			_, packages := getBody(
+				t,
+				"http://127.0.0.1:"+e.port+"/apt/projects/"+project+"/dists/dpkg/main/binary-amd64/Packages",
+			)
 			assert.Equal(t, "realtool", fieldOf(string(packages), "Package"))
 			assert.Equal(t, "1:4.5~rc1-2", fieldOf(string(packages), "Version"))
-			assert.Equal(t, "pool/dpkg/main/r/realtool/realtool_4.5~rc1-2_all.deb", fieldOf(string(packages), "Filename"),
-				"the epoch is dropped from the file name")
+			assert.Equal(
+				t,
+				"pool/dpkg/main/r/realtool/realtool_4.5~rc1-2_all.deb",
+				fieldOf(string(packages), "Filename"),
+				"the epoch is dropped from the file name",
+			)
 		})
 	}
 }
@@ -90,7 +102,8 @@ func dockerRun(t *testing.T, image, script string) string {
 		t.Skipf("cannot pull %s: %v", image, err)
 	}
 
-	out, err := exec.CommandContext(t.Context(), "docker", "run", "--rm", "--network", "host", image, "sh", "-ec", script).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "docker", "run", "--rm", "--network", "host", image, "sh", "-ec", script).
+		CombinedOutput()
 	require.NoError(t, err, string(out))
 
 	return string(out)
@@ -103,8 +116,13 @@ func TestAptClientInstallsFromRepository(t *testing.T) {
 	e.createRepo(t, "apt-live", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
 
 	deb := buildRealDeb(t, "arhello", "2.0", "gzip")
-	_, err := restService(t, e).Projects.Locations.Repositories.AptArtifacts.Upload(repoName("apt-live"), &arapi.UploadAptArtifactRequest{}).
-		Media(bytes.NewReader(deb)).Context(t.Context()).Do()
+	_, err := restService(
+		t,
+		e,
+	).Projects.Locations.Repositories.AptArtifacts.Upload(repoName("apt-live"), &arapi.UploadAptArtifactRequest{}).
+		Media(bytes.NewReader(deb)).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 
 	script := "echo 'deb [trusted=yes] http://127.0.0.1:" + e.port + "/apt/projects/" + project +
@@ -122,8 +140,13 @@ func TestYumClientInstallsFromRepository(t *testing.T) {
 	e.createRepo(t, "yum-live", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_YUM})
 
 	rpm := makeRPM(t, "arhello", "1.0", "1", "noarch")
-	_, err := restService(t, e).Projects.Locations.Repositories.YumArtifacts.Upload(repoName("yum-live"), &arapi.UploadYumArtifactRequest{}).
-		Media(bytes.NewReader(rpm)).Context(t.Context()).Do()
+	_, err := restService(
+		t,
+		e,
+	).Projects.Locations.Repositories.YumArtifacts.Upload(repoName("yum-live"), &arapi.UploadYumArtifactRequest{}).
+		Media(bytes.NewReader(rpm)).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 
 	script := "printf '[ar]\\nname=ar\\nbaseurl=http://127.0.0.1:" + e.port + "/yum/projects/" + project +

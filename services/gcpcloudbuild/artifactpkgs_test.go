@@ -20,7 +20,10 @@ import (
 
 const arParent = "projects/" + project + "/locations/us-central1"
 
-func newRegistry(t *testing.T, formats map[string]artifactregistrypb.Repository_Format) *gcpartifactregistry.InMemoryBackend {
+func newRegistry(
+	t *testing.T,
+	formats map[string]artifactregistrypb.Repository_Format,
+) *gcpartifactregistry.InMemoryBackend {
 	t.Helper()
 
 	ar := gcpartifactregistry.NewInMemoryBackend()
@@ -120,13 +123,25 @@ func TestArtifactsUploadedToArtifactRegistry(t *testing.T) {
 	assert.NotNil(t, mvn.GetPushTiming().GetEndTime())
 
 	require.Len(t, res.GetPythonPackages(), 2)
-	assert.Equal(t, "https://us-central1-python.pkg.dev/"+project+"/py/my_pkg-0.3.0-py3-none-any.whl", res.GetPythonPackages()[0].GetUri())
+	assert.Equal(
+		t,
+		"https://us-central1-python.pkg.dev/"+project+"/py/my_pkg-0.3.0-py3-none-any.whl",
+		res.GetPythonPackages()[0].GetUri(),
+	)
 
 	require.Len(t, res.GetNpmPackages(), 1)
-	assert.Equal(t, "https://us-central1-npm.pkg.dev/"+project+"/npm/@acme/web/-/web-2.1.0.tgz", res.GetNpmPackages()[0].GetUri())
+	assert.Equal(
+		t,
+		"https://us-central1-npm.pkg.dev/"+project+"/npm/@acme/web/-/web-2.1.0.tgz",
+		res.GetNpmPackages()[0].GetUri(),
+	)
 
 	require.Len(t, res.GetGoModules(), 1)
-	assert.Contains(t, res.GetGoModules()[0].GetUri(), "us-central1-go.pkg.dev/"+project+"/go/example.com/mod/@v/v0.1.0.zip")
+	assert.Contains(
+		t,
+		res.GetGoModules()[0].GetUri(),
+		"us-central1-go.pkg.dev/"+project+"/go/example.com/mod/@v/v0.1.0.zip",
+	)
 
 	assert.NotNil(t, res.GetArtifactTiming())
 
@@ -140,30 +155,48 @@ func TestArtifactUploadFailures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		artifacts *cloudbuildpb.Artifacts
-		withAR    bool
+		name      string
 		want      string
+		withAR    bool
 	}{
 		{
 			name: "registry unavailable",
-			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{{
-				Repository: "https://us-central1-maven.pkg.dev/" + project + "/mvn", Path: "a.jar", GroupId: "g", ArtifactId: "a", Version: "1",
-			}}},
+			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{
+				{
+					Repository: "https://us-central1-maven.pkg.dev/" + project + "/mvn",
+					Path:       "a.jar",
+					GroupId:    "g",
+					ArtifactId: "a",
+					Version:    "1",
+				},
+			}},
 			want: "not available",
 		},
 		{
 			name: "repository missing",
-			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{{
-				Repository: "https://us-central1-maven.pkg.dev/" + project + "/nope", Path: "a.jar", GroupId: "g", ArtifactId: "a", Version: "1",
-			}}},
+			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{
+				{
+					Repository: "https://us-central1-maven.pkg.dev/" + project + "/nope",
+					Path:       "a.jar",
+					GroupId:    "g",
+					ArtifactId: "a",
+					Version:    "1",
+				},
+			}},
 			withAR: true, want: "nope",
 		},
 		{
 			name: "file missing",
-			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{{
-				Repository: "https://us-central1-maven.pkg.dev/" + project + "/mvn", Path: "missing.jar", GroupId: "g", ArtifactId: "a", Version: "1",
-			}}},
+			artifacts: &cloudbuildpb.Artifacts{MavenArtifacts: []*cloudbuildpb.Artifacts_MavenArtifact{
+				{
+					Repository: "https://us-central1-maven.pkg.dev/" + project + "/mvn",
+					Path:       "missing.jar",
+					GroupId:    "g",
+					ArtifactId: "a",
+					Version:    "1",
+				},
+			}},
 			withAR: true, want: "no file matches",
 		},
 		{
@@ -188,7 +221,10 @@ func TestArtifactUploadFailures(t *testing.T) {
 
 			e := newEnv(t, map[string]behavior{"builder": build})
 			if tt.withAR {
-				ar := newRegistry(t, map[string]artifactregistrypb.Repository_Format{"mvn": artifactregistrypb.Repository_MAVEN})
+				ar := newRegistry(
+					t,
+					map[string]artifactregistrypb.Repository_Format{"mvn": artifactregistrypb.Repository_MAVEN},
+				)
 				e.configure(func(s *gcpcloudbuild.Services) { s.Packages = ar })
 			}
 

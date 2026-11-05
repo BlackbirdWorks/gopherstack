@@ -9,15 +9,22 @@ import (
 )
 
 var (
-	errPublishFormat = errors.New("repository has another format")
-	errPublishInput  = errors.New("invalid package")
+	errPublishInput = errors.New("invalid package")
 )
 
 // publishRepo finds a repository of the format for an in-process publisher such as Cloud Build.
-func (b *InMemoryBackend) publishRepo(project, id string, format artifactregistrypb.Repository_Format) (repoCtx, error) {
+func (b *InMemoryBackend) publishRepo(
+	project, id string,
+	format artifactregistrypb.Repository_Format,
+) (repoCtx, error) {
 	rc, ok := b.repoOfFormat(project, id, format)
 	if !ok {
-		return repoCtx{}, errNotFound("No %s repository %q in project %q.", strings.ToLower(format.String()), id, project)
+		return repoCtx{}, errNotFound(
+			"No %s repository %q in project %q.",
+			strings.ToLower(format.String()),
+			id,
+			project,
+		)
 	}
 
 	if rc.pb.GetMode() != artifactregistrypb.Repository_STANDARD_REPOSITORY &&
@@ -30,7 +37,10 @@ func (b *InMemoryBackend) publishRepo(project, id string, format artifactregistr
 
 // PublishMaven stores one file of a Maven artifact and returns its package resource name. The file is stored as
 // <group path>/<artifactId>/<version>/<artifactId>-<version><ext>, honouring the repository's version policy.
-func (b *InMemoryBackend) PublishMaven(project, repo, group, artifact, version, ext string, data []byte) (string, error) {
+func (b *InMemoryBackend) PublishMaven(
+	project, repo, group, artifact, version, ext string,
+	data []byte,
+) (string, error) {
 	rc, err := b.publishRepo(project, repo, artifactregistrypb.Repository_MAVEN)
 	if err != nil {
 		return "", err
@@ -44,11 +54,19 @@ func (b *InMemoryBackend) PublishMaven(project, repo, group, artifact, version, 
 		return "", errPrecondition("%s", msg)
 	}
 
-	fileID := strings.ReplaceAll(group, ".", "/") + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ext
+	fileID := strings.ReplaceAll(
+		group,
+		".",
+		"/",
+	) + "/" + artifact + "/" + version + "/" + artifact + "-" + version + ext
 	pkgID := group + ":" + artifact
 	overwrite := strings.HasSuffix(version, snapshotSfx) && rc.pb.GetMavenConfig().GetAllowSnapshotOverwrites()
 
-	err = b.putPackageFile(rc.ref, pkgFile{pkgID: pkgID, display: pkgID, version: version, fileID: fileID, data: data}, overwrite)
+	err = b.putPackageFile(
+		rc.ref,
+		pkgFile{pkgID: pkgID, display: pkgID, version: version, fileID: fileID, data: data},
+		overwrite,
+	)
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +111,10 @@ func (b *InMemoryBackend) PublishNPM(project, repo string, tarball []byte) (stri
 		return "", "", "", errInvalid("The tarball has no package/package.json: %v", err)
 	}
 
-	var m struct{ Name, Version string }
+	var m struct {
+		Name    string `json:"name"`
+		Version string `json:"version"`
+	}
 	if err = json.Unmarshal(manifest, &m); err != nil || m.Name == "" || !npmVersionRe.MatchString(m.Version) {
 		return "", "", "", errInvalid("package.json needs a name and a semver version: %v", errPublishInput)
 	}

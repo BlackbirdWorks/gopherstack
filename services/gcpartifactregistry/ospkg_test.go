@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -57,7 +58,9 @@ func uploadApt(t *testing.T, svc *arapi.Service, repo string, deb []byte) *arapi
 	t.Helper()
 
 	res, err := svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName(repo), &arapi.UploadAptArtifactRequest{}).
-		Media(bytes.NewReader(deb)).Context(t.Context()).Do()
+		Media(bytes.NewReader(deb)).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 	require.NotNil(t, res.Operation)
 	assert.True(t, res.Operation.Done)
@@ -87,8 +90,10 @@ func TestAptRepositoryServesUploadedPackages(t *testing.T) {
 
 	uploadApt(t, svc, "apt-repo", tools)
 
-	_, err := svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName("apt-repo"), &arapi.UploadAptArtifactRequest{}).
-		Media(strings.NewReader("not a deb")).Context(t.Context()).Do()
+	_, err := aptUpload(svc, "apt-repo").
+		Media(strings.NewReader("not a deb")).
+		Context(t.Context()).
+		Do()
 	require.Error(t, err)
 	assert.Equal(t, http.StatusBadRequest, httpCode(err))
 
@@ -97,7 +102,7 @@ func TestAptRepositoryServesUploadedPackages(t *testing.T) {
 
 	for {
 		p, nerr := pkgs.Next()
-		if nerr == iterator.Done {
+		if errors.Is(nerr, iterator.Done) {
 			break
 		}
 
@@ -150,7 +155,12 @@ func TestAptRepositoryServesUploadedPackages(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 
 	hostBase := "http://127.0.0.1:" + e.port
-	req, rerr := http.NewRequestWithContext(t.Context(), http.MethodGet, hostBase+"/projects/"+project+"/dists/apt-repo/Release", nil)
+	req, rerr := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		hostBase+"/projects/"+project+"/dists/apt-repo/Release",
+		nil,
+	)
 	require.NoError(t, rerr)
 
 	req.Host = "us-central1-apt.pkg.dev"
@@ -170,8 +180,10 @@ func TestYumRepositoryServesUploadedPackages(t *testing.T) {
 	svc := restService(t, e)
 	rpm := makeRPM(t, "hello", "1.0", "2", "x86_64")
 
-	res, err := svc.Projects.Locations.Repositories.YumArtifacts.Upload(repoName("yum-repo"), &arapi.UploadYumArtifactRequest{}).
-		Media(bytes.NewReader(rpm)).Context(t.Context()).Do()
+	res, err := yumUpload(svc, "yum-repo").
+		Media(bytes.NewReader(rpm)).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 
 	var up arapi.UploadYumArtifactResponse
@@ -180,8 +192,10 @@ func TestYumRepositoryServesUploadedPackages(t *testing.T) {
 	assert.Equal(t, "hello", up.YumArtifacts[0].PackageName)
 	assert.Equal(t, "x86_64", up.YumArtifacts[0].Architecture)
 
-	_, err = svc.Projects.Locations.Repositories.YumArtifacts.Upload(repoName("yum-repo"), &arapi.UploadYumArtifactRequest{}).
-		Media(strings.NewReader("not an rpm")).Context(t.Context()).Do()
+	_, err = yumUpload(svc, "yum-repo").
+		Media(strings.NewReader("not an rpm")).
+		Context(t.Context()).
+		Do()
 	require.Error(t, err)
 
 	base := "http://127.0.0.1:" + e.port + "/yum/projects/" + project + "/yum-repo"
@@ -206,8 +220,8 @@ func TestYumRepositoryServesUploadedPackages(t *testing.T) {
 	var primaryRaw []byte
 
 	for _, d := range md.Data {
-		code, gz := getBody(t, base+"/"+d.Location.Href)
-		require.Equal(t, http.StatusOK, code, d.Type)
+		status, gz := getBody(t, base+"/"+d.Location.Href)
+		require.Equal(t, http.StatusOK, status, d.Type)
 		assert.Equal(t, d.Checksum, sum256(gz), d.Type)
 		assert.Equal(t, len(gz), d.Size, d.Type)
 
@@ -253,7 +267,7 @@ func TestYumRepositoryServesUploadedPackages(t *testing.T) {
 	assert.Equal(t, sum256(rpm), strings.TrimSpace(pkg.Checksum))
 	assert.Equal(t, "MIT", pkg.Format.License)
 
-	var reqNames []string
+	reqNames := make([]string, 0, len(pkg.Format.Requires.Entries))
 	for _, r := range pkg.Format.Requires.Entries {
 		reqNames = append(reqNames, r.Name+":"+r.Flags)
 	}
@@ -281,7 +295,10 @@ func TestOSPackageRepositoriesSurviveSnapshotRestore(t *testing.T) {
 	e2 := newEnv(t, "")
 	require.NoError(t, e2.handler.Backend.Restore(t.Context(), snap))
 
-	_, packages := getBody(t, "http://127.0.0.1:"+e2.port+"/apt/projects/"+project+"/dists/apt-snap/main/binary-amd64/Packages")
+	_, packages := getBody(
+		t,
+		"http://127.0.0.1:"+e2.port+"/apt/projects/"+project+"/dists/apt-snap/main/binary-amd64/Packages",
+	)
 	assert.Equal(t, "snap", fieldOf(string(packages), "Package"))
 
 	code, list := getBody(t, "http://127.0.0.1:"+e2.port+"/go/"+project+"/go-snap/example.com/snap/@v/list")

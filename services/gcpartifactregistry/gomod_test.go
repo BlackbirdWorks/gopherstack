@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
@@ -23,7 +22,10 @@ func makeModuleZip(t *testing.T, path, version string) []byte {
 
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module "+path+"\n\ngo 1.21\n"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib.go"), []byte("package lib\n\nconst Version = \""+version+"\"\n"), 0o600))
+	require.NoError(
+		t,
+		os.WriteFile(filepath.Join(dir, "lib.go"), []byte("package lib\n\nconst Version = \""+version+"\"\n"), 0o600),
+	)
 
 	var buf bytes.Buffer
 	require.NoError(t, modzip.CreateFromDir(&buf, module.Version{Path: path, Version: version}, dir))
@@ -61,14 +63,14 @@ func TestGoModuleProxyProtocol(t *testing.T) {
 	tests := []struct {
 		name string
 		path string
-		want int
 		body string
+		want int
 	}{
-		{"list", "list", http.StatusOK, "v1.0.0\nv1.2.3\nv1.10.0\n"},
-		{"info", "v1.2.3.info", http.StatusOK, `"Version":"v1.2.3"`},
-		{"mod", "v1.2.3.mod", http.StatusOK, "module example.com/My/Lib"},
-		{"missing version", "v9.9.9.info", http.StatusNotFound, ""},
-		{"unknown extension", "v1.2.3.txt", http.StatusNotFound, ""},
+		{name: "list", path: "list", want: http.StatusOK, body: "v1.0.0\nv1.2.3\nv1.10.0\n"},
+		{name: "info", path: "v1.2.3.info", want: http.StatusOK, body: `"Version":"v1.2.3"`},
+		{name: "mod", path: "v1.2.3.mod", want: http.StatusOK, body: "module example.com/My/Lib"},
+		{name: "missing version", path: "v9.9.9.info", want: http.StatusNotFound, body: ""},
+		{name: "unknown extension", path: "v1.2.3.txt", want: http.StatusNotFound, body: ""},
 	}
 
 	for _, tt := range tests {
@@ -124,10 +126,12 @@ func TestGoModuleDownloadWithGoCommand(t *testing.T) {
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), `"Version": "v1.2.3"`)
 
-	var dl struct{ Dir string }
+	var dl struct {
+		Dir string `json:"Dir"`
+	}
 	require.NoError(t, json.Unmarshal(out, &dl))
 
 	extracted, rerr := os.ReadFile(filepath.Join(dl.Dir, "lib.go"))
 	require.NoError(t, rerr)
-	assert.True(t, strings.Contains(string(extracted), `Version = "v1.2.3"`))
+	assert.Contains(t, string(extracted), `Version = "v1.2.3"`)
 }

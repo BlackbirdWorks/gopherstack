@@ -34,8 +34,8 @@ var uploadResponses = []uploadResponse{ //nolint:gochecknoglobals // immutable c
 // and UploadYumArtifactResponse); UploadGoModuleResponse's shape is a guess (unverified).
 var registerUploadTypes = sync.OnceValue(func() error { //nolint:gochecknoglobals // one-time type registration
 	fd := &descriptorpb.FileDescriptorProto{
-		Name: proto.String("gopherstack/artifactregistry/upload_responses.proto"), Package: proto.String(uploadPkg),
-		Syntax: proto.String("proto3"),
+		Name: new("gopherstack/artifactregistry/upload_responses.proto"), Package: new(uploadPkg),
+		Syntax: new("proto3"),
 		Dependency: []string{
 			artifactregistrypb.File_google_devtools_artifactregistry_v1_apt_artifact_proto.Path(),
 			artifactregistrypb.File_google_devtools_artifactregistry_v1_yum_artifact_proto.Path(),
@@ -44,22 +44,24 @@ var registerUploadTypes = sync.OnceValue(func() error { //nolint:gochecknoglobal
 	}
 
 	for _, u := range uploadResponses {
-		if _, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(uploadPkg + "." + u.name)); err == nil {
+		if _, err := protoregistry.GlobalTypes.FindMessageByName(
+			protoreflect.FullName(uploadPkg + "." + u.name),
+		); err == nil {
 			continue
 		}
 
 		fd.MessageType = append(fd.MessageType, &descriptorpb.DescriptorProto{
-			Name: proto.String(u.name),
+			Name: new(u.name),
 			Field: []*descriptorpb.FieldDescriptorProto{{
-				Name: proto.String(u.field), Number: proto.Int32(1),
+				Name: new(u.field), Number: proto.Int32(1),
 				Label:    descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
 				Type:     descriptorpb.FieldDescriptorProto_TYPE_MESSAGE.Enum(),
-				TypeName: proto.String("." + uploadPkg + "." + u.elem),
+				TypeName: new("." + uploadPkg + "." + u.elem),
 			}},
 		})
 	}
 
-	if len(fd.MessageType) == 0 {
+	if len(fd.GetMessageType()) == 0 {
 		return nil
 	}
 

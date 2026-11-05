@@ -147,17 +147,21 @@ type xmlChecksum struct {
 }
 
 type xmlPrimaryPkg struct {
-	XMLName  xml.Name    `xml:"package"`
-	Type     string      `xml:"type,attr"`
-	Name     string      `xml:"name"`
-	Arch     string      `xml:"arch"`
 	Version  xmlVersion  `xml:"version"`
 	Checksum xmlChecksum `xml:"checksum"`
+	XMLName  xml.Name    `xml:"package"`
 	Summary  string      `xml:"summary"`
+	Arch     string      `xml:"arch"`
+	Name     string      `xml:"name"`
+	Type     string      `xml:"type,attr"`
 	Desc     string      `xml:"description"`
 	Packager string      `xml:"packager"`
 	URL      string      `xml:"url"`
-	Time     struct {
+	Location struct {
+		Href string `xml:"href,attr"`
+	} `xml:"location"`
+	Format xmlFormat `xml:"format"`
+	Time   struct {
 		File  int64 `xml:"file,attr"`
 		Build int64 `xml:"build,attr"`
 	} `xml:"time"`
@@ -166,10 +170,6 @@ type xmlPrimaryPkg struct {
 		Installed uint32 `xml:"installed,attr"`
 		Archive   uint32 `xml:"archive,attr"`
 	} `xml:"size"`
-	Location struct {
-		Href string `xml:"href,attr"`
-	} `xml:"location"`
-	Format xmlFormat `xml:"format"`
 }
 
 type xmlVersion struct {
@@ -179,17 +179,17 @@ type xmlVersion struct {
 }
 
 type xmlFormat struct {
-	License    string `xml:"rpm:license"`
-	Vendor     string `xml:"rpm:vendor"`
-	Group      string `xml:"rpm:group"`
-	BuildHost  string `xml:"rpm:buildhost"`
-	SourceRPM  string `xml:"rpm:sourcerpm"`
+	License    string     `xml:"rpm:license"`
+	Vendor     string     `xml:"rpm:vendor"`
+	Group      string     `xml:"rpm:group"`
+	BuildHost  string     `xml:"rpm:buildhost"`
+	SourceRPM  string     `xml:"rpm:sourcerpm"`
+	Provides   []xmlEntry `xml:"rpm:provides>rpm:entry"`
+	Requires   []xmlEntry `xml:"rpm:requires>rpm:entry"`
 	HeaderSpan struct {
 		Start int `xml:"start,attr"`
 		End   int `xml:"end,attr"`
 	} `xml:"rpm:header-range"`
-	Provides []xmlEntry `xml:"rpm:provides>rpm:entry"`
-	Requires []xmlEntry `xml:"rpm:requires>rpm:entry"`
 }
 
 func (e rpmEntry) pkgID() string {
@@ -297,8 +297,10 @@ func repomdXML(files []repodataFile, ts time.Time) []byte {
 	var sb strings.Builder
 
 	sb.WriteString(xmlHeader)
-	sb.WriteString(`<repomd xmlns="http://linux.duke.edu/metadata/repo" xmlns:rpm="http://linux.duke.edu/metadata/rpm">` +
-		"\n  <revision>" + strconv.FormatInt(ts.Unix(), 10) + "</revision>\n")
+	sb.WriteString(
+		`<repomd xmlns="http://linux.duke.edu/metadata/repo" xmlns:rpm="http://linux.duke.edu/metadata/rpm">` +
+			"\n  <revision>" + strconv.FormatInt(ts.Unix(), 10) + "</revision>\n",
+	)
 
 	for _, f := range files {
 		gz, raw := sha256.Sum256(f.gz), sha256.Sum256(f.raw)

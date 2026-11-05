@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/rpmpack"
 	"github.com/stretchr/testify/require"
+	arapi "google.golang.org/api/artifactregistry/v1"
 )
 
 func tarGz(t *testing.T, files map[string]string) []byte {
@@ -48,6 +49,13 @@ func arMember(name string, body []byte) []byte {
 func makeDeb(t *testing.T, name, version, arch string) []byte {
 	t.Helper()
 
+	return makeDebWithPayload(t, name, version, arch, "#!/bin/sh\n")
+}
+
+// makeDebWithPayload is makeDeb with the given content for the packaged executable.
+func makeDebWithPayload(t *testing.T, name, version, arch, payload string) []byte {
+	t.Helper()
+
 	control := "Package: " + name + "\nVersion: " + version + "\nArchitecture: " + arch +
 		"\nMaintainer: Test <t@example.com>\nInstalled-Size: 12\nDepends: libc6\nSection: utils\nPriority: optional\n" +
 		"Description: " + name + " test package\n long description line\n"
@@ -55,7 +63,7 @@ func makeDeb(t *testing.T, name, version, arch string) []byte {
 	out := []byte("!<arch>\n")
 	out = append(out, arMember("debian-binary", []byte("2.0\n"))...)
 	out = append(out, arMember("control.tar.gz", tarGz(t, map[string]string{"./control": control}))...)
-	out = append(out, arMember("data.tar.gz", tarGz(t, map[string]string{"./usr/bin/" + name: "#!/bin/sh\n"}))...)
+	out = append(out, arMember("data.tar.gz", tarGz(t, map[string]string{"./usr/bin/" + name: payload}))...)
 
 	return out
 }
@@ -69,7 +77,9 @@ func makeRPM(t *testing.T, name, version, release, arch string) []byte {
 		Requires: mustRelations(t, "bash >= 4.0"), Provides: mustRelations(t, name+" = "+version+"-"+release),
 	})
 	require.NoError(t, err)
-	r.AddFile(rpmpack.RPMFile{Name: "/usr/bin/" + name, Body: []byte("#!/bin/sh\necho " + name + "-ran\n"), Mode: 0o755})
+	r.AddFile(
+		rpmpack.RPMFile{Name: "/usr/bin/" + name, Body: []byte("#!/bin/sh\necho " + name + "-ran\n"), Mode: 0o755},
+	)
 
 	var buf bytes.Buffer
 	require.NoError(t, r.Write(&buf))
@@ -99,3 +109,11 @@ func fieldOf(stanza, field string) string {
 }
 
 func jsonUnmarshal(raw []byte, v any) error { return json.Unmarshal(raw, v) }
+
+func aptUpload(svc *arapi.Service, repo string) *arapi.ProjectsLocationsRepositoriesAptArtifactsUploadCall {
+	return svc.Projects.Locations.Repositories.AptArtifacts.Upload(repoName(repo), &arapi.UploadAptArtifactRequest{})
+}
+
+func yumUpload(svc *arapi.Service, repo string) *arapi.ProjectsLocationsRepositoriesYumArtifactsUploadCall {
+	return svc.Projects.Locations.Repositories.YumArtifacts.Upload(repoName(repo), &arapi.UploadYumArtifactRequest{})
+}
