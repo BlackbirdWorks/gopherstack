@@ -8,52 +8,59 @@ import (
 
 // Operation names, matching the OCI SDK operation names.
 const (
-	opGetNamespace         = "GetNamespace"
-	opGetNamespaceMetadata = "GetNamespaceMetadata"
-	opUpdateNamespaceMeta  = "UpdateNamespaceMetadata"
-	opListBuckets          = "ListBuckets"
-	opCreateBucket         = "CreateBucket"
-	opGetBucket            = "GetBucket"
-	opHeadBucket           = "HeadBucket"
-	opUpdateBucket         = "UpdateBucket"
-	opDeleteBucket         = "DeleteBucket"
-	opListObjects          = "ListObjects"
-	opListObjectVersions   = "ListObjectVersions"
-	opPutObject            = "PutObject"
-	opGetObject            = "GetObject"
-	opHeadObject           = "HeadObject"
-	opDeleteObject         = "DeleteObject"
-	opCreateMultipart      = "CreateMultipartUpload"
-	opUploadPart           = "UploadPart"
-	opCommitMultipart      = "CommitMultipartUpload"
-	opAbortMultipart       = "AbortMultipartUpload"
-	opListMultipartUploads = "ListMultipartUploads"
-	opListMultipartParts   = "ListMultipartUploadParts"
-	opCopyObject           = "CopyObject"
-	opRenameObject         = "RenameObject"
-	opRestoreObjects       = "RestoreObjects"
-	opUpdateStorageTier    = "UpdateObjectStorageTier"
-	opBatchDeleteObjects   = "BatchDeleteObjects"
-	opMakeBucketWritable   = "MakeBucketWritable"
-	opCreatePAR            = "CreatePreauthenticatedRequest"
-	opListPARs             = "ListPreauthenticatedRequests"
-	opGetPAR               = "GetPreauthenticatedRequest"
-	opDeletePAR            = "DeletePreauthenticatedRequest"
-	opPutLifecycle         = "PutObjectLifecyclePolicy"
-	opGetLifecycle         = "GetObjectLifecyclePolicy"
-	opDeleteLifecycle      = "DeleteObjectLifecyclePolicy"
-	opCreateRetention      = "CreateRetentionRule"
-	opGetRetention         = "GetRetentionRule"
-	opListRetention        = "ListRetentionRules"
-	opUpdateRetention      = "UpdateRetentionRule"
-	opDeleteRetention      = "DeleteRetentionRule"
-	opGetWorkRequest       = "GetWorkRequest"
-	opListWorkRequests     = "ListWorkRequests"
-	opDeleteWorkRequest    = "CancelWorkRequest"
-	opListWRErrors         = "ListWorkRequestErrors"
-	opListWRLogs           = "ListWorkRequestLogs"
-	opAdminKeys            = "ManageAPIKeys"
-	opUnknown              = "Unknown"
+	opGetNamespace           = "GetNamespace"
+	opGetNamespaceMetadata   = "GetNamespaceMetadata"
+	opUpdateNamespaceMeta    = "UpdateNamespaceMetadata"
+	opListBuckets            = "ListBuckets"
+	opCreateBucket           = "CreateBucket"
+	opGetBucket              = "GetBucket"
+	opHeadBucket             = "HeadBucket"
+	opUpdateBucket           = "UpdateBucket"
+	opDeleteBucket           = "DeleteBucket"
+	opListObjects            = "ListObjects"
+	opListObjectVersions     = "ListObjectVersions"
+	opPutObject              = "PutObject"
+	opGetObject              = "GetObject"
+	opHeadObject             = "HeadObject"
+	opDeleteObject           = "DeleteObject"
+	opCreateMultipart        = "CreateMultipartUpload"
+	opUploadPart             = "UploadPart"
+	opCommitMultipart        = "CommitMultipartUpload"
+	opAbortMultipart         = "AbortMultipartUpload"
+	opListMultipartUploads   = "ListMultipartUploads"
+	opListMultipartParts     = "ListMultipartUploadParts"
+	opCopyObject             = "CopyObject"
+	opRenameObject           = "RenameObject"
+	opRestoreObjects         = "RestoreObjects"
+	opUpdateStorageTier      = "UpdateObjectStorageTier"
+	opBatchDeleteObjects     = "BatchDeleteObjects"
+	opMakeBucketWritable     = "MakeBucketWritable"
+	opCreatePAR              = "CreatePreauthenticatedRequest"
+	opListPARs               = "ListPreauthenticatedRequests"
+	opGetPAR                 = "GetPreauthenticatedRequest"
+	opDeletePAR              = "DeletePreauthenticatedRequest"
+	opPutLifecycle           = "PutObjectLifecyclePolicy"
+	opGetLifecycle           = "GetObjectLifecyclePolicy"
+	opDeleteLifecycle        = "DeleteObjectLifecyclePolicy"
+	opCreateRetention        = "CreateRetentionRule"
+	opGetRetention           = "GetRetentionRule"
+	opListRetention          = "ListRetentionRules"
+	opUpdateRetention        = "UpdateRetentionRule"
+	opDeleteRetention        = "DeleteRetentionRule"
+	opGetWorkRequest         = "GetWorkRequest"
+	opListWorkRequests       = "ListWorkRequests"
+	opDeleteWorkRequest      = "CancelWorkRequest"
+	opListWRErrors           = "ListWorkRequestErrors"
+	opListWRLogs             = "ListWorkRequestLogs"
+	opCreateReplication      = "CreateReplicationPolicy"
+	opGetReplication         = "GetReplicationPolicy"
+	opListReplications       = "ListReplicationPolicies"
+	opDeleteReplication      = "DeleteReplicationPolicy"
+	opListReplicationSources = "ListReplicationSources"
+	opReencryptObject        = "ReencryptObject"
+	opReencryptBucket        = "ReencryptBucket"
+	opAdminKeys              = "ManageAPIKeys"
+	opUnknown                = "Unknown"
 )
 
 type route struct {
@@ -273,9 +280,33 @@ func parseBucketConfig(rt route, m string, sub []string) route {
 		rt.op = map[string]string{
 			http.MethodGet: opGetRetention, http.MethodPut: opUpdateRetention, http.MethodDelete: opDeleteRetention,
 		}[m]
+	case "replicationPolicies":
+		if len(rest) == 0 {
+			rt.op = map[string]string{http.MethodPost: opCreateReplication, http.MethodGet: opListReplications}[m]
+
+			break
+		}
+
+		rt.id = unesc(rest[0])
+		rt.op = map[string]string{http.MethodGet: opGetReplication, http.MethodDelete: opDeleteReplication}[m]
+	case "replicationSources":
+		rt.op = map[string]string{http.MethodGet: opListReplicationSources}[m]
 	case "objectversions":
 		rt.op = map[string]string{http.MethodGet: opListObjectVersions}[m]
 	case "actions":
+		if len(rest) >= 2 && rest[0] == "reencrypt" && m == http.MethodPost {
+			rt.object = unesc(strings.Join(rest[1:], "/"))
+			rt.op = opReencryptObject
+
+			break
+		}
+
+		if len(rest) == 1 && rest[0] == "reencrypt" && m == http.MethodPost {
+			rt.op = opReencryptBucket
+
+			break
+		}
+
 		if len(rest) == 1 && m == http.MethodPost {
 			rt.op = map[string]string{
 				"copyObject": opCopyObject, "renameObject": opRenameObject, "restoreObjects": opRestoreObjects,

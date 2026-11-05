@@ -26,16 +26,43 @@ type CreateUploadInput struct {
 	StorageTier        string            `json:"storageTier"`
 }
 
+// UploadOptions are the opc-checksum-algorithm and encryption headers of CreateMultipartUpload.
+type UploadOptions struct {
+	Algorithm string
+	SSE       SSEReq
+}
+
 // CreateUpload starts a multipart upload.
 func (b *InMemoryBackend) CreateUpload(ns, bucket string, in CreateUploadInput, pre Preconds) (*Upload, error) {
+	return b.CreateUploadWith(ns, bucket, in, pre, UploadOptions{})
+}
+
+// CreateUploadWith starts a multipart upload with a checksum algorithm and encryption selection.
+func (b *InMemoryBackend) CreateUploadWith(
+	ns, bucket string, in CreateUploadInput, pre Preconds, opt UploadOptions,
+) (*Upload, error) {
 	if in.Object == "" || len(in.Object) > maxObjectName {
 		return nil, errMissing("object is required")
+	}
+
+	alg, err := normalizeAlg(opt.Algorithm)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateUpload")
 	defer b.mu.Unlock()
 
 	bk, err := b.bucket(ns, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = writable(bk); err != nil {
+		return nil, err
+	}
+
+	hash, err := opt.SSE.resolve(b.checkKMSKey)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +80,7 @@ func (b *InMemoryBackend) CreateUpload(ns, bucket string, in CreateUploadInput, 
 
 	u := &Upload{
 		ID: uuid.NewString(), Object: in.Object, TimeCreated: b.nowUTC(), Parts: map[int]Part{},
+		ChecksumAlg: alg, SseKeySha: hash, KmsKeyID: opt.SSE.KmsKeyID,
 		Meta: ObjectMeta{
 			Metadata: in.Metadata, ContentType: in.ContentType, ContentLanguage: in.ContentLanguage,
 			ContentEncoding: in.ContentEncoding, ContentDisposition: in.ContentDisposition,
@@ -78,36 +106,82 @@ func (b *InMemoryBackend) upload(bk *Bucket, object, id string) (*Upload, error)
 	return u, nil
 }
 
+// PartOptions are the optional integrity and encryption inputs of UploadPart.
+type PartOptions struct {
+	ContentMD5 string
+	Checksum   ChecksumReq
+	Key        SSEKey
+}
+
+// PartResult is what UploadPart reports back.
+type PartResult struct {
+	Etag     string
+	MD5      string
+	Checksum Checksum
+}
+
 // UploadPart stores one part and returns its etag and md5.
 func (b *InMemoryBackend) UploadPart(
 	ns, bucket, object, id string, num int, data []byte, contentMD5 string,
 ) (string, string, error) {
+	r, err := b.UploadPartWith(ns, bucket, object, id, num, data, PartOptions{ContentMD5: contentMD5})
+	if err != nil {
+		return "", "", err
+	}
+
+	return r.Etag, r.MD5, nil
+}
+
+// UploadPartWith stores one part, replacing any earlier part with the same number.
+func (b *InMemoryBackend) UploadPartWith(
+	ns, bucket, object, id string, num int, data []byte, opt PartOptions,
+) (PartResult, error) {
 	if num < 1 || num > maxPartNumber {
-		return "", "", errParam("uploadPartNum must be between 1 and 10000")
+		return PartResult{}, errParam("uploadPartNum must be between 1 and 10000")
 	}
 
 	sum := md5b64(data)
-	if contentMD5 != "" && contentMD5 != sum {
-		return "", "", errParam("The Content-MD5 you specified did not match what we received")
+	if opt.ContentMD5 != "" && opt.ContentMD5 != sum {
+		return PartResult{}, errParam("The Content-MD5 you specified did not match what we received")
 	}
+
+	alg, err := normalizeAlg(opt.Checksum.Algorithm)
+	if err != nil {
+		return PartResult{}, err
+	}
+
+	opt.Checksum.Algorithm = alg
 
 	b.mu.Lock("UploadPart")
 	defer b.mu.Unlock()
 
 	bk, err := b.bucket(ns, bucket)
 	if err != nil {
-		return "", "", err
+		return PartResult{}, err
 	}
 
 	u, err := b.upload(bk, object, id)
 	if err != nil {
-		return "", "", err
+		return PartResult{}, err
+	}
+
+	if err = requireKey(u.SseKeySha, opt.Key); err != nil {
+		return PartResult{}, err
+	}
+
+	if alg == "" {
+		opt.Checksum.Algorithm = u.ChecksumAlg
+	}
+
+	ck, err := opt.Checksum.forObject(data)
+	if err != nil {
+		return PartResult{}, err
 	}
 
 	etag := newEtag()
-	u.Parts[num] = Part{Etag: etag, MD5: sum, Data: data}
+	u.Parts[num] = Part{Etag: etag, MD5: sum, Data: data, ChecksumAlg: ck.Algorithm, Checksum: ck.Content}
 
-	return etag, sum, nil
+	return PartResult{Etag: etag, MD5: sum, Checksum: ck}, nil
 }
 
 // CommitPart names a part to include in the final object.
@@ -140,6 +214,10 @@ func (b *InMemoryBackend) CommitUpload(
 		return ObjectInfo{}, err
 	}
 
+	if err = writable(bk); err != nil {
+		return ObjectInfo{}, err
+	}
+
 	u, err := b.upload(bk, object, id)
 	if err != nil {
 		return ObjectInfo{}, err
@@ -151,6 +229,7 @@ func (b *InMemoryBackend) CommitUpload(
 	var (
 		data   []byte
 		digest []byte
+		used   []Part
 	)
 
 	for i, p := range parts {
@@ -171,9 +250,23 @@ func (b *InMemoryBackend) CommitUpload(
 			)
 		}
 
+		if i < len(parts)-1 && int64(len(stored.Data)) < b.minPartSize {
+			return ObjectInfo{}, newErr(
+				http.StatusBadRequest,
+				"InvalidUploadPart",
+				"Part "+strconv.Itoa(p.PartNum)+" is smaller than the minimum part size of "+
+					strconv.FormatInt(b.minPartSize, 10)+" bytes; only the last part may be smaller",
+			)
+		}
+
+		if i > 0 && stored.ChecksumAlg != used[0].ChecksumAlg {
+			return ObjectInfo{}, errParam("All parts must be uploaded with the same opc-checksum-algorithm")
+		}
+
 		raw, _ := base64.StdEncoding.DecodeString(stored.MD5)
 		digest = append(digest, raw...)
 		data = append(data, stored.Data...)
+		used = append(used, stored)
 	}
 
 	cur := live(bk, object)
@@ -189,13 +282,19 @@ func (b *InMemoryBackend) CommitUpload(
 
 	mp := base64.StdEncoding.EncodeToString(md5Raw(digest)) + "-" + strconv.Itoa(len(parts))
 
-	o, err := b.storeLocked(bk, object, data, u.Meta, md5b64(data), mp)
+	spec := writeSpec{
+		MD5: md5b64(data), MultipartMD5: mp, Checksum: assembleChecksum(used[0].ChecksumAlg, used, data),
+		SseHash: u.SseKeySha, Kms: u.KmsKeyID,
+	}
+
+	o, err := b.storeLocked(bk, object, data, u.Meta, spec)
 	if err != nil {
 		return ObjectInfo{}, err
 	}
 
 	delete(bk.Uploads, id)
 	b.recordEvent(bk, writeEventType(cur != nil), object, o.Etag)
+	b.replicate(bk, object, false)
 
 	return b.info(o), nil
 }

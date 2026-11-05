@@ -3874,6 +3874,10 @@ func wireOCIStreamingVault(byName map[string]service.Registerable) {
 	if sok && vok {
 		streamingH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
 	}
+
+	if osH, ook := byName["OCIObjectStorage"].(*ociobjectstoragebackend.Handler); ook && vok {
+		osH.Backend.SetKeyChecker(vaultH.Backend.KeyState)
+	}
 }
 
 // wireOCIQueueNotifications lets OCI Queue validate customEncryptionKeyId against OCI Vault keys and lets OCI

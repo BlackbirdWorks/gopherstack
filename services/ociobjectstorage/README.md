@@ -7,22 +7,21 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 45 (25 ok, 20 partial) |
-| Feature families | 8 (6 ok, 2 partial) |
-| Known gaps | 11 |
+| PARITY entries audited | 52 (31 ok, 21 partial) |
+| Feature families | 9 (6 ok, 3 partial) |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | unknown |
 
 ### Known gaps
 
 - Resource principal and instance principal tokens (and delegation/session tokens) are not understood; only API-key signatures are verified.
-- Cross-region and cross-tenancy CopyObject, replication policies and replication sources are not implemented.
-- Customer-supplied (opc-sse-customer-*) and KMS keys are accepted but not applied; bucket reencrypt and ReencryptObject are not routed.
+- Cross-tenancy CopyObject is not implemented; regions are nominal (buckets are not partitioned per region, a destination region is any non-empty name and the bucket is found by name).
+- Objects are not encrypted at rest: SSE-C keys are validated and only their SHA-256 is kept (reads with a wrong key fail), KMS key ids are validated against ocivault and recorded; the wrong/missing-key error code InvalidSseCustomerKey is unverified.
 - Private endpoints (/n/{ns}/pe) are not implemented.
-- The OCI Amazon S3 compatibility API and Swift API are out of scope.
-- Checksum headers opc-content-crc32c/sha256/sha384 and opc-checksum-algorithm are ignored; only MD5 is computed and verified.
-- Multipart: no minimum part size, no part overwrite conflicts, and the multipart md5 header is the only multipart checksum.
-- Restore completes one fixed hour after the request regardless of tier; the time-of-archival header is not returned.
+- The OCI Amazon S3 compatibility API (structural: ociidentity generates customer secret keys but does not store them, so SigV4 cannot be verified) and the Swift API are out of scope.
+- InvalidDigest for a checksum mismatch and the 10 MiB minimum part size are not verified against the live service (the documented message is Unmatched Content CRC32C/SHA256/SHA384, code not published).
+- CommitMultipartUpload ignores partsToExclude.
 - Several error codes are unverified against the live service (see families.error_envelope).
 - Namespaces are single-tenant: only one namespace is served and no compartment or IAM policy checks apply.
 - Tag values and defined-tag namespaces are stored verbatim, not validated against a tag namespace.

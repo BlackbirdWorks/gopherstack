@@ -88,6 +88,7 @@ func newEnv(t *testing.T, opts envOpts) *env {
 	be := oci.NewInMemoryBackend()
 	clock := newFakeClock()
 	be.SetClock(clock.Now)
+	be.SetMinPartSize(1)
 
 	h := oci.NewHandler(be)
 	h.Port = 0
