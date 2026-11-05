@@ -27,27 +27,32 @@ func (e *env) listAgg(
 	})
 }
 
+type offsetValue struct {
+	off time.Duration
+	v   float64
+}
+
 func TestAlignInterpolateAndPercentChange(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name   string
-		align  monitoringpb.Aggregation_Aligner
+		points []offsetValue
+		want   []float64
 		period time.Duration
 		from   time.Duration
-		points map[time.Duration]float64
-		want   []float64
+		align  monitoringpb.Aggregation_Aligner
 	}{
 		{
 			name: "interpolate", align: monitoringpb.Aggregation_ALIGN_INTERPOLATE, period: time.Minute,
 			from:   -3 * time.Minute,
-			points: map[time.Duration]float64{-4 * time.Minute: 10, 0: 50},
+			points: []offsetValue{{-4 * time.Minute, 10}, {0, 50}},
 			want:   []float64{50, 40, 30},
 		},
 		{
 			name: "interpolate skips bucket without later point", align: monitoringpb.Aggregation_ALIGN_INTERPOLATE,
 			period: time.Minute, from: -2 * time.Minute,
-			points: map[time.Duration]float64{-1 * time.Minute: 10},
+			points: []offsetValue{{-time.Minute, 10}},
 			want:   []float64{10},
 		},
 	}
@@ -59,10 +64,8 @@ func TestAlignInterpolateAndPercentChange(t *testing.T) {
 			e := newEnv(t)
 			t0 := epoch()
 
-			for off := -5 * time.Minute; off <= 0; off += time.Minute {
-				if v, ok := tt.points[off]; ok {
-					e.writeAt(t, t0.Add(off), "gold", map[string]float64{"inst-1": v})
-				}
+			for _, p := range tt.points {
+				e.writeAt(t, t0.Add(p.off), "gold", map[string]float64{"inst-1": p.v})
 			}
 
 			e.clk.set(t0)
@@ -190,9 +193,9 @@ func TestDistributionAggregation(t *testing.T) {
 	const latencyFilter = `metric.type = "` + latencyMetric + `"`
 
 	tests := []struct {
-		name  string
 		agg   *monitoringpb.Aggregation
 		check func(t *testing.T, got []*monitoringpb.TimeSeries)
+		name  string
 	}{
 		{
 			name: "align sum merges buckets",

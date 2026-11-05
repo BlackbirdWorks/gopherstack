@@ -3,6 +3,7 @@ package gcpmonitoring
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"regexp"
 	"sort"
 	"strconv"
@@ -92,13 +93,21 @@ func promIntervalOf(c *monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguag
 }
 
 type extJob struct {
+	mark    time.Time
 	cond    *policyCondition
 	project string
-	mark    time.Time
 }
 
 // collectJobsLocked lists the PromQL conditions that are due and the log conditions with their read marks.
-func (b *InMemoryBackend) collectJobs(now time.Time) (proms, logs []extJob, src LogEntrySource) {
+type jobSet struct {
+	src   LogEntrySource
+	proms []extJob
+	logs  []extJob
+}
+
+func (b *InMemoryBackend) collectJobs(now time.Time) jobSet {
+	var js jobSet
+
 	b.mu.RLock("collectJobs")
 	defer b.mu.RUnlock()
 
@@ -115,7 +124,7 @@ func (b *InMemoryBackend) collectJobs(now time.Time) (proms, logs []extJob, src 
 			case *monitoringpb.AlertPolicy_Condition_ConditionPrometheusQueryLanguage:
 				rt := b.condRT[c.GetName()]
 				if rt == nil || rt.lastEval.IsZero() || now.Sub(rt.lastEval) >= promIntervalOf(t.ConditionPrometheusQueryLanguage) {
-					proms = append(proms, extJob{cond: c, project: project})
+					js.proms = append(js.proms, extJob{cond: c, project: project})
 				}
 			case *monitoringpb.AlertPolicy_Condition_ConditionMatchedLog:
 				mark := p.GetCreationRecord().GetMutateTime().AsTime()
@@ -123,20 +132,22 @@ func (b *InMemoryBackend) collectJobs(now time.Time) (proms, logs []extJob, src 
 					mark = rt.logMark
 				}
 
-				logs = append(logs, extJob{cond: c, project: project, mark: mark})
+				js.logs = append(js.logs, extJob{cond: c, project: project, mark: mark})
 			}
 		}
 	}
 
-	return proms, logs, b.entries
+	js.src = b.entries
+
+	return js
 }
 
 func (b *InMemoryBackend) runExternal(ctx context.Context, now time.Time) external {
-	proms, logs, src := b.collectJobs(now)
+	js := b.collectJobs(now)
 	ext := external{prom: map[string]promRun{}, logs: map[string][]LogEntry{}}
 	stores := map[string]promStorage{}
 
-	for _, j := range proms {
+	for _, j := range js.proms {
 		st, ok := stores[j.project]
 		if !ok {
 			st = b.promStorageFor(j.project)
@@ -154,12 +165,12 @@ func (b *InMemoryBackend) runExternal(ctx context.Context, now time.Time) extern
 		ext.prom[j.cond.GetName()] = promRun{vec: vec, ran: true}
 	}
 
-	if src == nil {
+	if js.src == nil {
 		return ext
 	}
 
-	for _, j := range logs {
-		ext.logs[j.cond.GetName()] = src.LogEntries(j.project, j.cond.GetConditionMatchedLog().GetFilter(), j.mark)
+	for _, j := range js.logs {
+		ext.logs[j.cond.GetName()] = js.src.LogEntries(j.project, j.cond.GetConditionMatchedLog().GetFilter(), j.mark)
 	}
 
 	return ext
@@ -173,12 +184,13 @@ func expandTemplate(tmpl string, labels promql.Labels, value float64) string {
 	return tmplValueRe.ReplaceAllString(out, formatPromValue(value))
 }
 
-func promAlertLabels(c *monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition, s promql.VectorSample) promql.Labels {
+func promAlertLabels(
+	c *monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition,
+	s promql.VectorSample,
+) promql.Labels {
 	l := promql.Labels{}
 
-	for k, v := range s.Metric {
-		l[k] = v
-	}
+	maps.Copy(l, s.Metric)
 
 	for k, v := range c.GetLabels() {
 		l[k] = expandTemplate(v, s.Metric, s.V)
@@ -373,6 +385,14 @@ func (b *InMemoryBackend) logConditionsLocked(
 	return out
 }
 
+type logScope struct {
+	p       *monitoringpb.AlertPolicy
+	c       *policyCondition
+	rt      *condRuntime
+	project string
+	limit   time.Duration
+}
+
 func (b *InMemoryBackend) matchLogEntriesLocked(
 	project string, p *monitoringpb.AlertPolicy, c *policyCondition, rt *condRuntime, hits []LogEntry,
 	limit time.Duration, now time.Time,
@@ -384,7 +404,7 @@ func (b *InMemoryBackend) matchLogEntriesLocked(
 	}
 
 	mark := rt.logMark
-	extractors := c.GetConditionMatchedLog().GetLabelExtractors()
+	sc := logScope{project: project, p: p, c: c, rt: rt, limit: limit}
 
 	for _, e := range hits {
 		if e.Timestamp.Before(rt.logMark) {
@@ -399,27 +419,8 @@ func (b *InMemoryBackend) matchLogEntriesLocked(
 			mark = e.Timestamp
 		}
 
-		labels := extractedLabels(extractors, e)
-		o := observationOf("log|"+promql.Fingerprint(labels), labels, 0, true)
-		key := p.GetName() + "|" + c.GetName() + "|" + o.id
-
-		if inc := b.openIncidentLocked(key); inc != nil {
-			inc.LastSeen = now
-
-			continue
-		}
-
-		if b.snoozedLocked(p.GetName(), o, now) {
-			continue
-		}
-
-		inc := b.newIncidentLocked(project, p, c, key, o, now)
-		inc.LastSeen = now
-		b.incidents[inc.ID].LastSeen = now
-
-		if opens, _ := policyPrompts(p); opens && (limit <= 0 || rt.lastNote.IsZero() || now.Sub(rt.lastNote) >= limit) {
-			rt.lastNote = now
-			out = append(out, b.notificationLocked(p, inc, true))
+		if n, ok := b.openLogIncidentLocked(sc, e, now); ok {
+			out = append(out, n)
 		}
 	}
 
@@ -437,7 +438,45 @@ func (b *InMemoryBackend) matchLogEntriesLocked(
 	return out
 }
 
-func (b *InMemoryBackend) autoCloseLocked(p *monitoringpb.AlertPolicy, c *policyCondition, after time.Duration, now time.Time) {
+// openLogIncidentLocked records one matching entry: it refreshes the open incident of its label combination or
+// opens a new one, and reports the notification to send, if any.
+func (b *InMemoryBackend) openLogIncidentLocked(sc logScope, e LogEntry, now time.Time) (notification, bool) {
+	labels := extractedLabels(sc.c.GetConditionMatchedLog().GetLabelExtractors(), e)
+	o := observationOf("log|"+promql.Fingerprint(labels), labels, 0, true)
+	key := sc.p.GetName() + "|" + sc.c.GetName() + "|" + o.id
+
+	if inc := b.openIncidentLocked(key); inc != nil {
+		inc.LastSeen = now
+
+		return notification{}, false
+	}
+
+	if b.snoozedLocked(sc.p.GetName(), o, now) {
+		return notification{}, false
+	}
+
+	inc := b.newIncidentLocked(sc.project, sc.p, sc.c, key, o, now)
+	inc.LastSeen = now
+	b.incidents[inc.ID].LastSeen = now
+
+	opens, _ := policyPrompts(sc.p)
+	limited := sc.limit > 0 && !sc.rt.lastNote.IsZero() && now.Sub(sc.rt.lastNote) < sc.limit
+
+	if !opens || limited {
+		return notification{}, false
+	}
+
+	sc.rt.lastNote = now
+
+	return b.notificationLocked(sc.p, inc, true), true
+}
+
+func (b *InMemoryBackend) autoCloseLocked(
+	p *monitoringpb.AlertPolicy,
+	c *policyCondition,
+	after time.Duration,
+	now time.Time,
+) {
 	for _, inc := range b.incidents {
 		if inc.State != stateOpen || inc.Policy != p.GetName() || inc.Condition != c.GetName() {
 			continue

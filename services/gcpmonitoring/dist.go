@@ -159,7 +159,7 @@ func mergeDist(ds []*distpb.Distribution) *distpb.Distribution {
 		out.Mean = sum / total
 
 		for i, c := range d.GetBucketCounts() {
-			if i < len(out.BucketCounts) {
+			if i < len(out.GetBucketCounts()) {
 				out.BucketCounts[i] += c
 			}
 		}

@@ -127,7 +127,8 @@ func TestMatchedLogConditionRejectsBadExtractor(t *testing.T) {
 	p := logPolicy(e.pubsubChannel(t))
 	p.Conditions[0].GetConditionMatchedLog().LabelExtractors = map[string]string{"x": "BOGUS(a)"}
 
-	_, err := e.alerts(t).CreateAlertPolicy(t.Context(), &monitoringpb.CreateAlertPolicyRequest{Name: proj, AlertPolicy: p})
+	_, err := e.alerts(t).
+		CreateAlertPolicy(t.Context(), &monitoringpb.CreateAlertPolicyRequest{Name: proj, AlertPolicy: p})
 	assert.Equal(t, codes.InvalidArgument, codeOf(err))
 }
 
@@ -145,7 +146,9 @@ func (e *env) writeCount(t *testing.T, metric string, at time.Time, v int64) {
 
 func ratioCondition(denomPeriod time.Duration, threshold float64) *monitoringpb.AlertPolicy_Condition {
 	sum := func(p time.Duration) []*monitoringpb.Aggregation {
-		return []*monitoringpb.Aggregation{agg(p, monitoringpb.Aggregation_ALIGN_SUM, monitoringpb.Aggregation_REDUCE_SUM)}
+		return []*monitoringpb.Aggregation{
+			agg(p, monitoringpb.Aggregation_ALIGN_SUM, monitoringpb.Aggregation_REDUCE_SUM),
+		}
 	}
 
 	return &monitoringpb.AlertPolicy_Condition{

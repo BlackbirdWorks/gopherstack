@@ -1,6 +1,7 @@
 package gcpmonitoring
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -79,9 +80,7 @@ func (b *InMemoryBackend) promRuleLocked(
 		Alerts: []promAlertJSON{}, LastEvaluation: promTime(time.Time{}),
 	}
 
-	for k, v := range pc.GetLabels() {
-		rule.Labels[k] = v
-	}
+	maps.Copy(rule.Labels, pc.GetLabels())
 
 	rt := b.condRT[c.GetName()]
 	if rt == nil || !policyEnabled(p) {

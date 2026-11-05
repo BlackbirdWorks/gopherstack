@@ -257,14 +257,15 @@ func countInRange(d *distribution.Distribution, lo, hi float64) float64 {
 
 		bl, bu := bucketBounds(d, i)
 
-		switch {
-		case i == 0 || i == last:
+		if i == 0 || i == last {
 			if bl >= lo && bl <= hi {
 				n += float64(c)
 			}
-		default:
-			n += float64(c) * overlap(bl, bu, lo, hi)
+
+			continue
 		}
+
+		n += float64(c) * overlap(bl, bu, lo, hi)
 	}
 
 	return n
@@ -417,9 +418,12 @@ func (b *InMemoryBackend) sloSelectorSeriesLocked(
 
 	project, _, _ := splitName(sloServiceOf(sel.slo), collServices)
 	s := &aSeries{
-		metric:   &metricpb.Metric{Type: sel.kind},
-		resource: &monitoredres.MonitoredResource{Type: "service_level_objective", Labels: map[string]string{"slo": sel.slo}},
-		kind:     kindGauge, vtype: vtDouble,
+		metric: &metricpb.Metric{Type: sel.kind},
+		resource: &monitoredres.MonitoredResource{
+			Type:   "service_level_objective",
+			Labels: map[string]string{"slo": sel.slo},
+		},
+		kind: kindGauge, vtype: vtDouble,
 	}
 
 	for k := steps - 1; k >= 0; k-- {

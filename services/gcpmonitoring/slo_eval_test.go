@@ -61,15 +61,28 @@ func TestSLOBurnRateAndHealthConditions(t *testing.T) {
 	tests := []struct {
 		name       string
 		selector   string
-		cmp        monitoringpb.ComparisonType
 		threshold  float64
-		good, tot  int64
+		good       int64
+		tot        int64
+		cmp        monitoringpb.ComparisonType
 		wantFiring bool
 	}{
-		{"burn rate above", `select_slo_burn_rate("%s", "3600s")`, monitoringpb.ComparisonType_COMPARISON_GT, 10, 80, 100, true},
-		{"burn rate below", `select_slo_burn_rate("%s", "3600s")`, monitoringpb.ComparisonType_COMPARISON_GT, 10, 95, 100, false},
-		{"health below", `select_slo_health("%s")`, monitoringpb.ComparisonType_COMPARISON_LT, 0.9, 80, 100, true},
-		{"health fine", `select_slo_health("%s")`, monitoringpb.ComparisonType_COMPARISON_LT, 0.9, 99, 100, false},
+		{
+			name: "burn rate above", selector: `select_slo_burn_rate("%s", "3600s")`,
+			cmp: monitoringpb.ComparisonType_COMPARISON_GT, threshold: 10, good: 80, tot: 100, wantFiring: true,
+		},
+		{
+			name: "burn rate below", selector: `select_slo_burn_rate("%s", "3600s")`,
+			cmp: monitoringpb.ComparisonType_COMPARISON_GT, threshold: 10, good: 95, tot: 100,
+		},
+		{
+			name: "health below", selector: `select_slo_health("%s")`,
+			cmp: monitoringpb.ComparisonType_COMPARISON_LT, threshold: 0.9, good: 80, tot: 100, wantFiring: true,
+		},
+		{
+			name: "health fine", selector: `select_slo_health("%s")`,
+			cmp: monitoringpb.ComparisonType_COMPARISON_LT, threshold: 0.9, good: 99, tot: 100,
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,8 +150,10 @@ func TestSLOStatus(t *testing.T) {
 	windows.Period = &monitoringpb.ServiceLevelObjective_RollingPeriod{RollingPeriod: durationpb.New(24 * time.Hour)}
 	windows.ServiceLevelIndicator = &monitoringpb.ServiceLevelIndicator{
 		Type: &monitoringpb.ServiceLevelIndicator_WindowsBased{WindowsBased: &monitoringpb.WindowsBasedSli{
-			WindowPeriod:    durationpb.New(6 * time.Hour),
-			WindowCriterion: &monitoringpb.WindowsBasedSli_GoodBadMetricFilter{GoodBadMetricFilter: metricQuery(boolMetric)},
+			WindowPeriod: durationpb.New(6 * time.Hour),
+			WindowCriterion: &monitoringpb.WindowsBasedSli_GoodBadMetricFilter{
+				GoodBadMetricFilter: metricQuery(boolMetric),
+			},
 		}},
 	}
 
@@ -286,11 +301,18 @@ func TestBasicSliAvailabilityOnCloudRun(t *testing.T) {
 
 	counts := map[string]int64{"2xx": 90, "5xx": 10}
 	for class, n := range counts {
-		ts := intSeries("run.googleapis.com/request_count", metricpb.MetricDescriptor_DELTA, &monitoredres.MonitoredResource{
-			Type: "cloud_run_revision", Labels: map[string]string{
-				"service_name": "api", "revision_name": "r", "location": "us-central1", "configuration_name": "c",
+		ts := intSeries(
+			"run.googleapis.com/request_count",
+			metricpb.MetricDescriptor_DELTA,
+			&monitoredres.MonitoredResource{
+				Type: "cloud_run_revision", Labels: map[string]string{
+					"service_name": "api", "revision_name": "r", "location": "us-central1", "configuration_name": "c",
+				},
 			},
-		}, t0.Add(-time.Minute), t0, n)
+			t0.Add(-time.Minute),
+			t0,
+			n,
+		)
 		ts.Metric.Labels = map[string]string{"response_code": "200", "response_code_class": class}
 		require.NoError(t, e.metric(t).CreateServiceTimeSeries(t.Context(),
 			&monitoringpb.CreateTimeSeriesRequest{Name: proj, TimeSeries: []*monitoringpb.TimeSeries{ts}}))

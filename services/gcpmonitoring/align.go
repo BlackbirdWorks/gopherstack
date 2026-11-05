@@ -242,6 +242,10 @@ func reduceValues(
 		return nil, false
 	}
 
+	if vt == vtDist {
+		return reduceDists(r, vals)
+	}
+
 	nums := make([]float64, len(vals))
 
 	var trues int64
@@ -254,15 +258,17 @@ func reduceValues(
 		}
 	}
 
-	if vt == vtDist {
-		return reduceDists(r, vals)
-	}
+	return reduceNumbers(r, nums, trues, vt)
+}
 
+func reduceNumbers(
+	r reducer, nums []float64, trues int64, vt metricpb.MetricDescriptor_ValueType,
+) (*monitoringpb.TypedValue, bool) {
 	if q, isP := reducerPercentile(r); isP {
 		return doubleValue(quantile(nums, q)), true
 	}
 
-	total := int64(len(vals))
+	total := int64(len(nums))
 
 	switch r {
 	case reduceCount:

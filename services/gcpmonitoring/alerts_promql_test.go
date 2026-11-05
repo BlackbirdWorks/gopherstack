@@ -35,9 +35,8 @@ func promPolicy(channel string, pc *monitoringpb.AlertPolicy_Condition_Prometheu
 type rulesReply struct {
 	Data struct {
 		Groups []struct {
-			Name     string  `json:"name"`
-			Interval float64 `json:"interval"`
-			Rules    []struct {
+			Name  string `json:"name"`
+			Rules []struct {
 				Name     string            `json:"name"`
 				Query    string            `json:"query"`
 				State    string            `json:"state"`
@@ -50,6 +49,7 @@ type rulesReply struct {
 					Value  string            `json:"value"`
 				} `json:"alerts"`
 			} `json:"rules"`
+			Interval float64 `json:"interval"`
 		} `json:"groups"`
 	} `json:"data"`
 }
@@ -177,26 +177,34 @@ func TestPromQLConditionValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		pc   *monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition
+		name string
 		want codes.Code
 	}{
-		{"valid", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
+		{name: "valid", pc: &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
 			Query: `up > 0`, AlertRule: "Down", RuleGroup: "g",
-		}, codes.OK},
-		{"empty query", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{}, codes.InvalidArgument},
-		{"syntax error", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
+		}, want: codes.OK},
+		{
+			name: "empty query",
+			pc:   &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{},
+			want: codes.InvalidArgument,
+		},
+		{name: "syntax error", pc: &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
 			Query: `sum(`,
-		}, codes.InvalidArgument},
-		{"interval not a multiple of 30s", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
-			Query: `up`, EvaluationInterval: durationpb.New(45 * time.Second),
-		}, codes.InvalidArgument},
-		{"bad label name", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
+		}, want: codes.InvalidArgument},
+		{
+			name: "interval not a multiple of 30s",
+			pc: &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
+				Query: `up`, EvaluationInterval: durationpb.New(45 * time.Second),
+			},
+			want: codes.InvalidArgument,
+		},
+		{name: "bad label name", pc: &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
 			Query: `up`, Labels: map[string]string{"bad-name": "x"},
-		}, codes.InvalidArgument},
-		{"bad alert rule", &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
+		}, want: codes.InvalidArgument},
+		{name: "bad alert rule", pc: &monitoringpb.AlertPolicy_Condition_PrometheusQueryLanguageCondition{
 			Query: `up`, AlertRule: "has space",
-		}, codes.InvalidArgument},
+		}, want: codes.InvalidArgument},
 	}
 
 	for _, tt := range tests {

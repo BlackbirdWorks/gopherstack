@@ -7,7 +7,10 @@ import (
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
 )
 
-const msPerSec = 1000.0
+const (
+	msPerSec         = 1000.0
+	labelLocationRes = "resource.labels.location"
+)
 
 // basicTelemetry names the metrics a service type reports for availability and latency SLIs.
 type basicTelemetry struct {
@@ -23,7 +26,7 @@ func telemetryOf(svc *monitoringpb.Service) (basicTelemetry, bool) {
 			count: "run.googleapis.com/request_count", latency: "run.googleapis.com/request_latencies",
 			scope: `resource.type = "cloud_run_revision" AND resource.labels.service_name = ` +
 				strconv.Quote(svc.GetCloudRun().GetServiceName()),
-			locationLabel: "resource.labels.location", codeLabel: "metric.labels.response_code_class", badCode: "5xx",
+			locationLabel: labelLocationRes, codeLabel: "metric.labels.response_code_class", badCode: "5xx",
 		}, true
 	case svc.GetCloudEndpoints() != nil:
 		return basicTelemetry{
@@ -31,7 +34,7 @@ func telemetryOf(svc *monitoringpb.Service) (basicTelemetry, bool) {
 			latency: "serviceruntime.googleapis.com/api/request_latencies",
 			scope: `resource.type = "api" AND resource.labels.service = ` +
 				strconv.Quote(svc.GetCloudEndpoints().GetService()),
-			locationLabel: "resource.labels.location", codeLabel: "metric.labels.response_code_class", badCode: "5xx",
+			locationLabel: labelLocationRes, codeLabel: "metric.labels.response_code_class", badCode: "5xx",
 		}, true
 	case svc.GetAppEngine() != nil:
 		return basicTelemetry{
@@ -39,7 +42,7 @@ func telemetryOf(svc *monitoringpb.Service) (basicTelemetry, bool) {
 			latency: "appengine.googleapis.com/http/server/response_latencies",
 			scope: `resource.type = "gae_app" AND resource.labels.module_id = ` +
 				strconv.Quote(svc.GetAppEngine().GetModuleId()),
-			locationLabel: "resource.labels.location", codeLabel: "metric.labels.response_code", badCode: "5",
+			locationLabel: labelLocationRes, codeLabel: "metric.labels.response_code", badCode: "5",
 		}, true
 	}
 
@@ -94,9 +97,8 @@ func (b *InMemoryBackend) explicitSLOLocked(
 	out := cloneSLO(slo)
 	svc := b.services[sloServiceOf(slo.GetName())]
 
-	switch t := out.GetServiceLevelIndicator().GetType().(type) {
-	case *monitoringpb.ServiceLevelIndicator_BasicSli:
-		if r, ok := expandBasicSli(svc, t.BasicSli); ok {
+	if t, ok := out.GetServiceLevelIndicator().GetType().(*monitoringpb.ServiceLevelIndicator_BasicSli); ok {
+		if r, expanded := expandBasicSli(svc, t.BasicSli); expanded {
 			out.ServiceLevelIndicator = &monitoringpb.ServiceLevelIndicator{
 				Type: &monitoringpb.ServiceLevelIndicator_RequestBased{RequestBased: r},
 			}

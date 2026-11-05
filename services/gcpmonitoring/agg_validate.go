@@ -106,14 +106,34 @@ func alignerApplies(a aligner, k metricpb.MetricDescriptor_MetricKind, vt metric
 	switch a {
 	case alignNone, alignNextOlder:
 		return true
+	case alignInterpolate, alignPercentChange, alignDelta, alignRate:
+		return changeAlignerApplies(a, k, vt)
+	case alignCountTrue, alignCountFalse, alignFracTrue:
+		return vt == vtBool
+	default:
+		return valueAlignerApplies(a, k, vt)
+	}
+}
+
+func changeAlignerApplies(
+	a aligner, k metricpb.MetricDescriptor_MetricKind, vt metricpb.MetricDescriptor_ValueType,
+) bool {
+	switch a {
 	case alignInterpolate:
 		return k == kindGauge && isNumeric(vt)
 	case alignPercentChange:
 		return (k == kindGauge || k == kindDelta) && isNumeric(vt)
 	case alignDelta:
 		return isAccumulating(k) && (isNumeric(vt) || vt == vtDist)
-	case alignRate:
+	default:
 		return isAccumulating(k) && isNumeric(vt)
+	}
+}
+
+func valueAlignerApplies(
+	a aligner, k metricpb.MetricDescriptor_MetricKind, vt metricpb.MetricDescriptor_ValueType,
+) bool {
+	switch a {
 	case alignSum:
 		return !isCumulativeKind(k) && (isNumeric(vt) || vt == vtDist)
 	case alignMin, alignMax, alignStddev:
@@ -122,8 +142,6 @@ func alignerApplies(a aligner, k metricpb.MetricDescriptor_MetricKind, vt metric
 		return !isCumulativeKind(k) && (isNumeric(vt) || vt == vtDist)
 	case alignCount:
 		return !isCumulativeKind(k)
-	case alignCountTrue, alignCountFalse, alignFracTrue:
-		return vt == vtBool
 	default:
 		return false
 	}
