@@ -13,19 +13,52 @@ const (
 	minDiskGb      = 10
 	maxDiskGb      = 65536
 	defaultDiskTyp = "pd-standard"
+
+	regionalReplicas      = 2
+	regionalStandardMinGb = 200
 )
 
-func diskTarget(project, zone string, d *computeapi.Disk) target {
-	return target{project: project, scope: scopeZone, loc: zone, collection: "disks", name: d.Name, id: d.Id}
+func diskTarget(project, loc string, d *computeapi.Disk) target {
+	scope := scopeZone
+	if d.Region != "" {
+		scope, loc = scopeRegion, lastSegment(d.Region)
+	}
+
+	return target{project: project, scope: scope, loc: loc, collection: "disks", name: d.Name, id: d.Id}
 }
 
-func (b *InMemoryBackend) diskUsersLocked(project, zone, name string) []string {
+func diskLoc(d *computeapi.Disk) string {
+	if d.Region != "" {
+		return lastSegment(d.Region)
+	}
+
+	return lastSegment(d.Zone)
+}
+
+func diskScope(d *computeapi.Disk) string {
+	if d.Region != "" {
+		return scopeRegion
+	}
+
+	return scopeZone
+}
+
+// diskKeyFor keys the disk named by an attached-disk source (zonal or regional) for an instance in zone.
+func diskKeyFor(project, zone, source string) string {
+	if r, ok := parseRef(source, "disks", project, zone); ok && r.scope == scopeRegion {
+		return key(r.project, r.loc, r.name)
+	}
+
+	return key(project, zone, lastSegment(source))
+}
+
+func (b *InMemoryBackend) diskUsersLocked(project string, d *computeapi.Disk) []string {
 	var users []string
 
-	self := zoneLink(project, zone, "disks", name)
+	self := d.SelfLink
 
 	for _, r := range b.instances {
-		if lastSegment(r.Inst.Zone) != zone || !strings.Contains(r.Inst.SelfLink, "/projects/"+project+"/") {
+		if !strings.Contains(r.Inst.SelfLink, "/projects/"+project+"/") {
 			continue
 		}
 
@@ -43,24 +76,24 @@ func (b *InMemoryBackend) diskUsersLocked(project, zone, name string) []string {
 
 func (b *InMemoryBackend) diskViewLocked(project string, d *computeapi.Disk) *computeapi.Disk {
 	out := clone(d)
-	out.Users = b.diskUsersLocked(project, lastSegment(d.Zone), d.Name)
+	out.Users = b.diskUsersLocked(project, d)
 
 	return out
 }
 
-func (b *InMemoryBackend) resolveDiskTypeLocked(project, zone, raw string) (diskTypeSpec, *APIError) {
+func (b *InMemoryBackend) resolveDiskTypeLocked(project, scope, loc, raw string) (diskTypeSpec, *APIError) {
 	if raw == "" {
 		raw = defaultDiskTyp
 	}
 
-	r, err := refLocated(raw, "diskTypes", scopeZone, project, zone)
+	r, err := refLocated(raw, "diskTypes", scope, project, loc)
 	if err != nil {
 		return diskTypeSpec{}, errField("diskType", raw, "")
 	}
 
 	spec, ok := findDiskType(r.name)
-	if !ok || r.loc != zone {
-		return diskTypeSpec{}, errNotFound(relPath(r.project, scopeZone, r.loc, "diskTypes", r.name))
+	if !ok || r.loc != loc {
+		return diskTypeSpec{}, errNotFound(relPath(r.project, scope, r.loc, "diskTypes", r.name))
 	}
 
 	return spec, nil
@@ -69,14 +102,26 @@ func (b *InMemoryBackend) resolveDiskTypeLocked(project, zone, raw string) (disk
 type diskSource struct {
 	image    *computeapi.Image
 	snapshot *computeapi.Snapshot
+	instant  *computeapi.InstantSnapshot
 	sizeGb   int64
 }
 
-func (b *InMemoryBackend) resolveDiskSourceLocked(project string, in *computeapi.Disk) (diskSource, *APIError) {
+func (b *InMemoryBackend) resolveDiskSourceLocked(
+	project, scope, loc string, in *computeapi.Disk,
+) (diskSource, *APIError) {
 	var src diskSource
 
-	if in.SourceImage != "" && in.SourceSnapshot != "" {
-		return src, errInvalid("Only one of sourceImage and sourceSnapshot may be specified.")
+	n := 0
+
+	for _, v := range []string{in.SourceImage, in.SourceSnapshot, in.SourceInstantSnapshot} {
+		if v != "" {
+			n++
+		}
+	}
+
+	if n > 1 {
+		return src, errInvalid(
+			"Only one of sourceImage, sourceSnapshot and sourceInstantSnapshot may be specified.")
 	}
 
 	switch {
@@ -87,6 +132,13 @@ func (b *InMemoryBackend) resolveDiskSourceLocked(project string, in *computeapi
 		}
 
 		src.image, src.sizeGb = img, img.DiskSizeGb
+	case in.SourceInstantSnapshot != "":
+		is, err := b.resolveInstantSnapshotLocked(project, scope, loc, in.SourceInstantSnapshot)
+		if err != nil {
+			return src, err
+		}
+
+		src.instant, src.sizeGb = is, is.DiskSizeGb
 	case in.SourceSnapshot != "":
 		r, err := refGlobal(in.SourceSnapshot, "snapshots", project)
 		if err != nil {
@@ -105,47 +157,102 @@ func (b *InMemoryBackend) resolveDiskSourceLocked(project string, in *computeapi
 }
 
 func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.Disk) (*computeapi.Disk, *APIError) {
-	if err := validName("name", in.Name); err != nil {
-		return nil, err
+	return b.createDiskAtLocked(project, scopeZone, zone, in)
+}
+
+func (b *InMemoryBackend) validReplicaZonesLocked(region string, in *computeapi.Disk) ([]string, *APIError) {
+	if len(in.ReplicaZones) != regionalReplicas {
+		return nil, errField("resource.replicaZones", "", "A regional disk needs exactly two replica zones.")
 	}
 
-	if !zoneExists(zone) {
-		return nil, errNotFound(scopePath(project, scopeZone, zone))
+	out := make([]string, 0, regionalReplicas)
+	seen := map[string]bool{}
+
+	for _, z := range in.ReplicaZones {
+		zn := lastSegment(z)
+		if !zoneExists(zn) || regionOfZone(zn) != region || seen[zn] {
+			return nil, errField("resource.replicaZones", z, "Not a distinct zone of the disk's region.")
+		}
+
+		seen[zn] = true
+		out = append(out, zn)
 	}
 
-	if _, dup := b.disks[key(project, zone, in.Name)]; dup {
-		return nil, errExists(relPath(project, scopeZone, zone, "disks", in.Name))
+	return out, nil
+}
+
+func (b *InMemoryBackend) checkDiskSlotLocked(project, scope, loc, name string) *APIError {
+	if err := validName("name", name); err != nil {
+		return err
 	}
 
-	dt, err := b.resolveDiskTypeLocked(project, zone, in.Type)
+	if scope == scopeZone && !zoneExists(loc) || scope == scopeRegion && regionMissing(loc) {
+		return errNotFound(scopePath(project, scope, loc))
+	}
+
+	if _, dup := b.disks[key(project, loc, name)]; dup {
+		return errExists(relPath(project, scope, loc, "disks", name))
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) replicaURLsLocked(project, scope, region string, in *computeapi.Disk) ([]string, *APIError) {
+	if scope == scopeZone {
+		if len(in.ReplicaZones) > 0 {
+			return nil, errInvalid("Invalid value for field 'resource.replicaZones': only valid for regional disks.")
+		}
+
+		return nil, nil
+	}
+
+	replicas, err := b.validReplicaZonesLocked(region, in)
 	if err != nil {
 		return nil, err
 	}
 
-	policies, apiErr := b.diskLabelsAndPoliciesLocked(project, zone, in)
+	for i, z := range replicas {
+		replicas[i] = scopeURL(project, scopeZone, z)
+	}
+
+	return replicas, nil
+}
+
+func (b *InMemoryBackend) createDiskAtLocked(
+	project, scope, loc string, in *computeapi.Disk,
+) (*computeapi.Disk, *APIError) {
+	if err := b.checkDiskSlotLocked(project, scope, loc, in.Name); err != nil {
+		return nil, err
+	}
+
+	region := loc
+	if scope == scopeZone {
+		region = regionOfZone(loc)
+	}
+
+	dt, err := b.resolveDiskTypeLocked(project, scope, loc, in.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	replicas, err := b.replicaURLsLocked(project, scope, region, in)
+	if err != nil {
+		return nil, err
+	}
+
+	policies, apiErr := b.diskLabelsAndPoliciesLocked(project, region, in)
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	src, err := b.resolveDiskSourceLocked(project, in)
+	src, err := b.resolveDiskSourceLocked(project, scope, loc, in)
 	if err != nil {
 		return nil, err
 	}
 
-	size := in.SizeGb
-
-	switch {
-	case size == 0 && src.sizeGb > 0:
-		size = src.sizeGb
-	case size == 0:
-		size = dt.defaultGb
-	case size < src.sizeGb:
-		return nil, errField("resource.sizeGb", sizeStr(size),
-			"Requested disk size cannot be smaller than the source size ("+sizeStr(src.sizeGb)+" GB).")
-	}
-
-	if size < minDiskGb || size > maxDiskGb {
-		return nil, errField("resource.sizeGb", sizeStr(size), "Disk size must be between 10 and 65536 GB.")
+	size, err := diskSize(in.SizeGb, src.sizeGb, dt, scope)
+	if err != nil {
+		return nil, err
 	}
 
 	d := &computeapi.Disk{
@@ -155,52 +262,101 @@ func (b *InMemoryBackend) createDiskLocked(project, zone string, in *computeapi.
 		Name:                   in.Name,
 		Description:            in.Description,
 		SizeGb:                 size,
-		Zone:                   scopeURL(project, scopeZone, zone),
 		Status:                 statusReady,
-		SelfLink:               zoneLink(project, zone, "disks", in.Name),
-		Type:                   zoneLink(project, zone, "diskTypes", dt.name),
+		SelfLink:               link(project, scope, loc, "disks", in.Name),
+		Type:                   link(project, scope, loc, "diskTypes", dt.name),
 		Labels:                 in.Labels,
 		LabelFingerprint:       labelFP(in.Labels),
 		PhysicalBlockSizeBytes: physBlockBytes,
 		Architecture:           archX86,
 		ResourcePolicies:       policies,
+		ReplicaZones:           replicas,
 	}
 
-	if src.image != nil {
-		d.SourceImage, d.SourceImageId = src.image.SelfLink, strconv.FormatUint(src.image.Id, 10)
-		d.GuestOsFeatures, d.Licenses = src.image.GuestOsFeatures, src.image.Licenses
+	if scope == scopeRegion {
+		d.Region = scopeURL(project, scopeRegion, loc)
+	} else {
+		d.Zone = scopeURL(project, scopeZone, loc)
 	}
 
-	if src.snapshot != nil {
-		d.SourceSnapshot, d.SourceSnapshotId = src.snapshot.SelfLink, strconv.FormatUint(src.snapshot.Id, 10)
-	}
-
-	b.disks[key(project, zone, in.Name)] = d
+	src.apply(d)
+	b.disks[key(project, loc, in.Name)] = d
 
 	return d, nil
 }
 
+func diskSize(req, srcGb int64, dt diskTypeSpec, scope string) (int64, *APIError) {
+	size := req
+
+	switch {
+	case size == 0 && srcGb > 0:
+		size = srcGb
+	case size == 0:
+		size = dt.defaultGb
+	case size < srcGb:
+		return 0, errField("resource.sizeGb", sizeStr(size),
+			"Requested disk size cannot be smaller than the source size ("+sizeStr(srcGb)+" GB).")
+	}
+
+	lo := int64(minDiskGb)
+	if scope == scopeRegion && dt.name == defaultDiskTyp {
+		lo = regionalStandardMinGb
+	}
+
+	if size < lo || size > maxDiskGb {
+		return 0, errField("resource.sizeGb", sizeStr(size),
+			"Disk size must be between "+sizeStr(lo)+" and 65536 GB.")
+	}
+
+	return size, nil
+}
+
+func (s diskSource) apply(d *computeapi.Disk) {
+	if s.image != nil {
+		d.SourceImage, d.SourceImageId = s.image.SelfLink, strconv.FormatUint(s.image.Id, 10)
+		d.GuestOsFeatures, d.Licenses = s.image.GuestOsFeatures, s.image.Licenses
+	}
+
+	if s.snapshot != nil {
+		d.SourceSnapshot, d.SourceSnapshotId = s.snapshot.SelfLink, strconv.FormatUint(s.snapshot.Id, 10)
+	}
+
+	if s.instant != nil {
+		d.SourceInstantSnapshot = s.instant.SelfLink
+		d.SourceInstantSnapshotId = strconv.FormatUint(s.instant.Id, 10)
+	}
+}
+
 func sizeStr(n int64) string { return strconv.FormatInt(n, 10) }
 
-func (b *InMemoryBackend) insertDisk(project, zone string, in *computeapi.Disk) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) insertDisk(project, scope, loc string, in *computeapi.Disk) (*computeapi.Operation, error) {
 	b.mu.Lock("InsertDisk")
 	defer b.mu.Unlock()
 
-	d, err := b.createDiskLocked(project, zone, in)
+	d, err := b.createDiskAtLocked(project, scope, loc, in)
 	if err != nil {
 		return nil, err
 	}
 
-	return b.newOpLocked("insert", diskTarget(project, zone, d), b.timing.Done), nil
+	return b.newOpLocked("insert", diskTarget(project, loc, d), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) getDisk(project, zone, name string) (*computeapi.Disk, error) {
+func (b *InMemoryBackend) getDiskLocked(project, scope, loc, name string) (*computeapi.Disk, *APIError) {
+	d, ok := b.disks[key(project, loc, name)]
+	if !ok || diskScope(d) != scope {
+		return nil, errNotFound(relPath(project, scope, loc, "disks", name))
+	}
+
+	return d, nil
+}
+
+func (b *InMemoryBackend) getDisk(project, scope, loc, name string) (*computeapi.Disk, error) {
 	b.mu.RLock("GetDisk")
 	defer b.mu.RUnlock()
 
-	d, ok := b.disks[key(project, zone, name)]
-	if !ok {
-		return nil, errNotFound(relPath(project, scopeZone, zone, "disks", name))
+	d, err := b.getDiskLocked(project, scope, loc, name)
+	if err != nil {
+		return nil, err
 	}
 
 	return b.diskViewLocked(project, d), nil
@@ -213,42 +369,41 @@ func (b *InMemoryBackend) listDisks(project, scope, loc string) []entry {
 	var out []entry
 
 	for k, d := range b.disks {
-		zone := lastSegment(d.Zone)
-		if !strings.HasPrefix(k, project+"/") || (scope == scopeZone && zone != loc) {
+		if !strings.HasPrefix(k, project+"/") || (scope != "" && (diskScope(d) != scope || diskLoc(d) != loc)) {
 			continue
 		}
 
-		out = append(out, entry{scope: scopeZone + "/" + zone, item: b.diskViewLocked(project, d)})
+		out = append(out, entry{scope: diskScope(d) + "/" + diskLoc(d), item: b.diskViewLocked(project, d)})
 	}
 
 	return out
 }
 
-func (b *InMemoryBackend) deleteDisk(project, zone, name string) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) deleteDisk(project, scope, loc, name string) (*computeapi.Operation, error) {
 	b.mu.Lock("DeleteDisk")
 	defer b.mu.Unlock()
 
-	d, ok := b.disks[key(project, zone, name)]
-	if !ok {
-		return nil, errNotFound(relPath(project, scopeZone, zone, "disks", name))
+	d, err := b.getDiskLocked(project, scope, loc, name)
+	if err != nil {
+		return nil, err
 	}
 
-	if users := b.diskUsersLocked(project, zone, name); len(users) > 0 {
-		return nil, errInUse("disk", relPath(project, scopeZone, zone, "disks", name), trimURL(users[0]))
+	if users := b.diskUsersLocked(project, d); len(users) > 0 {
+		return nil, errInUse("disk", relPath(project, scope, loc, "disks", name), trimURL(users[0]))
 	}
 
-	delete(b.disks, key(project, zone, name))
+	delete(b.disks, key(project, loc, name))
 
-	return b.newOpLocked("delete", diskTarget(project, zone, d), b.timing.Done), nil
+	return b.newOpLocked("delete", diskTarget(project, loc, d), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) resizeDisk(project, zone, name string, sizeGb int64) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) resizeDisk(project, scope, loc, name string, sizeGb int64) (*computeapi.Operation, error) {
 	b.mu.Lock("ResizeDisk")
 	defer b.mu.Unlock()
 
-	d, ok := b.disks[key(project, zone, name)]
-	if !ok {
-		return nil, errNotFound(relPath(project, scopeZone, zone, "disks", name))
+	d, err := b.getDiskLocked(project, scope, loc, name)
+	if err != nil {
+		return nil, err
 	}
 
 	if sizeGb <= d.SizeGb || sizeGb > maxDiskGb {
@@ -258,26 +413,28 @@ func (b *InMemoryBackend) resizeDisk(project, zone, name string, sizeGb int64) (
 
 	d.SizeGb = sizeGb
 
-	return b.newOpLocked("resize", diskTarget(project, zone, d), b.timing.Done), nil
+	return b.newOpLocked("resize", diskTarget(project, loc, d), b.timing.Done), nil
 }
 
-func (b *InMemoryBackend) setDiskLabels(project, zone, name string, req labelsRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) setDiskLabels(
+	project, scope, loc, name string, req labelsRequest,
+) (*computeapi.Operation, error) {
 	b.mu.Lock("SetDiskLabels")
 	defer b.mu.Unlock()
 
-	d, ok := b.disks[key(project, zone, name)]
-	if !ok {
-		return nil, errNotFound(relPath(project, scopeZone, zone, "disks", name))
-	}
-
-	labels, fp, err := applyLabels(d.Labels, d.LabelFingerprint, req)
+	d, err := b.getDiskLocked(project, scope, loc, name)
 	if err != nil {
 		return nil, err
 	}
 
+	labels, fp, lerr := applyLabels(d.Labels, d.LabelFingerprint, req)
+	if lerr != nil {
+		return nil, lerr
+	}
+
 	d.Labels, d.LabelFingerprint = labels, fp
 
-	return b.newOpLocked("setLabels", diskTarget(project, zone, d), b.timing.Done), nil
+	return b.newOpLocked("setLabels", diskTarget(project, loc, d), b.timing.Done), nil
 }
 
 func storageLocationFor(zone string) string {
@@ -294,15 +451,15 @@ func storageLocationFor(zone string) string {
 }
 
 func (b *InMemoryBackend) createSnapshot(
-	project, zone, name string,
+	project, scope, zone, name string,
 	in *computeapi.Snapshot,
 ) (*computeapi.Operation, error) {
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
-	d, ok := b.disks[key(project, zone, name)]
-	if !ok {
-		return nil, errNotFound(relPath(project, scopeZone, zone, "disks", name))
+	d, derr := b.getDiskLocked(project, scope, zone, name)
+	if derr != nil {
+		return nil, derr
 	}
 
 	if err := validName("name", in.Name); err != nil {
@@ -402,11 +559,14 @@ func (b *InMemoryBackend) setSnapshotLabels(project, name string, req labelsRequ
 	), nil
 }
 
-func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(project, zone string, in *computeapi.Disk) ([]string, *APIError) {
+func (b *InMemoryBackend) diskLabelsAndPoliciesLocked(
+	project, region string,
+	in *computeapi.Disk,
+) ([]string, *APIError) {
 	if err := validLabels(in.Labels); err != nil {
 		return nil, err
 	}
 
 	return b.resolveResPoliciesLocked(
-		project, regionOfZone(zone), in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds())
+		project, region, in.ResourcePolicies, "resource.resourcePolicies", diskPolicyKinds())
 }

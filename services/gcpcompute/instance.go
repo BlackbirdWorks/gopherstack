@@ -2,6 +2,7 @@ package gcpcompute
 
 import (
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,7 +27,7 @@ const (
 )
 
 func instTarget(project, zone string, i *computeapi.Instance) target {
-	return target{project: project, scope: scopeZone, loc: zone, collection: "instances", name: i.Name, id: i.Id}
+	return target{project: project, scope: scopeZone, loc: zone, collection: collInstances, name: i.Name, id: i.Id}
 }
 
 func (r *instRec) status(now time.Time, t Timing) string {
@@ -282,14 +283,9 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 
 	switch {
 	case ad.Source != "":
-		r, err := refLocated(ad.Source, "disks", scopeZone, project, zone)
-		if err != nil || r.loc != zone {
-			return nil, errField(field+".source", ad.Source, "The URL is malformed or names a different zone.")
-		}
-
-		found, ok := b.disks[key(r.project, zone, r.name)]
-		if !ok {
-			return nil, errNotFound(relPath(r.project, scopeZone, zone, "disks", r.name))
+		found, err := b.attachableDiskLocked(project, zone, field, ad.Source)
+		if err != nil {
+			return nil, err
 		}
 
 		d = found
@@ -302,6 +298,9 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 
 		if in.Name == "" {
 			in.Name = instName
+			if idx > 0 {
+				in.Name += "-" + deviceName(ad.DeviceName, idx)
+			}
 		}
 
 		made, err := b.createDiskLocked(project, zone, in)
@@ -319,7 +318,7 @@ func (b *InMemoryBackend) resolveAttachedLocked(
 	}
 
 	return &computeapi.AttachedDisk{
-		Kind:            "compute#attachedDisk",
+		Kind:            kindAttachedDisk,
 		Type:            diskPersist,
 		Mode:            mode,
 		Source:          d.SelfLink,
@@ -593,7 +592,7 @@ func (b *InMemoryBackend) buildNICLocked(
 
 	nic := &computeapi.NetworkInterface{
 		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
-		NetworkIP: ip.String(), StackType: "IPV4_ONLY", Fingerprint: newFingerprint(), NicType: in.NicType,
+		NetworkIP: ip.String(), StackType: stackIPv4Only, Fingerprint: newFingerprint(), NicType: in.NicType,
 		AliasIpRanges: in.AliasIpRanges,
 	}
 
@@ -784,8 +783,16 @@ func (b *InMemoryBackend) insertInstanceLocked(
 		return nil, err
 	}
 
+	affinity, err := b.normalizeAffinityLocked(project, zone, machine, in.ReservationAffinity)
+	if err != nil {
+		b.rollbackDisksLocked(created)
+
+		return nil, err
+	}
+
 	inst := b.assembleInstanceLocked(project, zone, in, machine, sched, nics, disks)
 	inst.ResourcePolicies = policies
+	inst.ReservationAffinity = affinity
 	b.instances[key(project, zone, in.Name)] = &instRec{Inst: inst, Phase: phaseStart, Since: b.now().UTC()}
 
 	return inst, nil
@@ -832,7 +839,7 @@ func (b *InMemoryBackend) assembleInstanceLocked(
 	}
 
 	for _, ad := range disks {
-		if d, ok := b.disks[key(project, zone, lastSegment(ad.Source))]; ok {
+		if d, ok := b.disks[diskKeyFor(project, zone, ad.Source)]; ok {
 			d.LastAttachTimestamp = now
 		}
 	}
@@ -929,7 +936,7 @@ func (b *InMemoryBackend) removeInstanceLocked(project, zone string, r *instRec)
 
 	for _, ad := range r.Inst.Disks {
 		if ad.AutoDelete {
-			delete(b.disks, key(project, zone, lastSegment(ad.Source)))
+			delete(b.disks, diskKeyFor(project, zone, ad.Source))
 		}
 	}
 
@@ -1197,7 +1204,7 @@ func (b *InMemoryBackend) attachDisk(
 
 	r.Inst.Disks = append(r.Inst.Disks, att)
 
-	if d, ok := b.disks[key(project, zone, lastSegment(att.Source))]; ok {
+	if d, ok := b.disks[diskKeyFor(project, zone, att.Source)]; ok {
 		d.LastAttachTimestamp = b.stamp()
 	}
 
@@ -1233,7 +1240,7 @@ func (b *InMemoryBackend) detachDisk(project, zone, name, device string) (*compu
 
 		r.Inst.Disks = append(r.Inst.Disks[:i], r.Inst.Disks[i+1:]...)
 
-		if d, ok := b.disks[key(project, zone, lastSegment(ad.Source))]; ok {
+		if d, ok := b.disks[diskKeyFor(project, zone, ad.Source)]; ok {
 			d.LastDetachTimestamp = b.stamp()
 		}
 
@@ -1328,4 +1335,35 @@ func (b *InMemoryBackend) deleteAccessConfig(
 	}
 
 	return nil, errField("accessConfig", acName, "No such access config.")
+}
+
+func (b *InMemoryBackend) attachableDiskLocked(project, zone, field, source string) (*computeapi.Disk, *APIError) {
+	r, ok := parseRef(source, "disks", project, zone)
+	if !ok || r.loc == "" || (r.scope != "" && r.scope != scopeZone && r.scope != scopeRegion) {
+		return nil, errField(field+".source", source, "The URL is malformed or names a different zone.")
+	}
+
+	if r.scope == scopeRegion {
+		rd, found := b.disks[key(r.project, r.loc, r.name)]
+		if !found || rd.Region == "" {
+			return nil, errNotFound(relPath(r.project, scopeRegion, r.loc, "disks", r.name))
+		}
+
+		if !slices.ContainsFunc(rd.ReplicaZones, func(z string) bool { return lastSegment(z) == zone }) {
+			return nil, errField(field+".source", source, "The instance zone is not one of the disk's replica zones.")
+		}
+
+		return rd, nil
+	}
+
+	if r.loc != zone {
+		return nil, errField(field+".source", source, "The URL is malformed or names a different zone.")
+	}
+
+	d, found := b.disks[key(r.project, zone, r.name)]
+	if !found || d.Region != "" {
+		return nil, errNotFound(relPath(r.project, scopeZone, zone, "disks", r.name))
+	}
+
+	return d, nil
 }

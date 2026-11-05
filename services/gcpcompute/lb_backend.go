@@ -22,6 +22,9 @@ const (
 	protoGRPC             = "GRPC"
 	protoUDP              = "UDP"
 	protoTCP              = "TCP"
+	protoSSL              = "SSL"
+	collInstances         = "instances"
+	kindAttachedDisk      = "compute#attachedDisk"
 	affinityNone          = "NONE"
 	modeUtilization       = "UTILIZATION"
 	modeRate              = "RATE"
@@ -38,7 +41,7 @@ const (
 var (
 	bsProtocols = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 		protoHTTP: true, protoHTTPS: true, protoHTTP2: true, "H2C": true, protoGRPC: true,
-		protoTCP: true, "SSL": true, protoUDP: true, "UNSPECIFIED": true,
+		protoTCP: true, protoSSL: true, protoUDP: true, "UNSPECIFIED": true,
 	}
 	bsHTTPProtocols = map[string]bool{ //nolint:gochecknoglobals // read-only lookup table
 		protoHTTP: true, protoHTTPS: true, protoHTTP2: true, "H2C": true, protoGRPC: true,

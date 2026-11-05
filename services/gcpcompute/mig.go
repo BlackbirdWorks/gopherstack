@@ -227,21 +227,34 @@ func normalizeUpdatePolicy(
 		return nil, errField("resource.updatePolicy.type", p.Type, "")
 	}
 
-	def := func(v **computeapi.FixedOrPercent) {
+	if p.ReplacementMethod == "" {
+		p.ReplacementMethod = replaceSubstitute
+	}
+
+	if p.ReplacementMethod != replaceSubstitute && p.ReplacementMethod != replaceRecreate {
+		return nil, errField("resource.updatePolicy.replacementMethod", p.ReplacementMethod, "")
+	}
+
+	def := func(v **computeapi.FixedOrPercent, n int) {
 		if *v == nil {
-			*v = &computeapi.FixedOrPercent{Fixed: int64(zones)}
+			*v = &computeapi.FixedOrPercent{Fixed: int64(n)}
 		}
 	}
 
-	def(&p.MaxSurge)
-	def(&p.MaxUnavailable)
-
-	if p.MinimalAction == "" {
-		p.MinimalAction = "REPLACE"
+	surge := zones
+	if p.ReplacementMethod == replaceRecreate {
+		surge = 0
 	}
 
-	if p.ReplacementMethod == "" {
-		p.ReplacementMethod = "SUBSTITUTE"
+	def(&p.MaxSurge, surge)
+	def(&p.MaxUnavailable, zones)
+
+	if err := validUpdatePolicy(p); err != nil {
+		return nil, err
+	}
+
+	if p.MinimalAction == "" {
+		p.MinimalAction = minActionReplace
 	}
 
 	return p, nil
@@ -565,9 +578,7 @@ func (b *InMemoryBackend) commitMIGLocked(
 
 	b.applyScalerLocked(rec)
 
-	if next.UpdatePolicy.Type == updateProactive {
-		b.rollOutdatedLocked(project, rec)
-	}
+	b.rollStepLocked(project, rec)
 
 	if err := b.reconcileLocked(rec); err != nil {
 		rec.Mgr = old
@@ -667,4 +678,27 @@ func (b *InMemoryBackend) setMIGTargetPools(
 	rec.Mgr.TargetPools, rec.Mgr.Fingerprint = in.TargetPools, newFingerprint()
 
 	return b.newOpLocked(opMIG+"setTargetPools", migOpTarget(project, rec.Mgr), b.timing.Done), nil
+}
+
+func validUpdatePolicy(p *computeapi.InstanceGroupManagerUpdatePolicy) *APIError {
+	for _, v := range []*computeapi.FixedOrPercent{p.MaxSurge, p.MaxUnavailable} {
+		if v.Fixed < 0 || v.Percent < 0 || v.Percent > maxPercent || (v.Fixed != 0 && v.Percent != 0) {
+			return errInvalid("Invalid value for field 'resource.updatePolicy': either fixed or percent in 0-100.")
+		}
+	}
+
+	if p.MaxSurge.Fixed == 0 && p.MaxSurge.Percent == 0 && p.MaxUnavailable.Fixed == 0 &&
+		p.MaxUnavailable.Percent == 0 {
+		return errInvalid(
+			"Invalid value for field 'resource.updatePolicy': maxSurge or maxUnavailable must be greater than 0.",
+		)
+	}
+
+	if p.ReplacementMethod == replaceRecreate && (p.MaxSurge.Fixed != 0 || p.MaxSurge.Percent != 0) {
+		return errInvalid(
+			"Invalid value for field 'resource.updatePolicy.maxSurge': must be 0 with the RECREATE replacement method.",
+		)
+	}
+
+	return nil
 }

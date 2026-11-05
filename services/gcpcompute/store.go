@@ -49,12 +49,19 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	DeleteAt   time.Time `json:"deleteAt"`
-	Name       string    `json:"name"`
-	Zone       string    `json:"zone"`
-	Template   string    `json:"template"`
-	Deleting   bool      `json:"deleting"`
-	Recreating bool      `json:"recreating"`
+	DeleteAt     time.Time `json:"deleteAt"`
+	LastProbe    time.Time `json:"lastProbe,omitzero"`
+	Zone         string    `json:"zone"`
+	LastError    string    `json:"lastError,omitempty"`
+	Name         string    `json:"name"`
+	Health       string    `json:"health,omitempty"`
+	Template     string    `json:"template"`
+	InstanceID   uint64    `json:"instanceId,omitempty"`
+	HealthyRun   int       `json:"healthyRun,omitempty"`
+	UnhealthyRun int       `json:"unhealthyRun,omitempty"`
+	Verified     bool      `json:"verified,omitempty"`
+	Deleting     bool      `json:"deleting"`
+	Recreating   bool      `json:"recreating"`
 }
 
 type migRec struct {
@@ -80,6 +87,7 @@ type opRec struct {
 type InMemoryBackend struct {
 	now            func() time.Time
 	sleep          func(context.Context, time.Duration)
+	prober         HealthProber
 	mu             *lockmetrics.RWMutex
 	networks       map[string]*computeapi.Network
 	subnets        map[string]*computeapi.Subnetwork
@@ -90,6 +98,9 @@ type InMemoryBackend struct {
 	disks          map[string]*computeapi.Disk
 	images         map[string]*computeapi.Image
 	snapshots      map[string]*computeapi.Snapshot
+	instantSnaps   map[string]*computeapi.InstantSnapshot
+	machineImages  map[string]*computeapi.MachineImage
+	reservations   map[string]*computeapi.Reservation
 	instances      map[string]*instRec
 	templates      map[string]*computeapi.InstanceTemplate
 	healths        map[string]*computeapi.HealthCheck
@@ -118,7 +129,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates an empty backend on the wall clock.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		mu: lockmetrics.New("gcpcompute"), now: time.Now, timing: DefaultTiming(), sleep: realSleep,
+		mu: lockmetrics.New(
+			"gcpcompute",
+		),
+		now:    time.Now,
+		timing: DefaultTiming(),
+		sleep:  realSleep,
+		prober: newNetProber(),
 	}
 	b.resetMaps()
 
@@ -161,6 +178,9 @@ func (b *InMemoryBackend) resetMaps() {
 	b.disks = map[string]*computeapi.Disk{}
 	b.images = map[string]*computeapi.Image{}
 	b.snapshots = map[string]*computeapi.Snapshot{}
+	b.instantSnaps = map[string]*computeapi.InstantSnapshot{}
+	b.machineImages = map[string]*computeapi.MachineImage{}
+	b.reservations = map[string]*computeapi.Reservation{}
 	b.instances = map[string]*instRec{}
 	b.templates = map[string]*computeapi.InstanceTemplate{}
 	b.healths = map[string]*computeapi.HealthCheck{}
