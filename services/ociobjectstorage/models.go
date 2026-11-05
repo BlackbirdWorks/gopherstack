@@ -40,21 +40,27 @@ type Object struct {
 	TimeModified   time.Time  `json:"timeModified"`
 	RestoreReadyAt time.Time  `json:"restoreReadyAt"`
 	RestoreExpiry  time.Time  `json:"restoreExpiry"`
+	TimeArchived   time.Time  `json:"timeArchived,omitzero"`
+	Checksum       Checksum   `json:"checksum,omitzero"`
 	Meta           ObjectMeta `json:"meta"`
 	Name           string     `json:"name"`
 	VersionID      string     `json:"versionId"`
 	Etag           string     `json:"etag"`
 	MD5            string     `json:"md5"`
 	MultipartMD5   string     `json:"multipartMd5,omitempty"`
+	SseKeySha256   string     `json:"sseKeySha256,omitempty"`
+	KmsKeyID       string     `json:"kmsKeyId,omitempty"`
 	Data           []byte     `json:"data"`
 	IsDeleteMarker bool       `json:"isDeleteMarker"`
 }
 
 // Part is one uploaded multipart part.
 type Part struct {
-	Etag string `json:"etag"`
-	MD5  string `json:"md5"`
-	Data []byte `json:"data"`
+	Etag        string `json:"etag"`
+	MD5         string `json:"md5"`
+	ChecksumAlg string `json:"checksumAlg,omitempty"`
+	Checksum    string `json:"checksum,omitempty"`
+	Data        []byte `json:"data"`
 }
 
 // Upload is an in-flight multipart upload.
@@ -64,6 +70,9 @@ type Upload struct {
 	ID          string       `json:"id"`
 	Object      string       `json:"object"`
 	Meta        ObjectMeta   `json:"meta"`
+	ChecksumAlg string       `json:"checksumAlg,omitempty"`
+	SseKeySha   string       `json:"sseKeySha256,omitempty"`
+	KmsKeyID    string       `json:"kmsKeyId,omitempty"`
 }
 
 // PAR is a pre-authenticated request.
@@ -126,28 +135,53 @@ type Bucket struct {
 	PARs                map[string]*PAR           `json:"pars"`
 	Retention           map[string]*Retention     `json:"retention"`
 	Lifecycle           *Lifecycle                `json:"lifecycle,omitempty"`
+	Replication         *ReplicationPolicy        `json:"replication,omitempty"`
+	ReplicationSource   *ReplicationSource        `json:"replicationSource,omitempty"`
 	Name                string                    `json:"name"`
+	Versioning          string                    `json:"versioning"`
 	CompartmentID       string                    `json:"compartmentId"`
 	CreatedBy           string                    `json:"createdBy"`
 	Etag                string                    `json:"etag"`
 	PublicAccessType    string                    `json:"publicAccessType"`
 	StorageTier         string                    `json:"storageTier"`
-	Versioning          string                    `json:"versioning"`
+	LifecycleEtag       string                    `json:"lifecycleEtag,omitempty"`
 	AutoTiering         string                    `json:"autoTiering,omitempty"`
 	KmsKeyID            string                    `json:"kmsKeyId,omitempty"`
 	ID                  string                    `json:"id"`
-	LifecycleEtag       string                    `json:"lifecycleEtag,omitempty"`
+	ReplQueue           []ReplTask                `json:"replQueue,omitempty"`
 	ObjectEventsEnabled bool                      `json:"objectEventsEnabled"`
 	IsBucketKeyEnabled  bool                      `json:"isBucketKeyEnabled"`
 }
 
-// WorkRequest records an asynchronous operation (copy); the emulator completes it synchronously.
+// Work request states as spelled on the wire.
+const (
+	wrAccepted   = "ACCEPTED"
+	wrInProgress = "IN_PROGRESS"
+	wrCompleted  = "COMPLETED"
+	wrFailed     = "FAILED"
+	wrCanceled   = "CANCELED"
+)
+
+// PendingCopy is a cross-region copy waiting for the injectable clock to reach its due time.
+type PendingCopy struct {
+	SourceNS     string    `json:"sourceNs"`
+	SourceBucket string    `json:"sourceBucket"`
+	VersionID    string    `json:"versionId"`
+	DueAt        time.Time `json:"dueAt"`
+	Input        CopyInput `json:"input"`
+	SseKeySha256 string    `json:"sseKeySha256,omitempty"`
+	KmsKeyID     string    `json:"kmsKeyId,omitempty"`
+}
+
+// WorkRequest records an asynchronous operation (copy, reencrypt).
 type WorkRequest struct {
-	TimeAccepted  time.Time `json:"timeAccepted"`
-	TimeFinished  time.Time `json:"timeFinished"`
-	ID            string    `json:"id"`
-	OperationType string    `json:"operationType"`
-	Status        string    `json:"status"`
-	CompartmentID string    `json:"compartmentId"`
-	EntityURI     string    `json:"entityUri"`
+	TimeAccepted  time.Time    `json:"timeAccepted"`
+	TimeFinished  time.Time    `json:"timeFinished"`
+	Pending       *PendingCopy `json:"pending,omitempty"`
+	ID            string       `json:"id"`
+	OperationType string       `json:"operationType"`
+	Status        string       `json:"status"`
+	CompartmentID string       `json:"compartmentId"`
+	EntityURI     string       `json:"entityUri"`
+	Message       string       `json:"message,omitempty"`
 }
