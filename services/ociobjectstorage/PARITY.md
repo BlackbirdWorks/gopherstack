@@ -30,7 +30,7 @@ ops:
   UpdateObjectStorageTier: {wire: ok, errors: ok, state: ok, persist: ok, note: "Standard, InfrequentAccess or Archive; an archived object must be restored first."}
   CreateMultipartUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "Object metadata, content headers and storageTier captured at create; opc-checksum-algorithm and opc-sse-customer-* / opc-sse-kms-key-id captured for the whole upload; uploads survive snapshot/restore."}
   UploadPart: {wire: ok, errors: ok, state: ok, persist: ok, note: "Part numbers 1-10000, Content-MD5 check, etag and opc-content-md5 returned. opc-checksum-algorithm and opc-content-* verified per part (default: the upload algorithm). Re-uploading a part number replaces it and invalidates the old etag. SSE-C parts must carry the key the upload was created with."}
-  CommitMultipartUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "Parts validated against partNum+etag, assembled in order; opc-multipart-md5 is base64(md5(concat part md5s))-N. Every part but the last must be at least the minimum part size (default 10 MiB, SetMinPartSize; value unverified, 400 InvalidUploadPart). Checksum: CRC32C is the whole-object value (opc-content-crc32c), SHA256/SHA384 are opc-multipart-sha256/384 = base64(hash(concat part hashes))-N; parts must share one algorithm. 400 InvalidUploadPart, 404 NoSuchUpload."}
+  CommitMultipartUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "Parts validated against partNum+etag, assembled in order; opc-multipart-md5 is base64(md5(concat part md5s))-N. Opt-in minimum part size for every part but the last (Go setter SetMinPartSize, default 0 = not enforced because the OCI docs state no minimum; 400 InvalidUploadPart when set, unverified). Checksum: CRC32C is the whole-object value (opc-content-crc32c), SHA256/SHA384 are opc-multipart-sha256/384 = base64(hash(concat part hashes))-N; parts must share one algorithm. 400 InvalidUploadPart, 404 NoSuchUpload."}
   AbortMultipartUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: ""}
   ListMultipartUploads: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged."}
   ListMultipartUploadParts: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Paged, ordered by part number."}
@@ -75,7 +75,7 @@ items_still_open:
   - "Objects are not encrypted at rest: SSE-C keys are validated and only their SHA-256 is kept (reads with a wrong key fail), KMS key ids are validated against ocivault and recorded; the wrong/missing-key error code InvalidSseCustomerKey is unverified."
   - "Private endpoints (/n/{ns}/pe) are not implemented."
   - "The OCI Amazon S3 compatibility API (structural: ociidentity generates customer secret keys but does not store them, so SigV4 cannot be verified) and the Swift API are out of scope."
-  - "InvalidDigest for a checksum mismatch and the 10 MiB minimum part size are not verified against the live service (the documented message is Unmatched Content CRC32C/SHA256/SHA384, code not published)."
+  - "InvalidDigest for a checksum mismatch and the opt-in minimum part size are not verified against the live service (the documented message is Unmatched Content CRC32C/SHA256/SHA384, code not published)."
   - "CommitMultipartUpload ignores partsToExclude."
   - "Several error codes are unverified against the live service (see families.error_envelope)."
   - "Namespaces are single-tenant: only one namespace is served and no compartment or IAM policy checks apply."

@@ -25,8 +25,8 @@ const (
 	maxBucketName    = 256
 	anonymousUser    = "ocid1.user.oc1..anonymous"
 	ocidHexLen       = 40
-	// DefaultMinPartSize is the smallest size of every multipart part except the last (10 MiB, unverified).
-	DefaultMinPartSize = 10 << 20
+	// DefaultMinPartSize disables minimum part size enforcement; the OCI docs state no minimum.
+	DefaultMinPartSize = 0
 )
 
 var bucketNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
