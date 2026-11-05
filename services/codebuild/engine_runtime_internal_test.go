@@ -159,8 +159,8 @@ func TestEngineRunAsAndShell(t *testing.T) {
 	tests := []struct {
 		name     string
 		spec     string
-		wantUser []string
 		wantSh   string
+		wantUser []string
 	}{
 		{
 			name: "global and phase override",
@@ -292,6 +292,8 @@ func TestCacheNamespaceSharesScope(t *testing.T) {
 	assert.Equal(t, keyA, keyB)
 }
 
+const exportSpec = "version: 0.2\nenv:\n  exported-variables: [EXP]\nphases:\n  build:\n    commands: [echo hi]\n"
+
 func TestSDKCacheNamespaceAndExportedVariablesWire(t *testing.T) {
 	t.Parallel()
 
@@ -303,7 +305,7 @@ func TestSDKCacheNamespaceAndExportedVariablesWire(t *testing.T) {
 	createSDKProject(t, c, sdkProject{
 		source: &cbtypes.ProjectSource{
 			Type:      cbtypes.SourceTypeNoSource,
-			Buildspec: aws.String("version: 0.2\nenv:\n  exported-variables: [EXP]\nphases:\n  build:\n    commands: [echo hi]\n"),
+			Buildspec: aws.String(exportSpec),
 		},
 		cache: &cbtypes.ProjectCache{
 			Type: cbtypes.CacheTypeLocal, CacheNamespace: aws.String("shared-ns"),

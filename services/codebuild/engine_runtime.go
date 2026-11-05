@@ -152,7 +152,7 @@ done
 
 	var vars []ExportedEnvironmentVariable
 
-	for _, line := range strings.Split(res.Stdout, "\n") {
+	for line := range strings.SplitSeq(res.Stdout, "\n") {
 		name, enc, ok := strings.Cut(strings.TrimSpace(line), "=")
 		if !ok {
 			continue

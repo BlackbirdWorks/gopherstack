@@ -226,8 +226,7 @@ func TestReportGroupAndReportLifecycle_RealClient(t *testing.T) {
 			})
 			require.NoError(t, batchErr)
 			assert.Empty(t, got.Reports)
-		}},
-	}
+		}}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -324,8 +323,7 @@ func TestBuildBatchAndBuildLifecycle_RealClient(t *testing.T) {
 			})
 			require.NoError(t, delErr)
 			assert.Contains(t, deleted.BuildsDeleted, buildID)
-		}},
-	}
+		}}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -441,8 +439,7 @@ func TestSandboxAndCommandExecutionLifecycle_RealClient(t *testing.T) {
 			})
 			require.NoError(t, stopErr)
 			assert.Equal(t, "STOPPED", aws.ToString(stopped.Sandbox.Status))
-		}},
-	}
+		}}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -586,8 +583,7 @@ func TestPaginationParams_HonourMalformedNextToken(t *testing.T) {
 				NextToken: aws.String(badToken),
 			})
 			require.Error(t, rgErr)
-		}},
-	}
+		}}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

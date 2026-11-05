@@ -48,11 +48,11 @@ type specFile struct {
 }
 
 type specEnv struct {
-	Shell          string            `yaml:"shell"`
-	ExportedVars   []string          `yaml:"exported-variables"`
 	Variables      map[string]any    `yaml:"variables"`
 	ParameterStore map[string]string `yaml:"parameter-store"`
 	SecretsManager map[string]string `yaml:"secrets-manager"`
+	Shell          string            `yaml:"shell"`
+	ExportedVars   []string          `yaml:"exported-variables"`
 }
 
 type specPhase struct {

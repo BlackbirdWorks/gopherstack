@@ -4,7 +4,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -135,5 +134,5 @@ func TestDockerEngineExportedVariablesSucceedingBuild(t *testing.T) {
 	b := h.run(t, StartBuildConfig{})
 	require.Equal(t, "SUCCEEDED", b.BuildStatus, h.logs.joined())
 	assert.Equal(t, []ExportedEnvironmentVariable{{Name: "OUT_A", Value: "two words"}}, b.ExportedEnvironmentVariables)
-	assert.False(t, strings.Contains(h.logs.joined(), "Failed to read exported"))
+	assert.NotContains(t, h.logs.joined(), "Failed to read exported")
 }
