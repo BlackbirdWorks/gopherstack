@@ -1,6 +1,7 @@
 package elasticache
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"slices"
@@ -336,6 +337,7 @@ func syntheticGroupEndpoint(name, region string, port int) *NodeEndpoint {
 
 // memberTemplate carries the replication-group-wide settings every member cluster inherits.
 type memberTemplate struct {
+	docker [][]*clusterEngine
 	region string
 	opts   ReplicationGroupCreateOpts
 }
@@ -397,11 +399,11 @@ func nodeFor(c *Cluster, role, az string) NodeGroupNode {
 }
 
 // shardEngines starts one data-plane engine per shard that has no existing primary cluster.
-func (b *InMemoryBackend) startShardEngines(count, port int) ([]*clusterEngine, error) {
+func (b *InMemoryBackend) startShardEngines(ctx context.Context, engine string, count, port int) ([]*clusterEngine, error) {
 	engines := make([]*clusterEngine, 0, count)
 
 	for range count {
-		eng, err := b.startClusterEngine(port)
+		eng, err := b.startClusterEngine(ctx, engine, port)
 		if err != nil {
 			for _, e := range engines {
 				b.releaseEngine(e)
@@ -441,15 +443,20 @@ func (b *InMemoryBackend) buildTopologyLocked(
 
 		for ri, rp := range plan.replicas {
 			id := memberClusterID(rg.ReplicationGroupID, plan.id, ri+firstReplicaNumber, clusterMode)
-			rc := b.newMemberLocked(t, id, rp, nil, primaryCluster)
+			rc := b.newReplicaLocked(t, id, rp, si, ri, primaryCluster)
 			ng.Replicas = append(ng.Replicas, nodeFor(rc, roleReplica, rp.az))
 		}
 
 		if !clusterMode {
 			ng.PrimaryEndpoint = syntheticGroupEndpoint(rg.ReplicationGroupID, t.region, primaryCluster.Port)
-			ng.ReaderEndpoint = syntheticGroupEndpoint(rg.ReplicationGroupID+"-ro", t.region, primaryCluster.Port)
+			readerSource := primaryCluster
+			if rc := b.dockerReader(t, ng); rc != nil {
+				readerSource = rc
+			}
+
+			ng.ReaderEndpoint = syntheticGroupEndpoint(rg.ReplicationGroupID+"-ro", t.region, readerSource.Port)
 			b.registerEndpointDNS(ng.PrimaryEndpoint.Address, primaryCluster.ConnectAddress)
-			b.registerEndpointDNS(ng.ReaderEndpoint.Address, primaryCluster.ConnectAddress)
+			b.registerEndpointDNS(ng.ReaderEndpoint.Address, readerSource.ConnectAddress)
 		}
 
 		groups = append(groups, ng)
@@ -488,6 +495,16 @@ func memberClusterIDs(rg *ReplicationGroup) []string {
 // releaseGroupLocked removes rg's endpoints and member clusters. When retainPrimaries
 // is set the primary clusters survive as standalone clusters.
 func (b *InMemoryBackend) releaseGroupLocked(region string, rg *ReplicationGroup, retainPrimaries bool) {
+	if rg.dock != nil {
+		if retainPrimaries {
+			b.strayGroups = append(b.strayGroups, rg.dock)
+		} else {
+			b.closeGroupAsync(rg.dock)
+		}
+
+		rg.dock = nil
+	}
+
 	b.deregisterEndpointDNS(rg.ConfigurationEndpoint)
 
 	clusters := b.clustersStore(region)
@@ -532,7 +549,7 @@ func (b *InMemoryBackend) removeMemberLocked(clusters *store.Table[Cluster], id 
 // handoverEngineLocked moves c's miniredis instance and port to another cluster
 // serving the same data plane, so deleting c leaves the shard's replicas usable.
 func (b *InMemoryBackend) handoverEngineLocked(clusters *store.Table[Cluster], c *Cluster) {
-	if (c.mini == nil && c.AllocatedPort == 0) || c.ReplicationGroupID == "" {
+	if c.dock != nil || (c.mini == nil && c.AllocatedPort == 0) || c.ReplicationGroupID == "" {
 		return
 	}
 

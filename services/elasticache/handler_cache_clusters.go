@@ -221,7 +221,12 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return planErr
 	}
 
-	cluster, err := h.Backend.CreateClusterWithOptions(ctx,
+	createCtx := ctx
+	if snapName := form.Get("SnapshotName"); snapName != "" {
+		createCtx = WithRestoreSnapshot(ctx, snapName)
+	}
+
+	cluster, err := h.Backend.CreateClusterWithOptions(createCtx,
 		id,
 		plan.engine,
 		plan.nodeType,

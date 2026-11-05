@@ -7,6 +7,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 )
 
@@ -33,6 +34,10 @@ func (b *InMemoryBackend) miniForLocked(region string, c *Cluster) *miniredis.Mi
 }
 
 func (b *InMemoryBackend) captureClusterDataLocked(region string, c *Cluster) (map[string][]byte, error) {
+	if c.dock != nil {
+		return b.dockerSnapshotCluster(c)
+	}
+
 	blob, err := redisengine.DumpKeyspace(b.miniForLocked(region, c))
 	if err != nil || blob == nil {
 		return nil, err
@@ -42,6 +47,10 @@ func (b *InMemoryBackend) captureClusterDataLocked(region string, c *Cluster) (m
 }
 
 func (b *InMemoryBackend) captureGroupDataLocked(region string, rg *ReplicationGroup) (map[string][]byte, error) {
+	if rg.dock != nil {
+		return b.dockerSnapshotGroup(rg)
+	}
+
 	data := map[string][]byte{}
 
 	for i := range rg.NodeGroups {
@@ -100,12 +109,16 @@ func (b *InMemoryBackend) RestoreClusterData(ctx context.Context, id, snapshotNa
 		return ErrClusterNotFound
 	}
 
+	if c.dock != nil {
+		return nil
+	}
+
 	mr := b.miniForLocked(region, c)
 	if mr == nil {
 		return nil
 	}
 
-	return redisengine.LoadKeyspace(mr, clusterBlob(snap))
+	return redisdocker.LoadEmbedded(mr, clusterBlob(snap))
 }
 
 // restoreShardData loads each shard's captured keyspace into the matching new shard engine.
@@ -124,7 +137,7 @@ func restoreShardData(snap *CacheSnapshot, plans []shardPlan, engines []*cluster
 			continue
 		}
 
-		if err := redisengine.LoadKeyspace(eng.mini, snap.Data[plan.id]); err != nil {
+		if err := redisdocker.LoadEmbedded(eng.mini, snap.Data[plan.id]); err != nil {
 			return fmt.Errorf("restore shard %s: %w", plan.id, err)
 		}
 	}

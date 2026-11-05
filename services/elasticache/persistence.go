@@ -307,6 +307,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 // all regions before the cluster tables are discarded and rebuilt from a
 // snapshot. Must hold b.mu.
 func (b *InMemoryBackend) closeLiveClusterEnginesLocked() {
+	b.closeAllDockLocked()
+
 	for _, regionClusters := range b.clusters {
 		for _, c := range regionClusters.All() {
 			closeEngine(c)

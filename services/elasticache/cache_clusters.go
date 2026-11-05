@@ -45,13 +45,18 @@ type clusterEngine struct {
 	port          int
 	allocatedPort int
 	svcPort       int
+	dock          *dockRef
 }
 
 // startClusterEngine starts the data-plane engine for a cluster WITHOUT holding
 // b.mu. Listener startup (miniredis.StartAddr) is the slow part and must not
 // serialise every other backend op behind it. b.engineMode/b.allocator are set
 // once at construction and never mutated, so they are safe to read lock-free.
-func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
+func (b *InMemoryBackend) startClusterEngine(ctx context.Context, engine string, port int) (*clusterEngine, error) {
+	if b.dockerOn() && engine != engineMemcached {
+		return b.startDockerStandalone(ctx, engine)
+	}
+
 	if b.engineMode != EngineEmbedded {
 		p := port
 		if p <= 0 {
@@ -82,6 +87,9 @@ func (b *InMemoryBackend) startClusterEngine(port int) (*clusterEngine, error) {
 func (b *InMemoryBackend) releaseEngine(eng *clusterEngine) {
 	if eng == nil {
 		return
+	}
+	if eng.dock != nil && eng.dock.standalone {
+		b.closeGroupAsync(eng.dock.group)
 	}
 	if eng.front != nil {
 		eng.front.Close()
@@ -126,6 +134,7 @@ func (b *InMemoryBackend) insertClusterLocked(
 		PreferredMaintenanceWindow: maintenanceWindow,
 		SnapshotWindow:             snapshotWindow,
 		mini:                       eng.mini,
+		dock:                       eng.dock,
 		front:                      eng.front,
 		gate:                       eng.gate,
 		Port:                       eng.port,
@@ -179,7 +188,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, id, engine, nodeTyp
 		return nil, ErrClusterAlreadyExists
 	}
 
-	eng, err := b.startClusterEngine(port)
+	eng, err := b.startClusterEngine(ctx, engine, port)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +242,7 @@ func (b *InMemoryBackend) CreateClusterWithOptions(
 		return nil, reserveErr
 	}
 
-	eng, err := b.startClusterEngine(port)
+	eng, err := b.startClusterEngine(ctx, engine, port)
 	if err != nil {
 		return nil, err
 	}

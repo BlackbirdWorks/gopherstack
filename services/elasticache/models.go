@@ -2,6 +2,7 @@ package elasticache
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/sgfilter"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -21,6 +23,7 @@ type Cluster struct {
 	AvailableAt                time.Time
 	CreatedAt                  time.Time
 	mini                       *miniredis.Miniredis
+	dock                       *dockRef
 	front                      *sgfilter.Proxy
 	gate                       *redisengine.Gate
 	Tags                       *tags.Tags
@@ -93,6 +96,7 @@ type ReplicationGroup struct {
 	ConfigurationEndpoint      *NodeEndpoint            `json:"configurationEndpoint,omitempty"`
 	GlobalReplicationGroupID   string                   `json:"globalReplicationGroupId,omitempty"`
 	GlobalReplicationGroupRole string                   `json:"globalReplicationGroupRole,omitempty"`
+	dock                       *redisdocker.Group
 	Tags                       *tags.Tags               `json:"tags,omitempty"`
 	ReplicationGroupID         string                   `json:"replicationGroupID"`
 	Description                string                   `json:"description"`
@@ -248,6 +252,7 @@ type StorageBackend interface {
 	) (page.Page[CacheSnapshot], error)
 	ApplyClusterSettings(ctx context.Context, id string, settings ClusterSettings) (*Cluster, error)
 	RestoreClusterData(ctx context.Context, id, snapshotName string) error
+	SetUserPasswords(ctx context.Context, userID string, passwords []string)
 	CopySnapshot(ctx context.Context, sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
 	CreateSnapshotFull(
 		ctx context.Context,
@@ -546,6 +551,9 @@ type InMemoryBackend struct {
 	clock                     func() time.Time
 	region                    string
 	engineMode                string
+	docker                    *redisdocker.Engine
+	dockerWG                  sync.WaitGroup
+	strayGroups               []*redisdocker.Group
 	accountID                 string
 	updateActions             []*UpdateAction
 	lifecycleDelay            time.Duration
@@ -862,6 +870,7 @@ type User struct {
 	AuthType      string     `json:"authType"`
 	UserGroupIDs  []string   `json:"userGroupIds,omitempty"`
 	PasswordCount int        `json:"passwordCount"`
+	Passwords     []string   `json:"passwords,omitempty"`
 }
 
 // UpdateActionResult represents the outcome of a single update action.
