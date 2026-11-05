@@ -244,6 +244,7 @@ describe("new GCP console pages", () => {
       "flexdb",
       "apim",
       "network",
+      "logic",
     ]);
     expect(azureServiceById("aci")?.portLabel).toBe("azurearm");
   });
@@ -274,6 +275,7 @@ describe("new GCP console pages", () => {
     expect(azureServiceById("containerapps")?.portLabel).toBe("azurearm");
     expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
     expect(azureServiceById("network")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("logic")?.portLabel).toBe("azurearm");
     expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
     expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
     expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");
@@ -353,6 +355,15 @@ describe("new GCP console pages", () => {
       portLabel: "ocidatabase",
       defaultPort: 8170,
       healthName: "OCIDatabase",
+    });
+  });
+
+  it("registers File Storage", () => {
+    expect(availableOciServices(["OCIFileStorage"]).map((s) => s.id)).toEqual(["filestorage"]);
+    expect(ociServiceById("filestorage")).toMatchObject({
+      portLabel: "ocifilestorage",
+      defaultPort: 8171,
+      healthName: "OCIFileStorage",
     });
   });
 
