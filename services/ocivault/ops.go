@@ -11,7 +11,17 @@ import (
 
 func buildOps() map[string]opFunc {
 	ops := map[string]opFunc{}
-	for _, m := range []map[string]opFunc{vaultOps(), keyOps(), cryptoOps(), secretOps(), bundleOps()} {
+	groups := []map[string]opFunc{
+		vaultOps(),
+		keyOps(),
+		cryptoOps(),
+		secretOps(),
+		bundleOps(),
+		backupOps(),
+		replicaOps(),
+	}
+
+	for _, m := range groups {
 		maps.Copy(ops, m)
 	}
 
@@ -69,6 +79,8 @@ func secretOps() map[string]opFunc {
 		opGetSecretVersion:   (*Handler).getSecretVersion,
 		opScheduleSecretVDel: (*Handler).scheduleSecretVersionDeletion,
 		opCancelSecretVDel:   (*Handler).cancelSecretVersionDeletion,
+		opRotateSecret:       (*Handler).rotateSecret,
+		opCancelRotation:     (*Handler).cancelSecretRotation,
 	}
 }
 
@@ -613,4 +625,26 @@ func (h *Handler) listBundleVersions(q *req) error {
 	pg, err := h.Backend.ListSecretBundleVersions(q.param("secretId"), q.listOpts())
 
 	return listReply(q, pg, err)
+}
+
+func (h *Handler) rotateSecret(q *req) error {
+	if err := h.Backend.RotateSecret(q.param("secretId"), q.ifMatch()); err != nil {
+		return err
+	}
+
+	return accepted(q, nil)
+}
+
+func (h *Handler) cancelSecretRotation(q *req) error {
+	return done(q, h.Backend.CancelSecretRotation(q.param("secretId"), q.ifMatch()))
+}
+
+func accepted(q *req, err error) error {
+	if err != nil {
+		return err
+	}
+
+	q.w.WriteHeader(http.StatusAccepted)
+
+	return nil
 }

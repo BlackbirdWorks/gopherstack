@@ -44,6 +44,7 @@ func allowedWeakHashFiles() map[string]string {
 		// OCI Object Storage md5/opc-multipart-md5 headers are base64 MD5 of the content, and API key
 		// fingerprints are the MD5 of the DER public key; integrity/identifier values, never credentials.
 		"services/ociobjectstorage/store.go": "OCI object md5 and multipart md5 parity",
+		"services/ocivault/backupops.go":     "OCI Vault Content-MD5 / opc-content-md5 integrity headers on backup files",
 		"pkgs/ociauth/ociauth.go":            "OCI API key fingerprint is MD5 of the DER public key",
 		// Identity Platform batchCreate accepts MD5/SHA1/PBKDF_SHA1/HMAC_* password hashes
 		// (UploadAccountRequest.hashAlgorithm); imported digests, never produced for new credentials.

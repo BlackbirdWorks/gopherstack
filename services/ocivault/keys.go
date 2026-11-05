@@ -99,7 +99,7 @@ func (b *InMemoryBackend) addVersion(k *Key, vaultPrefix, origin string, materia
 func (b *InMemoryBackend) storeKey(v *Vault, in CreateKeyIn, material []byte, origin string) (*Key, *APIError) {
 	k := &Key{
 		ID: newOCID("key", v.Prefix), VaultID: v.ID, CompartmentID: in.CompartmentID, DisplayName: in.DisplayName,
-		State: stateEnabled, ProtectionMode: in.ProtectionMode, Shape: in.KeyShape, TimeCreated: b.nowUTC(),
+		ProtectionMode: in.ProtectionMode, Shape: in.KeyShape, TimeCreated: b.nowUTC(),
 		FreeformTags: in.FreeformTags, DefinedTags: in.DefinedTags, Etag: newEtag(), Seq: b.nextSeq(),
 	}
 
@@ -113,12 +113,14 @@ func (b *InMemoryBackend) storeKey(v *Vault, in CreateKeyIn, material []byte, or
 	}
 
 	b.addVersion(k, v.Prefix, origin, material)
+	b.begin(&k.State, &k.transition, stateEnabling, stateEnabled)
 	b.keys[k.ID] = k
+	b.stampKey(k)
 
 	return k, nil
 }
 
-// CreateKey creates a key with its first version; the response reports ENABLING like OCI.
+// CreateKey creates a key with its first version; it is ENABLING until the transition delay elapses.
 func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, string, error) {
 	if aerr := validateCreateKey(&in); aerr != nil {
 		return keyWire{}, "", aerr
@@ -142,7 +144,7 @@ func (b *InMemoryBackend) CreateKey(vaultID string, in CreateKeyIn) (keyWire, st
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, stateEnabling), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // keyFor resolves a key inside an optional vault scope.
@@ -183,7 +185,7 @@ func (b *InMemoryBackend) GetKey(vaultID, keyID string) (keyWire, string, error)
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func (f KeyFilter) match(k *Key) bool {
@@ -259,9 +261,9 @@ func (b *InMemoryBackend) UpdateKey(vaultID, keyID, ifMatch string, in UpdateKey
 		k.DefinedTags = in.DefinedTags
 	}
 
-	k.Etag = newEtag()
+	b.touchKey(k)
 
-	return keyView(k, ""), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func (b *InMemoryBackend) applyRotationUpdate(k *Key, in UpdateKeyIn) *APIError {
@@ -305,9 +307,10 @@ func (b *InMemoryBackend) setKeyState(vaultID, keyID, ifMatch, from, to, shown s
 		return keyWire{}, "", errState("Key " + keyID + " is in state " + k.State + ", expected " + from)
 	}
 
-	k.State, k.Etag = to, newEtag()
+	b.touchKey(k)
+	b.begin(&k.State, &k.transition, shown, to)
 
-	return keyView(k, shown), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // EnableKey moves a DISABLED key to ENABLED.
@@ -339,9 +342,11 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(vaultID, keyID, ifMatch string, at
 		return keyWire{}, "", aerr
 	}
 
-	k.PrevState, k.State, k.TimeOfDeletion, k.Etag = k.State, statePendingDeletion, &t, newEtag()
+	k.PrevState, k.TimeOfDeletion, k.Etag = k.State, &t, newEtag()
+	b.begin(&k.State, &k.transition, stateSchedulingDelete, statePendingDeletion)
+	b.stampKey(k)
 
-	return keyView(k, stateSchedulingDelete), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // CancelKeyDeletion restores the state a key had before deletion was scheduled.
@@ -358,9 +363,12 @@ func (b *InMemoryBackend) CancelKeyDeletion(vaultID, keyID, ifMatch string) (key
 		return keyWire{}, "", errState("Key " + keyID + " is not pending deletion")
 	}
 
-	k.State, k.PrevState, k.TimeOfDeletion, k.Etag = cmpOr(k.PrevState, stateEnabled), "", nil, newEtag()
+	prev := cmpOr(k.PrevState, stateEnabled)
+	k.PrevState, k.TimeOfDeletion, k.Etag = "", nil, newEtag()
+	b.begin(&k.State, &k.transition, stateCancellingDelete, prev)
+	b.stampKey(k)
 
-	return keyView(k, stateCancellingDelete), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 func cmpOr(a, def string) string {
@@ -434,7 +442,7 @@ func (b *InMemoryBackend) CreateKeyVersion(vaultID, keyID string) (keyVersionWir
 	}
 
 	kv := b.addVersion(k, v.Prefix, originInternal, material)
-	k.Etag = newEtag()
+	b.touchKey(k)
 
 	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
 }
@@ -507,7 +515,7 @@ func (b *InMemoryBackend) ScheduleKeyVersionDeletion(
 	}
 
 	kv.State, kv.TimeOfDeletion = statePendingDeletion, &t
-	k.Etag = newEtag()
+	b.touchKey(k)
 
 	return keyVersionView(k, kv, stateSchedulingDelete), k.Etag, nil
 }
@@ -532,7 +540,7 @@ func (b *InMemoryBackend) CancelKeyVersionDeletion(vaultID, keyID, versionID str
 	}
 
 	kv.State, kv.TimeOfDeletion = stateEnabled, nil
-	k.Etag = newEtag()
+	b.touchKey(k)
 
 	return keyVersionView(k, kv, stateCancellingDelete), k.Etag, nil
 }

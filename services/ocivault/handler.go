@@ -227,6 +227,10 @@ func (h *Handler) serve(q *req) error {
 		return errNoRoute()
 	}
 
+	if _, _, isReplica := replicaHint(q.rt.hint); isReplica && replicaWrites(q.rt.op) {
+		return errReplicaReadOnly
+	}
+
 	body, err := io.ReadAll(http.MaxBytesReader(q.w, q.r.Body, maxBodyBytes))
 	if err != nil {
 		return newErr(http.StatusRequestEntityTooLarge, "PayloadTooLarge", "Request body is too large or unreadable")

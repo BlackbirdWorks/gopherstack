@@ -51,6 +51,7 @@ func (ce *cryptoEnv) importKey(
 	r, err := ce.m.ImportKey(t.Context(), keymanagement.ImportKeyRequest{
 		CompartmentId: new(testCompartment), DisplayName: new("imported"), KeyShape: ks,
 		WrappedImportKey: &keymanagement.WrappedImportKey{KeyMaterial: new(b64(wrapped)), WrappingAlgorithm: alg}})
+	ce.e.settle()
 
 	return r.Key, err
 }
