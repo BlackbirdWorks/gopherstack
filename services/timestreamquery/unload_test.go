@@ -19,7 +19,7 @@ import (
 func unloadBackend(t *testing.T) (*timestreamquery.InMemoryBackend, *memObjects) {
 	t.Helper()
 
-	b, _ := fnBackend(t)
+	b := fnBackend(t)
 	objs := newMemObjects("out")
 	b.SetObjectStore(objs)
 
@@ -89,7 +89,9 @@ func TestUnload_CSV(t *testing.T) {
 		wantBody string
 	}{
 		{
-			"gzip default no header", ``, ".gz",
+			"gzip default no header",
+			``,
+			".gz",
 			"a,10.0,2026-10-31 11:40:00.000000000\na,20.0,2026-10-31 11:50:00.000000000\na,30.0,2026-10-31 11:55:00.000000000\n",
 		},
 		{
@@ -98,7 +100,9 @@ func TestUnload_CSV(t *testing.T) {
 				"a,30.0,2026-10-31 11:55:00.000000000\n",
 		},
 		{
-			"pipe delimiter", `WITH (format = 'CSV', compression = 'NONE', field_delimiter = '|')`, ".csv",
+			"pipe delimiter",
+			`WITH (format = 'CSV', compression = 'NONE', field_delimiter = '|')`,
+			".csv",
 			"a|10.0|2026-10-31 11:40:00.000000000\na|20.0|2026-10-31 11:50:00.000000000\na|30.0|2026-10-31 11:55:00.000000000\n",
 		},
 	}
@@ -130,18 +134,24 @@ func TestUnload_ManifestAndMetadata(t *testing.T) {
 	t.Parallel()
 
 	b, objs := unloadBackend(t)
-	res := runUnload(t, b, `UNLOAD (SELECT host, measure_value::double AS cpu FROM db.t) TO 's3://out/m/' WITH (compression='NONE')`)
+	res := runUnload(
+		t,
+		b,
+		`UNLOAD (SELECT host, measure_value::double AS cpu FROM db.t) TO 's3://out/m/' WITH (compression='NONE')`,
+	)
 
 	assert.Equal(t, "6", res.rows)
 	assert.Regexp(t, `^s3://out/m/[0-9a-f-]+_[0-9a-f-]+_metadata\.json$`, res.metadata)
 	assert.Regexp(t, `^s3://out/m/[0-9a-f-]+_[0-9a-f-]+_manifest\.json$`, res.manifest)
 
 	var meta struct {
+		Author     map[string]string `json:"Author"`
 		ColumnInfo []struct {
-			Name string
-			Type struct{ ScalarType string }
-		}
-		Author map[string]string
+			Type struct {
+				ScalarType string `json:"ScalarType"`
+			} `json:"Type"`
+			Name string `json:"Name"`
+		} `json:"ColumnInfo"`
 	}
 
 	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.metadata, "s3://")], &meta))
@@ -159,13 +169,13 @@ func TestUnload_ManifestAndMetadata(t *testing.T) {
 				RowCount      int64 `json:"row_count"`
 			} `json:"file_metadata"`
 		} `json:"result_files"`
+		Author        map[string]string `json:"author"`
 		QueryMetadata struct {
-			ContentLength int64  `json:"content_length_in_bytes"`
-			TotalRowCount int64  `json:"total_row_count"`
 			ResultFormat  string `json:"result_format"`
 			ResultVersion string `json:"result_version"`
+			ContentLength int64  `json:"content_length_in_bytes"`
+			TotalRowCount int64  `json:"total_row_count"`
 		} `json:"query_metadata"`
-		Author map[string]string `json:"author"`
 	}
 
 	require.NoError(t, json.Unmarshal(objs.objects[strings.TrimPrefix(res.manifest, "s3://")], &man))
@@ -192,7 +202,12 @@ func TestUnload_PartitionedBy(t *testing.T) {
 	require.Len(t, a, 1)
 	require.Len(t, bb, 1)
 
-	assert.Equal(t, "cpu\n10.0\n20.0\n30.0\n", string(objs.objects[a[0]]), "partition columns are not written to the file")
+	assert.Equal(
+		t,
+		"cpu\n10.0\n20.0\n30.0\n",
+		string(objs.objects[a[0]]),
+		"partition columns are not written to the file",
+	)
 	assert.Equal(t, "cpu\n5.0\n10.0\n15.0\n", string(objs.objects[bb[0]]))
 }
 
@@ -240,13 +255,21 @@ func TestUnload_Parquet(t *testing.T) {
 			t.Parallel()
 
 			b, objs := unloadBackend(t)
-			res := runUnload(t, b, `UNLOAD (SELECT host, measure_value::double AS cpu, time FROM db.t WHERE host = 'a' `+
-				`ORDER BY time) TO 's3://out/pq' `+tt.with)
+			res := runUnload(
+				t,
+				b,
+				`UNLOAD (SELECT host, measure_value::double AS cpu, time FROM db.t WHERE host = 'a' `+
+					`ORDER BY time) TO 's3://out/pq' `+tt.with,
+			)
 			assert.Equal(t, "3", res.rows)
 
 			data := objs.under("out/pq/results/")
 			require.Len(t, data, 1)
-			assert.True(t, strings.HasSuffix(data[0], ".parquet"), "parquet compresses per column, extension stays .parquet")
+			assert.True(
+				t,
+				strings.HasSuffix(data[0], ".parquet"),
+				"parquet compresses per column, extension stays .parquet",
+			)
 
 			f, err := parquetio.Open(objs.objects[data[0]])
 			require.NoError(t, err)
@@ -295,8 +318,16 @@ func TestUnload_Errors(t *testing.T) {
 		{"unknown option", `UNLOAD (SELECT 1) TO 's3://out/x' WITH (colour = 'red')`, "unknown UNLOAD option 'colour'"},
 		{"missing bucket", `UNLOAD (SELECT 1) TO 's3://nope/x'`, "'nope' does not exist"},
 		{"missing to", `UNLOAD (SELECT 1)`, "TO"},
-		{"bad partition", `UNLOAD (SELECT 1 AS a) TO 's3://out/x' WITH (partitioned_by = ARRAY['zzz'])`, "Partition column 'zzz'"},
-		{"max file size low", `UNLOAD (SELECT 1) TO 's3://out/x' WITH (max_file_size = '1MB')`, "between 16MB and 78GB"},
+		{
+			"bad partition",
+			`UNLOAD (SELECT 1 AS a) TO 's3://out/x' WITH (partitioned_by = ARRAY['zzz'])`,
+			"Partition column 'zzz'",
+		},
+		{
+			"max file size low",
+			`UNLOAD (SELECT 1) TO 's3://out/x' WITH (max_file_size = '1MB')`,
+			"between 16MB and 78GB",
+		},
 		{"kms without key", `UNLOAD (SELECT 1) TO 's3://out/x' WITH (encryption = 'SSE_KMS')`, "kms_key"},
 		{"bad delimiter", `UNLOAD (SELECT 1) TO 's3://out/x' WITH (field_delimiter = 'ab')`, "single ASCII character"},
 		{"inner error", `UNLOAD (SELECT nope FROM db.t) TO 's3://out/x'`, "nope"},

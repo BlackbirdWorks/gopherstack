@@ -11,7 +11,9 @@ import (
 
 var (
 	reDurationText = regexp.MustCompile(
-		`(?i)^\s*(\d+(?:\.\d+)?)\s*(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\s*$`)
+		`(?i)^\s*(\d+(?:\.\d+)?)\s*(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|` +
+			`days?|d)\s*$`,
+	)
 	reIntervalText = regexp.MustCompile(`^(-?\d+) (\d\d):(\d\d):(\d\d)\.(\d{9})$`)
 )
 
@@ -22,12 +24,12 @@ func formatInterval(ns int64) string {
 		sign, ns = "-", -ns
 	}
 
-	d := time.Duration(ns)
-	days := d / (hoursInDay * time.Hour)
-	d -= days * hoursInDay * time.Hour
+	const nsPerDay = int64(hoursInDay) * int64(time.Hour)
 
-	return fmt.Sprintf("%s%d %02d:%02d:%02d.%09d", sign, days, int(d.Hours()), int(d.Minutes())%minutesInHour,
-		int(d.Seconds())%minutesInHour, d%time.Second)
+	days, rest := ns/nsPerDay, time.Duration(ns%nsPerDay)
+
+	return fmt.Sprintf("%s%d %02d:%02d:%02d.%09d", sign, days, int(rest.Hours()), int(rest.Minutes())%minutesInHour,
+		int(rest.Seconds())%minutesInHour, rest%time.Second)
 }
 
 func parseIntervalText(s string) (int64, bool) {

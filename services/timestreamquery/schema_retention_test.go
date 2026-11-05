@@ -2,7 +2,6 @@ package timestreamquery_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,9 +46,14 @@ func TestSchemaSurvivesRetention(t *testing.T) {
 			},
 		},
 		{
-			"show measures", `SHOW MEASURES FROM db.t`,
+			"show measures",
+			`SHOW MEASURES FROM db.t`,
 			[][]string{
-				{"cpu", "double", `[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`},
+				{
+					"cpu",
+					"double",
+					`[{"data_type":"varchar","dimension_name":"host"},{"data_type":"varchar","dimension_name":"region"}]`,
+				},
 				{"stats", "multi", `[{"data_type":"varchar","dimension_name":"host"}]`},
 			},
 		},
@@ -61,9 +65,12 @@ func TestSchemaSurvivesRetention(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			src := &shapedSource{memSource: &memSource{tables: map[string][]timestreamquery.SourceRecord{"db.t": {}}}, shapes: shapes}
+			src := &shapedSource{
+				memSource: &memSource{tables: map[string][]timestreamquery.SourceRecord{"db.t": {}}},
+				shapes:    shapes,
+			}
 			b := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
-			b.SetClock(func() time.Time { return fnNow })
+			b.SetClock(fnNow)
 			b.SetRecordSource(src)
 
 			page, err := b.QueryWithOptions(t.Context(), timestreamquery.QueryOptions{QueryString: tt.query})

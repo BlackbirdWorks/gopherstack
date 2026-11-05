@@ -21,9 +21,9 @@ var (
 
 // seriesSub is one filter/reduce over a timeseries awaiting expansion after translation.
 type seriesSub struct {
-	reduce bool
 	args   []string
 	lam    []string
+	reduce bool
 }
 
 // closeParen returns the index of the parenthesis matching q[open], skipping quoted text; -1 when unbalanced.
@@ -106,7 +106,11 @@ func classify(name string, args []string) (seriesSub, bool) {
 			return seriesSub{}, false
 		}
 
-		return seriesSub{reduce: true, args: args[:argsTwo], lam: []string{step[1], step[2], step[3], out[1], out[2]}}, true
+		return seriesSub{
+			reduce: true,
+			args:   args[:argsTwo],
+			lam:    []string{step[1], step[2], step[3], out[1], out[2]},
+		}, true
 	default:
 		return seriesSub{}, false
 	}
@@ -267,7 +271,7 @@ func rewriteUnnest(
 		alias, end = m[1], closeIdx+1+len(m[0])
 		if strings.TrimSpace(m[2]) != "" {
 			cols = cols[:0]
-			for _, c := range strings.Split(m[2], ",") {
+			for c := range strings.SplitSeq(m[2], ",") {
 				cols = append(cols, strings.Trim(strings.TrimSpace(c), `"`))
 			}
 		}

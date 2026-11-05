@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,7 +47,7 @@ func (b *InMemoryBackend) execute(
 		return b.describe(region, query)
 	case "SHOW":
 		return b.show(region, query)
-	case "UNLOAD":
+	case stmtUnload:
 		return b.unload(ctx, query)
 	case "EXPLAIN":
 		return nil, validationf("line 1:1: EXPLAIN is not supported")
@@ -145,7 +146,7 @@ func withShapes(src RecordSource, region string, ref tableRef, recs []SourceReco
 		return recs
 	}
 
-	return append(shapes[:len(shapes):len(shapes)], recs...)
+	return append(slices.Clip(shapes), recs...)
 }
 
 func translate(q string, set loadedSet) (string, error) {
@@ -204,6 +205,7 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	}
 
 	for _, mod := range reUnnestMod.FindAllString(q, -1) {
+		//nolint:gosec // mod matches ^ts_unnest_\d+$
 		ddl := "CREATE VIRTUAL TABLE IF NOT EXISTS temp." + mod + " USING " + mod
 		if _, err = conn.ExecContext(ctx, ddl); err != nil {
 			return nil, fmt.Errorf("timestreamquery: unnest module: %w", err)

@@ -1,6 +1,7 @@
 package timestreamquery
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -28,8 +29,8 @@ func translateTimestream(q string, set loadedSet) (string, error) {
 		out = strings.ReplaceAll(out, `"main".`+quoteIdent(unnestPlaceholder(i)), mod+"("+arg+")")
 	}
 
-	for i := len(subs) - 1; i >= 0; i-- {
-		sql, expandErr := subs[i].sql()
+	for i, sub := range slices.Backward(subs) {
+		sql, expandErr := sub.sql()
 		if expandErr != nil {
 			return "", expandErr
 		}
@@ -50,7 +51,8 @@ func fragment(expr string) (string, error) {
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(sql), "SELECT")), nil
 }
 
-const seriesRows = `(SELECT json_extract(e.value, '$[0]') AS "time", json_extract(e.value, '$[1]') AS "value", e.key AS "_i" ` +
+const seriesRows = `(SELECT json_extract(e.value, '$[0]') AS "time", ` +
+	`json_extract(e.value, '$[1]') AS "value", e.key AS "_i" ` +
 	`FROM json_each(ts_series_json(%s)) AS e)`
 
 func seriesRowsOf(ts string) string { return strings.Replace(seriesRows, "%s", ts, 1) }
@@ -99,7 +101,9 @@ func (s seriesSub) reduceSQL(ts string) (string, error) {
 	qs, qo := `"`+state+`"`, `"`+outParam+`"`
 
 	return `(CASE WHEN (` + ts + `) IS NULL THEN NULL ELSE (WITH RECURSIVE "_e" AS (SELECT "time", "value", "_i" FROM ` +
-		seriesRowsOf(ts) + `), "_r"("_i", ` + qs + `) AS (SELECT -1, ` + init + ` UNION ALL SELECT "_e"."_i", ` + stepSQL +
+		seriesRowsOf(
+			ts,
+		) + `), "_r"("_i", ` + qs + `) AS (SELECT -1, ` + init + ` UNION ALL SELECT "_e"."_i", ` + stepSQL +
 		` FROM "_r" JOIN "_e" ON "_e"."_i" = "_r"."_i" + 1) SELECT ` + outSQL + ` FROM (SELECT ` + qs + ` AS ` + qo +
 		` FROM "_r" ORDER BY "_i" DESC LIMIT 1)) END)`, nil
 }

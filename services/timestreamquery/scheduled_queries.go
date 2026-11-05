@@ -55,7 +55,8 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 
 		n, _ := b.deps()
 		b.publishTo(ctx, n, notificationTopicArn, map[string]string{
-			"type": notifyCreating, "arn": arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name)),
+			notifyKeyType: notifyCreating,
+			notifyKeyArn:  arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name)),
 		})
 	}()
 
@@ -148,7 +149,7 @@ func (b *InMemoryBackend) DeleteScheduledQuery(ctx context.Context, arnStr strin
 	}
 
 	n, _ := b.deps()
-	b.publishTo(ctx, n, topic, map[string]string{"type": notifyDeleted, "arn": arnStr})
+	b.publishTo(ctx, n, topic, map[string]string{notifyKeyType: notifyDeleted, notifyKeyArn: arnStr})
 
 	return nil
 }
@@ -229,7 +230,7 @@ func (b *InMemoryBackend) UpdateScheduledQuery(ctx context.Context, arnStr, stat
 	b.mu.Unlock()
 
 	n, _ := b.deps()
-	b.publishTo(ctx, n, topic, map[string]string{"type": notifyUpdate, "arn": arnStr, "state": state})
+	b.publishTo(ctx, n, topic, map[string]string{notifyKeyType: notifyUpdate, notifyKeyArn: arnStr, "state": state})
 
 	return nil
 }

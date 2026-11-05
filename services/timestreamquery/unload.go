@@ -28,6 +28,10 @@ const (
 	maxUnloadFileSize   = 78 * bytesPerGB
 	formatCSV           = "CSV"
 	formatParquet       = "PARQUET"
+	compGzip            = "GZIP"
+	encSSES3            = "SSE_S3"
+	encSSEKMS           = "SSE_KMS"
+	stmtUnload          = "UNLOAD"
 )
 
 var (
@@ -47,10 +51,10 @@ type unloadOptions struct {
 	compression   string
 	encryption    string
 	kmsKey        string
-	delimiter     rune
-	escape        rune
 	partitionedBy []string
 	maxFileSize   int64
+	delimiter     rune
+	escape        rune
 	includeHeader bool
 }
 
@@ -101,7 +105,7 @@ func parseUnload(q string) (*unloadStmt, error) {
 
 func parseUnloadOptions(rest string) (unloadOptions, error) {
 	opts := unloadOptions{
-		format: formatCSV, compression: "GZIP", encryption: "SSE_S3",
+		format: formatCSV, compression: compGzip, encryption: encSSES3,
 		delimiter: ',', escape: '\\', maxFileSize: maxUnloadFileSize,
 	}
 
@@ -270,11 +274,11 @@ func (o *unloadOptions) validate() error {
 	switch {
 	case o.format != formatCSV && o.format != formatParquet:
 		return unloadErr("option 'format' must be CSV or PARQUET")
-	case o.compression != "GZIP" && o.compression != "NONE":
+	case o.compression != compGzip && o.compression != "NONE":
 		return unloadErr("option 'compression' must be GZIP or NONE")
-	case o.encryption != "SSE_S3" && o.encryption != "SSE_KMS":
+	case o.encryption != encSSES3 && o.encryption != encSSEKMS:
 		return unloadErr("option 'encryption' must be SSE_S3 or SSE_KMS")
-	case o.encryption == "SSE_KMS" && o.kmsKey == "":
+	case o.encryption == encSSEKMS && o.kmsKey == "":
 		return unloadErr("option 'kms_key' is required when encryption is SSE_KMS")
 	case o.encryption == "SSE_S3" && o.kmsKey != "":
 		return unloadErr("option 'kms_key' requires encryption = 'SSE_KMS'")
@@ -290,7 +294,7 @@ func (b *InMemoryBackend) unload(ctx context.Context, query string) (*resultSet,
 		return nil, err
 	}
 
-	if firstWord(st.selectSQL) == "UNLOAD" {
+	if firstWord(st.selectSQL) == stmtUnload {
 		return nil, unloadErr("UNLOAD cannot be nested")
 	}
 
@@ -515,26 +519,26 @@ func (w *unloadWriter) groupRows(partIdx []int) (map[string][]Row, []string) {
 // chunks splits rows so each file stays near max_file_size (estimated from cell text).
 func (w *unloadWriter) chunks(rows []Row, dataIdx []int) [][]Row {
 	var (
-		out  [][]Row
-		cur  []Row
-		size int64
+		out   [][]Row
+		start int
+		size  int64
 	)
 
-	for _, r := range rows {
+	for i, r := range rows {
 		var n int64
-		for _, i := range dataIdx {
-			n += int64(len(cellText(r.Data[i]))) + 1
+		for _, di := range dataIdx {
+			n += int64(len(cellText(r.Data[di]))) + 1
 		}
 
-		if len(cur) > 0 && size+n > w.st.opts.maxFileSize {
-			out, cur, size = append(out, cur), nil, 0
+		if i > start && size+n > w.st.opts.maxFileSize {
+			out, start, size = append(out, rows[start:i]), i, 0
 		}
 
-		cur, size = append(cur, r), size+n
+		size += n
 	}
 
-	if len(cur) > 0 {
-		out = append(out, cur)
+	if start < len(rows) {
+		out = append(out, rows[start:])
 	}
 
 	return out
@@ -545,7 +549,7 @@ func (w *unloadWriter) put(key string, body []byte, contentType string) error {
 		Bucket: &w.st.bucket, Key: &key, Body: bytes.NewReader(body), ContentType: &contentType,
 	}
 
-	if w.st.opts.encryption == "SSE_KMS" {
+	if w.st.opts.encryption == encSSEKMS {
 		in.ServerSideEncryption = s3types.ServerSideEncryptionAwsKms
 		in.SSEKMSKeyId = &w.st.opts.kmsKey
 	} else {
@@ -596,7 +600,7 @@ func (w *unloadWriter) csvBody(rows []Row, dataIdx []int) ([]byte, string, error
 
 	ext := ".csv"
 
-	if w.st.opts.compression == "GZIP" {
+	if w.st.opts.compression == compGzip {
 		gz = gzip.NewWriter(&buf)
 		ext = ".gz"
 	}
@@ -638,7 +642,8 @@ func (w *unloadWriter) csvBody(rows []Row, dataIdx []int) ([]byte, string, error
 
 		for i, di := range dataIdx {
 			fields[i] = cellText(r.Data[di])
-			nulls[i] = r.Data[di].ScalarValue == nil && len(r.Data[di].ArrayValue) == 0 && len(r.Data[di].TimeSeriesValue) == 0
+			nulls[i] = r.Data[di].ScalarValue == nil && len(r.Data[di].ArrayValue) == 0 &&
+				len(r.Data[di].TimeSeriesValue) == 0
 		}
 
 		write(fields, nulls)
@@ -707,8 +712,8 @@ func (w *unloadWriter) parquetBody(rows []Row, dataIdx []int) ([]byte, error) {
 	}
 
 	comp := "NONE"
-	if w.st.opts.compression == "GZIP" {
-		comp = "GZIP"
+	if w.st.opts.compression == compGzip {
+		comp = compGzip
 	}
 
 	var buf bytes.Buffer

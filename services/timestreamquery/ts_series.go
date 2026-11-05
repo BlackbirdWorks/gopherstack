@@ -18,6 +18,10 @@ const (
 	seriesMark = "\x02"
 	arrayMark  = "\x01"
 	maxSeqLen  = 1_000_000
+	splineDiv  = 6
+	splineRHS  = 6
+	splineDiag = 2
+	midpoint   = 2
 )
 
 var (
@@ -73,8 +77,8 @@ func decodeSeries(v driver.Value) ([]seriesPoint, error) {
 
 		ts, _ := p[0].(string)
 
-		t, ok := parseTSValue(ts)
-		if !ok {
+		t, valid := parseTSValue(ts)
+		if !valid {
 			return nil, errNotSeries
 		}
 
@@ -318,7 +322,7 @@ func splineAt(pts []seriesPoint, ys []float64, t time.Time) (float64, bool) {
 	h := xs[i+1] - xs[i]
 	a, b := (xs[i+1]-x)/h, (x-xs[i])/h
 
-	return a*ys[i] + b*ys[i+1] + ((a*a*a-a)*m[i]+(b*b*b-b)*m[i+1])*h*h/6, true //nolint:mnd // cubic spline formula
+	return a*ys[i] + b*ys[i+1] + ((a*a*a-a)*m[i]+(b*b*b-b)*m[i+1])*h*h/splineDiv, true
 }
 
 func naturalSplineMoments(xs, ys []float64) []float64 {
@@ -330,9 +334,9 @@ func naturalSplineMoments(xs, ys []float64) []float64 {
 
 	for i := 1; i < n-1; i++ {
 		h0, h1 := xs[i]-xs[i-1], xs[i+1]-xs[i]
-		diag[i] = 2 * (h0 + h1)
+		diag[i] = splineDiag * (h0 + h1)
 		up[i] = h1
-		rhs[i] = 6 * ((ys[i+1]-ys[i])/h1 - (ys[i]-ys[i-1])/h0)
+		rhs[i] = splineRHS * ((ys[i+1]-ys[i])/h1 - (ys[i]-ys[i-1])/h0)
 	}
 
 	for i := 2; i < n-1; i++ {
@@ -356,7 +360,7 @@ func naturalSplineMoments(xs, ys []float64) []float64 {
 func udfInterpolate(at interpolator) func(*fnCtx, []driver.Value) (driver.Value, error) {
 	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil || args[1] == nil {
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		pts, ys, err := numericPoints(args[0])
@@ -374,7 +378,7 @@ func udfInterpolate(at interpolator) func(*fnCtx, []driver.Value) (driver.Value,
 				return v, nil
 			}
 
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		out := make([]seriesPoint, 0, len(times))
@@ -443,7 +447,7 @@ func intOrFloat(v driver.Value) (float64, bool) {
 func udfDerivative(nonNegative bool) func(*fnCtx, []driver.Value) (driver.Value, error) {
 	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil || args[1] == nil {
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		pts, ys, err := numericPoints(args[0])
@@ -495,7 +499,7 @@ func udfIntegral(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 	var area float64
 
 	for i := 1; i < len(pts); i++ {
-		area += (ys[i] + ys[i-1]) / 2 * (float64(pts[i].t.Sub(pts[i-1].t)) / unit)
+		area += (ys[i] + ys[i-1]) / midpoint * (float64(pts[i].t.Sub(pts[i-1].t)) / unit)
 	}
 
 	return area, nil
@@ -571,7 +575,7 @@ func ranks(v []float64) []float64 {
 			j++
 		}
 
-		avg := float64(i+j)/2 + 1
+		avg := float64(i+j)/midpoint + 1
 		for k := i; k <= j; k++ {
 			out[idx[k]] = avg
 		}
@@ -585,7 +589,7 @@ func ranks(v []float64) []float64 {
 func udfCorrelate(spearman bool) func(*fnCtx, []driver.Value) (driver.Value, error) {
 	return func(_ *fnCtx, args []driver.Value) (driver.Value, error) {
 		if args[0] == nil || args[1] == nil {
-			return nil, nil //nolint:nilnil // SQL NULL
+			return nil, nil
 		}
 
 		x, y, err := alignedSeries(args[0], args[1])
@@ -607,25 +611,34 @@ func udfCorrelate(spearman bool) func(*fnCtx, []driver.Value) (driver.Value, err
 
 // udfSequence is sequence(start, stop, step): timestamps step in nanoseconds, integers step as given.
 func udfSequence(_ *fnCtx, args []driver.Value) (driver.Value, error) {
-	if args[0] == nil || args[1] == nil || (len(args) > argsTwo && args[argsTwo] == nil) {
-		return nil, nil //nolint:nilnil // SQL NULL
+	for _, a := range args {
+		if a == nil {
+			return nil, nil //nolint:nilnil // SQL NULL
+		}
 	}
 
 	if start, ok := parseTSValue(args[0]); ok {
-		stop, ok2 := parseTSValue(args[1])
-
-		step, ok3 := int64(0), len(args) > argsTwo
-		if ok3 {
-			step, ok3 = intArg(args[argsTwo])
-		}
-
-		if !ok2 || !ok3 || step == 0 {
-			return nil, errBadSeq
-		}
-
-		return sequenceTimes(start, stop, step)
+		return sequenceOfTimes(start, args)
 	}
 
+	return sequenceOfInts(args)
+}
+
+func sequenceOfTimes(start time.Time, args []driver.Value) (driver.Value, error) {
+	stop, ok := parseTSValue(args[1])
+	if !ok || len(args) <= argsTwo {
+		return nil, errBadSeq
+	}
+
+	step, ok := intArg(args[argsTwo])
+	if !ok || step == 0 {
+		return nil, errBadSeq
+	}
+
+	return sequenceTimes(start, stop, step)
+}
+
+func sequenceOfInts(args []driver.Value) (driver.Value, error) {
 	lo, ok1 := intArg(args[0])
 	hi, ok2 := intArg(args[1])
 	step := int64(1)

@@ -108,11 +108,13 @@ func (s *timestreamRecordSource) AppendRecords(
 
 	_, err := s.handler.BackendFor(region).WriteRecords(database, table, recs)
 
-	var rejected *timestreamwritebackend.RejectedRecordsError
-	if errors.As(err, &rejected) {
+	if rejected, ok := errors.AsType[*timestreamwritebackend.RejectedRecordsError](err); ok {
 		out := &timestreamquerybackend.RejectedError{}
 		for _, r := range rejected.RejectedRecords {
-			out.Rejected = append(out.Rejected, timestreamquerybackend.RejectedRecord{Index: r.RecordIndex, Reason: r.Reason})
+			out.Rejected = append(
+				out.Rejected,
+				timestreamquerybackend.RejectedRecord{Index: r.RecordIndex, Reason: r.Reason},
+			)
 		}
 
 		return out

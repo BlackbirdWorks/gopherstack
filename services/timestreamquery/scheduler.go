@@ -26,6 +26,8 @@ const (
 	maxCatchUpRuns                = 100
 	maxRecentlyFailedRuns         = 5
 
+	notifyKeyArn   = "arn"
+	notifyKeyType  = "type"
 	notifyCreating = "SCHEDULED_QUERY_CREATING"
 	notifyUpdate   = "SCHEDULED_QUERY_UPDATE"
 	notifyDeleted  = "SCHEDULED_QUERY_DELETED"
@@ -72,8 +74,8 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 }
 
 type dueRun struct {
-	arn        string
 	invocation time.Time
+	arn        string
 }
 
 // RunDue executes every automatic invocation of an enabled scheduled query that has come due on the backend clock.
@@ -202,14 +204,14 @@ func (b *InMemoryBackend) recordRun(
 
 type errorReportRecord struct {
 	DimensionValueType *string         `json:"dimensionValueType"`
-	Dimensions         []reportDim     `json:"dimensions"`
-	MeasureValues      []reportMeasure `json:"measureValues"`
 	Version            *int64          `json:"version"`
 	MeasureName        string          `json:"measureName"`
 	MeasureValue       string          `json:"measureValue"`
 	MeasureValueType   string          `json:"measureValueType"`
 	Time               string          `json:"time"`
 	TimeUnit           string          `json:"timeUnit"`
+	Dimensions         []reportDim     `json:"dimensions"`
+	MeasureValues      []reportMeasure `json:"measureValues"`
 }
 
 type reportDim struct {
@@ -274,7 +276,7 @@ func reportRecords(recs []SourceRecord) []errorReportRecord {
 		}
 
 		for _, m := range r.Measures {
-			rec.MeasureValues = append(rec.MeasureValues, reportMeasure{Name: m.Name, Value: m.Value, Type: m.Type})
+			rec.MeasureValues = append(rec.MeasureValues, reportMeasure(m))
 		}
 
 		out = append(out, rec)
@@ -313,11 +315,11 @@ func (b *InMemoryBackend) writeErrorReport(
 
 	in := &sdk_s3.PutObjectInput{
 		Bucket: &sq.ErrorReportS3BucketName, Key: &key, Body: bytes.NewReader(body),
-		ContentType: strPtr("application/json"),
+		ContentType: new("application/json"),
 	}
 
 	switch sq.ErrorReportEncryptionOption {
-	case "SSE_KMS":
+	case encSSEKMS:
 		in.ServerSideEncryption = s3types.ServerSideEncryptionAwsKms
 		if sq.KmsKeyID != "" {
 			in.SSEKMSKeyId = &sq.KmsKeyID
@@ -334,8 +336,6 @@ func (b *InMemoryBackend) writeErrorReport(
 
 	return &S3ReportLocation{BucketName: sq.ErrorReportS3BucketName, ObjectKey: key}
 }
-
-func strPtr(s string) *string { return &s }
 
 type notifyStats struct {
 	ExecutionTimeInMillis  int64 `json:"executionTimeInMillis"`
@@ -412,11 +412,14 @@ func (b *InMemoryBackend) notifyRun(
 		}{S3Loc{BucketName: report.BucketName, ObjectKey: report.ObjectKey}}
 	}
 
-	msg := map[string]any{"type": status, "arn": arnStr, "runSummary": summary}
+	msg := map[string]any{notifyKeyType: status, notifyKeyArn: arnStr, "runSummary": summary}
 
 	if failure == "" {
 		b.mu.RLock("notifyRun")
-		if sq, ok := b.scheduledQueries.Get(arnStr); ok && !sq.NextRun.IsZero() && sq.State == scheduledQueryStateEnabled {
+		if sq, ok := b.scheduledQueries.Get(
+			arnStr,
+		); ok && !sq.NextRun.IsZero() &&
+			sq.State == scheduledQueryStateEnabled {
 			msg["nextInvocationEpochSecond"] = sq.NextRun.Unix()
 		}
 		b.mu.RUnlock()
@@ -426,5 +429,5 @@ func (b *InMemoryBackend) notifyRun(
 }
 
 func (b *InMemoryBackend) notifyState(ctx context.Context, arnStr, state string) {
-	b.publish(ctx, arnStr, map[string]string{"type": notifyUpdate, "arn": arnStr, "state": state})
+	b.publish(ctx, arnStr, map[string]string{notifyKeyType: notifyUpdate, notifyKeyArn: arnStr, "state": state})
 }

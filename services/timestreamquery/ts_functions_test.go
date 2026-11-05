@@ -12,7 +12,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
 
-var fnNow = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+func fnNow() time.Time { return time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC) }
 
 func renderDatum(d timestreamquery.Datum) string {
 	switch {
@@ -48,12 +48,12 @@ func renderType(c timestreamquery.ColumnType) string {
 	}
 }
 
-func fnBackend(t *testing.T) (*timestreamquery.InMemoryBackend, *memSource) {
+func fnBackend(t *testing.T) *timestreamquery.InMemoryBackend {
 	t.Helper()
 
 	dbl := func(m time.Duration, v string, host string) timestreamquery.SourceRecord {
 		return timestreamquery.SourceRecord{
-			Time: fnNow.Add(-m), MeasureName: "cpu", MeasureValueType: "DOUBLE", MeasureValue: v,
+			Time: fnNow().Add(-m), MeasureName: "cpu", MeasureValueType: "DOUBLE", MeasureValue: v,
 			Dimensions: []timestreamquery.SourceDimension{{Name: "host", Value: host}},
 		}
 	}
@@ -64,16 +64,16 @@ func fnBackend(t *testing.T) (*timestreamquery.InMemoryBackend, *memSource) {
 	}}}
 
 	b := timestreamquery.NewInMemoryBackend("000000000000", "us-east-1")
-	b.SetClock(func() time.Time { return fnNow })
+	b.SetClock(fnNow)
 	b.SetRecordSource(src)
 
-	return b, src
+	return b
 }
 
 func runFn(t *testing.T, q string) ([][]string, []string) {
 	t.Helper()
 
-	b, _ := fnBackend(t)
+	b := fnBackend(t)
 
 	page, err := b.QueryWithOptions(t.Context(), timestreamquery.QueryOptions{QueryString: q})
 	require.NoError(t, err, q)
@@ -195,7 +195,8 @@ func TestQuery_TimeSeriesFunctions(t *testing.T) {
 		wantTypes string
 	}{
 		{
-			"create_time_series", `SELECT ` + series + ` ` + fromT,
+			"create_time_series",
+			`SELECT ` + series + ` ` + fromT,
 			"ts[2026-10-31 11:40:00.000000000=10.0, 2026-10-31 11:50:00.000000000=20.0, 2026-10-31 11:55:00.000000000=30.0]",
 			"timeseries(DOUBLE)",
 		},
@@ -247,16 +248,33 @@ func TestQuery_TimeSeriesFunctions(t *testing.T) {
 		{
 			"non_negative_derivative_linear",
 			`SELECT non_negative_derivative_linear(create_time_series(time, 100.0 - measure_value::double), 1m) ` + fromT,
-			"ts[]", "timeseries(DOUBLE)",
+			"ts[]",
+			"timeseries(DOUBLE)",
 		},
 		{"integral_trapezoidal interval", `SELECT integral_trapezoidal(` + series + `, 5m) ` + fromT, "55.0", "DOUBLE"},
-		{"integral_trapezoidal default 1s", `SELECT integral_trapezoidal(` + series + `) ` + fromT, "16500.0", "DOUBLE"},
-		{"correlate_pearson self", `SELECT correlate_pearson(` + series + `, ` + series + `) ` + fromT, "1.0", "DOUBLE"},
-		{"correlate_spearman self", `SELECT correlate_spearman(` + series + `, ` + series + `) ` + fromT, "1.0", "DOUBLE"},
+		{
+			"integral_trapezoidal default 1s",
+			`SELECT integral_trapezoidal(` + series + `) ` + fromT,
+			"16500.0",
+			"DOUBLE",
+		},
+		{
+			"correlate_pearson self",
+			`SELECT correlate_pearson(` + series + `, ` + series + `) ` + fromT,
+			"1.0",
+			"DOUBLE",
+		},
+		{
+			"correlate_spearman self",
+			`SELECT correlate_spearman(` + series + `, ` + series + `) ` + fromT,
+			"1.0",
+			"DOUBLE",
+		},
 		{
 			"correlate_pearson anti",
 			`SELECT correlate_pearson(` + series + `, create_time_series(time, 100.0 - measure_value::double)) ` + fromT,
-			"-1.0", "DOUBLE",
+			"-1.0",
+			"DOUBLE",
 		},
 		{
 			"sequence timestamps",
@@ -320,7 +338,8 @@ func TestQuery_UnnestTimeSeries(t *testing.T) {
 		},
 		{
 			"alias with column names",
-			interp + `SELECT host, avg(t.cpu_util) FROM s CROSS JOIN UNNEST(r) AS t (time, cpu_util) GROUP BY host ORDER BY host`,
+			interp + `SELECT host, avg(t.cpu_util) FROM s CROSS JOIN UNNEST(r) AS t (time, cpu_util) ` +
+				`GROUP BY host ORDER BY host`,
 			[][]string{{"a", "18.75"}, {"b", "9.375"}},
 		},
 	}
@@ -356,10 +375,10 @@ func TestQuery_TimeSeriesErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b, _ := fnBackend(t)
+			b := fnBackend(t)
 			_, err := b.QueryWithOptions(t.Context(), timestreamquery.QueryOptions{QueryString: tt.query})
 			require.Error(t, err)
-			assert.ErrorIs(t, err, timestreamquery.ErrValidation)
+			require.ErrorIs(t, err, timestreamquery.ErrValidation)
 			assert.Contains(t, fmt.Sprint(err), tt.want)
 		})
 	}

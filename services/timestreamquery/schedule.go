@@ -64,7 +64,13 @@ func parseSchedule(expr string) (schedule, bool) {
 
 func (s schedule) dayMatches(d time.Time) bool {
 	return awscron.MatchField(awscron.FieldYear, s.cron[cronYearIdx], d.Year(), awscron.YearMin, awscron.YearMax) &&
-		awscron.MatchField(awscron.FieldMonth, s.cron[cronMonthIdx], int(d.Month()), awscron.MonthMin, awscron.MonthMax) &&
+		awscron.MatchField(
+			awscron.FieldMonth,
+			s.cron[cronMonthIdx],
+			int(d.Month()),
+			awscron.MonthMin,
+			awscron.MonthMax,
+		) &&
 		awscron.MatchDayFields(s.cron[cronDomIdx], s.cron[cronDowIdx], d)
 }
 

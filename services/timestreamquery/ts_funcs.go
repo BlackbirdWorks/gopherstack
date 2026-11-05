@@ -155,7 +155,11 @@ func registerTimestreamFuncs() {
 		reg("from_nanoseconds", 1, unitFunc(func(n int64) time.Time { return time.Unix(0, n) }))
 		reg("to_milliseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixMilli() }))
 		reg("to_nanoseconds", 1, toUnit(func(t time.Time) int64 { return t.UnixNano() }))
-		isoYear := toUnit(func(t time.Time) int64 { y, _ := t.ISOWeek(); return int64(y) })
+		isoYear := toUnit(func(t time.Time) int64 {
+			y, _ := t.ISOWeek()
+
+			return int64(y)
+		})
 		reg("year_of_week", 1, isoYear)
 		reg("yow", 1, isoYear)
 		reg("nanosecond", 1, toUnit(func(t time.Time) int64 { return int64(t.Nanosecond()) }))

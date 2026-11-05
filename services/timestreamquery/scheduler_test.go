@@ -27,13 +27,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/timestreamquery"
 )
 
-var errIngest = errors.New("The record timestamp is outside the retention period")
+var (
+	errIngest   = errors.New("the record timestamp is outside the retention period")
+	errNotFound = errors.New("NotFound")
+)
 
 type recordingNotifier struct {
-	mu   sync.Mutex
-	msgs []map[string]any
-	// topics lines up with msgs.
+	msgs   []map[string]any
 	topics []string
+	mu     sync.Mutex
 }
 
 func (n *recordingNotifier) Publish(_ context.Context, topic, message string) error {
@@ -71,14 +73,18 @@ func (n *recordingNotifier) last() map[string]any {
 }
 
 type memObjects struct {
-	mu      sync.Mutex
 	buckets map[string]bool
 	objects map[string][]byte
 	enc     map[string]s3types.ServerSideEncryption
+	mu      sync.Mutex
 }
 
 func newMemObjects(buckets ...string) *memObjects {
-	m := &memObjects{buckets: map[string]bool{}, objects: map[string][]byte{}, enc: map[string]s3types.ServerSideEncryption{}}
+	m := &memObjects{
+		buckets: map[string]bool{},
+		objects: map[string][]byte{},
+		enc:     map[string]s3types.ServerSideEncryption{},
+	}
 	for _, b := range buckets {
 		m.buckets[b] = true
 	}
@@ -104,7 +110,7 @@ func (m *memObjects) PutObject(_ context.Context, in *sdk_s3.PutObjectInput) (*s
 
 func (m *memObjects) HeadBucket(_ context.Context, in *sdk_s3.HeadBucketInput) (*sdk_s3.HeadBucketOutput, error) {
 	if !m.buckets[aws.ToString(in.Bucket)] {
-		return nil, errors.New("NotFound")
+		return nil, errNotFound
 	}
 
 	return &sdk_s3.HeadBucketOutput{}, nil
@@ -130,7 +136,9 @@ type failSource struct {
 
 func (f *failSource) AppendRecords(region, db, table string, recs []timestreamquery.SourceRecord) error {
 	if f.fail {
-		return &timestreamquery.RejectedError{Rejected: []timestreamquery.RejectedRecord{{Index: 0, Reason: errIngest.Error()}}}
+		return &timestreamquery.RejectedError{
+			Rejected: []timestreamquery.RejectedRecord{{Index: 0, Reason: errIngest.Error()}},
+		}
 	}
 
 	return f.memSource.AppendRecords(region, db, table, recs)
@@ -186,13 +194,14 @@ func newSchedEnv(t *testing.T, start time.Time) *schedEnv {
 func (e *schedEnv) advance(d time.Duration) { *e.now = e.now.Add(d) }
 
 const rollupQuery = `SELECT host, bin(time, 1h) AS t, avg(measure_value::double) AS avg_cpu FROM db.src ` +
-	`WHERE measure_name = 'cpu' AND time BETWEEN @scheduled_runtime - 1h AND @scheduled_runtime GROUP BY host, bin(time, 1h)`
+	`WHERE measure_name = 'cpu' AND time BETWEEN @scheduled_runtime - 1h AND @scheduled_runtime ` +
+	`GROUP BY host, bin(time, 1h)`
 
-func (e *schedEnv) create(t *testing.T, name, expr, query string) string {
+func (e *schedEnv) create(t *testing.T, expr, query string) string {
 	t.Helper()
 
 	out, err := e.client.CreateScheduledQuery(t.Context(), &tqsdk.CreateScheduledQueryInput{
-		Name:                           aws.String(name),
+		Name:                           aws.String("sq"),
 		QueryString:                    aws.String(query),
 		ScheduledQueryExecutionRoleArn: aws.String("arn:aws:iam::000000000000:role/tsq"),
 		ScheduleConfiguration:          &types.ScheduleConfiguration{ScheduleExpression: aws.String(expr)},
@@ -265,15 +274,27 @@ func TestScheduledQuery_RunsOnSchedule(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
-		advance  time.Duration
 		wantRuns []int64
+		advance  time.Duration
 		wantNext time.Duration
 	}{
-		{"rate hours", "rate(1 hour)", 3*time.Hour + 30*time.Minute, at(time.Hour, 2*time.Hour, 3*time.Hour), 4 * time.Hour},
-		{"rate minutes", "rate(30 minutes)", time.Hour, at(30*time.Minute, time.Hour), 90 * time.Minute},
-		{"cron half hourly", "cron(0/30 * * * ? *)", 65 * time.Minute, at(30*time.Minute, time.Hour), 90 * time.Minute},
-		{"cron daily at 18:00", "cron(0 18 * * ? *)", 7 * time.Hour, at(6 * time.Hour), 30 * time.Hour},
-		{"not yet due", "rate(1 day)", 23 * time.Hour, nil, 24 * time.Hour},
+		{
+			name: "rate hours", expr: "rate(1 hour)", advance: 3*time.Hour + 30*time.Minute,
+			wantRuns: at(time.Hour, 2*time.Hour, 3*time.Hour), wantNext: 4 * time.Hour,
+		},
+		{
+			name: "rate minutes", expr: "rate(30 minutes)", advance: time.Hour,
+			wantRuns: at(30*time.Minute, time.Hour), wantNext: 90 * time.Minute,
+		},
+		{
+			name: "cron half hourly", expr: "cron(0/30 * * * ? *)", advance: 65 * time.Minute,
+			wantRuns: at(30*time.Minute, time.Hour), wantNext: 90 * time.Minute,
+		},
+		{
+			name: "cron daily at 18:00", expr: "cron(0 18 * * ? *)", advance: 7 * time.Hour,
+			wantRuns: at(6 * time.Hour), wantNext: 30 * time.Hour,
+		},
+		{name: "not yet due", expr: "rate(1 day)", advance: 23 * time.Hour, wantNext: 24 * time.Hour},
 	}
 
 	for _, tt := range tests {
@@ -281,7 +302,7 @@ func TestScheduledQuery_RunsOnSchedule(t *testing.T) {
 			t.Parallel()
 
 			env := newSchedEnv(t, start)
-			arn := env.create(t, "sq", tt.expr, rollupQuery)
+			arn := env.create(t, tt.expr, rollupQuery)
 			assert.Equal(t, []string{"SCHEDULED_QUERY_CREATING"}, env.notify.types())
 
 			env.advance(tt.advance)
@@ -310,7 +331,7 @@ func TestScheduledQuery_WritesTargetAndNotifies(t *testing.T) {
 
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
-	arn := env.create(t, "sq", "rate(1 hour)", rollupQuery)
+	arn := env.create(t, "rate(1 hour)", rollupQuery)
 
 	env.advance(time.Hour)
 	env.backend.RunDue(t.Context())
@@ -341,7 +362,7 @@ func TestScheduledQuery_StopsWhenDisabledOrDeleted(t *testing.T) {
 
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
-	arn := env.create(t, "sq", "rate(1 hour)", rollupQuery)
+	arn := env.create(t, "rate(1 hour)", rollupQuery)
 
 	_, err := env.client.UpdateScheduledQuery(t.Context(), &tqsdk.UpdateScheduledQueryInput{
 		ScheduledQueryArn: aws.String(arn), State: types.ScheduledQueryStateDisabled,
@@ -366,7 +387,10 @@ func TestScheduledQuery_StopsWhenDisabledOrDeleted(t *testing.T) {
 	env.backend.RunDue(t.Context())
 	assert.Len(t, env.notify.runs("AUTO_TRIGGER_SUCCESS"), 1)
 
-	_, err = env.client.DeleteScheduledQuery(t.Context(), &tqsdk.DeleteScheduledQueryInput{ScheduledQueryArn: aws.String(arn)})
+	_, err = env.client.DeleteScheduledQuery(
+		t.Context(),
+		&tqsdk.DeleteScheduledQueryInput{ScheduledQueryArn: aws.String(arn)},
+	)
 	require.NoError(t, err)
 
 	env.advance(5 * time.Hour)
@@ -384,7 +408,7 @@ func TestScheduledQuery_IngestionFailureWritesErrorReport(t *testing.T) {
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
 	env.src.fail = true
-	arn := env.create(t, "sq", "rate(1 hour)", rollupQuery)
+	arn := env.create(t, "rate(1 hour)", rollupQuery)
 
 	env.advance(time.Hour)
 	env.backend.RunDue(t.Context())
@@ -426,10 +450,8 @@ func TestScheduledQuery_IngestionFailureWritesErrorReport(t *testing.T) {
 
 	msg := env.notify.last()
 	assert.Equal(t, "AUTO_TRIGGER_FAILURE", msg["type"])
-	assert.Equal(t,
-		aws.ToString(loc.ObjectKey),
-		msg["runSummary"].(map[string]any)["errorReportLocation"].(map[string]any)["s3ReportLocation"].(map[string]any)["objectKey"],
-	)
+	s3loc := msg["runSummary"].(map[string]any)["errorReportLocation"].(map[string]any)["s3ReportLocation"]
+	assert.Equal(t, aws.ToString(loc.ObjectKey), s3loc.(map[string]any)["objectKey"])
 }
 
 func TestScheduledQuery_QueryFailureDisablesQuery(t *testing.T) {
@@ -437,7 +459,7 @@ func TestScheduledQuery_QueryFailureDisablesQuery(t *testing.T) {
 
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
-	arn := env.create(t, "sq", "rate(1 hour)", `SELECT host, time AS t, nonexistent AS avg_cpu FROM db.src`)
+	arn := env.create(t, "rate(1 hour)", `SELECT host, time AS t, nonexistent AS avg_cpu FROM db.src`)
 
 	env.advance(time.Hour)
 	env.backend.RunDue(t.Context())
@@ -447,7 +469,11 @@ func TestScheduledQuery_QueryFailureDisablesQuery(t *testing.T) {
 	assert.Equal(t, types.ScheduledQueryRunStatusAutoTriggerFailure, d.LastRunSummary.RunStatus)
 	assert.Nil(t, d.LastRunSummary.ErrorReportLocation, "non-recoverable errors produce no report")
 	assert.Empty(t, env.objects.keys())
-	assert.Equal(t, []string{"SCHEDULED_QUERY_CREATING", "AUTO_TRIGGER_FAILURE", "SCHEDULED_QUERY_UPDATE"}, env.notify.types())
+	assert.Equal(
+		t,
+		[]string{"SCHEDULED_QUERY_CREATING", "AUTO_TRIGGER_FAILURE", "SCHEDULED_QUERY_UPDATE"},
+		env.notify.types(),
+	)
 	assert.Equal(t, "DISABLED", env.notify.last()["state"])
 
 	env.advance(5 * time.Hour)
@@ -460,7 +486,7 @@ func TestScheduledQuery_ManualRunKeepsSemantics(t *testing.T) {
 
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
-	arn := env.create(t, "sq", "rate(1 day)", rollupQuery)
+	arn := env.create(t, "rate(1 day)", rollupQuery)
 
 	_, err := env.client.ExecuteScheduledQuery(t.Context(), &tqsdk.ExecuteScheduledQueryInput{
 		ScheduledQueryArn: aws.String(arn), InvocationTime: aws.Time(start),
@@ -478,7 +504,7 @@ func TestScheduledQuery_SnapshotRestoreResumesSchedule(t *testing.T) {
 
 	start := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	env := newSchedEnv(t, start)
-	env.create(t, "sq", "rate(1 hour)", rollupQuery)
+	env.create(t, "rate(1 hour)", rollupQuery)
 	snap := env.backend.Snapshot(t.Context())
 
 	restored := newSchedEnv(t, start)
@@ -486,7 +512,11 @@ func TestScheduledQuery_SnapshotRestoreResumesSchedule(t *testing.T) {
 
 	restored.advance(2 * time.Hour)
 	restored.backend.RunDue(t.Context())
-	assert.Equal(t, []int64{start.Add(time.Hour).Unix(), start.Add(2 * time.Hour).Unix()}, restored.notify.runs("AUTO_TRIGGER_SUCCESS"))
+	assert.Equal(
+		t,
+		[]int64{start.Add(time.Hour).Unix(), start.Add(2 * time.Hour).Unix()},
+		restored.notify.runs("AUTO_TRIGGER_SUCCESS"),
+	)
 }
 
 func TestScheduledQuery_WorkerRunsOnFakeClock(t *testing.T) {
@@ -500,8 +530,23 @@ func TestScheduledQuery_WorkerRunsOnFakeClock(t *testing.T) {
 		n := &recordingNotifier{}
 		b.SetNotifier(n)
 
-		_, err := b.CreateScheduledQuery(t.Context(), "sq", "SELECT 1", "rate(1 minute)", "arn:aws:iam::000000000000:role/x",
-			"arn:aws:sns:us-east-1:000000000000:tsq", "errs", "", "", "", "", "", "", nil, nil)
+		_, err := b.CreateScheduledQuery(
+			t.Context(),
+			"sq",
+			"SELECT 1",
+			"rate(1 minute)",
+			"arn:aws:iam::000000000000:role/x",
+			"arn:aws:sns:us-east-1:000000000000:tsq",
+			"errs",
+			"",
+			"",
+			"",
+			"",
+			"",
+			"",
+			nil,
+			nil,
+		)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(t.Context())

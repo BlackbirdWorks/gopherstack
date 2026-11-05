@@ -45,7 +45,10 @@ func (s RecordShape) key() string {
 
 	sort.Strings(attrs)
 
-	return strings.Join([]string{s.MeasureName, s.MeasureValueType, strings.Join(dims, "\x00"), strings.Join(attrs, "\x00")}, "\x02")
+	return strings.Join(
+		[]string{s.MeasureName, s.MeasureValueType, strings.Join(dims, "\x00"), strings.Join(attrs, "\x00")},
+		"\x02",
+	)
 }
 
 // noteShape remembers r's shape in the slot. Caller holds the slot write lock.
