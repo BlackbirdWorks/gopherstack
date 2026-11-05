@@ -37,7 +37,14 @@
           "properties": {
             "namespace": {"type": "string"},
             "fetchImage": {"type": "string", "minLength": 1},
-            "codePort": {"type": "integer", "minimum": 1, "maximum": 65535}
+            "codePort": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "ecs": {
+              "type": "object",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "exec": {"type": "boolean"}
+              }
+            }
           }
         }
       }

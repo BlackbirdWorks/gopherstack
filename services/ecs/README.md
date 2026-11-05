@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 65 (63 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -19,7 +19,8 @@
 - Docker runtime container definition: firelensConfiguration and awsfirelens log routing (a task using either fails with TaskFailedToStart instead of starting the log router), resourceRequirements (GPU), non-awslogs logConfiguration drivers, ephemeralStorage and task-level cpu/memory cgroups are stored but not applied to the Docker container.
 - Docker runtime volumes: configuredAtLaunch (EBS) volumes fail the task with a TaskFailedToStart stoppedReason instead of mounting; networkMode host/none/awsvpc ENI semantics and pidMode/ipcMode 'task' are not mapped (pidMode/ipcMode 'host' and ipcMode 'none' are).
 - Docker runtime dependsOn: the stoppedReason text for a failed dependency is unverified (no AWS doc publishes it; the task just moves to STOPPED per ContainerDefinition.startTimeout). Launch is asynchronous (PROVISIONING, PENDING, ACTIVATING, RUNNING); pullStartedAt/pullStoppedAt bracket the whole launch (no per-image pull timing), and PROVISIONING tasks in a restored snapshot are not resumed.
-- ECS Exec: sessions exist only on the docker runtime with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied.
+- ECS Exec: sessions exist only on the docker and kubernetes runtimes with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec or pods/exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied.
+- Kubernetes runtime (CONTAINER_RUNTIME=kubernetes, docs/kubernetes.md): one Pod per task. Refused with TaskFailedToStart: host-path/EFS/configuredAtLaunch/shared-docker volumes, networkMode host/none, pidMode/ipcMode host, privileged, devices, container restartPolicy, repositoryCredentials, FireLens, dependsOn COMPLETE/HEALTHY; ulimits/ephemeralStorage ignored; dependsOn START is not ordered; a never-ready health check stays UNKNOWN; no security-group enforcement; tasks are not adopted after a restart.
 - Docker runtime health: container restarts are applied but restart counts are not reported.
 
 ### Structural gaps

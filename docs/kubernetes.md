@@ -29,7 +29,7 @@ The image is `ghcr.io/blackbirdworks/gopherstack`, tagged with the chart `appVer
 | `service.extraPorts` | `[]` | extra named container and Service ports (below) |
 | `ingress.*` | disabled | standard Ingress for the main port |
 | `probes.*` | `/_gopherstack/health` | liveness, readiness and startup probes |
-| `container.runtime` | `docker` | `kubernetes` runs Lambda containers as Pods through the Kubernetes API (below) |
+| `container.runtime` | `docker` | `kubernetes` runs Lambda functions and ECS tasks as Pods through the Kubernetes API (below) |
 | `container.kubernetes.*` | see `values.yaml` | namespace, fetch image and code port for the Pod executor |
 | `dind.enabled` | `false` | privileged Docker-in-Docker sidecar (below) |
 | `resources`, `nodeSelector`, `tolerations`, `affinity` | empty | scheduling |
@@ -74,7 +74,7 @@ This adds a `docker:dind` container that runs **privileged** and exposes `tcp://
 
 `container.runtime=kubernetes` (sets `CONTAINER_RUNTIME=kubernetes`) runs Lambda function containers as Pods in the release namespace (or `container.kubernetes.namespace`), so no privileged sidecar is needed. Docker stays the default. The chart then adds:
 
-- a namespace-scoped `Role` and `RoleBinding`: `pods` create/get/list/watch/delete and `pods/log` get. No `pods/exec`, no secrets, no cluster-wide rules;
+- a namespace-scoped `Role` and `RoleBinding`: `pods` create/get/list/watch/delete and `pods/log` get. No cluster-wide rules; `secrets` (create/patch/delete) and `pods/exec` (create) only with `container.kubernetes.ecs.enabled` / `.exec`;
 - the ServiceAccount token mount (off otherwise);
 - `POD_IP`, `LAMBDA_DOCKER_HOST` and `CONTAINER_K8S_ADVERTISE_HOST` set to the Gopherstack Pod IP, plus the `fn-code` container port.
 
@@ -85,7 +85,31 @@ How it works:
 - Memory limit and request equal the function memory size. `OCIRuntime` (Lambda isolation) maps to `runtimeClassName`.
 - Pods are labelled `gopherstack.managed=true`; the existing startup reconcile lists them and removes dead leftovers of earlier runs.
 
-Not supported by the Pod executor yet: ECS tasks, EC2 and other engines (they still need docker), EFS file systems, Lambda hot reload, extensions in layers, `LAMBDA_DOCKER_FLAGS`, host DNS/CA injection, `Exec`, and container stop/start (a Pod is created or deleted).
+Not supported by the Pod executor yet: EC2 and other engines (they still need docker), EFS file systems, Lambda hot reload, extensions in layers, `LAMBDA_DOCKER_FLAGS`, host DNS/CA injection, Lambda `Exec`, and container stop/start (a Pod is created or deleted).
+
+### ECS tasks as Pods
+
+With `CONTAINER_RUNTIME=kubernetes` and ECS containers enabled (`config.engines=docker` or `GOPHERSTACK_ECS_RUNTIME=docker`) every ECS task is **one Pod**; its containers share the Pod's network namespace, as under `awsvpc`. The Pod is named `ecs-<task id>`. Chart values `container.kubernetes.ecs.enabled` (secrets create/patch/delete) and `container.kubernetes.ecs.exec` (`pods/exec` create) add only the grants the feature needs; both default to off.
+
+| ECS | Pod |
+|---|---|
+| `entryPoint`, `command`, `environment`, `workingDirectory`, `user` (numeric or `root`), `readonlyRootFilesystem`, `linuxParameters.capabilities` | `command`, `args`, `env`, `workingDir`, `runAsUser`/`runAsGroup`, `readOnlyRootFilesystem`, `capabilities` |
+| `secrets`, `environmentFiles` | resolved server-side into a Kubernetes `Secret` named after the Pod and referenced with `secretKeyRef`. The Pod owns the Secret (`ownerReferences`), and it is deleted with the task. Values are never in the Pod spec, logs or annotations |
+| container `memory` / `memoryReservation` | memory limit / request |
+| container `cpu` (units, 1024 = 1 vCPU) | cpu request. Task `cpu` and `memory` cap every container, as ECS caps the task |
+| `healthCheck` (`CMD`, `CMD-SHELL`) | exec `readinessProbe` (interval, timeout, retries, startPeriod). Health is UNKNOWN until the first success, then HEALTHY/UNHEALTHY; a container that never becomes ready stays UNKNOWN |
+| `stopTimeout` | `terminationGracePeriodSeconds` (the largest container value, default 30) |
+| `essential` | the task stops when an essential container exits (`EssentialContainerExited`), exit codes are recorded per container; a non-essential exit leaves the task running |
+| `dependsOn` `SUCCESS` | the target runs as an init container, in dependency order. It must be non-essential; a non-zero exit fails the task (`TaskFailedToStart`) |
+| `dependsOn` `START` | accepted: containers are listed in dependency order but a Pod starts them together, so startup order is not guaranteed |
+| `volumesFrom`, `mountPoints`, `linuxParameters.tmpfs`, `sharedMemorySize` | the source container's mounts, `emptyDir` volumes (memory-backed for tmpfs and `/dev/shm`) |
+| task `volumes` with no host path, task-scoped `dockerVolumeConfiguration` | `emptyDir`, shared by the task's containers and gone with the Pod |
+| `portMappings` | `containerPort` entries. Reachability is `<Pod IP>:<containerPort>`; `hostPort` is ignored. The task's `privateIPv4Address` becomes the Pod IP, so ECS service load balancer registration (ELBv2) and Cloud Map use it |
+| `logConfiguration` `awslogs` | each container's Pod log stream is forwarded to CloudWatch Logs. The stream name is `<prefix>/<container>/<task id>`, or `<pod>/<container>` without a prefix |
+| ECS Exec (`ExecuteCommand`) | `pods/exec` with a TTY, through the SSM session data channel (needs `container.kubernetes.ecs.exec`) |
+| task state | PROVISIONING, PENDING and ACTIVATING are driven by the backend; RUNNING once the Pod runs, STOPPED with `stopCode`, `stoppedReason`, exit codes and `OutOfMemoryError` reasons from the Pod's container statuses. A Pod deleted outside Gopherstack stops the task (exit 137). Image pull failures report `CannotPullContainerError` |
+
+Refused with `TaskFailedToStart` (a clear `stoppedReason`) instead of being approximated: host-path volumes, EFS, `configuredAtLaunch`, shared `dockerVolumeConfiguration`, `networkMode` `host`/`none`, `pidMode`/`ipcMode` `host`, `privileged`, `disableNetworking`, `devices`, container `restartPolicy`, `repositoryCredentials`, FireLens, and `dependsOn` `COMPLETE` and `HEALTHY`. `ulimits` and `ephemeralStorage` are ignored. Security-group enforcement, task adoption after a Gopherstack restart (leftover Pods are removed by the startup reconcile) and task networking policies are not implemented for Pods.
 
 Running Gopherstack outside the cluster: set `CONTAINER_RUNTIME=kubernetes`, `CONTAINER_K8S_KUBECONFIG=<path>` and `CONTAINER_K8S_ADVERTISE_HOST=<an address Pods can reach this host on>` (also `LAMBDA_DOCKER_HOST` to the same value).
 

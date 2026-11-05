@@ -67,6 +67,7 @@ serviceAccount:
 #   docker:     the docker daemon (see dind below, or DOCKER_HOST via config.extra).
 #   kubernetes: one Pod per container in the release namespace, through the Kubernetes API. Needs no privileged
 #               sidecar; the chart adds a namespace-scoped Role (pods, pods/log) and mounts the ServiceAccount token.
+#               ECS tasks run as one Pod each; see container.kubernetes.ecs for the extra grants they need.
 container:
   runtime: docker
   kubernetes:
@@ -76,6 +77,12 @@ container:
     fetchImage: busybox:1.37.0
     # Port Gopherstack serves function code on, reachable from function Pods by Pod IP.
     codePort: 4599
+    # ECS tasks as Pods (set config.engines=docker or GOPHERSTACK_ECS_RUNTIME=docker; one Pod per task).
+    ecs:
+      # Grants secrets create/patch/delete: container secrets are injected from a Secret the task's Pod owns.
+      enabled: false
+      # Grants pods/exec create so ECS Exec (ExecuteCommand) can open sessions. Needs ecs.enabled.
+      exec: false
 
 # Docker-in-Docker sidecar so docker-backed engines work in a cluster. Runs privileged.
 dind:

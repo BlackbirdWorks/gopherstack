@@ -22,6 +22,13 @@ func TestChart_Lint(t *testing.T) {
 			"--set", "persistence.enabled=true,ingress.enabled=true,dind.enabled=true,service.type=NodePort",
 		}},
 		{"kubernetes runtime", []string{"--set", "container.runtime=kubernetes"}},
+		{
+			"kubernetes ecs",
+			[]string{
+				"--set",
+				"container.runtime=kubernetes,container.kubernetes.ecs.enabled=true,container.kubernetes.ecs.exec=true",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -75,6 +82,15 @@ func TestChart_GoldenTemplate(t *testing.T) {
 				"env[0].name=EXTRA,env[0].value=1",
 			},
 		},
+		{
+			"kubernetes_ecs",
+			[]string{
+				"--set",
+				"container.runtime=kubernetes,config.engines=docker",
+				"--set",
+				"container.kubernetes.ecs.enabled=true,container.kubernetes.ecs.exec=true",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -113,6 +129,7 @@ func TestChart_SchemaRejects(t *testing.T) {
 		{"bad pull policy", "image.pullPolicy=Sometimes", "pullPolicy"},
 		{"bad container runtime", "container.runtime=lxc", "runtime"},
 		{"bad code port", "container.kubernetes.codePort=70000", "codePort"},
+		{"bad ecs flag", "container.kubernetes.ecs.exec=maybe", "exec"},
 	}
 
 	for _, tt := range tests {

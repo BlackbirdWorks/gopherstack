@@ -230,6 +230,7 @@ func (b *InMemoryBackend) completeLaunch(ctx context.Context, w taskWork, cluste
 
 		if runErr == nil {
 			b.applyRuntimeContainerIDs(task)
+			b.applyRuntimeAddress(task)
 			b.markRunningLocked(task, now)
 			b.emitTaskStateLocked(task)
 

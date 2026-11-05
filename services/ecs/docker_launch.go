@@ -264,7 +264,7 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 }
 
 func hostOrNone(mode string) string {
-	if mode == "host" || mode == "none" {
+	if mode == networkModeHost || mode == networkModeNone {
 		return mode
 	}
 
@@ -290,11 +290,31 @@ func (r *realDockerRunner) resolveSecretEnv(
 	ctx context.Context,
 	defs []ContainerDefinition,
 ) (map[string][]string, error) {
-	out := make(map[string][]string, len(defs))
-
 	r.mu.Lock()
 	lookup := r.secretLookup
 	r.mu.Unlock()
+
+	return resolveSecretEnv(ctx, lookup, defs)
+}
+
+func (r *realDockerRunner) resolveFileEnv(
+	ctx context.Context,
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
+	r.mu.Lock()
+	lookup := r.envFileLookup
+	r.mu.Unlock()
+
+	return resolveFileEnv(ctx, lookup, defs)
+}
+
+// resolveSecretEnv resolves each container's secrets to KEY=VALUE entries.
+func resolveSecretEnv(
+	ctx context.Context,
+	lookup func(ctx context.Context, valueFrom string) (string, error),
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
+	out := make(map[string][]string, len(defs))
 
 	for _, cd := range defs {
 		for _, sec := range cd.Secrets {
@@ -314,15 +334,13 @@ func (r *realDockerRunner) resolveSecretEnv(
 	return out, nil
 }
 
-func (r *realDockerRunner) resolveFileEnv(
+// resolveFileEnv resolves each container's environmentFiles to KEY=VALUE entries.
+func resolveFileEnv(
 	ctx context.Context,
+	lookup func(ctx context.Context, cd ContainerDefinition) ([]string, error),
 	defs []ContainerDefinition,
 ) (map[string][]string, error) {
 	out := make(map[string][]string, len(defs))
-
-	r.mu.Lock()
-	lookup := r.envFileLookup
-	r.mu.Unlock()
 
 	for _, cd := range defs {
 		if len(cd.EnvironmentFiles) == 0 {

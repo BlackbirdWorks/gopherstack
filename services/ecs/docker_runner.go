@@ -448,6 +448,10 @@ func (w *awslogsWriter) flush() {
 func newTaskRunner(ctx context.Context) (TaskRunner, error) {
 	switch os.Getenv("GOPHERSTACK_ECS_RUNTIME") {
 	case "docker":
+		if usesKubernetes() {
+			return NewKubernetesRunner(ctx)
+		}
+
 		return NewDockerRunner(ctx)
 	default:
 		// "none" or unset – no-op

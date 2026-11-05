@@ -55,26 +55,25 @@ var ErrNoAdvertiseHost = errors.New("archive delivery needs " + EnvK8sAdvertiseH
 
 // KubernetesConfig configures RuntimeKubernetes. Zero values fall back to the environment.
 type KubernetesConfig struct {
-	// Client overrides the clientset built from Kubeconfig or the in-cluster config.
-	Client kubernetes.Interface
-	// CodeListener overrides the archive server listener.
-	CodeListener net.Listener
-	Kubeconfig   string
-	Namespace    string
-	// AdvertiseHost is how Pods address this process; the archive URL is AdvertiseHost:CodePort.
+	Client        kubernetes.Interface
+	CodeListener  net.Listener
+	Executor      PodExecutor
+	Kubeconfig    string
+	Namespace     string
 	AdvertiseHost string
 	FetchImage    string
 	CodePort      int
-	// StartTimeout bounds how long CreateAndStart waits for the Pod to run.
-	StartTimeout time.Duration
+	StartTimeout  time.Duration
 }
 
 // KubernetesRuntime runs containers as Pods; the container ID is the Pod name.
 type KubernetesRuntime struct {
 	cs         kubernetes.Interface
+	exec       PodExecutor
 	log        *slog.Logger
 	code       *codeServer
 	codeMu     *lockmetrics.RWMutex
+	restCfg    *rest.Config
 	ns         string
 	fetchImage string
 	codeCfg    KubernetesConfig
@@ -123,10 +122,12 @@ func newKubernetesRuntime(cfg Config) (*KubernetesRuntime, error) {
 	cs := kc.Client
 	ns := kc.Namespace
 
+	var restCfg *rest.Config
+
 	if cs == nil {
 		var err error
 
-		cs, ns, err = connectKubernetes(kc)
+		cs, restCfg, ns, err = connectKubernetes(kc)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
@@ -141,6 +142,8 @@ func newKubernetesRuntime(cfg Config) (*KubernetesRuntime, error) {
 		log:        cfg.Logger,
 		codeMu:     lockmetrics.New("container.k8s.runtime"),
 		codeCfg:    kc,
+		restCfg:    restCfg,
+		exec:       kc.Executor,
 		ns:         ns,
 		fetchImage: kc.FetchImage,
 		start:      kc.StartTimeout,
@@ -149,7 +152,7 @@ func newKubernetesRuntime(cfg Config) (*KubernetesRuntime, error) {
 
 // connectKubernetes builds a clientset from the kubeconfig, else the in-cluster config, else the default
 // kubeconfig search path, and resolves the namespace Pods go to.
-func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, string, error) {
+func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, *rest.Config, string, error) {
 	ns := kc.Namespace
 
 	var restCfg *rest.Config
@@ -161,7 +164,7 @@ func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, string, error
 
 		c, err := cc.ClientConfig()
 		if err != nil {
-			return nil, "", fmt.Errorf("kubeconfig %q: %w", kc.Kubeconfig, err)
+			return nil, nil, "", fmt.Errorf("kubeconfig %q: %w", kc.Kubeconfig, err)
 		}
 
 		restCfg = c
@@ -172,7 +175,7 @@ func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, string, error
 	case os.Getenv("KUBERNETES_SERVICE_HOST") != "":
 		c, err := rest.InClusterConfig()
 		if err != nil {
-			return nil, "", fmt.Errorf("in-cluster config: %w", err)
+			return nil, nil, "", fmt.Errorf("in-cluster config: %w", err)
 		}
 
 		restCfg = c
@@ -188,7 +191,7 @@ func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, string, error
 
 		c, err := cc.ClientConfig()
 		if err != nil {
-			return nil, "", fmt.Errorf("no kubeconfig and not running in a cluster: %w", err)
+			return nil, nil, "", fmt.Errorf("no kubeconfig and not running in a cluster: %w", err)
 		}
 
 		restCfg = c
@@ -200,10 +203,10 @@ func connectKubernetes(kc KubernetesConfig) (kubernetes.Interface, string, error
 
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("kubernetes client: %w", err)
+		return nil, nil, "", fmt.Errorf("kubernetes client: %w", err)
 	}
 
-	return cs, ns, nil
+	return cs, restCfg, ns, nil
 }
 
 // DeliversArchives reports that Spec.Archives are unpacked by the runtime.
@@ -264,7 +267,7 @@ func (r *KubernetesRuntime) CreateAndStart(ctx context.Context, spec Spec) (stri
 		return "", fmt.Errorf("create pod %q: %w", name, err)
 	}
 
-	if err = r.awaitRunning(ctx, name, &w); err != nil {
+	if err = r.awaitPod(ctx, name, &w, podStarted); err != nil {
 		_ = r.StopAndRemove(context.WithoutCancel(ctx), name)
 
 		return "", err
@@ -320,9 +323,11 @@ func (r *KubernetesRuntime) ensureCodeServer(ctx context.Context) error {
 	return nil
 }
 
-// awaitRunning consumes watch events until the Pod runs, failing on terminal or image errors. A closed watch
-// is re-established and the Pod re-read, so a server-side watch timeout does not lose the transition.
-func (r *KubernetesRuntime) awaitRunning(ctx context.Context, name string, w *watch.Interface) error {
+// awaitPod consumes watch events until check reports the Pod launched or failed. A closed watch is
+// re-established and the Pod re-read, so a server-side watch timeout does not lose the transition.
+func (r *KubernetesRuntime) awaitPod(
+	ctx context.Context, name string, w *watch.Interface, check podCheck,
+) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -334,9 +339,9 @@ func (r *KubernetesRuntime) awaitRunning(ctx context.Context, name string, w *wa
 			)
 
 			if ok {
-				done, err = r.handleEvent(name, ev)
+				done, err = handlePodEvent(name, ev, check)
 			} else {
-				done, err = r.resync(ctx, name, w)
+				done, err = r.resync(ctx, name, w, check)
 			}
 
 			if done || err != nil {
@@ -347,7 +352,9 @@ func (r *KubernetesRuntime) awaitRunning(ctx context.Context, name string, w *wa
 }
 
 // resync reopens the watch after it closed and re-reads the Pod so no transition is missed.
-func (r *KubernetesRuntime) resync(ctx context.Context, name string, w *watch.Interface) (bool, error) {
+func (r *KubernetesRuntime) resync(
+	ctx context.Context, name string, w *watch.Interface, check podCheck,
+) (bool, error) {
 	pods := r.cs.CoreV1().Pods(r.ns)
 
 	nw, err := pods.Watch(ctx, metav1.ListOptions{FieldSelector: "metadata.name=" + name})
@@ -362,10 +369,13 @@ func (r *KubernetesRuntime) resync(ctx context.Context, name string, w *watch.In
 		return false, fmt.Errorf("get pod %q: %w", name, err)
 	}
 
-	return podStarted(cur)
+	return check(cur)
 }
 
-func (r *KubernetesRuntime) handleEvent(name string, ev watch.Event) (bool, error) {
+// podCheck reports whether a Pod reached the state a launch waits for, or why it never will.
+type podCheck func(*corev1.Pod) (bool, error)
+
+func handlePodEvent(name string, ev watch.Event, check podCheck) (bool, error) {
 	pod, ok := ev.Object.(*corev1.Pod)
 	if !ok || pod.Name != name {
 		return false, nil
@@ -375,7 +385,7 @@ func (r *KubernetesRuntime) handleEvent(name string, ev watch.Event) (bool, erro
 		return false, fmt.Errorf("%w: pod %q was deleted", ErrPodFailed, name)
 	}
 
-	return podStarted(pod)
+	return check(pod)
 }
 
 var waitingFailures = map[string]bool{ //nolint:gochecknoglobals // fixed lookup set
@@ -430,6 +440,13 @@ func podStarted(pod *corev1.Pod) (bool, error) {
 
 // StopAndRemove deletes the Pod and waits, by watch, until it is gone; a missing Pod is not an error.
 func (r *KubernetesRuntime) StopAndRemove(ctx context.Context, containerID string) error {
+	grace := int64(podTerminationSec)
+
+	return r.deletePod(ctx, containerID, &grace)
+}
+
+// deletePod deletes the Pod and waits for it to be gone; a nil grace uses the Pod's own terminationGracePeriodSeconds.
+func (r *KubernetesRuntime) deletePod(ctx context.Context, containerID string, grace *int64) error {
 	pods := r.cs.CoreV1().Pods(r.ns)
 
 	w, err := pods.Watch(ctx, metav1.ListOptions{FieldSelector: "metadata.name=" + containerID})
@@ -438,9 +455,7 @@ func (r *KubernetesRuntime) StopAndRemove(ctx context.Context, containerID strin
 	}
 	defer w.Stop()
 
-	grace := int64(podTerminationSec)
-
-	err = pods.Delete(ctx, containerID, metav1.DeleteOptions{GracePeriodSeconds: &grace})
+	err = pods.Delete(ctx, containerID, metav1.DeleteOptions{GracePeriodSeconds: grace})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
