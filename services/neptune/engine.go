@@ -78,6 +78,7 @@ type liveCluster struct {
 	front       *cypherFront
 	relay       *sgfilter.Proxy
 	graph       *opencypher.Graph
+	rdf         *rdfService
 	key         string
 	region      string
 	id          string
@@ -228,6 +229,7 @@ func (b *InMemoryBackend) dropUnitLocked(region, id string) {
 	}
 
 	delete(b.graphs, key)
+	delete(b.rdf, key)
 }
 
 func (b *InMemoryBackend) dropAllUnitsLocked() {
@@ -252,6 +254,11 @@ func (b *InMemoryBackend) rekeyUnitLocked(region, oldID, newID string) {
 			delete(b.graphs, oldKey)
 			b.graphs[lb.key] = g
 		}
+
+		if r, ok := b.rdf[oldKey]; ok {
+			delete(b.rdf, oldKey)
+			b.rdf[lb.key] = r
+		}
 	}
 }
 
@@ -267,6 +274,7 @@ func (b *InMemoryBackend) provisionClusterLocked(c *DBCluster) {
 		ctx: ctx, cancel: cancel, key: regionKey(c.region, c.DBClusterIdentifier), region: c.region,
 		id: c.DBClusterIdentifier, version: gremlinTag(c.EngineVersion),
 		graph:   b.graphLocked(regionKey(c.region, c.DBClusterIdentifier)),
+		rdf:     b.rdfLocked(regionKey(c.region, c.DBClusterIdentifier)),
 		svcPort: cmp.Or(c.Port, defaultNeptunePort),
 	}
 
@@ -370,7 +378,7 @@ func (b *InMemoryBackend) runEmbeddedUnit(lb *liveCluster) {
 		return
 	}
 
-	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, b.clusterAdmit(lb), b.clusterAuthFn(lb))
+	front, err := startCypherFront(e.cfg.Host, port, "", lb.graph, lb.rdf, b.clusterAdmit(lb), b.clusterAuthFn(lb))
 	if err != nil {
 		e.releasePort(port)
 		b.failUnit(lb)

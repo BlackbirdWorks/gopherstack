@@ -24732,6 +24732,7 @@
       "backendSnapshot.ParameterOverrides map[string]map[string]ParameterValue `json:\"parameterOverrides\"`",
       "backendSnapshot.PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:\"pendingMaintenanceActions\"`",
       "backendSnapshot.Region string `json:\"region\"`",
+      "backendSnapshot.SparqlStores map[string]string `json:\"sparqlStores,omitempty\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
       "backendSnapshot.Tags map[string]map[string][]Tag `json:\"tags\"`",
       "xmlDBClusterSnapshot.AllocatedStorage int `xml:\"AllocatedStorage,omitempty\"`",

@@ -230,7 +230,7 @@ func TestGremlinProxyFrameAuthorization(t *testing.T) {
 				}
 			}
 
-			f, err := startCypherFront("127.0.0.1", 0, strings.TrimPrefix(fg.srv.URL, "http://"), nil, nil, auth)
+			f, err := startCypherFront("127.0.0.1", 0, strings.TrimPrefix(fg.srv.URL, "http://"), nil, nil, nil, auth)
 			require.NoError(t, err)
 			t.Cleanup(f.Close)
 			f.up.Store(true)

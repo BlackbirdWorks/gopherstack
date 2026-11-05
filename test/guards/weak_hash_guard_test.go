@@ -21,6 +21,8 @@ func allowedWeakHashFiles() map[string]string {
 	return map[string]string{
 		// SAM's LogicalIdGenerator suffixes generated logical ids with a SHA-1 prefix; stable ids, never a credential.
 		"services/cloudformation/sam_hash.go": "SAM LogicalIdGenerator SHA-1 logical id suffix parity",
+		// SPARQL 1.1 defines MD5() and SHA1() as query builtins over caller-supplied literals; never credentials.
+		"services/neptune/sparql/funcs_hash.go": "SPARQL 1.1 MD5()/SHA1() builtin functions",
 		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
 		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
 		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.
