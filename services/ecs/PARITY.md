@@ -77,7 +77,8 @@ items_still_open:
   - "Docker runtime container definition: firelensConfiguration and awsfirelens log routing (a task using either fails with TaskFailedToStart instead of starting the log router), resourceRequirements (GPU), non-awslogs logConfiguration drivers, ephemeralStorage and task-level cpu/memory cgroups are stored but not applied to the Docker container."
   - "Docker runtime volumes: configuredAtLaunch (EBS) volumes fail the task with a TaskFailedToStart stoppedReason instead of mounting; networkMode host/none/awsvpc ENI semantics and pidMode/ipcMode 'task' are not mapped (pidMode/ipcMode 'host' and ipcMode 'none' are)."
   - "Docker runtime dependsOn: the stoppedReason text for a failed dependency is unverified (no AWS doc publishes it; the task just moves to STOPPED per ContainerDefinition.startTimeout). Launch is asynchronous (PROVISIONING, PENDING, ACTIVATING, RUNNING); pullStartedAt/pullStoppedAt bracket the whole launch (no per-image pull timing), and PROVISIONING tasks in a restored snapshot are not resumed."
-  - "ECS Exec: sessions exist only on the docker runtime with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied."
+  - "ECS Exec: sessions exist only on the docker and kubernetes runtimes with the SSM service enabled (otherwise TargetNotConnectedException); the command runs as `sh -c <command>` through docker exec or pods/exec, and executeCommandConfiguration logging/KMS encryption and the ssmmessages IAM checks are not applied."
+  - "Kubernetes runtime (CONTAINER_RUNTIME=kubernetes, docs/kubernetes.md): one Pod per task. Refused with TaskFailedToStart: host-path/EFS/configuredAtLaunch/shared-docker volumes, networkMode host/none, pidMode/ipcMode host, privileged, devices, container restartPolicy, repositoryCredentials, FireLens, dependsOn COMPLETE/HEALTHY; ulimits/ephemeralStorage ignored; dependsOn START is not ordered; a never-ready health check stays UNKNOWN; no security-group enforcement; tasks are not adopted after a restart."
   - "Docker runtime health: container restarts are applied but restart counts are not reported."
 structural_gaps:
   - "Service Connect: ServiceConnectConfiguration is stored and echoed, and ListServicesByNamespace matches on it, but Service Connect proxies and its Cloud Map instance registration are not modeled."
@@ -1333,3 +1334,7 @@ environmentFiles read `.env` objects from the emulator's S3 (VARIABLE=VALUE, `#`
 file defining a variable wins and `environment` overrides files; an unreadable file stops the task with
 `ResourceInitializationError: failed to download env files`. Sources: ECS developer guide "Using non-AWS container
 images in Amazon ECS", "Pass environment variables to an Amazon ECS container", "Troubleshooting ResourceInitializationError".
+
+## 2026-11-04 (Kubernetes runtime, gopherstack-49qct.88)
+
+With `CONTAINER_RUNTIME=kubernetes` a task runs as one Pod (`k8s_plan.go`, `k8s_runner.go`): multi-container tasks, secrets via an owned Secret, dependsOn SUCCESS as init containers, essential-exit stop, readiness-derived health, awslogs forwarding, Pod IP as the task address (ELBv2/Cloud Map) and ECS Exec via pods/exec. The refused features are listed in `items_still_open`.

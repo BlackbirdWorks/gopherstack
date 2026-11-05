@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
@@ -233,7 +236,7 @@ func (a *ecsExecSessions) StartExecSession(
 			return
 		}
 
-		if shells, err := ssmbackend.NewDockerShellOpener(); err == nil {
+		if shells, err := newECSShellOpener(); err == nil {
 			bk.SetShellOpener(shells)
 		}
 	})
@@ -275,4 +278,23 @@ func (a *ecsEFS) ResolveVolume(
 	return ecsbackend.EFSVolumeMount{
 		HostDir: m.HostDir, UID: m.UID, GID: m.GID, SecondaryGIDs: m.SecondaryGIDs, HasPosixUser: m.HasPosixUser,
 	}, nil
+}
+
+// newECSShellOpener opens ECS Exec sessions through pods/exec on the kubernetes runtime, else the docker daemon.
+func newECSShellOpener() (ssmbackend.ShellOpener, error) {
+	if os.Getenv("CONTAINER_RUNTIME") != string(container.RuntimeKubernetes) {
+		return ssmbackend.NewDockerShellOpener()
+	}
+
+	rt, err := container.NewRuntime(container.Config{Runtime: container.RuntimeKubernetes})
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes runtime for ECS Exec: %w", err)
+	}
+
+	k, ok := rt.(*container.KubernetesRuntime)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T", container.ErrUnknownRuntime, rt)
+	}
+
+	return ssmbackend.NewKubernetesShellOpener(k), nil
 }

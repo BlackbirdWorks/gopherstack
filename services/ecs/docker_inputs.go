@@ -46,9 +46,13 @@ func (b *InMemoryBackend) envFileStore() EnvFileStore {
 	return b.envFiles
 }
 
-// launchInputRunner is implemented by runners that apply repositoryCredentials and environmentFiles.
-type launchInputRunner interface {
+// registryAuthRunner is implemented by runners that apply repositoryCredentials.
+type registryAuthRunner interface {
 	SetRegistryAuthResolver(fn func(ctx context.Context, cd ContainerDefinition) (string, error))
+}
+
+// envFileRunner is implemented by runners that apply environmentFiles.
+type envFileRunner interface {
 	SetEnvFileResolver(fn func(ctx context.Context, cd ContainerDefinition) ([]string, error))
 }
 

@@ -252,6 +252,34 @@ func (b *InMemoryBackend) applyRuntimeContainerIDs(task *Task) {
 	}
 }
 
+// applyRuntimeAddress points the task's network identity at the address its runtime gave it (a Pod IP), so
+// ELBv2 and Cloud Map register something reachable. Caller holds b.mu.
+func (b *InMemoryBackend) applyRuntimeAddress(task *Task) {
+	r, ok := b.runner.(addressRunner)
+	if !ok {
+		return
+	}
+
+	ip := r.TaskAddress(task.TaskArn)
+	if ip == "" {
+		return
+	}
+
+	for i := range task.Attachments {
+		for j := range task.Attachments[i].Details {
+			if task.Attachments[i].Details[j].Name == detailPrivateIPv4 {
+				task.Attachments[i].Details[j].Value = ip
+			}
+		}
+	}
+
+	for i := range task.Containers {
+		for j := range task.Containers[i].NetworkInterfaces {
+			task.Containers[i].NetworkInterfaces[j].PrivateIpv4Address = ip
+		}
+	}
+}
+
 // createTaskEntriesLocked creates task entries in PROVISIONING state. For an
 // EC2-launch-type task that cannot be placed (no eligible container
 // instance, or the chosen instance's ports cannot satisfy the task

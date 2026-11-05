@@ -57,19 +57,21 @@ func k8sPodLoadImage(ctx context.Context, t *testing.T, nodeID, img string) {
 	require.NoError(t, err, string(out))
 }
 
-// TestLambda_KubernetesPodExecutor runs gopherstack in-process on the host against a k3s cluster (kubeconfig
-// path) and invokes a Python function that executes as a Pod. Pods reach the host through the docker bridge
-// gateway (LAMBDA_DOCKER_HOST), which k3s's node container routes to like any docker container.
-func TestLambda_KubernetesPodExecutor(t *testing.T) {
-	t.Parallel()
-	testcontainers.SkipIfProviderIsNotHealthy(t)
+type k3sPodsConfig struct {
+	prefix string
+	images []string
+	portLo int
+	portHi int
+}
 
-	if testing.Short() {
-		t.Skip("k3s pod executor test skipped in -short")
-	}
+type k3sPods struct {
+	cs         *kubernetes.Clientset
+	kubeconfig string
+}
 
-	ctx, cancel := context.WithTimeout(t.Context(), k8sPodBudget)
-	defer cancel()
+// startK3sPods launches a one-node k3s cluster in docker, writes a kubeconfig for it and side-loads images.
+func startK3sPods(ctx context.Context, t *testing.T, cfgIn k3sPodsConfig) k3sPods {
+	t.Helper()
 
 	docker, err := container.NewRuntime(container.Config{Runtime: container.RuntimeDocker})
 	if err != nil {
@@ -78,10 +80,10 @@ func TestLambda_KubernetesPodExecutor(t *testing.T) {
 
 	t.Cleanup(func() { _ = docker.Close() })
 
-	ports, err := portalloc.New(41200, 41300)
+	ports, err := portalloc.New(cfgIn.portLo, cfgIn.portHi)
 	require.NoError(t, err)
 
-	eng, err := k3sengine.New(k3sengine.Config{Runtime: docker, Ports: ports, Prefix: "k8spodtest"})
+	eng, err := k3sengine.New(k3sengine.Config{Runtime: docker, Ports: ports, Prefix: cfgIn.prefix})
 	require.NoError(t, err)
 
 	image, _ := k3sengine.Image(k8sPodVersion, k8sPodVersion)
@@ -115,10 +117,32 @@ func TestLambda_KubernetesPodExecutor(t *testing.T) {
 		return getErr == nil
 	}, time.Minute, time.Second)
 
-	k8sPodHostImage(ctx, t, docker, k8sPodPyImage)
-	k8sPodHostImage(ctx, t, docker, k8sPodFetchImg)
-	k8sPodLoadImage(ctx, t, inst.ContainerID, k8sPodPyImage)
-	k8sPodLoadImage(ctx, t, inst.ContainerID, k8sPodFetchImg)
+	for _, img := range cfgIn.images {
+		k8sPodHostImage(ctx, t, docker, img)
+		k8sPodLoadImage(ctx, t, inst.ContainerID, img)
+	}
+
+	return k3sPods{cs: cs, kubeconfig: kubeconfig}
+}
+
+// TestLambda_KubernetesPodExecutor runs gopherstack in-process on the host against a k3s cluster (kubeconfig
+// path) and invokes a Python function that executes as a Pod. Pods reach the host through the docker bridge
+// gateway (LAMBDA_DOCKER_HOST), which k3s's node container routes to like any docker container.
+func TestLambda_KubernetesPodExecutor(t *testing.T) {
+	t.Parallel()
+	testcontainers.SkipIfProviderIsNotHealthy(t)
+
+	if testing.Short() {
+		t.Skip("k3s pod executor test skipped in -short")
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), k8sPodBudget)
+	defer cancel()
+
+	cluster := startK3sPods(ctx, t, k3sPodsConfig{
+		prefix: "k8spodtest", portLo: 41200, portHi: 41300, images: []string{k8sPodPyImage, k8sPodFetchImg},
+	})
+	cs, kubeconfig := cluster.cs, cluster.kubeconfig
 
 	settings := lambdapkg.DefaultSettings()
 	pa := portalloctest.New(t, 100)
