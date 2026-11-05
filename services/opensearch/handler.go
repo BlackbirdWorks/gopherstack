@@ -228,12 +228,12 @@ func (h *Handler) strategyRequest(r *http.Request) (endpointstrategy.OpenSearchR
 	return endpointstrategy.ParseOpenSearchRequest(r.Host, r.URL.Path)
 }
 
-// indexRest maps OpenSearch's /<index>/_doc|_search|_count form onto the backend's /index/<index>/... routes.
+// indexRest maps OpenSearch's /<index>/_doc|_search|_count|_bulk form onto the backend's /index/<index>/... routes.
 func indexRest(rest string) string {
 	segs := strings.Split(strings.TrimPrefix(rest, "/"), "/")
-	if len(segs) >= 2 && segs[0] != "" && segs[0] != "index" && !strings.HasPrefix(segs[0], "_") {
+	if len(segs) >= 2 && segs[0] != "" && segs[0] != segIndex && !strings.HasPrefix(segs[0], "_") {
 		switch segs[1] {
-		case indexOpDoc, indexOpSearch, indexOpCount:
+		case indexOpDoc, indexOpSearch, indexOpCount, segBulk:
 			return "/index" + rest
 		}
 	}
@@ -245,6 +245,18 @@ func rewriteStrategyRequest(r *http.Request, osr endpointstrategy.OpenSearchRequ
 	r2 := r.Clone(r.Context())
 	r2.URL.Path = openSearchPathPrefix + "/" + osr.Domain + indexRest(osr.Rest)
 	r2.URL.RawPath = ""
+
+	segs := strings.Split(strings.TrimPrefix(osr.Rest, "/"), "/")
+	switch {
+	case r.Method == http.MethodPut && len(segs) >= 2 && segs[0] != "" && !strings.HasPrefix(segs[0], "_") &&
+		segs[1] == indexOpDoc:
+		r2.Method = http.MethodPost
+	case len(segs) == 1 && segs[0] != "" && !strings.HasPrefix(segs[0], "_"):
+		r2.URL.Path = openSearchPathPrefix + "/" + osr.Domain + "/index/" + segs[0]
+		if r.Method == http.MethodPut {
+			r2.Method = http.MethodPost
+		}
+	}
 
 	return withDataPlaneTarget(r2, dataPlaneTarget{domain: osr.Domain, path: osr.Rest})
 }
@@ -266,6 +278,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.serveRest(w, r)
+}
+
+// serveRest dispatches a request that has passed data-plane enforcement.
+func (h *Handler) serveRest(w http.ResponseWriter, r *http.Request) {
 	if h.handleTagRoutes(w, r) {
 		return
 	}

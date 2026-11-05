@@ -45,6 +45,24 @@ resource "aws_opensearch_domain" "opsh" {
     tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
   }
 
+  encrypt_at_rest {
+    enabled = true
+  }
+
+  node_to_node_encryption {
+    enabled = true
+  }
+
+  advanced_security_options {
+    enabled                        = true
+    internal_user_database_enabled = true
+
+    master_user_options {
+      master_user_name     = "opsh-admin"
+      master_user_password = "Opsh-Passw0rd!"
+    }
+  }
+
   timeouts {
     create = "5s"
     delete = "5s"
