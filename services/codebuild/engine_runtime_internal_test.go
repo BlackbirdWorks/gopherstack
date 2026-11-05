@@ -142,7 +142,8 @@ phases:
 
 	b := h.run(t, StartBuildConfig{})
 	require.Equal(t, "SUCCEEDED", b.BuildStatus)
-	assert.Equal(t, []ExportedEnvironmentVariable{{Name: "MY_VAR", Value: "hello world"}}, b.ExportedEnvironmentVariables)
+	assert.Equal(t,
+		[]ExportedEnvironmentVariable{{Name: "MY_VAR", Value: "hello world"}}, b.ExportedEnvironmentVariables)
 
 	var probe string
 

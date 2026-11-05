@@ -470,7 +470,7 @@ func (r *buildRunner) exportEnv() outcome {
 	}
 
 	r.secretNames = secretVarNames(merged)
-	r.masked = append(masked, rtMasked...)
+	r.masked = slices.Concat(masked, rtMasked)
 	r.log.masked = r.masked
 
 	all := slices.Concat(r.builtinEnv(r.srcDir), rtEnv, resolved)
