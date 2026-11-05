@@ -51,6 +51,8 @@ func (b *InMemoryBackend) networkRangesLocked(network, skip string) []netip.Pref
 		}
 	}
 
+	out = append(out, b.peeringRangesLocked(network)...)
+
 	if n := b.networkBySelfLinkLocked(network); n != nil {
 		for _, peer := range b.activePeersLocked(n) {
 			for p := range b.networkRangesWithOwnerLocked(peer) {

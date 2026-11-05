@@ -214,8 +214,8 @@ func (b *InMemoryBackend) buildAddressLocked(
 		return nil, err
 	}
 
-	if in.IpVersion != "" && in.IpVersion != "IPV4" {
-		return nil, errField("resource.ipVersion", in.IpVersion, "Only IPV4 addresses are supported.")
+	if in.IpVersion != "" && in.IpVersion != ipv4 && in.IpVersion != ipv6 && in.IpVersion != "UNSPECIFIED_VERSION" {
+		return nil, errField("resource.ipVersion", in.IpVersion, "Must be IPV4 or IPV6.")
 	}
 
 	typ := in.AddressType
@@ -230,10 +230,15 @@ func (b *InMemoryBackend) buildAddressLocked(
 
 	var err *APIError
 
-	switch typ {
-	case addrExternal:
+	switch {
+	case in.IpVersion == ipv6:
+		a.AddressType = typ
+		err = b.buildIPv6Locked(region, in, a)
+	case typ == addrExternal:
 		err = b.buildExternalLocked(region, in, a)
-	case addrInternal:
+	case typ == addrInternal && region == "":
+		err = b.buildGlobalInternalLocked(project, in, a)
+	case typ == addrInternal:
 		err = b.buildInternalLocked(project, region, in, a)
 	default:
 		err = errField("resource.addressType", typ, "Must be EXTERNAL or INTERNAL.")
@@ -258,6 +263,10 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 		return errInvalid(
 			"Invalid value for field 'resource.subnetwork': EXTERNAL addresses cannot specify a network or subnetwork.",
 		)
+	}
+
+	if in.PrefixLength != 0 {
+		return errInvalid("Invalid value for field 'resource.prefixLength': only valid for IPV6 and VPC_PEERING ranges.")
 	}
 
 	a.NetworkTier = in.NetworkTier
@@ -295,12 +304,12 @@ func (b *InMemoryBackend) buildExternalLocked(region string, in, a *computeapi.A
 }
 
 func (b *InMemoryBackend) buildInternalLocked(project, region string, in, a *computeapi.Address) *APIError {
-	if region == "" {
-		return errField(
-			"resource.addressType",
-			addrInternal,
-			"Global internal addresses are not supported by this emulator.",
-		)
+	if in.PrefixLength != 0 {
+		return errInvalid("Invalid value for field 'resource.prefixLength': only valid for global VPC_PEERING ranges.")
+	}
+
+	if in.Network != "" {
+		return errInvalid("Invalid value for field 'resource.network': only valid for INTERNAL VPC_PEERING addresses.")
 	}
 
 	if in.Subnetwork == "" {

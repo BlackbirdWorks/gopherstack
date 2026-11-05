@@ -216,6 +216,12 @@ func (b *InMemoryBackend) networkUserLocked(project string, n *computeapi.Networ
 }
 
 func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Network) string {
+	for _, a := range b.addresses {
+		if a.Region == "" && a.Network == n.SelfLink {
+			return relPath(project, scopeGlobal, "", "addresses", a.Name)
+		}
+	}
+
 	for _, f := range b.firewalls {
 		if f.Network == n.SelfLink {
 			return relPath(project, scopeGlobal, "", "firewalls", f.Name)
