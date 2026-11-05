@@ -3,6 +3,7 @@ package sparql
 import (
 	"context"
 	pathpkg "path"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -80,8 +81,7 @@ func (t *updateTx) remove(q Quad) bool {
 }
 
 func (t *updateTx) rollback() {
-	for i := len(t.journal) - 1; i >= 0; i-- {
-		e := t.journal[i]
+	for _, e := range slices.Backward(t.journal) {
 		if e.added {
 			t.s.remove(e.q)
 		} else {
@@ -177,8 +177,8 @@ func (t *updateTx) insertData(op *updateOp) int {
 
 	for _, qp := range op.Ins {
 		q := Quad{
-			Triple: Triple{S: ground(qp.T.S, blanks), P: ground(qp.T.P, blanks), O: ground(qp.T.O, blanks)},
-			G:      ground(qp.G, blanks),
+			S: ground(qp.T.S, blanks), P: ground(qp.T.P, blanks), O: ground(qp.T.O, blanks),
+			G: ground(qp.G, blanks),
 		}
 		if validTriple(q.Triple) && t.add(q) {
 			n++
@@ -193,8 +193,8 @@ func (t *updateTx) deleteData(op *updateOp) int {
 
 	for _, qp := range op.Del {
 		q := Quad{
-			Triple: Triple{S: qp.T.S.Term, P: qp.T.P.Term, O: qp.T.O.Term},
-			G:      qp.G.Term,
+			S: qp.T.S.Term, P: qp.T.P.Term, O: qp.T.O.Term,
+			G: qp.G.Term,
 		}
 		if !q.G.Bound() {
 			q.G = IRI(DefaultGraph)
@@ -269,7 +269,7 @@ func instantiate(tmpl []quadPat, b Binding, dflt Term, blanks map[string]Term) [
 	}
 
 	for _, qp := range tmpl {
-		q := Quad{Triple: Triple{S: res(qp.T.S), P: res(qp.T.P), O: res(qp.T.O)}, G: dflt}
+		q := Quad{S: res(qp.T.S), P: res(qp.T.P), O: res(qp.T.O), G: dflt}
 
 		if qp.G.isVar() || qp.G.Term.Bound() {
 			q.G = resolveNode(qp.G, b)
@@ -285,7 +285,9 @@ func instantiate(tmpl []quadPat, b Binding, dflt Term, blanks map[string]Term) [
 
 // FormatForSource guesses an RDF format from a LOAD source name.
 func FormatForSource(src string) Format {
-	switch strings.ToLower(pathpkg.Ext(strings.SplitN(src, "?", 2)[0])) {
+	name, _, _ := strings.Cut(src, "?")
+
+	switch strings.ToLower(pathpkg.Ext(name)) {
 	case ".nq":
 		return FormatNQuads
 	case ".ttl", ".n3":

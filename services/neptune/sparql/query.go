@@ -129,8 +129,7 @@ func (ev *evaluator) selectRows(q *Query, gc Term) ([]Binding, []string, error) 
 
 	vars := projectedVars(q)
 	if q.Form != formSelect && !q.Star && q.Form != formAsk {
-		vars = nil
-		collectVars(q.Where, map[string]bool{}, &vars)
+		vars = patternVars(q.Where)
 	}
 
 	ev.orderItems(q, items, gc, agg)
@@ -220,15 +219,16 @@ func (ev *evaluator) groupItems(q *Query, sols []Binding, gc Term) ([]*item, err
 		key := ""
 		gb := Binding{}
 
+		var keySb223 strings.Builder
 		for i, g := range q.GroupBy {
 			t, err := ev.eval(g.Expr, &env{b: b, gc: gc})
 			if err != nil {
-				key += "\x01\x00"
+				keySb223.WriteString("\x01\x00")
 
 				continue
 			}
 
-			key += t.String() + "\x00"
+			keySb223.WriteString(t.String() + "\x00")
 
 			if g.Var != "" {
 				gb[g.Var] = t
@@ -236,6 +236,7 @@ func (ev *evaluator) groupItems(q *Query, sols []Binding, gc Term) ([]*item, err
 
 			_ = i
 		}
+		key += keySb223.String()
 
 		g, ok := index[key]
 		if !ok {
@@ -388,14 +389,6 @@ func (ev *evaluator) describe(q *Query, rows []Binding, vars []string) []Triple 
 		}
 	}
 
-	if q.Star {
-		for _, b := range rows {
-			for _, v := range vars {
-				add(b[v])
-			}
-		}
-	}
-
 	for _, n := range q.Describe {
 		if !n.isVar() {
 			add(n.Term)
@@ -408,6 +401,19 @@ func (ev *evaluator) describe(q *Query, rows []Binding, vars []string) []Triple 
 		}
 	}
 
+	if q.Star {
+		for _, b := range rows {
+			for _, v := range vars {
+				add(b[v])
+			}
+		}
+	}
+
+	return ev.describeAll(targets)
+}
+
+// describeAll returns each resource's concise bounded description: its outgoing triples, following blank nodes.
+func (ev *evaluator) describeAll(targets []Term) []Triple {
 	seen := map[Triple]struct{}{}
 	done := map[Term]bool{}
 

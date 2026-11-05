@@ -45,10 +45,18 @@ func TestExpressions(t *testing.T) {
 		{"concat mixed", `CONCAT("a"@en, "b")`, `"ab"`},
 		{"ucase lang", `UCASE("abc"@en)`, `"ABC"@en`},
 		{"abs ceil floor round", `ABS(-2) + CEIL(1.2) + FLOOR(1.8) + ROUND(2.5)`, `"8.0"` + xsd + `decimal>`},
-		{"year month day", `YEAR("2020-03-04T05:06:07Z"^^xsd:dateTime) * 10000 + MONTH("2020-03-04T05:06:07Z"^^xsd:dateTime) * 100 + DAY("2020-03-04T05:06:07Z"^^xsd:dateTime)`,
-			`"20200304"` + xsd + `integer>`},
+		{
+			"year month day",
+			`YEAR("2020-03-04T05:06:07Z"^^xsd:dateTime) * 10000 + ` +
+				`MONTH("2020-03-04T05:06:07Z"^^xsd:dateTime) * 100 + DAY("2020-03-04T05:06:07Z"^^xsd:dateTime)`,
+			`"20200304"` + xsd + `integer>`,
+		},
 		{"hours minutes seconds", `HOURS("2020-03-04T05:06:07Z"^^xsd:dateTime)`, `"5"` + xsd + `integer>`},
-		{"datetime compare", `"2020-01-01T10:00:00+02:00"^^xsd:dateTime = "2020-01-01T08:00:00Z"^^xsd:dateTime`, `"true"` + xsd + `boolean>`},
+		{
+			"datetime compare",
+			`"2020-01-01T10:00:00+02:00"^^xsd:dateTime = "2020-01-01T08:00:00Z"^^xsd:dateTime`,
+			`"true"` + xsd + `boolean>`,
+		},
 		{"md5", `MD5("abc")`, `"900150983cd24fb0d6963f7d28e17f72"`},
 		{"sha256", `SHA256("")`, `"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"`},
 		{"cast integer", `xsd:integer("42") + xsd:integer(3.9)`, `"45"` + xsd + `integer>`},
@@ -57,7 +65,11 @@ func TestExpressions(t *testing.T) {
 		{"cast decimal", `xsd:decimal("2.50")`, `"2.5"` + xsd + `decimal>`},
 		{"cast bad", `xsd:integer("abc")`, `-`},
 		{"sameTerm", `sameTerm(1, 1.0)`, `"false"` + xsd + `boolean>`},
-		{"isnumeric isliteral", `isNumeric(1) && isLiteral("a") && !isIRI("a") && isIRI(<urn:a>) && !isBlank(<urn:a>)`, `"true"` + xsd + `boolean>`},
+		{
+			"isnumeric isliteral",
+			`isNumeric(1) && isLiteral("a") && !isIRI("a") && isIRI(<urn:a>) && !isBlank(<urn:a>)`,
+			`"true"` + xsd + `boolean>`,
+		},
 		{"strdt strlang", `STRDT("5", xsd:integer) + 1`, `"6"` + xsd + `integer>`},
 		{"lang datatype", `DATATYPE("a"@en)`, `<http://www.w3.org/1999/02/22-rdf-syntax-ns#langString>`},
 		{"datatype plain", `DATATYPE("a")`, `<http://www.w3.org/2001/XMLSchema#string>`},
@@ -97,13 +109,29 @@ func TestQueryFeatureGaps(t *testing.T) {
 		query string
 		want  int
 	}{
-		{"nested optional", `SELECT * WHERE { ?p foaf:name ?n OPTIONAL { ?p foaf:knows ?k OPTIONAL { ?k foaf:age ?a } } }`, 5},
-		{"union inside optional", `SELECT * WHERE { ?p foaf:name ?n OPTIONAL { { ?p foaf:age ?a } UNION { ?p ex:city ?a } } }`, 5},
+		{
+			"nested optional",
+			`SELECT * WHERE { ?p foaf:name ?n OPTIONAL { ?p foaf:knows ?k OPTIONAL { ?k foaf:age ?a } } }`,
+			5,
+		},
+		{
+			"union inside optional",
+			`SELECT * WHERE { ?p foaf:name ?n OPTIONAL { { ?p foaf:age ?a } UNION { ?p ex:city ?a } } }`,
+			5,
+		},
 		{"group by expression", `SELECT ?g (COUNT(*) AS ?c) WHERE { ?p foaf:age ?a } GROUP BY (?a > 28 AS ?g)`, 2},
 		{"order by expression", `SELECT ?n WHERE { ?p foaf:name ?n } ORDER BY DESC(STRLEN(?n)) ?n`, 4},
 		{"minus disjoint vars keeps rows", `SELECT ?p WHERE { ?p a foaf:Person MINUS { ?x foaf:age 30 } }`, 4},
-		{"filter in optional uses outer vars", `SELECT * WHERE { ?p foaf:name ?n OPTIONAL { ?p foaf:age ?a FILTER(?a > 28) } }`, 4},
-		{"bind then filter", `SELECT ?n WHERE { ?p foaf:age ?a BIND(?a + 1 AS ?b) FILTER(?b > 30) ?p foaf:name ?n }`, 2},
+		{
+			"filter in optional uses outer vars",
+			`SELECT * WHERE { ?p foaf:name ?n OPTIONAL { ?p foaf:age ?a FILTER(?a > 28) } }`,
+			4,
+		},
+		{
+			"bind then filter",
+			`SELECT ?n WHERE { ?p foaf:age ?a BIND(?a + 1 AS ?b) FILTER(?b > 30) ?p foaf:name ?n }`,
+			2,
+		},
 		{"values after pattern", `SELECT ?n WHERE { ?p foaf:name ?n } VALUES ?n { "Bob" "Alice" }`, 2},
 		{"construct property path", `CONSTRUCT { ?a ex:reach ?b } WHERE { ?a foaf:knows+ ?b }`, 0},
 		{"blank node patterns", `SELECT ?n WHERE { [ foaf:name ?n ; foaf:age 25 ] }`, 1},
@@ -111,7 +139,12 @@ func TestQueryFeatureGaps(t *testing.T) {
 		{"count distinct star", `SELECT (COUNT(DISTINCT *) AS ?c) WHERE { ?p foaf:knows ?k }`, 1},
 		{"sample", `SELECT (SAMPLE(?n) AS ?s) WHERE { ?p foaf:name ?n }`, 1},
 		{"sum over empty", `SELECT (SUM(?x) AS ?s) WHERE { ?p ex:nothing ?x }`, 1},
-		{"subselect aggregate", `SELECT ?p ?c WHERE { { SELECT ?p (COUNT(?k) AS ?c) WHERE { ?p foaf:knows ?k } GROUP BY ?p } FILTER(?c > 1) }`, 1},
+		{
+			"subselect aggregate",
+			`SELECT ?p ?c WHERE { { SELECT ?p (COUNT(?k) AS ?c) WHERE { ?p foaf:knows ` +
+				`?k } GROUP BY ?p } FILTER(?c > 1) }`,
+			1,
+		},
 		{"graph with filter", `SELECT ?g WHERE { GRAPH ?g { ?s ex:score ?v FILTER(?v > 15) } }`, 2},
 		{"exists in graph", `SELECT ?s WHERE { ?s a foaf:Person FILTER EXISTS { GRAPH ?g { ?s ex:score ?v } } }`, 3},
 		{"offset past end", `SELECT ?n WHERE { ?p foaf:name ?n } OFFSET 10`, 0},

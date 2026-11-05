@@ -1,9 +1,22 @@
 package sparql
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
-var aggregateNames = map[string]bool{
-	"COUNT": true, "SUM": true, "MIN": true, "MAX": true, "AVG": true, "SAMPLE": true, "GROUP_CONCAT": true,
+const (
+	aggCount = "COUNT"
+	aggMax   = "MAX"
+)
+
+func isAggregate(name string) bool {
+	switch name {
+	case aggCount, "SUM", "MIN", aggMax, "AVG", "SAMPLE", "GROUP_CONCAT":
+		return true
+	default:
+		return false
+	}
 }
 
 func (p *parser) parseExpr() (Expr, error) { return p.parseOr() }
@@ -67,7 +80,7 @@ func (p *parser) parseRel() (Expr, error) {
 
 	not := false
 
-	if t.kw("NOT") && p.peekN(1).kw("IN") {
+	if t.kw("NOT") && p.peekNext().kw("IN") {
 		p.i++
 		not = true
 		t = p.peek()
@@ -173,7 +186,7 @@ func (p *parser) parseUnary() (Expr, error) {
 
 		return exprUnary{Op: "!", E: e}, err
 	case t.is("+") || t.is("-"):
-		if k := p.peekN(1).kind; k == tInt || k == tDecimal || k == tDouble {
+		if k := p.peekNext().kind; k == tInt || k == tDecimal || k == tDouble {
 			lit, err := p.parseLiteral()
 
 			return exprTerm{T: lit}, err
@@ -259,7 +272,7 @@ func (p *parser) parseIdentExpr(t token) (Expr, error) {
 		return exprExists{G: g, Not: true}, err
 	}
 
-	if !p.peekN(1).is("(") {
+	if !p.peekNext().is("(") {
 		return nil, p.errf("unexpected %q in expression", t.val)
 	}
 
@@ -267,7 +280,7 @@ func (p *parser) parseIdentExpr(t token) (Expr, error) {
 
 	call := exprCall{Name: name}
 
-	if aggregateNames[name] {
+	if isAggregate(name) {
 		return p.parseAggregate(call)
 	}
 
@@ -294,7 +307,7 @@ func (p *parser) parseIdentExpr(t token) (Expr, error) {
 func (p *parser) parseAggregate(call exprCall) (Expr, error) {
 	call.Distinct = p.acceptKW("DISTINCT")
 
-	if call.Name == "COUNT" && p.acceptP("*") {
+	if call.Name == aggCount && p.acceptP("*") {
 		call.Star = true
 
 		return call, p.expectP(")")
@@ -332,14 +345,12 @@ func (p *parser) parseAggregate(call exprCall) (Expr, error) {
 func hasAggregate(e Expr) bool {
 	switch v := e.(type) {
 	case exprCall:
-		if aggregateNames[v.Name] {
+		if isAggregate(v.Name) {
 			return true
 		}
 
-		for _, a := range v.Args {
-			if hasAggregate(a) {
-				return true
-			}
+		if slices.ContainsFunc(v.Args, hasAggregate) {
+			return true
 		}
 	case exprUnary:
 		return hasAggregate(v.E)
@@ -350,10 +361,8 @@ func hasAggregate(e Expr) bool {
 			return true
 		}
 
-		for _, a := range v.List {
-			if hasAggregate(a) {
-				return true
-			}
+		if slices.ContainsFunc(v.List, hasAggregate) {
+			return true
 		}
 	}
 

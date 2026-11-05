@@ -23,11 +23,19 @@ type numVal struct {
 	k numKind
 }
 
-var integerTypes = map[string]bool{
-	XSDInteger: true, NSXSD + "int": true, NSXSD + "long": true, NSXSD + "short": true, NSXSD + "byte": true,
-	NSXSD + "nonNegativeInteger": true, NSXSD + "positiveInteger": true, NSXSD + "negativeInteger": true,
-	NSXSD + "nonPositiveInteger": true, NSXSD + "unsignedInt": true, NSXSD + "unsignedLong": true,
-	NSXSD + "unsignedShort": true, NSXSD + "unsignedByte": true,
+func isIntegerType(dt string) bool {
+	local, ok := strings.CutPrefix(dt, NSXSD)
+	if !ok {
+		return false
+	}
+
+	switch local {
+	case "integer", "int", "long", "short", "byte", "nonNegativeInteger", "positiveInteger", "negativeInteger",
+		"nonPositiveInteger", "unsignedInt", "unsignedLong", "unsignedShort", "unsignedByte":
+		return true
+	default:
+		return false
+	}
 }
 
 func asNumeric(t Term) (numVal, bool) {
@@ -38,7 +46,7 @@ func asNumeric(t Term) (numVal, bool) {
 	v := strings.TrimSpace(t.Value)
 
 	switch {
-	case integerTypes[t.Datatype]:
+	case isIntegerType(t.Datatype):
 		i, err := strconv.ParseInt(strings.TrimPrefix(v, "+"), 10, 64)
 		if err != nil {
 			return numVal{}, false
@@ -121,12 +129,14 @@ func (n numVal) term() Term {
 	}
 }
 
+const decimalDigits = 18
+
 func formatDecimal(r *big.Rat) string {
 	if r.IsInt() {
 		return r.Num().String() + ".0"
 	}
 
-	s := r.FloatString(18)
+	s := r.FloatString(decimalDigits)
 	s = strings.TrimRight(s, "0")
 
 	if strings.HasSuffix(s, ".") {

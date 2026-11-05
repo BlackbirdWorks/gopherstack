@@ -1,15 +1,10 @@
 package sparql
 
 import (
-	"crypto/md5"  //nolint:gosec // SPARQL MD5() is a required builtin, not a security control
-	"crypto/sha1" //nolint:gosec // SPARQL SHA1() is a required builtin, not a security control
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
-	"hash"
+	crand "crypto/rand"
+	"encoding/binary"
 	"math"
 	"math/big"
-	"math/rand/v2"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -22,6 +17,17 @@ import (
 
 type builtin func(ev *evaluator, a []Term) (Term, error)
 
+const (
+	argsTwo   = 2
+	argsThree = 3
+	argsFour  = 4
+
+	roundHalf      = 0.5
+	mantissaBits   = 53
+	mantissaShift  = 64 - mantissaBits
+	nanosPerSecond = 1_000_000_000
+)
+
 func arity(n int, f builtin) builtin {
 	return func(ev *evaluator, a []Term) (Term, error) {
 		if len(a) != n {
@@ -33,7 +39,7 @@ func arity(n int, f builtin) builtin {
 }
 
 func (ev *evaluator) evalCall(c exprCall, en *env) (Term, error) {
-	if aggregateNames[c.Name] {
+	if isAggregate(c.Name) {
 		return ev.evalAggregate(c, en)
 	}
 
@@ -84,7 +90,7 @@ func (ev *evaluator) evalCall(c exprCall, en *env) (Term, error) {
 }
 
 func (ev *evaluator) evalIf(c exprCall, en *env) (Term, error) {
-	if len(c.Args) != 3 {
+	if len(c.Args) != argsThree {
 		return Term{}, errType
 	}
 
@@ -150,27 +156,38 @@ func addTermFuncs(t map[string]builtin) {
 		return IRI(ev.base(a[0].Value)), nil
 	})
 	t["URI"] = t["IRI"]
-	t["SAMETERM"] = arity(2, func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0] == a[1]), nil })
+	addPredicateFuncs(t)
+	addConstructorFuncs(t)
+}
+
+func addPredicateFuncs(t map[string]builtin) {
+	t["SAMETERM"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0] == a[1]), nil })
 	t["ISIRI"] = arity(1, func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0].Kind == KindIRI), nil })
 	t["ISURI"] = t["ISIRI"]
 	t["ISBLANK"] = arity(1, func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0].Kind == KindBlank), nil })
-	t["ISLITERAL"] = arity(1, func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0].Kind == KindLiteral), nil })
+	t["ISLITERAL"] = arity(
+		1,
+		func(_ *evaluator, a []Term) (Term, error) { return boolTerm(a[0].Kind == KindLiteral), nil },
+	)
 	t["ISNUMERIC"] = arity(1, func(_ *evaluator, a []Term) (Term, error) {
 		_, ok := asNumeric(a[0])
 
 		return boolTerm(ok), nil
 	})
-	t["LANGMATCHES"] = arity(2, func(_ *evaluator, a []Term) (Term, error) {
+	t["LANGMATCHES"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) {
 		return boolTerm(langMatches(a[0].Value, a[1].Value)), nil
 	})
-	t["STRLANG"] = arity(2, func(_ *evaluator, a []Term) (Term, error) {
+}
+
+func addConstructorFuncs(t map[string]builtin) {
+	t["STRLANG"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) {
 		if !isStringLit(a[0]) || !isStringLit(a[1]) {
 			return Term{}, errType
 		}
 
 		return LangLiteral(a[0].Value, a[1].Value), nil
 	})
-	t["STRDT"] = arity(2, func(_ *evaluator, a []Term) (Term, error) {
+	t["STRDT"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) {
 		if !isStringLit(a[0]) || a[1].Kind != KindIRI {
 			return Term{}, errType
 		}
@@ -231,7 +248,7 @@ func strFn(f func(s string) string) builtin {
 }
 
 func strPred(f func(a, b string) bool) builtin {
-	return arity(2, func(_ *evaluator, a []Term) (Term, error) {
+	return arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) {
 		x, xl, ok1 := strOf(a[0])
 		y, yl, ok2 := strOf(a[1])
 
@@ -258,8 +275,8 @@ func addStringFuncs(t map[string]builtin) {
 	t["CONTAINS"] = strPred(strings.Contains)
 	t["STRSTARTS"] = strPred(strings.HasPrefix)
 	t["STRENDS"] = strPred(strings.HasSuffix)
-	t["STRBEFORE"] = arity(2, func(_ *evaluator, a []Term) (Term, error) { return strSplit(a, true) })
-	t["STRAFTER"] = arity(2, func(_ *evaluator, a []Term) (Term, error) { return strSplit(a, false) })
+	t["STRBEFORE"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) { return strSplit(a, true) })
+	t["STRAFTER"] = arity(argsTwo, func(_ *evaluator, a []Term) (Term, error) { return strSplit(a, false) })
 	t["SUBSTR"] = substrFn
 	t["CONCAT"] = concatFn
 	t["REGEX"] = regexFn
@@ -284,20 +301,20 @@ func strSplit(a []Term, before bool) (Term, error) {
 		return Literal(s)
 	}
 
-	i := strings.Index(x, y)
-	if i < 0 {
+	before0, after, ok := strings.Cut(x, y)
+	if !ok {
 		return Literal(""), nil
 	}
 
 	if before {
-		return mk(x[:i]), nil
+		return mk(before0), nil
 	}
 
-	return mk(x[i+len(y):]), nil
+	return mk(after), nil
 }
 
 func substrFn(_ *evaluator, a []Term) (Term, error) {
-	if len(a) < 2 || len(a) > 3 {
+	if len(a) < argsTwo || len(a) > argsThree {
 		return Term{}, errType
 	}
 
@@ -312,7 +329,7 @@ func substrFn(_ *evaluator, a []Term) (Term, error) {
 	from := int(math.Round(start.float()))
 	to := len(runes) + 1
 
-	if len(a) == 3 {
+	if len(a) == argsThree {
 		ln, ok3 := asNumeric(a[2])
 		if !ok3 {
 			return Term{}, errType
@@ -363,19 +380,19 @@ func concatFn(_ *evaluator, a []Term) (Term, error) {
 }
 
 func compileRegex(pattern, flags string) (*regexp.Regexp, error) {
-	prefix := ""
+	var prefix strings.Builder
 
 	for _, f := range flags {
 		switch f {
 		case 'i', 's', 'm':
-			prefix += string(f)
+			prefix.WriteRune(f)
 		default:
 			return nil, errType
 		}
 	}
 
-	if prefix != "" {
-		pattern = "(?" + prefix + ")" + pattern
+	if prefix.String() != "" {
+		pattern = "(?" + prefix.String() + ")" + pattern
 	}
 
 	re, err := regexp.Compile(pattern)
@@ -387,7 +404,7 @@ func compileRegex(pattern, flags string) (*regexp.Regexp, error) {
 }
 
 func regexFn(_ *evaluator, a []Term) (Term, error) {
-	if len(a) < 2 || len(a) > 3 {
+	if len(a) < argsTwo || len(a) > argsThree {
 		return Term{}, errType
 	}
 
@@ -396,7 +413,7 @@ func regexFn(_ *evaluator, a []Term) (Term, error) {
 
 	flags := ""
 
-	if len(a) == 3 {
+	if len(a) == argsThree {
 		f, _, ok3 := strOf(a[2])
 		if !ok3 {
 			return Term{}, errType
@@ -418,7 +435,7 @@ func regexFn(_ *evaluator, a []Term) (Term, error) {
 }
 
 func replaceFn(_ *evaluator, a []Term) (Term, error) {
-	if len(a) < 3 || len(a) > 4 {
+	if len(a) < argsThree || len(a) > argsFour {
 		return Term{}, errType
 	}
 
@@ -428,7 +445,7 @@ func replaceFn(_ *evaluator, a []Term) (Term, error) {
 
 	flags := ""
 
-	if len(a) == 4 {
+	if len(a) == argsFour {
 		f, _, ok4 := strOf(a[3])
 		if !ok4 {
 			return Term{}, errType
@@ -508,11 +525,12 @@ func floatRound(n numVal, f func(float64) float64) numVal {
 
 func addNumericFuncs(t map[string]builtin) {
 	t["ABS"] = numFn(func(n numVal) numVal {
-		if n.k == nInt && n.i < 0 {
+		switch {
+		case n.k == nInt && n.i < 0:
 			n.i = -n.i
-		} else if n.k == nDec {
+		case n.k == nDec:
 			n.r = new(big.Rat).Abs(n.r)
-		} else if n.k >= nFloat {
+		case n.k >= nFloat:
 			n.f = math.Abs(n.f)
 		}
 
@@ -521,11 +539,20 @@ func addNumericFuncs(t map[string]builtin) {
 	t["CEIL"] = numFn(func(n numVal) numVal { return floatRound(n, math.Ceil) })
 	t["FLOOR"] = numFn(func(n numVal) numVal { return floatRound(n, math.Floor) })
 	t["ROUND"] = numFn(func(n numVal) numVal {
-		return floatRound(n, func(f float64) float64 { return math.Floor(f + 0.5) })
+		return floatRound(n, func(f float64) float64 { return math.Floor(f + roundHalf) })
 	})
 	t["RAND"] = func(_ *evaluator, _ []Term) (Term, error) {
-		return numVal{k: nDouble, f: rand.Float64()}.term(), nil //nolint:gosec // SPARQL RAND() is not security-relevant
+		return numVal{k: nDouble, f: randFloat()}.term(), nil
 	}
+}
+
+// randFloat returns a uniform float in [0, 1) from the system CSPRNG.
+func randFloat() float64 {
+	var b [8]byte
+
+	_, _ = crand.Read(b[:])
+
+	return float64(binary.BigEndian.Uint64(b[:])>>mantissaShift) / (1 << mantissaBits)
 }
 
 func addDateFuncs(t map[string]builtin) {
@@ -554,34 +581,12 @@ func addDateFuncs(t map[string]builtin) {
 	t["HOURS"] = part(func(p timeParts) Term { return intTerm(int64(p.Hour())) })
 	t["MINUTES"] = part(func(p timeParts) Term { return intTerm(int64(p.Minute())) })
 	t["SECONDS"] = part(func(p timeParts) Term {
-		r := new(big.Rat).SetFrac64(int64(p.Second())*1e9+int64(p.Nanosecond()), 1e9)
+		r := new(big.Rat).SetFrac64(int64(p.Second())*nanosPerSecond+int64(p.Nanosecond()), nanosPerSecond)
 
 		return Typed(formatDecimal(r), XSDDecimal)
 	})
 	t["TZ"] = part(func(_ timeParts) Term { return Literal("Z") })
 	t["TIMEZONE"] = part(func(_ timeParts) Term { return Typed("PT0S", NSXSD+"dayTimeDuration") })
-}
-
-func hashFn(h func() hash.Hash) builtin {
-	return arity(1, func(_ *evaluator, a []Term) (Term, error) {
-		s, _, ok := strOf(a[0])
-		if !ok {
-			return Term{}, errType
-		}
-
-		w := h()
-		_, _ = w.Write([]byte(s))
-
-		return Literal(hex.EncodeToString(w.Sum(nil))), nil
-	})
-}
-
-func addHashFuncs(t map[string]builtin) {
-	t["MD5"] = hashFn(md5.New)
-	t["SHA1"] = hashFn(sha1.New)
-	t["SHA256"] = hashFn(sha256.New)
-	t["SHA384"] = hashFn(sha512.New384)
-	t["SHA512"] = hashFn(sha512.New)
 }
 
 // castTo implements the xsd: constructor functions Neptune supports.
@@ -601,32 +606,9 @@ func castTo(dt string, a []Term) (Term, error) {
 	case XSDInteger, NSXSD + "long", NSXSD + "unsignedLong", NSXSD + "int":
 		return castInteger(dt, src, lex)
 	case XSDDecimal:
-		if n, ok := asNumeric(src); ok && n.k != nInt && n.k != nDec {
-			return numVal{k: nDec, r: new(big.Rat).SetFloat64(n.f)}.term(), nil
-		}
-
-		r, ok := new(big.Rat).SetString(lex)
-		if !ok || src.Kind != KindLiteral {
-			return Term{}, errType
-		}
-
-		return numVal{k: nDec, r: r}.term(), nil
+		return castDecimal(src, lex)
 	case XSDDouble, XSDFloat:
-		f, ok := parseFloatLex(lex)
-		if n, isNum := asNumeric(src); isNum {
-			f, ok = n.float(), true
-		}
-
-		if !ok || src.Kind != KindLiteral {
-			return Term{}, errType
-		}
-
-		k := nDouble
-		if dt == XSDFloat {
-			k = nFloat
-		}
-
-		return numVal{k: k, f: f}.term(), nil
+		return castFloating(dt, src, lex)
 	case XSDDateTime:
 		if tm, ok := parseDateTime(lex); ok && src.Kind == KindLiteral {
 			return Typed(formatDateTime(tm), XSDDateTime), nil
@@ -634,6 +616,37 @@ func castTo(dt string, a []Term) (Term, error) {
 	}
 
 	return Term{}, errType
+}
+
+func castDecimal(src Term, lex string) (Term, error) {
+	if n, ok := asNumeric(src); ok && n.k != nInt && n.k != nDec {
+		return numVal{k: nDec, r: new(big.Rat).SetFloat64(n.f)}.term(), nil
+	}
+
+	r, ok := new(big.Rat).SetString(lex)
+	if !ok || src.Kind != KindLiteral {
+		return Term{}, errType
+	}
+
+	return numVal{k: nDec, r: r}.term(), nil
+}
+
+func castFloating(dt string, src Term, lex string) (Term, error) {
+	f, ok := parseFloatLex(lex)
+	if n, isNum := asNumeric(src); isNum {
+		f, ok = n.float(), true
+	}
+
+	if !ok || src.Kind != KindLiteral {
+		return Term{}, errType
+	}
+
+	k := nDouble
+	if dt == XSDFloat {
+		k = nFloat
+	}
+
+	return numVal{k: k, f: f}.term(), nil
 }
 
 func castBool(src Term, lex string) (Term, error) {
@@ -646,10 +659,10 @@ func castBool(src Term, lex string) (Term, error) {
 	}
 
 	switch lex {
-	case "true", "1":
-		return trueTerm, nil
-	case "false", "0":
-		return falseTerm, nil
+	case lexTrue, "1":
+		return trueTerm(), nil
+	case lexFalse, "0":
+		return falseTerm(), nil
 	}
 
 	return Term{}, errType

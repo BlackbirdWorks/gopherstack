@@ -9,7 +9,12 @@ import (
 func (q *Query) Explain() string {
 	var sb strings.Builder
 
-	forms := map[queryForm]string{formSelect: "SELECT", formAsk: "ASK", formConstruct: "CONSTRUCT", formDescribe: "DESCRIBE"}
+	forms := map[queryForm]string{
+		formSelect:    "SELECT",
+		formAsk:       "ASK",
+		formConstruct: "CONSTRUCT",
+		formDescribe:  "DESCRIBE",
+	}
 	fmt.Fprintf(&sb, "Form: %s\n", forms[q.Form])
 
 	if len(q.From)+len(q.FromNamed) > 0 {

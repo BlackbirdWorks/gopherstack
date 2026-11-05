@@ -19,6 +19,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
 
+var errNoFeeds = errors.New("no files found at the source")
+
 const (
 	loaderPath        = "/loader"
 	loaderQueueMax    = 64
@@ -39,11 +41,16 @@ const (
 	actionListLoad    = "neptune-db:ListLoaderJobs"
 	actionCancelLoad  = "neptune-db:CancelLoaderJob"
 	formTrueUpper     = "TRUE"
+	statusOK200       = "200 OK"
+	keyPayload        = "payload"
+	keyStatus         = "status"
+	keyLoadID         = "loadId"
 )
 
 type loadFeed struct {
 	URI       string `json:"fullUri"`
 	Status    string `json:"status"`
+	LoadError string `json:"-"`
 	Run       int    `json:"runNumber"`
 	Retry     int    `json:"retryNumber"`
 	Spent     int64  `json:"totalTimeSpent"`
@@ -53,7 +60,6 @@ type loadFeed struct {
 	Parsing   int    `json:"parsingErrors"`
 	Datatype  int    `json:"datatypeMismatchErrors"`
 	Insert    int    `json:"insertErrors"`
-	LoadError string `json:"-"`
 }
 
 type loadError struct {
@@ -64,20 +70,20 @@ type loadError struct {
 }
 
 type loadJob struct {
+	endTime    time.Time
+	startTime  time.Time
 	cancel     context.CancelFunc
-	id         string
-	source     string
-	bucket     string
 	status     string
+	id         string
 	graph      string
 	base       string
-	format     sparql.Format
-	startTime  time.Time
-	endTime    time.Time
+	bucket     string
+	source     string
+	errors     []loadError
 	deps       []string
 	keys       []string
 	feeds      []*loadFeed
-	errors     []loadError
+	format     sparql.Format
 	failOnErr  bool
 	queued     bool
 	finished   bool
@@ -128,7 +134,7 @@ func loaderFormat(s string) (sparql.Format, bool) {
 }
 
 func envelope(payload any) map[string]any {
-	return map[string]any{"status": "200 OK", "payload": payload}
+	return map[string]any{keyStatus: statusOK200, keyPayload: payload}
 }
 
 func (f *cypherFront) serveLoader(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +142,7 @@ func (f *cypherFront) serveLoader(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(strings.TrimPrefix(path[len(loaderPath):], "/"), "/")
 
 	if id == "" {
-		id = r.URL.Query().Get("loadId")
+		id = r.URL.Query().Get(keyLoadID)
 	}
 
 	switch {
@@ -167,8 +173,9 @@ func readLoadRequest(w http.ResponseWriter, r *http.Request) (loadRequest, error
 	}
 
 	for k, v := range raw {
-		if string(v) == "true" || string(v) == "false" {
-			raw[k] = json.RawMessage(strconv.Quote(strings.ToUpper(string(v))))
+		var flag bool
+		if json.Unmarshal(v, &flag) == nil {
+			raw[k] = json.RawMessage(strconv.Quote(strings.ToUpper(strconv.FormatBool(flag))))
 		}
 	}
 
@@ -208,7 +215,7 @@ func (f *cypherFront) startLoad(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.rdf.loader.dispatch(f.ctx, f.rdf)
-	writeCypherJSON(w, http.StatusOK, envelope(map[string]string{"loadId": job.id}))
+	writeCypherJSON(w, http.StatusOK, envelope(map[string]string{keyLoadID: job.id}))
 }
 
 // newLoadJob validates req and lists the feeds; the returned string is an error detail.
@@ -224,7 +231,9 @@ func (rs *rdfService) newLoadJob(ctx context.Context, req loadRequest) (*loadJob
 				" (property-graph CSV) is not supported by this emulator; use ntriples, nquads, rdfxml or turtle"
 		}
 
-		return nil, "Invalid format " + strconv.Quote(req.Format) + "; allowed values are csv, opencypher, ntriples, nquads, rdfxml, turtle"
+		return nil, "Invalid format " + strconv.Quote(
+			req.Format,
+		) + "; allowed values are csv, opencypher, ntriples, nquads, rdfxml, turtle"
 	}
 
 	bucket, prefix, err := parseS3Source(req.Source)
@@ -286,7 +295,7 @@ func (rs *rdfService) listFeeds(ctx context.Context, bucket, prefix string) ([]s
 	}
 
 	if len(keys) == 0 {
-		return nil, errors.New("no files found at the source")
+		return nil, errNoFeeds
 	}
 
 	slices.Sort(keys)
@@ -596,7 +605,7 @@ func errorPage(job *loadJob, page, per string) map[string]any {
 		logs = []loadError{}
 	}
 
-	return map[string]any{"startIndex": from + 1, "endIndex": to, "loadId": job.id, "errorLogs": logs}
+	return map[string]any{"startIndex": from + 1, "endIndex": to, keyLoadID: job.id, "errorLogs": logs}
 }
 
 func (f *cypherFront) listLoads(w http.ResponseWriter, r *http.Request) {
@@ -617,8 +626,8 @@ func (f *cypherFront) listLoads(w http.ResponseWriter, r *http.Request) {
 
 	var queued, others []string
 
-	for i := len(ls.order) - 1; i >= 0; i-- {
-		job := ls.jobs[ls.order[i]]
+	for _, v := range slices.Backward(ls.order) {
+		job := ls.jobs[v]
 		if job == nil {
 			continue
 		}
@@ -634,7 +643,7 @@ func (f *cypherFront) listLoads(w http.ResponseWriter, r *http.Request) {
 		others = append(others, job.id)
 	}
 
-	ids := append(queued, others...)
+	ids := slices.Concat(queued, others)
 	if len(ids) > limit {
 		ids = ids[:limit]
 	}
@@ -660,7 +669,7 @@ func (f *cypherFront) cancelLoad(w http.ResponseWriter, r *http.Request, id stri
 	case !ok:
 		ls.mu.Unlock()
 		writeCypherJSON(w, http.StatusNotFound, map[string]any{
-			"status": "404 Not Found", "payload": map[string]string{"loadId": id, "error": "Load not found"},
+			keyStatus: "404 Not Found", keyPayload: map[string]string{keyLoadID: id, "error": "Load not found"},
 		})
 
 		return
@@ -685,5 +694,5 @@ func (f *cypherFront) cancelLoad(w http.ResponseWriter, r *http.Request, id stri
 		cancel()
 	}
 
-	writeCypherJSON(w, http.StatusOK, map[string]string{"status": "200 OK"})
+	writeCypherJSON(w, http.StatusOK, map[string]string{keyStatus: statusOK200})
 }

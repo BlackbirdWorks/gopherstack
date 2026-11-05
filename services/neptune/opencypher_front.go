@@ -76,7 +76,14 @@ func startCypherFront(
 		rdf = newRDFService(nil)
 	}
 
-	f := &cypherFront{port: port, auth: auth, graph: graph, rdf: rdf, queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	f := &cypherFront{
+		port:    port,
+		auth:    auth,
+		graph:   graph,
+		rdf:     rdf,
+		queries: newQueryTracker(),
+		tr:      httpclient.NewTransport(),
+	}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 
 	if innerAddr == "" {

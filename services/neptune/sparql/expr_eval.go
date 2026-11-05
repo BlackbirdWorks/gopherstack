@@ -2,6 +2,7 @@ package sparql
 
 import (
 	"errors"
+	"maps"
 	"math"
 	"math/big"
 	"strings"
@@ -19,10 +20,8 @@ var (
 type Binding map[string]Term
 
 func (b Binding) clone() Binding {
-	out := make(Binding, len(b)+2)
-	for k, v := range b {
-		out[k] = v
-	}
+	out := make(Binding, len(b)+1)
+	maps.Copy(out, b)
 
 	return out
 }
@@ -34,17 +33,16 @@ type env struct {
 	agg  bool
 }
 
-var (
-	trueTerm  = Typed("true", XSDBoolean)
-	falseTerm = Typed("false", XSDBoolean)
-)
+func trueTerm() Term { return Typed(lexTrue, XSDBoolean) }
+
+func falseTerm() Term { return Typed(lexFalse, XSDBoolean) }
 
 func boolTerm(v bool) Term {
 	if v {
-		return trueTerm
+		return trueTerm()
 	}
 
-	return falseTerm
+	return falseTerm()
 }
 
 func (ev *evaluator) eval(e Expr, en *env) (Term, error) {
@@ -130,12 +128,7 @@ func (ev *evaluator) evalBinary(b exprBinary, en *env) (Term, error) {
 
 	switch b.Op {
 	case "=", "!=":
-		eq, eerr := termEqual(l, r)
-		if eerr != nil {
-			return Term{}, eerr
-		}
-
-		return boolTerm(eq == (b.Op == "=")), nil
+		return boolTerm(termEqual(l, r) == (b.Op == "=")), nil
 	case "<", ">", "<=", ">=":
 		c, cerr := valueCompare(l, r)
 		if cerr != nil {
@@ -183,24 +176,16 @@ func (ev *evaluator) evalLogical(b exprBinary, en *env) (Term, error) {
 	rt, rerr := ev.eval(b.R, en)
 	rv, rerr := ebvOrErr(rt, rerr)
 
-	if b.Op == "||" {
-		switch {
-		case (lerr == nil && lv) || (rerr == nil && rv):
-			return trueTerm, nil
-		case lerr != nil || rerr != nil:
-			return Term{}, errType
-		default:
-			return falseTerm, nil
-		}
-	}
+	// three-valued logic: a decisive operand wins over an error on the other side
+	decisive := b.Op == "||"
 
 	switch {
-	case (lerr == nil && !lv) || (rerr == nil && !rv):
-		return falseTerm, nil
+	case lerr == nil && lv == decisive, rerr == nil && rv == decisive:
+		return boolTerm(decisive), nil
 	case lerr != nil || rerr != nil:
 		return Term{}, errType
 	default:
-		return trueTerm, nil
+		return boolTerm(!decisive), nil
 	}
 }
 
@@ -228,14 +213,7 @@ func (ev *evaluator) evalIn(in exprIn, en *env) (Term, error) {
 			continue
 		}
 
-		eq, eerr := termEqual(l, r)
-		if eerr != nil {
-			sawErr = true
-
-			continue
-		}
-
-		if eq {
+		if termEqual(l, r) {
 			return boolTerm(!in.Not), nil
 		}
 	}
@@ -265,9 +243,9 @@ func ebv(t Term) (bool, error) {
 	switch {
 	case t.Datatype == XSDBoolean:
 		switch t.Value {
-		case "true", "1":
+		case lexTrue, "1":
 			return true, nil
-		case "false", "0":
+		case lexFalse, "0":
 			return false, nil
 		}
 
@@ -288,77 +266,67 @@ func ebv(t Term) (bool, error) {
 func isStringLit(t Term) bool { return t.Kind == KindLiteral && t.Datatype == "" }
 
 // termEqual implements '=' with Neptune's extension: incomparable literals compare syntactically.
-func termEqual(a, b Term) (bool, error) {
-	if a.Kind == KindLiteral && b.Kind == KindLiteral {
-		if x, ok := asNumeric(a); ok {
-			if y, ok2 := asNumeric(b); ok2 {
-				if math.IsNaN(x.float()) && math.IsNaN(y.float()) {
-					return true, nil
-				}
-
-				c, ok3 := numCompare(x, y)
-
-				return ok3 && c == 0, nil
-			}
-		}
-
-		if a.Datatype == XSDDateTime && b.Datatype == XSDDateTime {
-			if x, ok := parseDateTime(a.Value); ok {
-				if y, ok2 := parseDateTime(b.Value); ok2 {
-					return x.Equal(y), nil
-				}
-			}
-		}
-
-		if a.Datatype == XSDBoolean && b.Datatype == XSDBoolean {
-			x, e1 := ebv(a)
-			y, e2 := ebv(b)
-
-			if e1 == nil && e2 == nil {
-				return x == y, nil
-			}
-		}
+func termEqual(a, b Term) bool {
+	if a.Kind != KindLiteral || b.Kind != KindLiteral {
+		return a == b
 	}
 
-	return a == b, nil
+	if c, ok := compareLiterals(a, b); ok {
+		return c == 0
+	}
+
+	if x, ok := asNumeric(a); ok {
+		y, ok2 := asNumeric(b)
+
+		return ok2 && math.IsNaN(x.float()) && math.IsNaN(y.float())
+	}
+
+	return a == b
 }
 
-// valueCompare orders two terms for <, >, <=, >=; incomparable pairs are a type error.
-func valueCompare(a, b Term) (int, error) {
+// compareLiterals orders two literals of a comparable value space (numeric, boolean or dateTime).
+func compareLiterals(a, b Term) (int, bool) {
 	if x, ok := asNumeric(a); ok {
 		if y, ok2 := asNumeric(b); ok2 {
-			if c, ok3 := numCompare(x, y); ok3 {
-				return c, nil
-			}
+			return numCompare(x, y)
 		}
 
-		return 0, errType
+		return 0, false
 	}
 
 	switch {
-	case isStringLit(a) && isStringLit(b):
-		return strings.Compare(a.Value, b.Value), nil
-	case a.Datatype == XSDBoolean && b.Datatype == XSDBoolean && a.Kind == KindLiteral && b.Kind == KindLiteral:
+	case a.Datatype == XSDBoolean && b.Datatype == XSDBoolean:
 		x, e1 := ebv(a)
 		y, e2 := ebv(b)
 
-		if e1 != nil || e2 != nil {
-			return 0, errType
-		}
-
-		return boolInt(x) - boolInt(y), nil
-	case a.Datatype == XSDDateTime && b.Datatype == XSDDateTime && a.Kind == KindLiteral && b.Kind == KindLiteral:
+		return boolInt(x) - boolInt(y), e1 == nil && e2 == nil
+	case a.Datatype == XSDDateTime && b.Datatype == XSDDateTime:
 		x, ok1 := parseDateTime(a.Value)
 		y, ok2 := parseDateTime(b.Value)
 
 		if !ok1 || !ok2 {
-			return 0, errType
+			return 0, false
 		}
 
-		return x.Compare(y), nil
+		return x.Compare(y), true
 	default:
-		return 0, errType
+		return 0, false
 	}
+}
+
+// valueCompare orders two terms for <, >, <=, >=; incomparable pairs are a type error.
+func valueCompare(a, b Term) (int, error) {
+	if isStringLit(a) && isStringLit(b) {
+		return strings.Compare(a.Value, b.Value), nil
+	}
+
+	if a.Kind == KindLiteral && b.Kind == KindLiteral {
+		if c, ok := compareLiterals(a, b); ok {
+			return c, nil
+		}
+	}
+
+	return 0, errType
 }
 
 func boolInt(b bool) int {
@@ -395,17 +363,25 @@ func orderCompare(a, b Term) int {
 	return strings.Compare(a.Value, b.Value)
 }
 
+const (
+	rankBlank = iota + 1
+	rankIRI
+	rankLiteral
+)
+
 func orderRank(t Term) int {
 	switch t.Kind {
 	case KindBlank:
-		return 1
+		return rankBlank
 	case KindIRI:
-		return 2
+		return rankIRI
 	case KindLiteral:
-		return 3
-	default:
+		return rankLiteral
+	case KindNone:
 		return 0
 	}
+
+	return 0
 }
 
 func (ev *evaluator) now() time.Time { return ev.started }

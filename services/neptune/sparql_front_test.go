@@ -71,10 +71,10 @@ func TestSparqlProtocol(t *testing.T) {
 		contentType string
 		accept      string
 		body        string
-		wantStatus  int
 		wantType    string
 		wantBody    string
 		wantCode    string
+		wantStatus  int
 	}{
 		{name: "form query json default", method: "POST", path: "/sparql", contentType: formCT,
 			body:       url.Values{"query": {"SELECT ?o WHERE { ?s <http://example.org/p> ?o }"}}.Encode(),
@@ -97,9 +97,16 @@ func TestSparqlProtocol(t *testing.T) {
 		{name: "ask boolean text", method: "GET", accept: "text/boolean",
 			path:       "/sparql?" + url.Values{"query": {"ASK { ?s ?p ?o }"}}.Encode(),
 			wantStatus: 200, wantType: "text/boolean", wantBody: "true"},
-		{name: "construct default nquads", method: "GET",
-			path:       "/sparql?" + url.Values{"query": {"CONSTRUCT { ?s <http://example.org/z> ?o } WHERE { ?s <http://example.org/p> ?o }"}}.Encode(),
-			wantStatus: 200, wantType: "application/n-quads", wantBody: `<http://example.org/s> <http://example.org/z> "v" .`},
+		{
+			name:   "construct default nquads",
+			method: "GET",
+			path: "/sparql?" + url.Values{
+				"query": {"CONSTRUCT { ?s <http://example.org/z> ?o } WHERE { ?s <http://example.org/p> ?o }"},
+			}.Encode(),
+			wantStatus: 200,
+			wantType:   "application/n-quads",
+			wantBody:   `<http://example.org/s> <http://example.org/z> "v" .`,
+		},
 		{name: "construct turtle", method: "GET", accept: "text/turtle",
 			path:       "/sparql?" + url.Values{"query": {"CONSTRUCT WHERE { ?s <http://example.org/p> ?o }"}}.Encode(),
 			wantStatus: 200, wantType: "text/turtle", wantBody: `<http://example.org/p> "v" .`},
@@ -112,9 +119,17 @@ func TestSparqlProtocol(t *testing.T) {
 				"default-graph-uri": {"http://example.org/g"},
 			}.Encode(),
 			wantStatus: 200, wantBody: `"value":"1"`},
-		{name: "explain static", method: "GET",
-			path:       "/sparql?" + url.Values{"query": {"SELECT * WHERE { ?s ?p ?o }"}, "explain": {"static"}}.Encode(),
-			wantStatus: 200, wantType: "text/html;charset=UTF-8", wantBody: "TriplePattern"},
+		{
+			name:   "explain static",
+			method: "GET",
+			path: "/sparql?" + url.Values{
+				"query":   {"SELECT * WHERE { ?s ?p ?o }"},
+				"explain": {"static"},
+			}.Encode(),
+			wantStatus: 200,
+			wantType:   "text/html;charset=UTF-8",
+			wantBody:   "TriplePattern",
+		},
 		{name: "malformed query", method: "GET", path: "/sparql?" + url.Values{"query": {"SELEKT"}}.Encode(),
 			wantStatus: 400, wantCode: "MalformedQueryException"},
 		{name: "missing parameter", method: "POST", path: "/sparql", contentType: formCT, body: "",
@@ -127,8 +142,13 @@ func TestSparqlProtocol(t *testing.T) {
 		{name: "unacceptable", method: "GET", accept: "image/png",
 			path:       "/sparql?" + url.Values{"query": {"ASK {}"}}.Encode(),
 			wantStatus: 406, wantCode: "UnsupportedMediaTypeException"},
-		{name: "update via get rejected", method: "GET", path: "/sparql?" + url.Values{"update": {"CLEAR ALL"}}.Encode(),
-			wantStatus: 405, wantCode: "BadRequestException"},
+		{
+			name:       "update via get rejected",
+			method:     "GET",
+			path:       "/sparql?" + url.Values{"update": {"CLEAR ALL"}}.Encode(),
+			wantStatus: 405,
+			wantCode:   "BadRequestException",
+		},
 		{name: "bad method", method: "DELETE", path: "/sparql", wantStatus: 405, wantCode: "BadRequestException"},
 	}
 
@@ -276,7 +296,15 @@ func TestSparqlStoreSurvivesStopStart(t *testing.T) {
 	require.NoError(t, err)
 
 	c2 := waitCluster(t, b, "c1", "available")
-	res := sparqlDo(t, c2, http.MethodGet, "/sparql?"+url.Values{"query": {"ASK { <urn:a> <urn:p> 1 }"}}.Encode(), "", "", "")
+	res := sparqlDo(
+		t,
+		c2,
+		http.MethodGet,
+		"/sparql?"+url.Values{"query": {"ASK { <urn:a> <urn:p> 1 }"}}.Encode(),
+		"",
+		"",
+		"",
+	)
 	assert.Contains(t, res.body, `"boolean":true`)
 }
 

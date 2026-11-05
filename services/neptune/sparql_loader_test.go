@@ -119,9 +119,16 @@ func TestBulkLoaderFormats(t *testing.T) {
 			"@prefix ex: <http://example.org/> .\nex:a a ex:T ; ex:p 1, 2 ; ex:q [ ex:r \"x\" ] .\n", "5"},
 		{"nquads", "nquads", "data/a.nq",
 			"<urn:s> <urn:p> <urn:o> <urn:g> .\n<urn:s> <urn:p> <urn:o2> .\n", "2"},
-		{"rdfxml", "rdfxml", "data/a.rdf",
-			`<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="http://example.org/">` +
-				`<ex:T rdf:about="http://example.org/a"><ex:p>1</ex:p><ex:q rdf:resource="http://example.org/b"/></ex:T></rdf:RDF>`, "3"},
+		{
+			"rdfxml",
+			"rdfxml",
+			"data/a.rdf",
+			`<?xml version="1.0"?><rdf:RDF ` +
+				`xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:ex="http://example.org/">` +
+				`<ex:T rdf:about="http://example.org/a"><ex:p>1</ex:p><ex:q ` +
+				`rdf:resource="http://example.org/b"/></ex:T></rdf:RDF>`,
+			"3",
+		},
 	}
 
 	for _, tt := range tests {
@@ -163,7 +170,7 @@ func TestBulkLoaderBehaviours(t *testing.T) {
 		wantStatus string
 		wantCount  string
 		wantErrors int
-		wantParse  float64
+		wantParse  int
 	}{
 		{name: "fail on error default stops", files: map[string]string{"x.nt": bad},
 			request:    `{"source":"s3://lake/x.nt","format":"ntriples"}`,
@@ -171,9 +178,13 @@ func TestBulkLoaderBehaviours(t *testing.T) {
 		{name: "skip bad lines when failOnError false", files: map[string]string{"x.nt": bad},
 			request:    `{"source":"s3://lake/x.nt","format":"ntriples","failOnError":"FALSE"}`,
 			wantStatus: "LOAD_COMPLETED", wantCount: "2", wantErrors: 1, wantParse: 1, query: "?errors=TRUE"},
-		{name: "named graph parser configuration", files: map[string]string{"x.nt": good},
+		{
+			name:       "named graph parser configuration",
+			files:      map[string]string{"x.nt": good},
 			request:    `{"source":"s3://lake/x.nt","format":"ntriples","parserConfiguration":{"namedGraphUri":"urn:custom"}}`,
-			wantStatus: "LOAD_COMPLETED", wantCount: "1"},
+			wantStatus: "LOAD_COMPLETED",
+			wantCount:  "1",
+		},
 		{name: "duplicates counted", files: map[string]string{"x.nt": good + good},
 			request:    `{"source":"s3://lake/x.nt","format":"ntriples"}`,
 			wantStatus: "LOAD_COMPLETED", wantCount: "1"},
@@ -194,7 +205,8 @@ func TestBulkLoaderBehaviours(t *testing.T) {
 			final := loaderWait(t, c, id, tt.query)
 
 			assert.Equal(t, tt.wantStatus, overall(final)["status"])
-			assert.EqualValues(t, tt.wantParse, overall(final)["parsingErrors"])
+			parsed, _ := overall(final)["parsingErrors"].(float64)
+			assert.Equal(t, tt.wantParse, int(parsed))
 			assert.Equal(t, tt.wantCount, countTriples(t, c, "?s ?p ?o"))
 
 			if tt.wantErrors > 0 {
@@ -221,9 +233,19 @@ func TestBulkLoaderRequestErrors(t *testing.T) {
 		{"missing source", `{"format":"ntriples"}`, "MissingParameterException", ""},
 		{"bad format", `{"source":"s3://lake/x.nt","format":"jsonld"}`, "BadRequestException", "Invalid format"},
 		{"csv unsupported", `{"source":"s3://lake/x.nt","format":"csv"}`, "BadRequestException", "property-graph CSV"},
-		{"missing bucket", `{"source":"s3://nobucket/x.nt","format":"ntriples"}`, "BadRequestException", "Failed to start"},
+		{
+			"missing bucket",
+			`{"source":"s3://nobucket/x.nt","format":"ntriples"}`,
+			"BadRequestException",
+			"Failed to start",
+		},
 		{"no files", `{"source":"s3://lake/none/","format":"ntriples"}`, "BadRequestException", "no files"},
-		{"not s3", `{"source":"http://example.com/x.nt","format":"ntriples"}`, "BadRequestException", "not an Amazon S3 URI"},
+		{
+			"not s3",
+			`{"source":"http://example.com/x.nt","format":"ntriples"}`,
+			"BadRequestException",
+			"not an Amazon S3 URI",
+		},
 		{"malformed json", `{`, "BadRequestException", "Invalid loader request"},
 	}
 

@@ -50,46 +50,54 @@ func (p *parser) parseUpdateOp() (updateOp, error) {
 	case t.kw("CLEAR"), t.kw("DROP"):
 		return p.parseClearDrop()
 	case t.kw("CREATE"):
-		p.i++
-
-		op := updateOp{Kind: upCreate, Silent: p.acceptKW("SILENT")}
-		if err := p.expectKW("GRAPH"); err != nil {
-			return op, err
-		}
-
-		var err error
-		op.Graph, err = p.iriTok()
-
-		return op, err
+		return p.parseCreate()
 	case t.kw("ADD"), t.kw("MOVE"), t.kw("COPY"):
 		return p.parseAddMoveCopy()
-	case t.kw("INSERT") && p.peekN(1).kw("DATA"):
+	case t.kw("INSERT") && p.peekNext().kw("DATA"):
 		p.i += 2
 
 		return p.parseData(upInsertData)
-	case t.kw("DELETE") && p.peekN(1).kw("DATA"):
+	case t.kw("DELETE") && p.peekNext().kw("DATA"):
 		p.i += 2
 
 		return p.parseData(upDeleteData)
-	case t.kw("DELETE") && p.peekN(1).kw("WHERE"):
+	case t.kw("DELETE") && p.peekNext().kw("WHERE"):
 		p.i += 2
 
-		qp, err := p.parseQuadPatterns()
-		if err != nil {
-			return updateOp{}, err
-		}
-
-		g := &group{}
-		for _, q := range qp {
-			g.Elems = append(g.Elems, graphOrBGP(q))
-		}
-
-		return updateOp{Kind: upModify, Del: qp, Where: g}, nil
+		return p.parseDeleteWhere()
 	case t.kw("WITH"), t.kw("DELETE"), t.kw("INSERT"):
 		return p.parseModify()
 	default:
 		return updateOp{}, p.errf("expected update operation")
 	}
+}
+
+func (p *parser) parseCreate() (updateOp, error) {
+	p.i++
+
+	op := updateOp{Kind: upCreate, Silent: p.acceptKW("SILENT")}
+	if err := p.expectKW("GRAPH"); err != nil {
+		return op, err
+	}
+
+	var err error
+	op.Graph, err = p.iriTok()
+
+	return op, err
+}
+
+func (p *parser) parseDeleteWhere() (updateOp, error) {
+	qp, err := p.parseQuadPatterns()
+	if err != nil {
+		return updateOp{}, err
+	}
+
+	g := &group{}
+	for _, q := range qp {
+		g.Elems = append(g.Elems, graphOrBGP(q))
+	}
+
+	return updateOp{Kind: upModify, Del: qp, Where: g}, nil
 }
 
 func graphOrBGP(q quadPat) element {
@@ -305,36 +313,46 @@ func (p *parser) parseQuadPatterns() ([]quadPat, error) {
 			continue
 		}
 
+		var err error
 		if p.acceptKW("GRAPH") {
-			name, err := p.parseVarOrIRI()
-			if err != nil {
-				return nil, err
-			}
+			out, err = p.parseGraphBlock(out)
+		} else {
+			err = p.parseTriplesSameSubject(func(tp triplePat) { out = append(out, quadPat{T: tp}) })
+		}
 
-			if err = p.expectP("{"); err != nil {
-				return nil, err
-			}
+		if err != nil {
+			return nil, err
+		}
+	}
 
-			for !p.peek().is("}") {
-				if p.peek().kind == tEOF {
-					return nil, p.errf("unterminated GRAPH block")
-				}
+	p.i++
 
-				if p.acceptP(".") {
-					continue
-				}
+	return out, nil
+}
 
-				if err = p.parseTriplesSameSubject(func(tp triplePat) { out = append(out, quadPat{G: name, T: tp}) }); err != nil {
-					return nil, err
-				}
-			}
+// parseGraphBlock parses 'varOrIRI { triples }' after GRAPH, appending quads for that graph.
+func (p *parser) parseGraphBlock(out []quadPat) ([]quadPat, error) {
+	name, err := p.parseVarOrIRI()
+	if err != nil {
+		return nil, err
+	}
 
-			p.i++
+	if err = p.expectP("{"); err != nil {
+		return nil, err
+	}
 
+	for !p.peek().is("}") {
+		if p.peek().kind == tEOF {
+			return nil, p.errf("unterminated GRAPH block")
+		}
+
+		if p.acceptP(".") {
 			continue
 		}
 
-		if err := p.parseTriplesSameSubject(func(tp triplePat) { out = append(out, quadPat{T: tp}) }); err != nil {
+		if err = p.parseTriplesSameSubject(
+			func(tp triplePat) { out = append(out, quadPat{G: name, T: tp}) },
+		); err != nil {
 			return nil, err
 		}
 	}

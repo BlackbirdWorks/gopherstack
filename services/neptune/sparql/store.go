@@ -15,11 +15,11 @@ type quadSet map[Quad]struct{}
 type Store struct {
 	mu    *lockmetrics.RWMutex
 	quads map[Quad]uint64
-	seq   uint64
 	byS   map[Term]quadSet
 	byP   map[Term]quadSet
 	byO   map[Term]quadSet
 	byG   map[Term]quadSet
+	seq   uint64
 }
 
 // NewStore returns an empty store.
@@ -113,29 +113,31 @@ func (s *Store) remove(q Quad) bool {
 	return true
 }
 
-// match calls fn, in insertion order, for every quad matching the bound positions (unbound Terms are wildcards)
-// until fn returns false. fn may not mutate the store.
-func (s *Store) match(sub, p, o, g Term, fn func(Quad) bool) {
+// bestIndex picks the smallest index set among the bound positions; ok is false when nothing is bound.
+func (s *Store) bestIndex(sub, p, o, g Term) (quadSet, bool) {
 	var best quadSet
 
 	have := false
 
-	pick := func(m map[Term]quadSet, t Term) {
-		if !t.Bound() {
-			return
+	for _, c := range []struct {
+		m map[Term]quadSet
+		t Term
+	}{{s.byS, sub}, {s.byP, p}, {s.byO, o}, {s.byG, g}} {
+		if !c.t.Bound() {
+			continue
 		}
 
-		set := m[t]
-		if !have || len(set) < len(best) {
+		if set := c.m[c.t]; !have || len(set) < len(best) {
 			best, have = set, true
 		}
 	}
 
-	pick(s.byS, sub)
-	pick(s.byP, p)
-	pick(s.byO, o)
-	pick(s.byG, g)
+	return best, have
+}
 
+// match calls fn, in insertion order, for every quad matching the bound positions (unbound Terms are wildcards)
+// until fn returns false. fn may not mutate the store.
+func (s *Store) match(sub, p, o, g Term, fn func(Quad) bool) {
 	var hits []Quad
 
 	collect := func(q Quad) {
@@ -147,7 +149,7 @@ func (s *Store) match(sub, p, o, g Term, fn func(Quad) bool) {
 		hits = append(hits, q)
 	}
 
-	if have {
+	if best, have := s.bestIndex(sub, p, o, g); have {
 		for q := range best {
 			collect(q)
 		}

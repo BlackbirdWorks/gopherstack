@@ -62,7 +62,11 @@ func TestGraphStoreProtocol(t *testing.T) {
 
 		res := sparqlDo(t, c, http.MethodPost, "/sparql/gsp/?default", nt, "", "<urn:a> <urn:p> <urn:b> .\n")
 		assert.Equal(t, http.StatusCreated, res.status)
-		assert.Equal(t, "1", countTriples(t, c, "GRAPH <http://aws.amazon.com/neptune/vocab/v01/DefaultNamedGraph> { ?s ?p ?o }"))
+		assert.Equal(
+			t,
+			"1",
+			countTriples(t, c, "GRAPH <http://aws.amazon.com/neptune/vocab/v01/DefaultNamedGraph> { ?s ?p ?o }"),
+		)
 	})
 
 	t.Run("quads body updates every named graph and the url graph", func(t *testing.T) {

@@ -20,7 +20,10 @@ type S3Reader interface {
 	ListObjectsV2(ctx context.Context, input *sdk_s3.ListObjectsV2Input) (*sdk_s3.ListObjectsV2Output, error)
 }
 
-var errNoS3 = errors.New("S3 is not available in this emulator instance")
+var (
+	errNoS3     = errors.New("S3 is not available in this emulator instance")
+	errNotS3URI = errors.New("source is not an Amazon S3 URI")
+)
 
 // rdfService is one cluster's RDF data plane: the triple store, SPARQL query tracking and the bulk loader.
 type rdfService struct {
@@ -112,7 +115,7 @@ func parseS3Source(src string) (string, string, error) {
 		}
 	}
 
-	return "", "", fmt.Errorf("source %q is not an Amazon S3 URI", src)
+	return "", "", fmt.Errorf("%w: %q", errNotS3URI, src)
 }
 
 // fetch reads the object behind an S3 URL (the SPARQL LOAD source).

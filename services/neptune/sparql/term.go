@@ -35,6 +35,8 @@ const (
 	RDFRest       = NSRDF + "rest"
 	RDFNil        = NSRDF + "nil"
 	RDFLangString = NSRDF + "langString"
+	lexTrue       = "true"
+	lexFalse      = "false"
 	// DefaultGraph is the named graph Neptune uses when no graph is given.
 	DefaultGraph = "http://aws.amazon.com/neptune/vocab/v01/DefaultNamedGraph"
 	// DefaultBase is the base IRI Neptune applies when a request carries none.
@@ -135,12 +137,14 @@ func escapeString(s string) string {
 	return sb.String()
 }
 
+const hexWidth = 4
+
 func escapeIRI(s string) string {
 	var sb strings.Builder
 
 	for _, r := range s {
 		if r <= ' ' || strings.ContainsRune(`<>"{}|^`+"`"+`\`, r) {
-			sb.WriteString(`\u` + strings.ToUpper(leftPad(strconv.FormatInt(int64(r), 16), 4)))
+			sb.WriteString(`\u` + strings.ToUpper(leftPad(strconv.FormatInt(int64(r), 16), hexWidth)))
 
 			continue
 		}

@@ -4,12 +4,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
 
-var errGraphParams = errors.New("only one graph can be specified in the request URL")
+var (
+	errGraphParams  = errors.New("only one graph can be specified in the request URL")
+	errNoGraphParam = errors.New("a 'graph' or 'default' query parameter is required")
+)
 
 type gspFormat struct {
 	mime string
@@ -44,7 +46,7 @@ func gspTarget(r *http.Request) (sparql.Term, error) {
 	case n == 1:
 		return sparql.IRI(graphs[0]), nil
 	default:
-		return sparql.Term{}, errors.New("a 'graph' or 'default' query parameter is required")
+		return sparql.Term{}, errNoGraphParam
 	}
 }
 
@@ -85,7 +87,12 @@ func (f *cypherFront) serveGSP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.Header().Set("Allow", "GET, HEAD, PUT, POST, DELETE")
-		writeCypherError(w, http.StatusMethodNotAllowed, codeBadRequest, "Unsupported method for the Graph Store endpoint")
+		writeCypherError(
+			w,
+			http.StatusMethodNotAllowed,
+			codeBadRequest,
+			"Unsupported method for the Graph Store endpoint",
+		)
 	}
 }
 
@@ -104,7 +111,12 @@ func (f *cypherFront) gspGet(w http.ResponseWriter, r *http.Request, g sparql.Te
 
 	o, ok := negotiate(r.Header.Get("Accept"), append([]offer{{mime: mimeNQuads, rdf: sparql.FormatNQuads}}, offers...))
 	if !ok {
-		writeCypherError(w, http.StatusNotAcceptable, codeUnsupMedia, "No supported RDF media type matches the Accept header")
+		writeCypherError(
+			w,
+			http.StatusNotAcceptable,
+			codeUnsupMedia,
+			"No supported RDF media type matches the Accept header",
+		)
 
 		return
 	}
@@ -125,7 +137,7 @@ func (f *cypherFront) gspGet(w http.ResponseWriter, r *http.Request, g sparql.Te
 }
 
 func (f *cypherFront) gspWrite(w http.ResponseWriter, r *http.Request, g sparql.Term, replace bool) {
-	ct := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
+	ct := mediaType(r.Header.Get("Content-Type"))
 
 	format, ok := sparql.Format(0), false
 

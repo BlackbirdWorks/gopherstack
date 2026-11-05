@@ -29,12 +29,12 @@ func newParser(src string) (*parser, error) {
 
 func (p *parser) peek() token { return p.toks[p.i] }
 
-func (p *parser) peekN(n int) token {
-	if p.i+n >= len(p.toks) {
+func (p *parser) peekNext() token {
+	if p.i+1 >= len(p.toks) {
 		return p.toks[len(p.toks)-1]
 	}
 
-	return p.toks[p.i+n]
+	return p.toks[p.i+1]
 }
 
 func (p *parser) advance() token {
@@ -179,7 +179,11 @@ func (p *parser) iriTok() (Term, error) {
 	}
 }
 
-func (p *parser) isIRIStart() bool { k := p.peek().kind; return k == tIRI || k == tPName }
+func (p *parser) isIRIStart() bool {
+	k := p.peek().kind
+
+	return k == tIRI || k == tPName
+}
 
 // ParseQuery parses a SPARQL 1.1 query.
 func ParseQuery(src string) (*Query, error) {
@@ -263,9 +267,7 @@ func (p *parser) parseSelectClause(q *Query) error {
 	p.i++
 	q.Form = formSelect
 
-	if p.acceptKW("DISTINCT") {
-		q.Distinct = true
-	} else if p.acceptKW("REDUCED") {
+	if p.acceptKW("DISTINCT") || p.acceptKW("REDUCED") {
 		q.Distinct = true
 	}
 
@@ -281,27 +283,12 @@ func (p *parser) parseSelectClause(q *Query) error {
 			p.i++
 			q.Proj = append(q.Proj, projItem{Var: t.val})
 		case t.is("("):
-			p.i++
-
-			e, err := p.parseExpr()
+			item, err := p.parseBracketedAlias(true)
 			if err != nil {
 				return err
 			}
 
-			if err = p.expectKW("AS"); err != nil {
-				return err
-			}
-
-			v := p.advance()
-			if v.kind != tVar {
-				return p.errf("expected variable after AS")
-			}
-
-			if err = p.expectP(")"); err != nil {
-				return err
-			}
-
-			q.Proj = append(q.Proj, projItem{Var: v.val, Expr: e})
+			q.Proj = append(q.Proj, item)
 		default:
 			if len(q.Proj) == 0 {
 				return p.errf("expected projection")
@@ -310,6 +297,33 @@ func (p *parser) parseSelectClause(q *Query) error {
 			return nil
 		}
 	}
+}
+
+// parseBracketedAlias parses '(' expr [AS ?var] ')'; the alias is mandatory when required is set.
+func (p *parser) parseBracketedAlias(required bool) (projItem, error) {
+	p.i++
+
+	e, err := p.parseExpr()
+	if err != nil {
+		return projItem{}, err
+	}
+
+	item := projItem{Expr: e}
+
+	if required || p.peek().kw("AS") {
+		if err = p.expectKW("AS"); err != nil {
+			return item, err
+		}
+
+		v := p.advance()
+		if v.kind != tVar {
+			return item, p.errf("expected variable after AS")
+		}
+
+		item.Var = v.val
+	}
+
+	return item, p.expectP(")")
 }
 
 func (p *parser) parseConstructHead(q *Query) error {
@@ -415,9 +429,7 @@ func (p *parser) parseDatasetClauses(q *Query) error {
 }
 
 func (p *parser) parseModifiers(q *Query) error {
-	if p.peek().kw("GROUP") {
-		p.i++
-
+	if p.acceptKW("GROUP") {
 		if err := p.expectKW("BY"); err != nil {
 			return err
 		}
@@ -436,9 +448,7 @@ func (p *parser) parseModifiers(q *Query) error {
 		q.Having = append(q.Having, e)
 	}
 
-	if p.peek().kw("ORDER") {
-		p.i++
-
+	if p.acceptKW("ORDER") {
 		if err := p.expectKW("BY"); err != nil {
 			return err
 		}
@@ -448,25 +458,28 @@ func (p *parser) parseModifiers(q *Query) error {
 		}
 	}
 
+	return p.parseSlice(q)
+}
+
+func (p *parser) parseSlice(q *Query) error {
 	for {
+		var dst *int
+
 		switch {
 		case p.acceptKW("LIMIT"):
-			n, err := p.intTok()
-			if err != nil {
-				return err
-			}
-
-			q.Limit = n
+			dst = &q.Limit
 		case p.acceptKW("OFFSET"):
-			n, err := p.intTok()
-			if err != nil {
-				return err
-			}
-
-			q.Offset = n
+			dst = &q.Offset
 		default:
 			return nil
 		}
+
+		n, err := p.intTok()
+		if err != nil {
+			return err
+		}
+
+		*dst = n
 	}
 }
 
@@ -493,29 +506,13 @@ func (p *parser) parseGroupBy(q *Query) error {
 			p.i++
 			q.GroupBy = append(q.GroupBy, projItem{Var: t.val, Expr: exprVar{Name: t.val}})
 		case t.is("("):
-			p.i++
-
-			e, err := p.parseExpr()
+			item, err := p.parseBracketedAlias(false)
 			if err != nil {
 				return err
 			}
 
-			item := projItem{Expr: e}
-			if p.acceptKW("AS") {
-				v := p.advance()
-				if v.kind != tVar {
-					return p.errf("expected variable after AS")
-				}
-
-				item.Var = v.val
-			}
-
-			if err = p.expectP(")"); err != nil {
-				return err
-			}
-
 			q.GroupBy = append(q.GroupBy, item)
-		case t.kind == tIdent && p.peekN(1).is("(") && !t.kw("HAVING"), p.isIRIStart():
+		case t.kind == tIdent && p.peekNext().is("(") && !t.kw("HAVING"), p.isIRIStart():
 			e, err := p.parsePrimary()
 			if err != nil {
 				return err
@@ -534,12 +531,10 @@ func (p *parser) parseGroupBy(q *Query) error {
 
 func (p *parser) parseOrderBy(q *Query) error {
 	for n := 0; ; n++ {
-		desc := false
-		explicit := false
+		desc := p.peek().kw("DESC")
+		explicit := desc || p.peek().kw("ASC")
 
-		if p.peek().kw("ASC") || p.peek().kw("DESC") {
-			desc = p.peek().kw("DESC")
-			explicit = true
+		if explicit {
 			p.i++
 		}
 
@@ -549,7 +544,7 @@ func (p *parser) parseOrderBy(q *Query) error {
 		case t.kind == tVar && !explicit:
 			p.i++
 			q.Order = append(q.Order, orderCond{Expr: exprVar{Name: t.val}})
-		case t.is("(") || explicit || (t.kind == tIdent && p.peekN(1).is("(")) || p.isIRIStart():
+		case t.is("(") || explicit || (t.kind == tIdent && p.peekNext().is("(")) || p.isIRIStart():
 			e, err := p.parsePrimary()
 			if err != nil {
 				return err
@@ -570,21 +565,8 @@ func (p *parser) parseValues() (*valuesData, error) {
 	vd := &valuesData{}
 	multi := p.acceptP("(")
 
-	if multi {
-		for p.peek().kind == tVar {
-			vd.Vars = append(vd.Vars, p.advance().val)
-		}
-
-		if err := p.expectP(")"); err != nil {
-			return nil, err
-		}
-	} else {
-		t := p.advance()
-		if t.kind != tVar {
-			return nil, p.errf("expected variable in VALUES")
-		}
-
-		vd.Vars = []string{t.val}
+	if err := p.parseValuesVars(vd, multi); err != nil {
+		return nil, err
 	}
 
 	if err := p.expectP("{"); err != nil {
@@ -592,30 +574,9 @@ func (p *parser) parseValues() (*valuesData, error) {
 	}
 
 	for !p.peek().is("}") {
-		var row []Term
-
-		if multi {
-			if err := p.expectP("("); err != nil {
-				return nil, err
-			}
-
-			for !p.peek().is(")") {
-				t, err := p.parseDataValue()
-				if err != nil {
-					return nil, err
-				}
-
-				row = append(row, t)
-			}
-
-			p.i++
-		} else {
-			t, err := p.parseDataValue()
-			if err != nil {
-				return nil, err
-			}
-
-			row = []Term{t}
+		row, err := p.parseValuesRow(multi)
+		if err != nil {
+			return nil, err
 		}
 
 		if len(row) != len(vd.Vars) {
@@ -628,6 +589,56 @@ func (p *parser) parseValues() (*valuesData, error) {
 	p.i++
 
 	return vd, nil
+}
+
+func (p *parser) parseValuesVars(vd *valuesData, multi bool) error {
+	if !multi {
+		t := p.advance()
+		if t.kind != tVar {
+			return p.errf("expected variable in VALUES")
+		}
+
+		vd.Vars = []string{t.val}
+
+		return nil
+	}
+
+	for p.peek().kind == tVar {
+		vd.Vars = append(vd.Vars, p.advance().val)
+	}
+
+	return p.expectP(")")
+}
+
+func (p *parser) parseValuesRow(multi bool) ([]Term, error) {
+	if !multi {
+		t, err := p.parseDataValue()
+
+		return []Term{t}, err
+	}
+
+	if err := p.expectP("("); err != nil {
+		return nil, err
+	}
+
+	var row []Term
+
+	for !p.peek().is(")") {
+		if p.peek().kind == tEOF {
+			return nil, p.errf("unterminated VALUES row")
+		}
+
+		t, err := p.parseDataValue()
+		if err != nil {
+			return nil, err
+		}
+
+		row = append(row, t)
+	}
+
+	p.i++
+
+	return row, nil
 }
 
 func (p *parser) parseDataValue() (Term, error) {
@@ -717,38 +728,14 @@ func (p *parser) parseElement(g *group) error {
 	switch {
 	case t.is("."):
 		p.i++
+
+		return nil
 	case t.kw("OPTIONAL"):
-		p.i++
-
-		sub, err := p.parseGroup()
-		if err != nil {
-			return err
-		}
-
-		g.Elems = append(g.Elems, &optionalEl{G: sub})
+		return p.parseSubGroup(g, func(sub *group) element { return &optionalEl{G: sub} })
 	case t.kw("MINUS"):
-		p.i++
-
-		sub, err := p.parseGroup()
-		if err != nil {
-			return err
-		}
-
-		g.Elems = append(g.Elems, &minusEl{G: sub})
+		return p.parseSubGroup(g, func(sub *group) element { return &minusEl{G: sub} })
 	case t.kw("GRAPH"):
-		p.i++
-
-		name, err := p.parseVarOrIRI()
-		if err != nil {
-			return err
-		}
-
-		sub, err := p.parseGroup()
-		if err != nil {
-			return err
-		}
-
-		g.Elems = append(g.Elems, &graphEl{Name: name, G: sub})
+		return p.parseGraphElement(g)
 	case t.kw("FILTER"):
 		p.i++
 
@@ -758,6 +745,8 @@ func (p *parser) parseElement(g *group) error {
 		}
 
 		g.Elems = append(g.Elems, &filterEl{E: e})
+
+		return nil
 	case t.kw("BIND"):
 		return p.parseBind(g)
 	case t.kw("VALUES"):
@@ -769,27 +758,64 @@ func (p *parser) parseElement(g *group) error {
 		}
 
 		g.Elems = append(g.Elems, &valuesEl{V: vd})
+
+		return nil
 	case t.kw("SERVICE"):
 		return syntaxf("SERVICE federation is not supported")
 	case t.is("{"):
 		return p.parseUnionChain(g)
 	default:
-		var tps []triplePat
-
-		if err := p.parseTriplesSameSubject(func(tp triplePat) { tps = append(tps, tp) }); err != nil {
-			return err
-		}
-
-		if n := len(g.Elems); n > 0 {
-			if b, ok := g.Elems[n-1].(*bgpEl); ok {
-				b.Triples = append(b.Triples, tps...)
-
-				return nil
-			}
-		}
-
-		g.Elems = append(g.Elems, &bgpEl{Triples: tps})
+		return p.parseTriplesBlock(g)
 	}
+}
+
+func (p *parser) parseSubGroup(g *group, mk func(*group) element) error {
+	p.i++
+
+	sub, err := p.parseGroup()
+	if err != nil {
+		return err
+	}
+
+	g.Elems = append(g.Elems, mk(sub))
+
+	return nil
+}
+
+func (p *parser) parseGraphElement(g *group) error {
+	p.i++
+
+	name, err := p.parseVarOrIRI()
+	if err != nil {
+		return err
+	}
+
+	sub, err := p.parseGroup()
+	if err != nil {
+		return err
+	}
+
+	g.Elems = append(g.Elems, &graphEl{Name: name, G: sub})
+
+	return nil
+}
+
+func (p *parser) parseTriplesBlock(g *group) error {
+	var tps []triplePat
+
+	if err := p.parseTriplesSameSubject(func(tp triplePat) { tps = append(tps, tp) }); err != nil {
+		return err
+	}
+
+	if n := len(g.Elems); n > 0 {
+		if b, ok := g.Elems[n-1].(*bgpEl); ok {
+			b.Triples = append(b.Triples, tps...)
+
+			return nil
+		}
+	}
+
+	g.Elems = append(g.Elems, &bgpEl{Triples: tps})
 
 	return nil
 }
@@ -866,38 +892,41 @@ func (p *parser) parseVarOrIRI() (node, error) {
 
 // parseTriplesSameSubject parses subject + property list (and nested blank nodes / collections).
 func (p *parser) parseTriplesSameSubject(emit func(triplePat)) error {
-	var subj node
-
-	if p.peek().is("[") && !p.peekN(1).is("]") {
-		p.i++
-		subj = p.freshBlank()
-
-		if err := p.parsePropertyList(subj, emit); err != nil {
-			return err
-		}
-
-		if err := p.expectP("]"); err != nil {
-			return err
-		}
-
-		if p.peek().is(".") || p.peek().is("}") {
-			return nil
-		}
-	} else {
-		var err error
-		if subj, err = p.parseNodeWithCollection(emit); err != nil {
-			return err
-		}
+	subj, done, err := p.parseSubject(emit)
+	if err != nil || done {
+		return err
 	}
 
 	return p.parsePropertyList(subj, emit)
+}
+
+// parseSubject parses a triples subject; done is set for a bare '[ ... ]' statement with no further predicates.
+func (p *parser) parseSubject(emit func(triplePat)) (node, bool, error) {
+	if !p.peek().is("[") || p.peekNext().is("]") {
+		n, err := p.parseNodeWithCollection(emit)
+
+		return n, false, err
+	}
+
+	p.i++
+	subj := p.freshBlank()
+
+	if err := p.parsePropertyList(subj, emit); err != nil {
+		return subj, false, err
+	}
+
+	if err := p.expectP("]"); err != nil {
+		return subj, false, err
+	}
+
+	return subj, p.peek().is(".") || p.peek().is("}"), nil
 }
 
 func (p *parser) parseNodeWithCollection(emit func(triplePat)) (node, error) {
 	switch {
 	case p.peek().is("("):
 		return p.parseCollection(emit)
-	case p.peek().is("[") && !p.peekN(1).is("]"):
+	case p.peek().is("[") && !p.peekNext().is("]"):
 		p.i++
 		b := p.freshBlank()
 
@@ -1175,14 +1204,14 @@ func (p *parser) parseGraphTerm() (node, error) {
 
 		return termNode(lit), err
 	case tIdent:
-		if t.kw("true") || t.kw("false") {
+		if t.kw(lexTrue) || t.kw(lexFalse) {
 			p.i++
 
 			return termNode(Typed(strings.ToLower(t.val), XSDBoolean)), nil
 		}
 	case tPunct:
 		switch {
-		case t.is("[") && p.peekN(1).is("]"):
+		case t.is("[") && p.peekNext().is("]"):
 			p.i += 2
 
 			return p.freshBlank(), nil

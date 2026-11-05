@@ -94,7 +94,8 @@ type Query struct {
 	grouped   bool
 }
 
-type element interface{}
+// element is one entry of a group graph pattern.
+type element interface{ patternElement() }
 
 type group struct{ Elems []element }
 
@@ -124,8 +125,28 @@ type subSelectEl struct{ Q *Query }
 
 type groupEl struct{ G *group }
 
+func (*bgpEl) patternElement() {}
+
+func (*optionalEl) patternElement() {}
+
+func (*unionEl) patternElement() {}
+
+func (*minusEl) patternElement() {}
+
+func (*filterEl) patternElement() {}
+
+func (*bindEl) patternElement() {}
+
+func (*valuesEl) patternElement() {}
+
+func (*graphEl) patternElement() {}
+
+func (*subSelectEl) patternElement() {}
+
+func (*groupEl) patternElement() {}
+
 // Expr is a SPARQL expression node.
-type Expr interface{}
+type Expr any
 
 type exprVar struct{ Name string }
 

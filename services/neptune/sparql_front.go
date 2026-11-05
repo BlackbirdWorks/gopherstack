@@ -72,7 +72,7 @@ func readSparqlCall(w http.ResponseWriter, r *http.Request) (sparqlCall, error) 
 	case http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, cypherMaxBody)
 
-		ct := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
+		ct := mediaType(r.Header.Get("Content-Type"))
 
 		switch ct {
 		case mimeSparqlQ, mimeSparqlU:
@@ -132,8 +132,12 @@ func (f *cypherFront) serveSparql(w http.ResponseWriter, r *http.Request) {
 
 		return
 	case errors.Is(err, errUnsupportedMedia):
-		writeCypherError(w, http.StatusUnsupportedMediaType, codeUnsupMedia,
-			"Content-Type must be application/x-www-form-urlencoded, application/sparql-query or application/sparql-update")
+		writeCypherError(
+			w,
+			http.StatusUnsupportedMediaType,
+			codeUnsupMedia,
+			"Content-Type must be application/x-www-form-urlencoded, application/sparql-query or application/sparql-update",
+		)
 
 		return
 	case err != nil:
@@ -157,8 +161,20 @@ func (f *cypherFront) serveSparql(w http.ResponseWriter, r *http.Request) {
 
 		f.runSparqlUpdate(w, r, call)
 	default:
-		writeCypherError(w, http.StatusBadRequest, codeMissingParam, "Required parameter 'query' or 'update' is missing")
+		writeCypherError(
+			w,
+			http.StatusBadRequest,
+			codeMissingParam,
+			"Required parameter 'query' or 'update' is missing",
+		)
 	}
+}
+
+// mediaType returns the lower-cased media type of a Content-Type value, without parameters.
+func mediaType(h string) string {
+	mt, _, _ := strings.Cut(h, ";")
+
+	return strings.ToLower(strings.TrimSpace(mt))
 }
 
 func iris(ss []string) []sparql.Term {
@@ -288,8 +304,7 @@ func writeSparqlFailure(ctx context.Context, w http.ResponseWriter, err error) {
 		return
 	}
 
-	var pe *sparql.ParseError
-	if errors.As(err, &pe) {
+	if pe, ok := errors.AsType[*sparql.ParseError](err); ok {
 		writeCypherError(w, http.StatusBadRequest, codeMalformed, pe.Msg)
 
 		return
@@ -333,7 +348,11 @@ func selectOffers() []offer {
 }
 
 func askOffers() []offer {
-	return append(selectOffers(), offer{mime: "text/boolean", result: sparql.ResultBoolean})
+	return []offer{
+		{mime: mimeSparqlJSON, result: sparql.ResultJSON}, {mime: "application/json", result: sparql.ResultJSON},
+		{mime: mimeSparqlXML, result: sparql.ResultXML}, {mime: "application/xml", result: sparql.ResultXML},
+		{mime: "text/xml", result: sparql.ResultXML}, {mime: "text/boolean", result: sparql.ResultBoolean},
+	}
 }
 
 func graphOffers() []offer {
@@ -367,20 +386,15 @@ func negotiateResult(w http.ResponseWriter, r *http.Request, q *sparql.Query) (e
 	return encoder{mime: o.mime, result: o.result, rdf: o.rdf, graph: graph}, true
 }
 
-// negotiate picks the first offer matching the Accept header by descending quality; the first offer is the default.
-func negotiate(accept string, offers []offer) (offer, bool) {
-	if strings.TrimSpace(accept) == "" {
-		return offers[0], true
-	}
+type acceptRange struct {
+	mime string
+	q    float64
+}
 
-	type rng struct {
-		mime string
-		q    float64
-	}
+func parseAccept(accept string) []acceptRange {
+	var ranges []acceptRange
 
-	var ranges []rng
-
-	for _, part := range strings.Split(accept, ",") {
+	for part := range strings.SplitSeq(accept, ",") {
 		fields := strings.Split(strings.TrimSpace(part), ";")
 		qv := 1.0
 
@@ -393,18 +407,34 @@ func negotiate(accept string, offers []offer) (offer, bool) {
 		}
 
 		if qv > 0 {
-			ranges = append(ranges, rng{mime: strings.ToLower(strings.TrimSpace(fields[0])), q: qv})
+			ranges = append(ranges, acceptRange{mime: mediaType(fields[0]), q: qv})
 		}
 	}
 
 	sort.SliceStable(ranges, func(i, j int) bool { return ranges[i].q > ranges[j].q })
 
-	for _, rg := range ranges {
+	return ranges
+}
+
+func rangeMatches(rng, mime string) bool {
+	if rng == "*/*" || rng == mime {
+		return true
+	}
+
+	prefix, wild := strings.CutSuffix(rng, "*")
+
+	return wild && strings.HasPrefix(mime, prefix)
+}
+
+// negotiate picks the first offer matching the Accept header by descending quality; the first offer is the default.
+func negotiate(accept string, offers []offer) (offer, bool) {
+	if strings.TrimSpace(accept) == "" {
+		return offers[0], true
+	}
+
+	for _, rg := range parseAccept(accept) {
 		for _, o := range offers {
-			switch {
-			case rg.mime == o.mime, rg.mime == "*/*":
-				return o, true
-			case strings.HasSuffix(rg.mime, "/*") && strings.HasPrefix(o.mime, strings.TrimSuffix(rg.mime, "*")):
+			if rangeMatches(rg.mime, o.mime) {
 				return o, true
 			}
 		}

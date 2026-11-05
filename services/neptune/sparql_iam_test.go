@@ -21,11 +21,18 @@ func TestSparqlDataPlaneIAM(t *testing.T) {
 		path       string
 		body       string
 		accessKey  string
-		enforce    bool
 		wantBody   string
 		wantStatus int
+		enforce    bool
 	}{
-		{name: "unsigned denied", method: "GET", path: ask, enforce: true, wantStatus: 403, wantBody: "AccessDeniedException"},
+		{
+			name:       "unsigned denied",
+			method:     "GET",
+			path:       ask,
+			enforce:    true,
+			wantStatus: 403,
+			wantBody:   "AccessDeniedException",
+		},
 		{name: "read key may query", method: "GET", path: ask, accessKey: "AKIAREAD", enforce: true, wantStatus: 200},
 		{name: "read key cannot insert", method: "POST", path: "/sparql", body: updateBody, accessKey: "AKIAREAD",
 			enforce: true, wantStatus: 403, wantBody: "neptune-db:WriteDataViaQuery"},

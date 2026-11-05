@@ -19,15 +19,21 @@ const (
 	ResultBoolean
 )
 
+const (
+	keyType  = "type"
+	keyValue = "value"
+)
+
 func jsonTerm(t Term) map[string]string {
 	switch t.Kind {
 	case KindIRI:
-		return map[string]string{"type": "uri", "value": t.Value}
+		return map[string]string{keyType: "uri", keyValue: t.Value}
 	case KindBlank:
-		return map[string]string{"type": "bnode", "value": t.Value}
+		return map[string]string{keyType: "bnode", keyValue: t.Value}
+	case KindNone, KindLiteral:
 	}
 
-	m := map[string]string{"type": "literal", "value": t.Value}
+	m := map[string]string{keyType: "literal", keyValue: t.Value}
 
 	switch {
 	case t.Lang != "":
@@ -72,10 +78,10 @@ func writeAsk(v bool, f ResultFormat) ([]byte, error) {
 
 func boolStr(v bool) string {
 	if v {
-		return "true"
+		return lexTrue
 	}
 
-	return "false"
+	return lexFalse
 }
 
 func writeSelectJSON(r *Result) ([]byte, error) {
@@ -107,7 +113,9 @@ func writeSelectJSON(r *Result) ([]byte, error) {
 func writeSelectXML(r *Result) ([]byte, error) {
 	var b bytes.Buffer
 
-	b.WriteString(`<?xml version="1.0"?>` + "\n" + `<sparql xmlns="http://www.w3.org/2005/sparql-results#">` + "\n  <head>\n")
+	b.WriteString(
+		`<?xml version="1.0"?>` + "\n" + `<sparql xmlns="http://www.w3.org/2005/sparql-results#">` + "\n  <head>\n",
+	)
 
 	for _, v := range r.Vars {
 		b.WriteString(`    <variable name="` + xmlEscape(v) + `"/>` + "\n")
@@ -149,6 +157,7 @@ func xmlTerm(t Term) string {
 		return "<uri>" + xmlText(t.Value) + "</uri>"
 	case KindBlank:
 		return "<bnode>" + xmlText(t.Value) + "</bnode>"
+	case KindNone, KindLiteral:
 	}
 
 	switch {

@@ -1,5 +1,7 @@
 package sparql
 
+import "math"
+
 func resolveNode(n node, b Binding) Term {
 	if n.isVar() {
 		return b[n.Var]
@@ -36,7 +38,7 @@ func (ev *evaluator) matchPats(pending []triplePat, b Binding, gc Term, out *[]B
 }
 
 func pickPattern(pending []triplePat, b Binding) int {
-	best, bestScore := 0, -1<<30
+	best, bestScore := 0, math.MinInt32
 
 	for i, tp := range pending {
 		score := 0
@@ -129,20 +131,7 @@ func (ev *evaluator) matchPath(tp triplePat, b Binding, gc Term, next func(Bindi
 func (ev *evaluator) pathPairs(pa *path, s, o, gc Term, fn func(s, o Term) error) error {
 	switch {
 	case s.Bound():
-		ends, err := ev.step(pa, s, gc, true)
-		if err != nil {
-			return err
-		}
-
-		for _, e := range ends {
-			if o.Bound() && e != o {
-				continue
-			}
-
-			if err = fn(s, e); err != nil {
-				return err
-			}
-		}
+		return ev.pathFrom(pa, s, o, gc, fn)
 	case o.Bound():
 		starts, err := ev.step(pa, o, gc, false)
 		if err != nil {
@@ -154,18 +143,33 @@ func (ev *evaluator) pathPairs(pa *path, s, o, gc Term, fn func(s, o Term) error
 				return err
 			}
 		}
+
+		return nil
 	default:
 		for _, n := range ev.allNodes(gc) {
-			ends, err := ev.step(pa, n, gc, true)
-			if err != nil {
+			if err := ev.pathFrom(pa, n, Term{}, gc, fn); err != nil {
 				return err
 			}
+		}
 
-			for _, e := range ends {
-				if err = fn(n, e); err != nil {
-					return err
-				}
-			}
+		return nil
+	}
+}
+
+// pathFrom walks pa forward from s, keeping only ends equal to o when o is bound.
+func (ev *evaluator) pathFrom(pa *path, s, o, gc Term, fn func(s, o Term) error) error {
+	ends, err := ev.step(pa, s, gc, true)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range ends {
+		if o.Bound() && e != o {
+			continue
+		}
+
+		if err = fn(s, e); err != nil {
+			return err
 		}
 	}
 
@@ -201,15 +205,13 @@ type termSet struct {
 
 func newTermSet() *termSet { return &termSet{seen: map[Term]struct{}{}} }
 
-func (s *termSet) add(t Term) bool {
+func (s *termSet) add(t Term) {
 	if _, ok := s.seen[t]; ok {
-		return false
+		return
 	}
 
 	s.seen[t] = struct{}{}
 	s.list = append(s.list, t)
-
-	return true
 }
 
 // step returns the distinct nodes reached from start along pa (forward) or reaching start (reverse).
@@ -265,9 +267,17 @@ func (ev *evaluator) linkStep(iri, start, gc Term, fwd bool) []Term {
 	out := newTermSet()
 
 	if fwd {
-		ev.scan(gc, start, iri, Term{}, func(q Quad) bool { out.add(q.O); return true })
+		ev.scan(gc, start, iri, Term{}, func(q Quad) bool {
+			out.add(q.O)
+
+			return true
+		})
 	} else {
-		ev.scan(gc, Term{}, iri, start, func(q Quad) bool { out.add(q.S); return true })
+		ev.scan(gc, Term{}, iri, start, func(q Quad) bool {
+			out.add(q.S)
+
+			return true
+		})
 	}
 
 	return out.list

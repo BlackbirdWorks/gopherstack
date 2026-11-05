@@ -3,6 +3,7 @@ package sparql
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -111,10 +112,12 @@ func writeTriG(buf *bytes.Buffer, qs []Quad) {
 	}
 }
 
+var errUnwritablePredicate = errors.New("predicate cannot be written as RDF/XML")
+
 func splitQName(iri string) (string, string, bool) {
 	for i := len(iri) - 1; i > 0; i-- {
 		r := rune(iri[i])
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.') {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_' && r != '-' && r != '.' {
 			ns, local := iri[:i+1], iri[i+1:]
 			if local != "" && (unicode.IsLetter(rune(local[0])) || local[0] == '_') {
 				return ns, local, true
@@ -176,7 +179,7 @@ func xmlEscape(s string) string {
 func writeXMLProperty(buf *bytes.Buffer, q Quad) error {
 	ns, local, ok := splitQName(q.P.Value)
 	if !ok {
-		return fmt.Errorf("predicate %s cannot be written as RDF/XML", q.P.Value) //nolint:err113 // reported to the caller verbatim
+		return fmt.Errorf("%w: %s", errUnwritablePredicate, q.P.Value)
 	}
 
 	open := "    <p:" + local + ` xmlns:p="` + xmlEscape(ns) + `"`

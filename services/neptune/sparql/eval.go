@@ -2,6 +2,8 @@ package sparql
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,13 +73,7 @@ func (ev *evaluator) namedAllowed(g Term) bool {
 		return true
 	}
 
-	for _, n := range ev.ds.named {
-		if n == g {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(ev.ds.named, g)
 }
 
 func (ev *evaluator) namedGraphs() []Term {
@@ -234,18 +230,7 @@ func (ev *evaluator) evalElement(el element, gc Term, sols []Binding) ([]Binding
 
 		return ev.join(sols, r, filters, true, gc)
 	case *unionEl:
-		var all []Binding
-
-		for _, alt := range x.Alts {
-			r, err := ev.evalGroup(alt, gc)
-			if err != nil {
-				return nil, err
-			}
-
-			all = append(all, r...)
-		}
-
-		return ev.join(sols, all, nil, false, gc)
+		return ev.evalUnion(x, sols, gc)
 	case *minusEl:
 		r, err := ev.evalGroup(x.G, gc)
 		if err != nil {
@@ -276,6 +261,21 @@ func (ev *evaluator) evalElement(el element, gc Term, sols []Binding) ([]Binding
 	default:
 		return nil, syntaxf("unsupported pattern element")
 	}
+}
+
+func (ev *evaluator) evalUnion(x *unionEl, sols []Binding, gc Term) ([]Binding, error) {
+	var all []Binding
+
+	for _, alt := range x.Alts {
+		r, err := ev.evalGroup(alt, gc)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, r...)
+	}
+
+	return ev.join(sols, all, nil, false, gc)
 }
 
 func (ev *evaluator) evalBind(x *bindEl, sols []Binding, gc Term) []Binding {
@@ -369,13 +369,9 @@ func compatible(a, b Binding) bool {
 
 func merge(a, b Binding) Binding {
 	out := make(Binding, len(a)+len(b))
-	for k, v := range a {
-		out[k] = v
-	}
+	maps.Copy(out, a)
 
-	for k, v := range b {
-		out[k] = v
-	}
+	maps.Copy(out, b)
 
 	return out
 }
@@ -415,17 +411,8 @@ func (ev *evaluator) join(a, b []Binding, cond []Expr, keep bool, gc Term) ([]Bi
 		return b, nil
 	}
 
-	var index map[string][]Binding
-
 	common := commonVars(a, b)
-	if len(common) > 0 && len(b) > 8 {
-		index = make(map[string][]Binding, len(b))
-		for _, r := range b {
-			k := bindingKey(r, common)
-			index[k] = append(index[k], r)
-		}
-	}
-
+	index := joinIndex(b, common)
 	out := make([]Binding, 0, len(a))
 
 	for _, l := range a {
@@ -438,29 +425,41 @@ func (ev *evaluator) join(a, b []Binding, cond []Expr, keep bool, gc Term) ([]Bi
 			cands = index[bindingKey(l, common)]
 		}
 
-		matched := false
+		before := len(out)
 
 		for _, r := range cands {
 			if !compatible(l, r) {
 				continue
 			}
 
-			m := merge(l, r)
-			if len(cond) > 0 && !ev.passes(cond, m, gc) {
-				continue
+			if m := merge(l, r); len(cond) == 0 || ev.passes(cond, m, gc) {
+				out = append(out, m)
 			}
-
-			matched = true
-
-			out = append(out, m)
 		}
 
-		if keep && !matched {
+		if keep && len(out) == before {
 			out = append(out, l)
 		}
 	}
 
 	return out, nil
+}
+
+const joinIndexThreshold = 8
+
+func joinIndex(b []Binding, common []string) map[string][]Binding {
+	if len(common) == 0 || len(b) <= joinIndexThreshold {
+		return nil
+	}
+
+	index := make(map[string][]Binding, len(b))
+
+	for _, r := range b {
+		k := bindingKey(r, common)
+		index[k] = append(index[k], r)
+	}
+
+	return index
 }
 
 func minus(a, b []Binding) []Binding {
@@ -506,45 +505,62 @@ func sortedKeys(b Binding) []string {
 	return keys
 }
 
-func collectVars(g *group, seen map[string]bool, out *[]string) {
-	add := func(n node) {
-		if n.isVar() && !strings.HasPrefix(n.Var, "_:") && !seen[n.Var] {
-			seen[n.Var] = true
-			*out = append(*out, n.Var)
-		}
-	}
+type varCollector struct {
+	seen map[string]bool
+	out  []string
+}
 
+func (c *varCollector) add(n node) {
+	if n.isVar() && !strings.HasPrefix(n.Var, "_:") && !c.seen[n.Var] {
+		c.seen[n.Var] = true
+		c.out = append(c.out, n.Var)
+	}
+}
+
+func (c *varCollector) group(g *group) {
 	for _, el := range g.Elems {
-		switch x := el.(type) {
-		case *bgpEl:
-			for _, tp := range x.Triples {
-				add(tp.S)
-				add(tp.P)
-				add(tp.O)
-			}
-		case *optionalEl:
-			collectVars(x.G, seen, out)
-		case *unionEl:
-			for _, a := range x.Alts {
-				collectVars(a, seen, out)
-			}
-		case *bindEl:
-			add(varNode(x.Var))
-		case *valuesEl:
-			for _, v := range x.V.Vars {
-				add(varNode(v))
-			}
-		case *graphEl:
-			add(x.Name)
-			collectVars(x.G, seen, out)
-		case *subSelectEl:
-			for _, v := range projectedVars(x.Q) {
-				add(varNode(v))
-			}
-		case *groupEl:
-			collectVars(x.G, seen, out)
+		c.element(el)
+	}
+}
+
+func (c *varCollector) element(el element) {
+	switch x := el.(type) {
+	case *bgpEl:
+		for _, tp := range x.Triples {
+			c.add(tp.S)
+			c.add(tp.P)
+			c.add(tp.O)
+		}
+	case *optionalEl:
+		c.group(x.G)
+	case *groupEl:
+		c.group(x.G)
+	case *unionEl:
+		for _, a := range x.Alts {
+			c.group(a)
+		}
+	case *bindEl:
+		c.add(varNode(x.Var))
+	case *valuesEl:
+		for _, v := range x.V.Vars {
+			c.add(varNode(v))
+		}
+	case *graphEl:
+		c.add(x.Name)
+		c.group(x.G)
+	case *subSelectEl:
+		for _, v := range projectedVars(x.Q) {
+			c.add(varNode(v))
 		}
 	}
+}
+
+// patternVars lists the variables of a pattern in order of first appearance, hiding blank-node variables.
+func patternVars(g *group) []string {
+	c := &varCollector{seen: map[string]bool{}}
+	c.group(g)
+
+	return c.out
 }
 
 func projectedVars(q *Query) []string {
@@ -557,9 +573,5 @@ func projectedVars(q *Query) []string {
 		return vars
 	}
 
-	var out []string
-
-	collectVars(q.Where, map[string]bool{}, &out)
-
-	return out
+	return patternVars(q.Where)
 }

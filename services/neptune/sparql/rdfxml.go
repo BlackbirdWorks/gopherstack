@@ -14,17 +14,23 @@ const xmlNS = "http://www.w3.org/XML/1998/namespace"
 
 type xmlParser struct {
 	dec   *xml.Decoder
-	opts  ParseOptions
 	doc   string
-	graph Term
 	base  string
+	graph Term
 	out   []Quad
-	bn    int
 	li    []int
+	opts  ParseOptions
+	bn    int
 }
 
 func parseRDFXML(data []byte, opts ParseOptions, doc string) ([]Quad, error) {
-	p := &xmlParser{dec: xml.NewDecoder(bytes.NewReader(data)), opts: opts, doc: doc, graph: opts.graph(), base: opts.base()}
+	p := &xmlParser{
+		dec:   xml.NewDecoder(bytes.NewReader(data)),
+		opts:  opts,
+		doc:   doc,
+		graph: opts.graph(),
+		base:  opts.base(),
+	}
 	p.dec.Strict = true
 
 	for {
@@ -108,7 +114,7 @@ func isRDFAttr(a xml.Attr, local string) bool {
 }
 
 func (p *xmlParser) emit(s, pr, o Term) {
-	p.out = append(p.out, Quad{Triple: Triple{S: s, P: pr, O: o}, G: p.graph})
+	p.out = append(p.out, Quad{S: s, P: pr, O: o, G: p.graph})
 }
 
 func (p *xmlParser) scope(attrs []xml.Attr, lang string) (string, func()) {
@@ -151,28 +157,11 @@ func (p *xmlParser) nodeElement(start xml.StartElement, lang string) (Term, erro
 
 	defer func() { p.li = p.li[:len(p.li)-1] }()
 
-	if !(start.Name.Space == NSRDF && start.Name.Local == "Description") {
+	if start.Name.Space != NSRDF || start.Name.Local != "Description" {
 		p.emit(subj, IRI(RDFType), IRI(start.Name.Space+start.Name.Local))
 	}
 
-	for _, a := range start.Attr {
-		if a.Name.Space == "xmlns" || a.Name.Space == xmlNS || a.Name.Space == "xml" || a.Name.Space == "" {
-			continue
-		}
-
-		if a.Name.Space == NSRDF {
-			switch a.Name.Local {
-			case "about", "ID", "nodeID":
-				continue
-			case "type":
-				p.emit(subj, IRI(RDFType), IRI(p.resolve(a.Value)))
-
-				continue
-			}
-		}
-
-		p.emit(subj, IRI(a.Name.Space+a.Name.Local), p.plain(a.Value, lang))
-	}
+	p.propertyAttrs(start, subj, lang)
 
 	for {
 		tok, err := p.dec.Token()
@@ -187,6 +176,20 @@ func (p *xmlParser) nodeElement(start xml.StartElement, lang string) (Term, erro
 			}
 		case xml.EndElement:
 			return subj, nil
+		}
+	}
+}
+
+// propertyAttrs emits the property attributes of a node element as literal (or rdf:type) statements.
+func (p *xmlParser) propertyAttrs(start xml.StartElement, subj Term, lang string) {
+	for _, a := range start.Attr {
+		switch {
+		case a.Name.Space == "xmlns" || a.Name.Space == xmlNS || a.Name.Space == "xml" || a.Name.Space == "":
+		case a.Name.Space == NSRDF && (a.Name.Local == "about" || a.Name.Local == "ID" || a.Name.Local == "nodeID"):
+		case a.Name.Space == NSRDF && a.Name.Local == "type":
+			p.emit(subj, IRI(RDFType), IRI(p.resolve(a.Value)))
+		default:
+			p.emit(subj, IRI(a.Name.Space+a.Name.Local), p.plain(a.Value, lang))
 		}
 	}
 }

@@ -43,14 +43,14 @@ func (ev *evaluator) evalAggregate(c exprCall, en *env) (Term, error) {
 	vals := ev.aggregateValues(c, en)
 
 	switch c.Name {
-	case "COUNT":
+	case aggCount:
 		return intTerm(int64(len(vals))), nil
 	case "SUM":
 		return sumTerms(vals)
 	case "AVG":
 		return avgTerms(vals)
 	case "MIN", "MAX":
-		return extremum(vals, c.Name == "MAX")
+		return extremum(vals, c.Name == aggMax)
 	case "SAMPLE":
 		if len(vals) == 0 {
 			return Term{}, errUnbound

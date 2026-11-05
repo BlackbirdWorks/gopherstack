@@ -156,10 +156,10 @@ func parseTurtleDoc(src string, opts ParseOptions, doc string, trig bool) ([]Qua
 
 type turtle struct {
 	*parser
-	opts   ParseOptions
 	doc    string
 	graph  Term
 	out    []Quad
+	opts   ParseOptions
 	record int
 	quads  bool
 }
@@ -219,7 +219,7 @@ func (t *turtle) statement(trig bool) error {
 func (t *turtle) isGraphBlockStart() bool {
 	k := t.peek().kind
 
-	return (k == tIRI || k == tPName || k == tBlank) && t.peekN(1).is("{")
+	return (k == tIRI || k == tPName || k == tBlank) && t.peekNext().is("{")
 }
 
 func (t *turtle) prefixDecl(dot bool) error {
@@ -313,7 +313,7 @@ func (t *turtle) newBlank() Term {
 }
 
 func (t *turtle) emit(s, p, o, g Term) {
-	t.out = append(t.out, Quad{Triple: Triple{S: s, P: p, O: o}, G: g})
+	t.out = append(t.out, Quad{S: s, P: p, O: o, G: g})
 }
 
 func (t *turtle) triples() error {
@@ -322,7 +322,7 @@ func (t *turtle) triples() error {
 		err  error
 	)
 
-	if t.peek().is("[") && !t.peekN(1).is("]") {
+	if t.peek().is("[") && !t.peekNext().is("]") {
 		t.i++
 		subj = t.newBlank()
 
@@ -362,7 +362,7 @@ func (t *turtle) subjectTerm() (Term, error) {
 		return t.blankTerm(tok.val), nil
 	case tok.is("("):
 		return t.collection()
-	case tok.is("[") && t.peekN(1).is("]"):
+	case tok.is("[") && t.peekNext().is("]"):
 		t.i += 2
 
 		return t.newBlank(), nil
@@ -479,7 +479,7 @@ func (t *turtle) objectTerm() (Term, error) {
 	case tok.kind == tIRI || tok.kind == tPName || tok.kind == tBlank || tok.is("("):
 		return t.subjectTerm()
 	case tok.is("["):
-		if t.peekN(1).is("]") {
+		if t.peekNext().is("]") {
 			t.i += 2
 
 			return t.newBlank(), nil
@@ -493,7 +493,7 @@ func (t *turtle) objectTerm() (Term, error) {
 		}
 
 		return b, t.expectP("]")
-	case tok.kw("true") || tok.kw("false"):
+	case tok.kw(lexTrue) || tok.kw(lexFalse):
 		t.i++
 
 		return Typed(strings.ToLower(tok.val), XSDBoolean), nil

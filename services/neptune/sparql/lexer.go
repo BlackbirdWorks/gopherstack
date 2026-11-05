@@ -78,10 +78,10 @@ func (l *lexer) skipSpace() {
 	for l.pos < len(l.src) {
 		c := l.src[l.pos]
 
-		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		switch c {
+		case ' ', '\t', '\n', '\r':
 			l.pos++
-		case c == '#':
+		case '#':
 			for l.pos < len(l.src) && l.src[l.pos] != '\n' {
 				l.pos++
 			}
@@ -99,6 +99,10 @@ func (l *lexer) peekRune() (rune, int) {
 	return utf8.DecodeRuneInString(l.src[l.pos:])
 }
 
+func (l *lexer) tok(k tokKind, v string, start int) (token, error) {
+	return token{kind: k, val: v, pos: start}, nil
+}
+
 func (l *lexer) next() (token, error) {
 	l.skipSpace()
 
@@ -108,43 +112,22 @@ func (l *lexer) next() (token, error) {
 	}
 
 	c := l.src[l.pos]
-	tok := func(k tokKind, v string) (token, error) { return token{kind: k, val: v, pos: start}, nil }
 
 	switch {
 	case c == '<':
-		if end := l.iriEnd(); end > 0 {
-			raw := l.src[l.pos+1 : end]
-			l.pos = end + 1
-
-			v, err := unescape(raw, true)
-			if err != nil {
-				return token{}, err
-			}
-
-			return tok(tIRI, v)
-		}
-
-		if strings.HasPrefix(l.src[l.pos:], "<=") {
-			l.pos += 2
-
-			return tok(tPunct, "<=")
-		}
-
-		l.pos++
-
-		return tok(tPunct, "<")
+		return l.lexAngle(start)
 	case c == '"' || c == '\'':
 		return l.lexString(start)
 	case c == '?' || c == '$':
 		if v := l.scanName(l.pos + 1); v != "" {
 			l.pos += 1 + len(v)
 
-			return tok(tVar, v)
+			return l.tok(tVar, v, start)
 		}
 
 		l.pos++
 
-		return tok(tPunct, "?")
+		return l.tok(tPunct, "?", start)
 	case c == '@':
 		v := l.scanName(l.pos + 1)
 		if v == "" {
@@ -153,16 +136,60 @@ func (l *lexer) next() (token, error) {
 
 		l.pos += 1 + len(v)
 
-		return tok(tLang, v)
-	case c == '_' && l.pos+1 < len(l.src) && l.src[l.pos+1] == ':':
-		v := l.scanLocal(l.pos + 2)
-		l.pos += 2 + len(v)
+		return l.tok(tLang, v, start)
+	case c == '_' && l.at(1) == ':':
+		v := l.scanLocal(l.pos + blankPrefixLen)
+		l.pos += blankPrefixLen + len(v)
 
-		return tok(tBlank, v)
-	case c >= '0' && c <= '9', c == '.' && l.pos+1 < len(l.src) && l.src[l.pos+1] >= '0' && l.src[l.pos+1] <= '9':
+		return l.tok(tBlank, v, start)
+	case isDigit(c), c == '.' && isDigit(l.at(1)):
 		return l.lexNumber(start)
 	}
 
+	return l.lexOther(c, start)
+}
+
+const (
+	blankPrefixLen = 2
+	longQuoteLen   = 3
+)
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+// at returns the byte n positions ahead of the cursor, or 0 past the end.
+func (l *lexer) at(n int) byte {
+	if l.pos+n >= len(l.src) {
+		return 0
+	}
+
+	return l.src[l.pos+n]
+}
+
+func (l *lexer) lexAngle(start int) (token, error) {
+	if end := l.iriEnd(); end > 0 {
+		raw := l.src[l.pos+1 : end]
+		l.pos = end + 1
+
+		v, err := unescape(raw, true)
+		if err != nil {
+			return token{}, err
+		}
+
+		return l.tok(tIRI, v, start)
+	}
+
+	if l.at(1) == '=' {
+		l.pos += 2
+
+		return l.tok(tPunct, "<=", start)
+	}
+
+	l.pos++
+
+	return l.tok(tPunct, "<", start)
+}
+
+func (l *lexer) lexOther(c byte, start int) (token, error) {
 	if r, _ := l.peekRune(); isNameStart(r) || c == ':' {
 		return l.lexName(start)
 	}
@@ -171,14 +198,14 @@ func (l *lexer) next() (token, error) {
 		if strings.HasPrefix(l.src[l.pos:], p) {
 			l.pos += len(p)
 
-			return tok(tPunct, p)
+			return l.tok(tPunct, p, start)
 		}
 	}
 
 	if strings.ContainsRune("{}()[].,;*/+-^|!=>&", rune(c)) {
 		l.pos++
 
-		return tok(tPunct, string(c))
+		return l.tok(tPunct, string(c), start)
 	}
 
 	return token{}, syntaxf("unexpected character %q at offset %d", c, start)
@@ -302,38 +329,28 @@ func (l *lexer) pnameAhead(i int) bool {
 	return false
 }
 
-func (l *lexer) lexNumber(start int) (token, error) {
-	i := l.pos
-	kind := tInt
-
-	for i < len(l.src) && l.src[i] >= '0' && l.src[i] <= '9' {
+func (l *lexer) digitsEnd(i int) int {
+	for i < len(l.src) && isDigit(l.src[i]) {
 		i++
 	}
 
-	if i+1 < len(l.src) && l.src[i] == '.' && l.src[i+1] >= '0' && l.src[i+1] <= '9' {
-		kind = tDecimal
-		i++
+	return i
+}
 
-		for i < len(l.src) && l.src[i] >= '0' && l.src[i] <= '9' {
-			i++
-		}
-	} else if i < len(l.src) && l.src[i] == '.' && i == l.pos {
+func (l *lexer) lexNumber(start int) (token, error) {
+	i := l.digitsEnd(l.pos)
+	kind := tInt
+
+	switch {
+	case i+1 < len(l.src) && l.src[i] == '.' && isDigit(l.src[i+1]):
+		kind = tDecimal
+		i = l.digitsEnd(i + 1)
+	case i < len(l.src) && l.src[i] == '.' && i == l.pos:
 		return token{}, syntaxf("invalid number at offset %d", start)
 	}
 
-	if i < len(l.src) && (l.src[i] == 'e' || l.src[i] == 'E') {
-		j := i + 1
-		if j < len(l.src) && (l.src[j] == '+' || l.src[j] == '-') {
-			j++
-		}
-
-		if j < len(l.src) && l.src[j] >= '0' && l.src[j] <= '9' {
-			for j < len(l.src) && l.src[j] >= '0' && l.src[j] <= '9' {
-				j++
-			}
-
-			kind, i = tDouble, j
-		}
+	if end, ok := l.exponentEnd(i); ok {
+		kind, i = tDouble, end
 	}
 
 	v := l.src[l.pos:i]
@@ -342,15 +359,33 @@ func (l *lexer) lexNumber(start int) (token, error) {
 	return token{kind: kind, val: v, pos: start}, nil
 }
 
+// exponentEnd returns the end of an exponent part starting at i, if there is one.
+func (l *lexer) exponentEnd(i int) (int, bool) {
+	if i >= len(l.src) || (l.src[i] != 'e' && l.src[i] != 'E') {
+		return 0, false
+	}
+
+	j := i + 1
+	if j < len(l.src) && (l.src[j] == '+' || l.src[j] == '-') {
+		j++
+	}
+
+	if j >= len(l.src) || !isDigit(l.src[j]) {
+		return 0, false
+	}
+
+	return l.digitsEnd(j), true
+}
+
 func (l *lexer) lexString(start int) (token, error) {
 	q := l.src[l.pos]
-	long := strings.HasPrefix(l.src[l.pos:], strings.Repeat(string(q), 3))
+	long := strings.HasPrefix(l.src[l.pos:], strings.Repeat(string(q), longQuoteLen))
 
 	var closer string
 
 	if long {
-		closer = strings.Repeat(string(q), 3)
-		l.pos += 3
+		closer = strings.Repeat(string(q), longQuoteLen)
+		l.pos += longQuoteLen
 	} else {
 		closer = string(q)
 		l.pos++
@@ -384,6 +419,25 @@ func (l *lexer) lexString(start int) (token, error) {
 	return token{}, syntaxf("unterminated string at offset %d", start)
 }
 
+func simpleEscape(c byte) (byte, bool) {
+	switch c {
+	case 't':
+		return '\t', true
+	case 'n':
+		return '\n', true
+	case 'r':
+		return '\r', true
+	case 'b':
+		return '\b', true
+	case 'f':
+		return '\f', true
+	case '"', '\'', '\\':
+		return c, true
+	default:
+		return 0, false
+	}
+}
+
 func unescape(s string, iri bool) (string, error) {
 	if !strings.Contains(s, `\`) {
 		return s, nil
@@ -403,34 +457,25 @@ func unescape(s string, iri bool) (string, error) {
 			return "", syntaxf("dangling escape")
 		}
 
-		switch s[i] {
-		case 'u', 'U':
-			n := 4
-			if s[i] == 'U' {
-				n = 8
-			}
-
-			if i+1+n > len(s) {
-				return "", syntaxf("bad unicode escape")
-			}
-
-			v, err := strconv.ParseUint(s[i+1:i+1+n], 16, 32)
+		if s[i] == 'u' || s[i] == 'U' {
+			r, _, tail, err := strconv.UnquoteChar(s[i-1:], 0)
 			if err != nil {
 				return "", syntaxf("bad unicode escape")
 			}
 
-			sb.WriteRune(rune(v))
+			sb.WriteRune(r)
 
-			i += n
-		case 't', 'n', 'r', 'b', 'f', '"', '\'', '\\':
-			if iri {
-				return "", syntaxf("invalid escape in IRI")
-			}
+			i = len(s) - len(tail) - 1
 
-			sb.WriteByte(map[byte]byte{'t': '\t', 'n': '\n', 'r': '\r', 'b': '\b', 'f': '\f', '"': '"', '\'': '\'', '\\': '\\'}[s[i]])
-		default:
+			continue
+		}
+
+		c, ok := simpleEscape(s[i])
+		if !ok || iri {
 			return "", syntaxf("invalid escape \\%c", s[i])
 		}
+
+		sb.WriteByte(c)
 	}
 
 	return sb.String(), nil

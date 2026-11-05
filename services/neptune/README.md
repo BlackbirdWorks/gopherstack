@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 6 |
+| Known gaps | 9 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 2 |
 | Resource leaks | clean |
@@ -16,7 +16,10 @@
 ### Known gaps
 
 - UNVERIFIABLE: OrderableDBInstanceOption.SupportedNetworkTypes stays empty; the pinned SDK states no per-instance-class network type support.
-- SPARQL is not served in any engine mode. The port speaks plain HTTP/WebSocket and unencrypted Bolt, not TLS. With NEPTUNE_GREMLIN=container (docker mode only) Gremlin runs in a stock tinkerpop/gremlin-server container whose graph is separate from the in-process openCypher/Bolt graph (the default in-process mode shares one graph).
+- SPARQL (services/neptune/sparql, served on the cluster port in embedded and docker modes): not produced or consumed are JSON-LD, TriX, RDF4J-binary and binary-results-table media types (Accept for them returns 406 UnsupportedMediaTypeException, code and status unverified); SPARQL LOAD reads only S3 URLs (s3:// and https://s3*.amazonaws.com), not arbitrary http(s) sources; SERVICE federation, SPARQL-star and Neptune's SPARQL query hints are rejected with MalformedQueryException; REDUCED is treated as DISTINCT; decimals use exact rationals and integers are 64-bit as documented, other numeric widths fold to xsd:integer/xsd:double results.
+- UNVERIFIED (recalled, not in fetched docs): the empty 200 body returned by a successful SPARQL update, the 415/406 error codes for unsupported request/Accept media types, 404 NotFound-style errors for missing Graph Store graphs, the 'Max concurrent load limit breached' message, IAM actions neptune-db:StartLoaderJob/GetLoaderJobStatus/ListLoaderJobs/CancelLoaderJob and the Sparql value of the neptune-db:QueryLanguage condition, and DELETE/INSERT templates without GRAPH or WITH targeting only the DefaultNamedGraph rather than every graph.
+- RDF bulk loader (/loader): only ntriples, nquads, turtle and rdfxml are loaded (csv and opencypher return BadRequestException); iamRoleArn is accepted but not required or assumed; mode/parallelism/edgeOnlyLoad/updateSingleCardinalityProperties are accepted and ignored; SSE-KMS permission checks and write-conflict statuses are not modelled; datatypeMismatchErrors and insertErrors always report 0; loader job history is in memory only and is not captured by Snapshot/Restore (loaded triples are).
+- Port speaks plain HTTP/WebSocket and unencrypted Bolt, not TLS. SPARQL explain returns a text/html rendering of this engine's own algebra, not Neptune's operator table. Neptune's SPARQL stream, statistics and engine-status endpoints are not served. With NEPTUNE_GREMLIN=container (docker mode only) Gremlin runs in a stock tinkerpop/gremlin-server container whose graph is separate from the in-process openCypher/Bolt graph (the default in-process mode shares one graph). The RDF store is always separate from the property graph, as in Neptune.
 - Bolt: explicit transactions hold the cluster graph exclusively until COMMIT/ROLLBACK/disconnect, and results are materialised before PULL streaming. Not smoke-tested against a real neo4j driver (none available on the dev box); proven by the pkgs/bolt protocol tests and the neptune bolt_front_test.go.
 - openCypher subset (services/neptune/opencypher): CALL/UNION/FOREACH/LOAD CSV, pattern predicates in WHERE, list comprehensions, shortestPath, temporal/spatial types and constraints are not implemented and return UnsupportedOperationException or MalformedQueryException.
 - NEPTUNE_GREMLIN=container: the Gremlin graph in the container is not captured by cluster snapshots or persistence; relaunched clusters start with an empty Gremlin graph. In the default in-process mode the single shared graph is persisted. The writer and reader endpoints are the same host:port.
