@@ -182,20 +182,21 @@ type Container struct {
 
 // Deployment represents an active or completed deployment on an ECS service.
 type Deployment struct {
-	CreatedAt          *float64 `json:"createdAt,omitempty"`
-	UpdatedAt          *float64 `json:"updatedAt,omitempty"`
-	ID                 string   `json:"id"`
-	Status             string   `json:"status"`
-	TaskDefinition     string   `json:"taskDefinition"`
-	LaunchType         string   `json:"launchType,omitempty"`
-	PlatformVersion    string   `json:"platformVersion,omitempty"`
-	RolloutState       string   `json:"rolloutState,omitempty"`
-	RolloutStateReason string   `json:"rolloutStateReason,omitempty"`
-	ServiceRevisionArn string   `json:"serviceRevisionArn,omitempty"`
-	DesiredCount       int      `json:"desiredCount"`
-	PendingCount       int      `json:"pendingCount"`
-	RunningCount       int      `json:"runningCount"`
-	FailedTasks        int      `json:"failedTasks"`
+	CreatedAt            *float64              `json:"createdAt,omitempty"`
+	UpdatedAt            *float64              `json:"updatedAt,omitempty"`
+	ID                   string                `json:"id"`
+	Status               string                `json:"status"`
+	TaskDefinition       string                `json:"taskDefinition"`
+	LaunchType           string                `json:"launchType,omitempty"`
+	PlatformVersion      string                `json:"platformVersion,omitempty"`
+	RolloutState         string                `json:"rolloutState,omitempty"`
+	RolloutStateReason   string                `json:"rolloutStateReason,omitempty"`
+	ServiceRevisionArn   string                `json:"serviceRevisionArn,omitempty"`
+	DesiredCount         int                   `json:"desiredCount"`
+	PendingCount         int                   `json:"pendingCount"`
+	RunningCount         int                   `json:"runningCount"`
+	FailedTasks          int                   `json:"failedTasks"`
+	VolumeConfigurations []VolumeConfiguration `json:"volumeConfigurations,omitempty"`
 
 	completionEmitted bool
 }
@@ -630,6 +631,7 @@ type TaskOverride struct {
 	ExecutionRoleArn   string              `json:"executionRoleArn,omitempty"`
 	CPU                string              `json:"cpu,omitempty"`
 	Memory             string              `json:"memory,omitempty"`
+	EphemeralStorage   *EphemeralStorage   `json:"ephemeralStorage,omitempty"`
 	ContainerOverrides []ContainerOverride `json:"containerOverrides,omitempty"`
 }
 
@@ -1027,6 +1029,7 @@ type Service struct {
 	RunningCount                  int                            `json:"runningCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 	steadyReported                bool
 }
 
@@ -1067,6 +1070,10 @@ type Task struct {
 	// TaskRoleArn is the effective IAM role ARN for task containers.
 	// Resolved from Overrides.TaskRoleArn if set, else from the task definition.
 	TaskRoleArn string `json:"taskRoleArn,omitempty"`
+	// CPU and Memory are the task-level sizes (task definition, overridden per run).
+	CPU              string            `json:"cpu,omitempty"`
+	Memory           string            `json:"memory,omitempty"`
+	EphemeralStorage *EphemeralStorage `json:"ephemeralStorage,omitempty"`
 	// CapacityProviderName is the capacity provider actually selected to run this
 	// task. Set from RunTaskInput.CapacityProviderStrategy (the first entry, as a
 	// documented simplification: this backend does not model weight/base-driven
@@ -1080,6 +1087,7 @@ type Task struct {
 	// AwaitingCapacity marks a PROVISIONING task waiting for a managed-scaling provider to add instances.
 	AwaitingCapacity bool `json:"awaitingCapacity,omitempty"`
 	runtimeHealth    bool
+	ebsVolumes       map[string]ebsMount
 }
 
 // CreateClusterInput holds input for CreateCluster.
@@ -1143,6 +1151,7 @@ type CreateServiceInput struct {
 	DesiredCount                  int                            `json:"desiredCount"`
 	EnableExecuteCommand          bool                           `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                           `json:"enableECSManagedTags,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
@@ -1167,6 +1176,7 @@ type UpdateServiceInput struct {
 	PlacementConstraints          []PlacementConstraint          `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []PlacementStrategy            `json:"placementStrategy,omitempty"`
 	ForceNewDeployment            bool                           `json:"forceNewDeployment,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 }
 
 // RunTaskInput holds input for RunTask.
@@ -1190,6 +1200,7 @@ type RunTaskInput struct {
 	Count                    int                            `json:"count,omitempty"`
 	EnableECSManagedTags     bool                           `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"enableExecuteCommand,omitempty"`
+	VolumeConfigurations     []VolumeConfiguration          `json:"volumeConfigurations,omitempty"`
 }
 
 // ListTaskDefinitionsInput holds optional filters for ListTaskDefinitions.

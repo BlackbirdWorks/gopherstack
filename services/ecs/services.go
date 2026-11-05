@@ -54,17 +54,18 @@ func newPrimaryDeployment(svc *Service) Deployment {
 	revisionID := uuid.NewString()
 
 	return Deployment{
-		ID:                 "ecs-svc/" + uuid.NewString(),
-		Status:             deploymentStatusPrimary,
-		TaskDefinition:     svc.TaskDefinition,
-		LaunchType:         svc.LaunchType,
-		PlatformVersion:    deploymentPlatformVersion(svc),
-		RolloutState:       deploymentRolloutStateInProgress,
-		RolloutStateReason: "ECS deployment ecs-svc created.",
-		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
-		DesiredCount:       svc.DesiredCount,
-		CreatedAt:          &now,
-		UpdatedAt:          &now,
+		ID:                   "ecs-svc/" + uuid.NewString(),
+		Status:               deploymentStatusPrimary,
+		TaskDefinition:       svc.TaskDefinition,
+		LaunchType:           svc.LaunchType,
+		PlatformVersion:      deploymentPlatformVersion(svc),
+		RolloutState:         deploymentRolloutStateInProgress,
+		RolloutStateReason:   "ECS deployment ecs-svc created.",
+		ServiceRevisionArn:   serviceRevisionArnFor(svc, revisionID),
+		DesiredCount:         svc.DesiredCount,
+		CreatedAt:            &now,
+		UpdatedAt:            &now,
+		VolumeConfigurations: svc.VolumeConfigurations,
 	}
 }
 
@@ -83,17 +84,18 @@ func newActiveDeployment(svc *Service) Deployment {
 	revisionID := uuid.NewString()
 
 	return Deployment{
-		ID:                 "ecs-svc/" + uuid.NewString(),
-		Status:             deploymentStatusPrimary,
-		TaskDefinition:     svc.TaskDefinition,
-		LaunchType:         svc.LaunchType,
-		PlatformVersion:    deploymentPlatformVersion(svc),
-		RolloutState:       deploymentRolloutStateInProgress,
-		RolloutStateReason: "ECS deployment ecs-svc created.",
-		ServiceRevisionArn: serviceRevisionArnFor(svc, revisionID),
-		DesiredCount:       svc.DesiredCount,
-		CreatedAt:          &now,
-		UpdatedAt:          &now,
+		ID:                   "ecs-svc/" + uuid.NewString(),
+		Status:               deploymentStatusPrimary,
+		TaskDefinition:       svc.TaskDefinition,
+		LaunchType:           svc.LaunchType,
+		PlatformVersion:      deploymentPlatformVersion(svc),
+		RolloutState:         deploymentRolloutStateInProgress,
+		RolloutStateReason:   "ECS deployment ecs-svc created.",
+		ServiceRevisionArn:   serviceRevisionArnFor(svc, revisionID),
+		DesiredCount:         svc.DesiredCount,
+		CreatedAt:            &now,
+		UpdatedAt:            &now,
+		VolumeConfigurations: svc.VolumeConfigurations,
 	}
 }
 
@@ -252,6 +254,10 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		return nil, err
 	}
 
+	if err = b.validateServiceVolumesLocked(taskDefinitionArn, input.VolumeConfigurations); err != nil {
+		return nil, err
+	}
+
 	svc := b.newServiceLocked(clusterName, input, taskDefinitionArn)
 
 	svc.Deployments = []Deployment{newPrimaryDeployment(svc)}
@@ -324,6 +330,7 @@ func (b *InMemoryBackend) newServiceLocked(
 		Monitoring:                    input.Monitoring,
 		DesiredCount:                  input.DesiredCount,
 		EnableExecuteCommand:          input.EnableExecuteCommand,
+		VolumeConfigurations:          input.VolumeConfigurations,
 	}
 }
 
@@ -603,6 +610,7 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 	}
 
 	rotateDeployment := false
+	newTaskDef := svc.TaskDefinition
 
 	if input.TaskDefinition != nil {
 		td, err := b.findTaskDefinitionLocked(*input.TaskDefinition)
@@ -610,9 +618,22 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 			return nil, err
 		}
 
-		svc.TaskDefinition = td.TaskDefinitionArn
+		newTaskDef = td.TaskDefinitionArn
 		rotateDeployment = true
 	}
+
+	volumes := svc.VolumeConfigurations
+	if len(input.VolumeConfigurations) > 0 {
+		volumes = input.VolumeConfigurations
+		rotateDeployment = true
+	}
+
+	if err := b.validateServiceVolumesLocked(newTaskDef, volumes); err != nil {
+		return nil, err
+	}
+
+	svc.TaskDefinition = newTaskDef
+	svc.VolumeConfigurations = volumes
 
 	// UpdateServiceInput.ForceNewDeployment's own doc comment: "you can use
 	// this option to start a new deployment with no service definition
@@ -846,6 +867,7 @@ func (b *InMemoryBackend) startServiceTask(
 	var svcPlacementConstraints []PlacementConstraint
 	var svcPlacementStrategy []PlacementStrategy
 	var startedBy string
+	var svcVolumes []VolumeConfiguration
 
 	func() {
 		b.mu.RLock("StartTaskForService-svcSnap")
@@ -869,6 +891,7 @@ func (b *InMemoryBackend) startServiceTask(
 			svcLaunchType = svc.LaunchType
 			svcPlacementConstraints = svc.PlacementConstraints
 			svcPlacementStrategy = svc.PlacementStrategy
+			svcVolumes = svc.VolumeConfigurations
 		}
 	}()
 
@@ -887,6 +910,7 @@ func (b *InMemoryBackend) startServiceTask(
 		PlatformVersion:         svcPlatformVersion,
 		PlacementConstraints:    svcPlacementConstraints,
 		PlacementStrategy:       svcPlacementStrategy,
+		VolumeConfigurations:    svcVolumes,
 	})
 	if err != nil {
 		return "", err
@@ -945,6 +969,7 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 		b.deregisterTaskFromELBv2Locked(oldest, clusterName)
 		b.deregisterTaskFromCloudMapLocked(oldest, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, oldest)
+		b.releaseTaskVolumesLocked(oldest)
 		delete(b.lifecycle, oldest.TaskArn)
 
 		// Decrement the cached running counter (scale-in always stops a running task).
@@ -1061,4 +1086,18 @@ func validateServiceBasics(name string, desiredCount int) error {
 	}
 
 	return nil
+}
+
+// validateServiceVolumesLocked checks a service's volumeConfigurations against its task definition.
+func (b *InMemoryBackend) validateServiceVolumesLocked(taskDefinitionArn string, cfgs []VolumeConfiguration) error {
+	if taskDefinitionArn == "" {
+		return nil
+	}
+
+	td, err := b.findTaskDefinitionLocked(taskDefinitionArn)
+	if err != nil {
+		return err
+	}
+
+	return b.checkVolumeConfigurations(td, cfgs, true)
 }

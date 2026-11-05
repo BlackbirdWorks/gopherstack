@@ -172,6 +172,7 @@ type InMemoryBackend struct {
 	// startDelay is the per-phase delay applied to the no-runner task start
 	// lifecycle (PROVISIONING→PENDING→RUNNING). Zero finalizes immediately.
 	startDelay time.Duration
+	ebs        EBSProvisioner
 	hooksMu    sync.Mutex
 }
 

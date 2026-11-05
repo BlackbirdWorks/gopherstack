@@ -23,6 +23,7 @@ type taskOverrideInput struct {
 	ExecutionRoleArn   string                   `json:"executionRoleArn,omitempty"`
 	CPU                string                   `json:"cpu,omitempty"`
 	Memory             string                   `json:"memory,omitempty"`
+	EphemeralStorage   *EphemeralStorage        `json:"ephemeralStorage,omitempty"`
 	ContainerOverrides []containerOverrideInput `json:"containerOverrides,omitempty"`
 }
 
@@ -43,6 +44,7 @@ type runTaskInput struct {
 	Count                    int                        `json:"count,omitempty"`
 	EnableECSManagedTags     bool                       `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                       `json:"enableExecuteCommand,omitempty"`
+	VolumeConfigurations     []VolumeConfiguration      `json:"volumeConfigurations,omitempty"`
 }
 
 type runTaskOutput struct {
@@ -71,6 +73,7 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		Overrides:                toTaskOverride(in.Overrides),
 		NetworkConfiguration:     toNetworkConfiguration(in.NetworkConfiguration),
 		EnableExecuteCommand:     in.EnableExecuteCommand,
+		VolumeConfigurations:     in.VolumeConfigurations,
 	})
 	if err != nil {
 		return nil, err
@@ -437,6 +440,7 @@ type taskOverrideView struct {
 	ExecutionRoleArn   string                  `json:"executionRoleArn,omitempty"`
 	CPU                string                  `json:"cpu,omitempty"`
 	Memory             string                  `json:"memory,omitempty"`
+	EphemeralStorage   *EphemeralStorage       `json:"ephemeralStorage,omitempty"`
 	ContainerOverrides []containerOverrideView `json:"containerOverrides,omitempty"`
 }
 
@@ -494,6 +498,9 @@ type taskView struct {
 	PlatformVersion      string               `json:"platformVersion,omitempty"`
 	PlatformFamily       string               `json:"platformFamily,omitempty"`
 	CapacityProviderName string               `json:"capacityProviderName,omitempty"`
+	CPU                  string               `json:"cpu,omitempty"`
+	Memory               string               `json:"memory,omitempty"`
+	EphemeralStorage     *EphemeralStorage    `json:"ephemeralStorage,omitempty"`
 	Attachments          []taskAttachmentView `json:"attachments,omitempty"`
 	Containers           []containerView      `json:"containers,omitempty"`
 	Tags                 []Tag                `json:"tags,omitempty"`
@@ -522,6 +529,9 @@ func toTaskView(t Task) taskView {
 		ContainerInstanceArn: t.ContainerInstanceArn,
 		StartedBy:            t.StartedBy,
 		PlatformVersion:      t.PlatformVersion,
+		CPU:                  t.CPU,
+		Memory:               t.Memory,
+		EphemeralStorage:     t.EphemeralStorage,
 		PlatformFamily:       t.PlatformFamily,
 		CapacityProviderName: t.CapacityProviderName,
 		Tags:                 t.Tags,
@@ -609,6 +619,7 @@ func toTaskOverride(in *taskOverrideInput) *TaskOverride {
 		ExecutionRoleArn: in.ExecutionRoleArn,
 		CPU:              in.CPU,
 		Memory:           in.Memory,
+		EphemeralStorage: in.EphemeralStorage,
 	}
 
 	for _, co := range in.ContainerOverrides {
@@ -629,6 +640,7 @@ func toTaskOverrideView(in *TaskOverride) *taskOverrideView {
 		ExecutionRoleArn: in.ExecutionRoleArn,
 		CPU:              in.CPU,
 		Memory:           in.Memory,
+		EphemeralStorage: in.EphemeralStorage,
 	}
 
 	for _, co := range in.ContainerOverrides {

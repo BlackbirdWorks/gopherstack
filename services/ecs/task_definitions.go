@@ -44,6 +44,9 @@ func validateFargateCPUMemory(cpu, memory string) error {
 		return nil
 	}
 
+	cpu = canonicalTaskSize(cpu, parseTaskCPU)
+	memory = canonicalTaskSize(memory, parseTaskMemory)
+
 	pairs := fargateCPUMemoryPairs()
 	validMemories, ok := pairs[cpu]
 
@@ -91,6 +94,14 @@ func (b *InMemoryBackend) RegisterTaskDefinition(
 		if err := validateFargateCPUMemory(input.CPU, input.Memory); err != nil {
 			return nil, err
 		}
+	}
+
+	if err := validateEphemeralStorage(input.EphemeralStorage, ErrClient); err != nil {
+		return nil, err
+	}
+
+	if err := validateContainerMemoryWithinTask(input.Memory, input.ContainerDefinitions, ErrClient); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("RegisterTaskDefinition")

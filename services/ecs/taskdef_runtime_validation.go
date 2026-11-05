@@ -60,6 +60,14 @@ func validateContainerRefs(
 		}
 	}
 
+	if err := validateRestartPolicy(cd); err != nil {
+		return err
+	}
+
+	if err := validateLogMode(cd); err != nil {
+		return err
+	}
+
 	if hc := cd.HealthCheck; hc != nil {
 		if len(hc.Command) == 0 || !slices.Contains([]string{"CMD", "CMD-SHELL", healthCheckNone}, hc.Command[0]) {
 			return fmt.Errorf("%w: container %q healthCheck command must start with CMD, CMD-SHELL or NONE",
@@ -85,4 +93,45 @@ func validateDockerVolume(v Volume) error {
 	}
 
 	return nil
+}
+
+const (
+	maxIgnoredExitCodes = 50
+	maxRestartPeriod    = 1800
+)
+
+// validateRestartPolicy enforces ContainerRestartPolicy's documented limits: at most 50 ignoredExitCodes and a
+// restartAttemptPeriod between 60 and 1800 seconds.
+func validateRestartPolicy(cd ContainerDefinition) error {
+	rp := cd.RestartPolicy
+	if rp == nil {
+		return nil
+	}
+
+	if len(rp.IgnoredExitCodes) > maxIgnoredExitCodes {
+		return fmt.Errorf("%w: container %q restartPolicy.ignoredExitCodes has more than %d entries",
+			ErrClient, cd.Name, maxIgnoredExitCodes)
+	}
+
+	if p := rp.RestartAttemptPeriod; p != 0 && (p < int(minRestartAttemptPeriod.Seconds()) || p > maxRestartPeriod) {
+		return fmt.Errorf("%w: container %q restartPolicy.restartAttemptPeriod %d must be between %d and %d seconds",
+			ErrClient, cd.Name, p, int(minRestartAttemptPeriod.Seconds()), maxRestartPeriod)
+	}
+
+	return nil
+}
+
+// validateLogMode rejects a logConfiguration mode other than blocking or non-blocking.
+func validateLogMode(cd ContainerDefinition) error {
+	if cd.LogConfiguration == nil {
+		return nil
+	}
+
+	switch cd.LogConfiguration.Options[logOptMode] {
+	case "", logModeBlocking, logModeNonBlocking:
+		return nil
+	default:
+		return fmt.Errorf("%w: container %q logConfiguration option %q must be %s or %s",
+			ErrClient, cd.Name, logOptMode, logModeBlocking, logModeNonBlocking)
+	}
 }

@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	mobycontainer "github.com/moby/moby/api/types/container"
+	mobynetwork "github.com/moby/moby/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,6 +41,8 @@ type fakeDockerClient struct {
 	creates                []createCall
 	pulls                  []pullCall
 	volumesRemoved         []string
+	networks               []string
+	networksRemoved        []string
 	stopTimeouts           map[string]int
 	stats                  map[string]string
 	envs                   [][]string
@@ -1123,13 +1128,39 @@ func (f *fakeDockerClient) ContainerInspect(
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	resp := dockertypes.InspectResponse{ID: containerID, State: &dockertypes.State{Running: true}}
+
 	if st, ok := f.states[containerID]; ok {
 		cp := *st
-
-		return dockertypes.InspectResponse{ID: containerID, State: &cp}, nil
+		resp.State = &cp
 	}
 
-	return dockertypes.InspectResponse{ID: containerID, State: &dockertypes.State{Running: true}}, nil
+	if len(f.networks) > 0 {
+		resp.NetworkSettings = &mobycontainer.NetworkSettings{Networks: map[string]*mobynetwork.EndpointSettings{}}
+		for _, n := range f.networks {
+			resp.NetworkSettings.Networks[n] = &mobynetwork.EndpointSettings{IPAddress: netip.MustParseAddr("172.30.0.2")}
+		}
+	}
+
+	return resp, nil
+}
+
+func (f *fakeDockerClient) NetworkCreate(_ context.Context, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.networks = append(f.networks, name)
+
+	return "net-" + name, nil
+}
+
+func (f *fakeDockerClient) NetworkRemove(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.networksRemoved = append(f.networksRemoved, id)
+
+	return nil
 }
 
 func (f *fakeDockerClient) VolumeExists(_ context.Context, name string) (bool, error) {

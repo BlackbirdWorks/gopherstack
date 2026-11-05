@@ -64,6 +64,8 @@ type taskWork struct {
 	td   *TaskDefinition
 	// waiting tasks stay PROVISIONING until a managed-scaling provider supplies capacity.
 	waiting bool
+	// failed tasks were stopped during creation and never reach the runtime.
+	failed bool
 }
 
 // RunTask starts one or more tasks on the given cluster. A per-task
@@ -107,6 +109,18 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 
 		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 		if err != nil {
+			ferr = err
+
+			return
+		}
+
+		if err = b.checkVolumeConfigurations(td, input.VolumeConfigurations, false); err != nil {
+			ferr = err
+
+			return
+		}
+
+		if err = validateRunTaskSize(td, input, launchTypeOf(input)); err != nil {
 			ferr = err
 
 			return
@@ -175,6 +189,10 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error)
 func (b *InMemoryBackend) startTasksOutsideLock(work []taskWork) {
 	for _, w := range work {
 		clusterName := clusterKey(clusterFromTaskARN(w.task.TaskArn))
+
+		if w.failed {
+			continue
+		}
 
 		b.ensureAwslogsStreams(w.task, w.td)
 
@@ -307,10 +325,12 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 			waiting          bool
 		)
 
-		if launchType == launchTypeFargate {
+		if launchType == launchTypeFargate || td.NetworkMode == networkModeAwsvpc {
 			subnet := firstRequestedSubnet(input.NetworkConfiguration)
 			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn, subnet)}
-		} else {
+		}
+
+		if launchType != launchTypeFargate {
 			bindings, wait, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
 			if failure != nil {
 				failures = append(failures, *failure)
@@ -339,12 +359,22 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 
 		b.tasks.Put(task)
 		b.emitTaskStateLocked(task)
-		work = append(work, taskWork{task: task, td: td, waiting: waiting})
+
+		tw := taskWork{task: task, td: td, waiting: waiting}
 
 		// Increment the cached pending counter on the cluster.
 		if c, _ := b.clusters.Get(clusterName); c != nil {
 			c.PendingTasksCount++
 		}
+
+		if volErr := b.provisionTaskVolumesLocked(task, input.VolumeConfigurations); volErr != nil {
+			b.failLaunchLocked(task, clusterName, &taskLaunchError{
+				Reason: "ResourceInitializationError: " + volErr.Error(), Err: volErr,
+			}, b.clock())
+			tw.failed = true
+		}
+
+		work = append(work, tw)
 	}
 
 	return work, failures
@@ -384,7 +414,20 @@ func newTaskEntryLocked(
 		capacityProviderName = input.CapacityProviderStrategy[0].CapacityProvider
 	}
 
+	cpu, memory, ephemeral := td.CPU, td.Memory, td.EphemeralStorage
+	if ov := input.Overrides; ov != nil {
+		cpu = firstNonEmpty(ov.CPU, cpu)
+		memory = firstNonEmpty(ov.Memory, memory)
+
+		if ov.EphemeralStorage != nil {
+			ephemeral = ov.EphemeralStorage
+		}
+	}
+
 	return &Task{
+		CPU:                  cpu,
+		Memory:               memory,
+		EphemeralStorage:     ephemeral,
 		TaskArn:              taskArn,
 		ClusterArn:           clusterArn,
 		TaskDefinitionArn:    td.TaskDefinitionArn,
@@ -649,6 +692,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
+		b.releaseTaskVolumesLocked(task)
 		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn
@@ -755,6 +799,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
 		b.deregisterTaskFromCloudMapLocked(task, clusterName)
 		b.releaseTaskHostPortsLocked(clusterName, task)
+		b.releaseTaskVolumesLocked(task)
 		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn
@@ -1138,6 +1183,55 @@ func (b *InMemoryBackend) validatePinnedTaskIDLocked(clusterName, pinned string,
 	arnStr := arn.Build("ecs", b.region, b.accountID, fmt.Sprintf("task/%s/%s", clusterName, pinned))
 	if b.tasks.Has(arnStr) {
 		return fmt.Errorf("%w: task %q already exists", ErrTaskIDInUse, pinned)
+	}
+
+	return nil
+}
+
+func launchTypeOf(input RunTaskInput) string {
+	if input.LaunchType != "" {
+		return input.LaunchType
+	}
+
+	return defaultLaunchType(input.CapacityProviderStrategy)
+}
+
+// validateRunTaskSize checks the per-run cpu, memory and ephemeralStorage overrides against the task definition.
+func validateRunTaskSize(td *TaskDefinition, input RunTaskInput, launchType string) error {
+	ov := input.Overrides
+	if ov == nil {
+		return nil
+	}
+
+	if err := validateEphemeralStorage(ov.EphemeralStorage, ErrInvalidParameter); err != nil {
+		return err
+	}
+
+	cpu, memory := firstNonEmpty(ov.CPU, td.CPU), firstNonEmpty(ov.Memory, td.Memory)
+
+	if launchType == launchTypeFargate && (ov.CPU != "" || ov.Memory != "") {
+		if err := validateFargateCPUMemory(cpu, memory); err != nil {
+			return err
+		}
+	}
+
+	if ov.Memory != "" {
+		if err := validateContainerMemoryWithinTask(memory, td.ContainerDefinitions, ErrInvalidParameter); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkVolumeConfigurations validates volumeConfigurations and requires the EC2 service when any are given.
+func (b *InMemoryBackend) checkVolumeConfigurations(td *TaskDefinition, cfgs []VolumeConfiguration, forService bool) error {
+	if err := validateVolumeConfigurations(td, cfgs, forService); err != nil {
+		return err
+	}
+
+	if len(cfgs) > 0 && b.ebs == nil {
+		return fmt.Errorf("%w: %w", ErrInvalidParameter, errEBSUnavailable)
 	}
 
 	return nil

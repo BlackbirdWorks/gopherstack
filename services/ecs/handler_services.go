@@ -134,6 +134,7 @@ type createServiceInput struct {
 	DesiredCount                  int                               `json:"desiredCount"`
 	EnableExecuteCommand          bool                              `json:"enableExecuteCommand,omitempty"`
 	EnableECSManagedTags          bool                              `json:"enableECSManagedTags,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 }
 
 type createServiceOutput struct {
@@ -170,6 +171,7 @@ func (h *Handler) handleCreateService(
 		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
 		DesiredCount:                  in.DesiredCount,
 		EnableExecuteCommand:          in.EnableExecuteCommand,
+		VolumeConfigurations:          in.VolumeConfigurations,
 	})
 	if err != nil {
 		return nil, err
@@ -282,6 +284,7 @@ type updateServiceInput struct {
 	PlacementConstraints          []placementConstraintInput        `json:"placementConstraints,omitempty"`
 	PlacementStrategy             []placementStrategyInput          `json:"placementStrategy,omitempty"`
 	ForceNewDeployment            bool                              `json:"forceNewDeployment,omitempty"`
+	VolumeConfigurations          []VolumeConfiguration             `json:"volumeConfigurations,omitempty"`
 }
 
 type updateServiceOutput struct {
@@ -313,6 +316,7 @@ func (h *Handler) handleUpdateService(
 		Monitoring:                    toMonitoringConfiguration(in.Monitoring),
 		EnableExecuteCommand:          in.EnableExecuteCommand,
 		ForceNewDeployment:            in.ForceNewDeployment,
+		VolumeConfigurations:          in.VolumeConfigurations,
 	})
 	if err != nil {
 		return nil, err
@@ -660,6 +664,7 @@ type deploymentView struct {
 	PendingCount                int                              `json:"pendingCount"`
 	RunningCount                int                              `json:"runningCount"`
 	FailedTasks                 int                              `json:"failedTasks"`
+	VolumeConfigurations        []VolumeConfiguration            `json:"volumeConfigurations,omitempty"`
 }
 
 // toDeploymentView maps a backend Deployment onto the wire view. ServiceRevisionArn
@@ -668,19 +673,20 @@ type deploymentView struct {
 // so it is intentionally omitted here.
 func toDeploymentView(d Deployment) deploymentView {
 	return deploymentView{
-		CreatedAt:          d.CreatedAt,
-		UpdatedAt:          d.UpdatedAt,
-		ID:                 d.ID,
-		Status:             d.Status,
-		TaskDefinition:     d.TaskDefinition,
-		LaunchType:         d.LaunchType,
-		PlatformVersion:    d.PlatformVersion,
-		RolloutState:       d.RolloutState,
-		RolloutStateReason: d.RolloutStateReason,
-		DesiredCount:       d.DesiredCount,
-		PendingCount:       d.PendingCount,
-		RunningCount:       d.RunningCount,
-		FailedTasks:        d.FailedTasks,
+		CreatedAt:            d.CreatedAt,
+		UpdatedAt:            d.UpdatedAt,
+		ID:                   d.ID,
+		Status:               d.Status,
+		TaskDefinition:       d.TaskDefinition,
+		LaunchType:           d.LaunchType,
+		PlatformVersion:      d.PlatformVersion,
+		RolloutState:         d.RolloutState,
+		RolloutStateReason:   d.RolloutStateReason,
+		DesiredCount:         d.DesiredCount,
+		PendingCount:         d.PendingCount,
+		RunningCount:         d.RunningCount,
+		FailedTasks:          d.FailedTasks,
+		VolumeConfigurations: d.VolumeConfigurations,
 	}
 }
 

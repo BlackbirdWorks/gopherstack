@@ -46,7 +46,7 @@ Adopting services: Cloud SQL (gcpsql), EC2 docker instances, ECS docker tasks an
 - ECS: a restored RUNNING task claims one container per container definition (`taskArn|containerName`). All must
   exist, run, and use the definition's image; then exit, health and log watching resume (logs from adoption time on).
   Otherwise every claimed container is removed and the task is STOPPED ("Task containers were lost when the
-  emulator restarted"). Containers behind security-group relays are never adopted.
+  emulator restarted"). Containers behind security-group relays and awsvpc tasks (pause container and task network) are never adopted.
 - Batch: containers carry the identity and service labels but no resource key. A job lost to a crash is failed
   ("Container execution was interrupted") and its container removed at the next startup.
 
