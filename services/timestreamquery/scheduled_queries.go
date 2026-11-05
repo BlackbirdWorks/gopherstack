@@ -7,7 +7,6 @@ import (
 	"maps"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,6 +44,20 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	region := getRegion(ctx, b.defaultRegion)
+	now := b.clock()
+
+	created := false
+
+	defer func() {
+		if !created {
+			return
+		}
+
+		n, _ := b.deps()
+		b.publishTo(ctx, n, notificationTopicArn, map[string]string{
+			"type": notifyCreating, "arn": arn.Build("timestream", region, b.accountID, fmt.Sprintf(scheduledQueryArnFormat, name)),
+		})
+	}()
 
 	b.mu.Lock("CreateScheduledQuery")
 	defer b.mu.Unlock()
@@ -81,7 +94,8 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		TargetDetail:                targetDetail,
 		KmsKeyID:                    kmsKeyID,
 		State:                       scheduledQueryStateEnabled,
-		CreationTime:                time.Now(),
+		CreationTime:                now,
+		NextRun:                     nextInvocationTime(scheduleExpression, now),
 		Tags:                        make(map[string]string),
 	}
 
@@ -90,6 +104,8 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	b.scheduledQueries.Put(sq)
+
+	created = true
 
 	if clientToken != "" {
 		b.scheduledQueryTokens.set(clientToken, arnStr)
@@ -125,13 +141,25 @@ func (b *InMemoryBackend) DescribeScheduledQuery(_ context.Context, arnStr strin
 // Any tags CreateScheduledQuery mirrored into the shared TimestreamWrite tag
 // store (tagWriteBackend) are removed too, so a deleted ARN doesn't leave
 // ghost tags behind for a later ListTagsForResource to surface.
-func (b *InMemoryBackend) DeleteScheduledQuery(_ context.Context, arnStr string) error {
+func (b *InMemoryBackend) DeleteScheduledQuery(ctx context.Context, arnStr string) error {
+	topic, err := b.removeScheduledQuery(arnStr)
+	if err != nil {
+		return err
+	}
+
+	n, _ := b.deps()
+	b.publishTo(ctx, n, topic, map[string]string{"type": notifyDeleted, "arn": arnStr})
+
+	return nil
+}
+
+func (b *InMemoryBackend) removeScheduledQuery(arnStr string) (string, error) {
 	b.mu.Lock("DeleteScheduledQuery")
 	defer b.mu.Unlock()
 
 	sq, ok := b.scheduledQueries.Get(arnStr)
 	if !ok {
-		return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
+		return "", fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
 
 	tagKeys := make([]string, 0, len(sq.Tags))
@@ -145,7 +173,7 @@ func (b *InMemoryBackend) DeleteScheduledQuery(_ context.Context, arnStr string)
 		_ = b.tagWriteBackend.UntagResource(arnStr, tagKeys)
 	}
 
-	return nil
+	return sq.NotificationTopicArn, nil
 }
 
 // ListScheduledQueries returns all scheduled queries for the request region sorted by name.
@@ -173,21 +201,35 @@ func (b *InMemoryBackend) ListScheduledQueries(ctx context.Context) []ScheduledQ
 // UpdateScheduledQuery updates the state of a scheduled query by ARN.
 // Only ENABLED and DISABLED are valid states. The ARN self-encodes the
 // region, so no separate region resolution is needed.
-func (b *InMemoryBackend) UpdateScheduledQuery(_ context.Context, arnStr, state string) error {
+func (b *InMemoryBackend) UpdateScheduledQuery(ctx context.Context, arnStr, state string) error {
 	if state != scheduledQueryStateEnabled && state != scheduledQueryStateDisabled {
 		return fmt.Errorf("%w: State must be %s or %s",
 			ErrValidation, scheduledQueryStateEnabled, scheduledQueryStateDisabled)
 	}
 
+	now := b.clock()
+
 	b.mu.Lock("UpdateScheduledQuery")
-	defer b.mu.Unlock()
 
 	sq, err := b.lookupByARN(arnStr)
 	if err != nil {
+		b.mu.Unlock()
+
 		return err
 	}
 
+	changed := sq.State != state
 	sq.State = state
+
+	if state == scheduledQueryStateEnabled && changed {
+		sq.NextRun = nextInvocationTime(sq.ScheduleExpression, now)
+	}
+
+	topic := sq.NotificationTopicArn
+	b.mu.Unlock()
+
+	n, _ := b.deps()
+	b.publishTo(ctx, n, topic, map[string]string{"type": notifyUpdate, "arn": arnStr, "state": state})
 
 	return nil
 }
@@ -325,47 +367,21 @@ func validateScheduleExpression(expr string) error {
 // Next/PreviousInvocationTime from schedule expression (gap #20)
 // ---------------------------------------------------------------------------
 
-const hoursPerDay = 24 // hours in a day for schedule computation
-
-// nextInvocationTime returns the next scheduled invocation time after `from` for the given expr.
-// For rate expressions it adds the rate interval; for cron expressions it approximates
-// to the nearest future minute boundary (simplified simulation).
+// nextInvocationTime returns the next scheduled invocation after from, or the zero time when none exists.
 func nextInvocationTime(expr string, from time.Time) time.Time {
-	if m := rateCapture.FindStringSubmatch(expr); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		unit := m[2]
-		var dur time.Duration
-		switch {
-		case strings.HasPrefix(unit, "minute"):
-			dur = time.Duration(n) * time.Minute
-		case strings.HasPrefix(unit, "hour"):
-			dur = time.Duration(n) * time.Hour
-		case strings.HasPrefix(unit, "day"):
-			dur = time.Duration(n) * hoursPerDay * time.Hour
-		}
-
-		return from.Add(dur)
+	sch, ok := parseSchedule(expr)
+	if !ok {
+		return time.Time{}
 	}
-	// cron: advance to next round hour as a simple approximation.
-	return from.Truncate(time.Hour).Add(time.Hour)
+
+	return sch.next(from)
 }
 
-// previousInvocationTime returns the most recent invocation before `from`.
+// previousInvocationTime returns the most recent invocation before from for rate schedules; cron
+// schedules report the start of the hour.
 func previousInvocationTime(expr string, from time.Time) time.Time {
-	if m := rateCapture.FindStringSubmatch(expr); m != nil {
-		n, _ := strconv.Atoi(m[1])
-		unit := m[2]
-		var dur time.Duration
-		switch {
-		case strings.HasPrefix(unit, "minute"):
-			dur = time.Duration(n) * time.Minute
-		case strings.HasPrefix(unit, "hour"):
-			dur = time.Duration(n) * time.Hour
-		case strings.HasPrefix(unit, "day"):
-			dur = time.Duration(n) * hoursPerDay * time.Hour
-		}
-
-		return from.Add(-dur)
+	if sch, ok := parseSchedule(expr); ok && sch.rate > 0 {
+		return from.Add(-sch.rate)
 	}
 
 	return from.Truncate(time.Hour)
@@ -411,7 +427,13 @@ func buildScheduledQueryListEntry(sq *ScheduledQuery) ScheduledQueryListEntry {
 	} else if sq.ScheduleExpression != "" {
 		entry.PreviousInvocationTime = epochSeconds(previousInvocationTime(sq.ScheduleExpression, now))
 	}
-	entry.NextInvocationTime = epochSeconds(nextInvocationTime(sq.ScheduleExpression, now))
+	switch {
+	case sq.State != scheduledQueryStateEnabled:
+	case !sq.NextRun.IsZero():
+		entry.NextInvocationTime = epochSeconds(sq.NextRun)
+	default:
+		entry.NextInvocationTime = epochSeconds(nextInvocationTime(sq.ScheduleExpression, now))
+	}
 
 	return entry
 }
@@ -432,13 +454,42 @@ func buildLastRunSummary(sq *ScheduledQuery) *LastRunSummary {
 		stats = *sq.LastRunStats
 	}
 
-	return &LastRunSummary{
-		RunStatus:      status,
-		FailureReason:  sq.LastRunFailure,
-		InvocationTime: epochSeconds(sq.LastRunTime),
-		TriggerTime:    epochSeconds(sq.LastRunTime.Add(-time.Second)),
-		ExecutionStats: &stats,
+	trigger := sq.LastRunTriggerTime
+	if trigger.IsZero() {
+		trigger = sq.LastRunTime.Add(-time.Second)
 	}
+
+	return &LastRunSummary{
+		RunStatus:           status,
+		FailureReason:       sq.LastRunFailure,
+		InvocationTime:      epochSeconds(sq.LastRunTime),
+		TriggerTime:         epochSeconds(trigger),
+		ExecutionStats:      &stats,
+		ErrorReportLocation: reportLocation(sq.LastRunErrorReport),
+	}
+}
+
+func reportLocation(l *S3ReportLocation) *ErrorReportLocation {
+	if l == nil {
+		return nil
+	}
+
+	return &ErrorReportLocation{S3ReportLocation: l}
+}
+
+func buildRecentlyFailedRuns(sq *ScheduledQuery) []LastRunSummary {
+	out := make([]LastRunSummary, 0, len(sq.RecentlyFailedRuns))
+
+	for _, r := range sq.RecentlyFailedRuns {
+		stats := r.Stats
+		out = append(out, LastRunSummary{
+			RunStatus: r.Status, FailureReason: r.Failure, ExecutionStats: &stats,
+			InvocationTime: epochSeconds(r.InvocationTime), TriggerTime: epochSeconds(r.TriggerTime),
+			ErrorReportLocation: reportLocation(r.ErrorReport),
+		})
+	}
+
+	return out
 }
 
 // epochSeconds converts a [time.Time] to Unix epoch seconds as float64.

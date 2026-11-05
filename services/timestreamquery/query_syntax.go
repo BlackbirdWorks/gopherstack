@@ -8,7 +8,7 @@ import (
 
 func isStatementKeyword(w string) bool {
 	switch strings.ToUpper(w) {
-	case "SELECT", "WITH", "SHOW", "DESCRIBE", "EXPLAIN":
+	case "SELECT", "WITH", "SHOW", "DESCRIBE", "EXPLAIN", "UNLOAD":
 		return true
 	default:
 		return false
@@ -36,7 +36,7 @@ func validateQuerySyntax(q string) error {
 		}
 
 		return fmt.Errorf(
-			"%w: line 1:%d: mismatched input '%s'. Expecting: 'DESCRIBE', 'EXPLAIN', 'SELECT', 'SHOW', 'WITH'",
+			"%w: line 1:%d: mismatched input '%s'. Expecting: 'DESCRIBE', 'EXPLAIN', 'SELECT', 'SHOW', 'UNLOAD', 'WITH'",
 			ErrValidation, len(q)-len(s)+1, tok,
 		)
 	}

@@ -52,11 +52,12 @@ const timestreamwriteSnapshotVersion = 1
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables     map[string]json.RawMessage     `json:"tables"`
-	Records    map[string]map[string][]Record `json:"records"`
-	Tags       map[string]map[string]string   `json:"tags"`
-	NextTaskID int                            `json:"next_task_id"`
-	Version    int                            `json:"version"`
+	Tables     map[string]json.RawMessage          `json:"tables"`
+	Records    map[string]map[string][]Record      `json:"records"`
+	Shapes     map[string]map[string][]RecordShape `json:"shapes,omitempty"`
+	Tags       map[string]map[string]string        `json:"tags"`
+	NextTaskID int                                 `json:"next_task_id"`
+	Version    int                                 `json:"version"`
 }
 
 // Snapshot serialises the current backend state into a JSON byte slice.
@@ -91,6 +92,16 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		}
 	}
 
+	shapes := make(map[string]map[string][]RecordShape, len(b.records))
+
+	for dbName, tblSlots := range b.records {
+		shapes[dbName] = make(map[string][]RecordShape, len(tblSlots))
+
+		for tblName, slot := range tblSlots {
+			shapes[dbName][tblName] = append([]RecordShape(nil), slot.shapes...)
+		}
+	}
+
 	tags := make(map[string]map[string]string, len(b.tags))
 	for arn, tagMap := range b.tags {
 		tags[arn] = make(map[string]string, len(tagMap))
@@ -101,6 +112,7 @@ func (b *InMemoryBackend) Snapshot() ([]byte, error) {
 		Version:    timestreamwriteSnapshotVersion,
 		Tables:     tables,
 		Records:    records,
+		Shapes:     shapes,
 		Tags:       tags,
 		NextTaskID: b.nextTaskID,
 	}
@@ -172,11 +184,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 				idx[recordKey(r)] = i
 			}
 
-			b.records[dbName][tblName] = &tableRecords{
+			slot := &tableRecords{
 				mu:          lockmetrics.New("timestreamwrite.table"),
 				records:     recs,
 				recordIndex: idx,
 			}
+			slot.rebuildShapes(snap.Shapes[dbName][tblName])
+			b.records[dbName][tblName] = slot
 		}
 	}
 

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,7 +23,10 @@ type timestreamRecordSource struct {
 	timestreamCatalog
 }
 
-var _ timestreamquerybackend.RecordSource = (*timestreamRecordSource)(nil)
+var (
+	_ timestreamquerybackend.RecordSource = (*timestreamRecordSource)(nil)
+	_ timestreamquerybackend.SchemaSource = (*timestreamRecordSource)(nil)
+)
 
 func newTimestreamRecordSource(h *timestreamwritebackend.Handler) *timestreamRecordSource {
 	return &timestreamRecordSource{timestreamCatalog{handler: h}}
@@ -42,6 +46,27 @@ func (s *timestreamRecordSource) TableRecords(
 	}
 
 	return out, nil
+}
+
+func (s *timestreamRecordSource) TableShapes(region, database, table string) []timestreamquerybackend.SourceRecord {
+	shapes := s.handler.BackendFor(region).TableShapes(database, table)
+	out := make([]timestreamquerybackend.SourceRecord, 0, len(shapes))
+
+	for _, sh := range shapes {
+		r := timestreamquerybackend.SourceRecord{MeasureName: sh.MeasureName, MeasureValueType: sh.MeasureValueType}
+
+		for _, d := range sh.Dimensions {
+			r.Dimensions = append(r.Dimensions, timestreamquerybackend.SourceDimension{Name: d})
+		}
+
+		for _, m := range sh.Attributes {
+			r.Measures = append(r.Measures, timestreamquerybackend.SourceMeasure{Name: m.Name, Type: m.Type})
+		}
+
+		out = append(out, r)
+	}
+
+	return out
 }
 
 func (s *timestreamRecordSource) ListDatabases(region string) []string {
@@ -82,6 +107,16 @@ func (s *timestreamRecordSource) AppendRecords(
 	}
 
 	_, err := s.handler.BackendFor(region).WriteRecords(database, table, recs)
+
+	var rejected *timestreamwritebackend.RejectedRecordsError
+	if errors.As(err, &rejected) {
+		out := &timestreamquerybackend.RejectedError{}
+		for _, r := range rejected.RejectedRecords {
+			out.Rejected = append(out.Rejected, timestreamquerybackend.RejectedRecord{Index: r.RecordIndex, Reason: r.Reason})
+		}
+
+		return out
+	}
 
 	return err
 }

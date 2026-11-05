@@ -1,6 +1,9 @@
 package timestreamquery
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Measure value types as written by TimestreamWrite.
 const (
@@ -46,6 +49,32 @@ type RecordSource interface {
 	ListDatabases(region string) []string
 	ListTables(region, database string) []string
 	AppendRecords(region, database, table string, records []SourceRecord) error
+}
+
+// RejectedRecord is one record a target table refused, by index into the appended batch.
+type RejectedRecord struct {
+	Reason string
+	Index  int
+}
+
+// RejectedError is returned by AppendRecords when the table rejects records.
+type RejectedError struct {
+	Rejected []RejectedRecord
+}
+
+func (e *RejectedError) Error() string {
+	if len(e.Rejected) == 0 {
+		return "records rejected"
+	}
+
+	return fmt.Sprintf("%d record(s) rejected: %s", len(e.Rejected), e.Rejected[0].Reason)
+}
+
+// SchemaSource is optionally implemented by a RecordSource that remembers table schemas
+// after the records that defined them have aged out.
+type SchemaSource interface {
+	// TableShapes returns one value-less SourceRecord per distinct record shape ever written, first-seen first.
+	TableShapes(region, database, table string) []SourceRecord
 }
 
 // SetRecordSource wires the record source used to execute queries and scheduled-query writes.

@@ -181,6 +181,7 @@ func (a macSecSecretAdapter) CreateMacSecSecret(region, name, secretString strin
 // wireDirectConnectMacSecSecrets gives Direct Connect a Secrets Manager store for MACsec keys.
 func wireDirectConnectMacSecSecrets(byName map[string]service.Registerable) {
 	wireTimestreamInfluxDBIntegrations(byName)
+	wireTimestreamQueryIntegrations(byName)
 
 	dcH, ok := byName["DirectConnect"].(*directconnectbackend.Handler)
 	if !ok {

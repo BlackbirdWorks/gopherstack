@@ -66,12 +66,13 @@ func (b *InMemoryBackend) QueryWithOptions(ctx context.Context, opts QueryOption
 		}
 	}
 
-	rs, err := b.execute(ctx, opts.QueryString, nil)
+	queryID := newQueryID()
+
+	rs, err := b.execute(context.WithValue(ctx, queryIDKey{}, queryID), opts.QueryString, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	queryID := newQueryID()
 	status := statusFor(rs)
 
 	result := &QueryResult{

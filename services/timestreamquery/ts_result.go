@@ -128,6 +128,13 @@ func readRows(rows *sql.Rows) (*resultSet, error) {
 			col[r] = raw[r][i]
 		}
 
+		if kind := complexKind(col); kind != "" {
+			types[i] = kind
+			rs.cols = append(rs.cols, complexColumnInfo(columnName(n, i), kind, col))
+
+			continue
+		}
+
 		t := declType(ctypes[i].DatabaseTypeName())
 		if t == "" {
 			t = inferType(col)
@@ -140,7 +147,7 @@ func readRows(rows *sql.Rows) (*resultSet, error) {
 	for _, r := range raw {
 		data := make([]Datum, len(r))
 		for i, v := range r {
-			data[i] = datumOf(v, types[i])
+			data[i] = datumFor(v, types[i])
 		}
 
 		rs.rows = append(rs.rows, Row{Data: data})

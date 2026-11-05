@@ -22,6 +22,7 @@ const (
 var (
 	reNoColumn   = regexp.MustCompile(`no such column: (\S+)`)
 	reNoFunction = regexp.MustCompile(`no such function: (\S+)`)
+	reUnnestMod  = regexp.MustCompile(`\bts_unnest_\d+\b`)
 	reSQLiteTag  = regexp.MustCompile(`^SQL logic error: |\s\(\d+\)$`)
 )
 
@@ -45,6 +46,8 @@ func (b *InMemoryBackend) execute(
 		return b.describe(region, query)
 	case "SHOW":
 		return b.show(region, query)
+	case "UNLOAD":
+		return b.unload(ctx, query)
 	case "EXPLAIN":
 		return nil, validationf("line 1:1: EXPLAIN is not supported")
 	}
@@ -57,7 +60,7 @@ func (b *InMemoryBackend) execute(
 		return nil, err
 	}
 
-	translated, err := translate(rewriteTimestream(query, now, vars), tables)
+	translated, err := translateTimestream(rewriteTimestream(query, now, vars), tables)
 	if err != nil {
 		return nil, err
 	}
@@ -121,15 +124,36 @@ func loadSourceTables(
 		}
 
 		set[key] = &tableData{
-			sqlName: engineTablePrefix + strconv.Itoa(len(set)), schema: deriveSchema(recs), records: recs,
+			sqlName: engineTablePrefix + strconv.Itoa(len(set)),
+			schema:  deriveSchema(withShapes(src, region, ref, recs)),
+			records: recs,
 		}
 	}
 
 	return set, scanned, nil
 }
 
+// withShapes prepends the table's remembered record shapes so the schema survives retention.
+func withShapes(src RecordSource, region string, ref tableRef, recs []SourceRecord) []SourceRecord {
+	ss, ok := src.(SchemaSource)
+	if !ok {
+		return recs
+	}
+
+	shapes := ss.TableShapes(region, ref.database, ref.table)
+	if len(shapes) == 0 {
+		return recs
+	}
+
+	return append(shapes[:len(shapes):len(shapes)], recs...)
+}
+
 func translate(q string, set loadedSet) (string, error) {
 	resolve := func(parts []string) (string, string, bool) {
+		if len(parts) == 1 && strings.HasPrefix(parts[0], "__tsu") {
+			return "main", parts[0], true
+		}
+
 		if len(parts) != qualifiedParts {
 			return "", "", false
 		}
@@ -176,6 +200,13 @@ func runTranslated(ctx context.Context, q string, set loadedSet) (*resultSet, er
 	for _, t := range set {
 		if err = loadTable(ctx, conn, t); err != nil {
 			return nil, fmt.Errorf("timestreamquery: load table: %w", err)
+		}
+	}
+
+	for _, mod := range reUnnestMod.FindAllString(q, -1) {
+		ddl := "CREATE VIRTUAL TABLE IF NOT EXISTS temp." + mod + " USING " + mod
+		if _, err = conn.ExecContext(ctx, ddl); err != nil {
+			return nil, fmt.Errorf("timestreamquery: unnest module: %w", err)
 		}
 	}
 

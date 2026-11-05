@@ -217,6 +217,7 @@ func upsertRecord(
 	cp.Version = newVersion
 	cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
 	slot.records[idx] = cp
+	slot.noteShape(cp)
 
 	if recordGoesToMemoryStore(cp, tbl, now) {
 		return 1, 0, nil
@@ -232,6 +233,7 @@ func insertRecord(slot *tableRecords, r Record, newVersion int64, tbl *Table, no
 	cp.InternalTimestamp = parseTimestreamTime(r.Time, r.TimeUnit)
 	slot.recordIndex[recordKey(r)] = len(slot.records)
 	slot.records = append(slot.records, cp)
+	slot.noteShape(cp)
 
 	if recordGoesToMemoryStore(cp, tbl, now) {
 		return 1, 0

@@ -54,7 +54,7 @@ func (b *InMemoryBackend) tableSchemaFor(region, ref string, src RecordSource) (
 		return tableSchema{}, validationf("line 1:1: Table '%s.%s' does not exist", r.database, r.table)
 	}
 
-	return deriveSchema(recs), nil
+	return deriveSchema(withShapes(src, region, r, recs)), nil
 }
 
 func (b *InMemoryBackend) describe(region, q string) (*resultSet, error) {

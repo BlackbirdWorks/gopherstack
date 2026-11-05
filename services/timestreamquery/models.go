@@ -22,6 +22,10 @@ type ScheduledQuery struct {
 	LastRunStats            *ExecutionStats             `json:"last_run_stats,omitempty"`
 	LastRunStatus           string                      `json:"last_run_status,omitempty"`
 	LastRunFailure          string                      `json:"last_run_failure,omitempty"`
+	NextRun                 time.Time                   `json:"next_run,omitempty"`
+	LastRunTriggerTime      time.Time                   `json:"last_run_trigger_time,omitempty"`
+	LastRunErrorReport      *S3ReportLocation           `json:"last_run_error_report,omitempty"`
+	RecentlyFailedRuns      []FailedRun                 `json:"recently_failed_runs,omitempty"`
 	// ErrorReportEncryptionOption/ErrorReportObjectKeyPrefix mirror
 	// types.S3Configuration.EncryptionOption/ObjectKeyPrefix (both optional,
 	// api_op_CreateScheduledQuery.go) -- accepted and echoed back, but this
@@ -29,6 +33,16 @@ type ScheduledQuery struct {
 	// honest scoping as KmsKeyID, see PARITY.md gaps).
 	ErrorReportEncryptionOption string `json:"error_report_encryption_option,omitempty"`
 	ErrorReportObjectKeyPrefix  string `json:"error_report_object_key_prefix,omitempty"`
+}
+
+// FailedRun records one failed scheduled query run for DescribeScheduledQuery.RecentlyFailedRuns.
+type FailedRun struct {
+	InvocationTime time.Time         `json:"invocation_time"`
+	TriggerTime    time.Time         `json:"trigger_time"`
+	ErrorReport    *S3ReportLocation `json:"error_report,omitempty"`
+	Stats          ExecutionStats    `json:"stats"`
+	Status         string            `json:"status"`
+	Failure        string            `json:"failure"`
 }
 
 // ScheduledQueryTargetDetail holds the TargetConfiguration.TimestreamConfiguration
