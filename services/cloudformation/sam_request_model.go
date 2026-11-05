@@ -16,18 +16,29 @@ type samRequestModel struct {
 	hasValidator   bool
 }
 
-func (t *samTranslator) parseRequestModel(fnID, name string, api *samAPI, method, path string, v any) (*samRequestModel, error) {
+func (t *samTranslator) parseRequestModel(
+	fnID, name string,
+	api *samAPI,
+	method, path string,
+	v any,
+) (*samRequestModel, error) {
 	if v == nil {
-		return nil, nil
+		return &samRequestModel{}, nil
 	}
 	rm := asMap(v)
 	if rm == nil {
 		return nil, samErr(fnID, "Event [%s] RequestModel must be a map.", name)
 	}
-	if err := rejectUnknown(fnID+name, rm, keySet("Model", "Required", "ValidateBody", "ValidateParameters")); err != nil {
+	if err := rejectUnknown(
+		fnID+name,
+		rm,
+		keySet("Model", "Required", "ValidateBody", "ValidateParameters"),
+	); err != nil {
 		return nil, err
 	}
-	prefix := "Unable to set RequestModel [" + asString(rm["Model"]) + "] on API method [" + method + "] for path [" + path + "] "
+	prefix := "Unable to set RequestModel [" + asString(
+		rm["Model"],
+	) + "] on API method [" + method + "] for path [" + path + "] "
 	out := &samRequestModel{required: rm["Required"]}
 	if rm["Model"] == nil {
 		return out, nil
@@ -47,18 +58,27 @@ func (t *samTranslator) parseRequestModel(fnID, name string, api *samAPI, method
 		return nil, samErr(fnID, "%sbecause it wasn't defined in the API's Models.", prefix)
 	}
 	out.model = model
-	vb, vp := rm["ValidateBody"], rm["ValidateParameters"]
-	if vb != nil || vp != nil {
-		b, bOK := boolOrDefault(vb)
-		p, pOK := boolOrDefault(vp)
-		if !bOK || !pOK {
-			return nil, samErr(fnID, "%sValidateBody and ValidateParameters must be a boolean type, strings or "+
-				"intrinsics are not supported.", prefix)
-		}
-		out.hasValidator, out.validateBody, out.validateParams = true, b, p
+	if err := out.parseValidator(fnID, prefix, rm); err != nil {
+		return nil, err
 	}
 
 	return out, nil
+}
+
+func (m *samRequestModel) parseValidator(fnID, prefix string, rm map[string]any) error {
+	vb, vp := rm["ValidateBody"], rm["ValidateParameters"]
+	if vb == nil && vp == nil {
+		return nil
+	}
+	b, bOK := boolOrDefault(vb)
+	p, pOK := boolOrDefault(vp)
+	if !bOK || !pOK {
+		return samErr(fnID, "%sValidateBody and ValidateParameters must be a boolean type, strings or "+
+			"intrinsics are not supported.", prefix)
+	}
+	m.hasValidator, m.validateBody, m.validateParams = true, b, p
+
+	return nil
 }
 
 func boolOrDefault(v any) (bool, bool) {
@@ -91,7 +111,7 @@ func (m *samRequestModel) apply(doc, op map[string]any) {
 	name := strings.ToLower(m.model)
 	if _, isV3 := doc["openapi"]; isV3 {
 		body := map[string]any{"content": map[string]any{samJSONMime: map[string]any{
-			"schema": map[string]any{"$ref": "#/components/schemas/" + name},
+			samKeySchema: map[string]any{"$ref": "#/components/schemas/" + name},
 		}}}
 		if m.required != nil {
 			body["required"] = m.required
@@ -99,7 +119,7 @@ func (m *samRequestModel) apply(doc, op map[string]any) {
 		op["requestBody"] = body
 	} else {
 		param := map[string]any{"in": "body", samKeyNameLower: name,
-			"schema": map[string]any{"$ref": "#/definitions/" + name}}
+			samKeySchema: map[string]any{"$ref": "#/definitions/" + name}}
 		if m.required != nil {
 			param["required"] = m.required
 		}
@@ -115,7 +135,10 @@ func (m *samRequestModel) apply(doc, op map[string]any) {
 		doc[samKeyRequestValidators] = validators
 	}
 	if _, has := validators[vname]; !has {
-		validators[vname] = map[string]any{"validateRequestBody": m.validateBody, "validateRequestParameters": m.validateParams}
+		validators[vname] = map[string]any{
+			"validateRequestBody":       m.validateBody,
+			"validateRequestParameters": m.validateParams,
+		}
 	}
 	op[samKeyRequestValidator] = vname
 }

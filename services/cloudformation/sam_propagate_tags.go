@@ -12,9 +12,9 @@ const samKeyPropagateTags = "PropagateTags"
 //
 //nolint:gochecknoglobals // read-only type tables
 var (
-	samTagListTypes = keySet(samTypeStack, "AWS::DynamoDB::Table", samTypeCDApp, samTypeCDGroup, resTypeIAMRole,
-		"AWS::IoT::TopicRule", samTypeRestAPI, samTypeStage, "AWS::ApiGateway::DomainName",
-		"AWS::ApiGateway::DomainNameV2", "AWS::ApiGateway::UsagePlan", "AWS::ApiGateway::ApiKey", "AWS::SNS::Topic",
+	samTagListTypes = keySet(samTypeStack, resTypeDynamoDBTable, samTypeCDApp, samTypeCDGroup, resTypeIAMRole,
+		"AWS::IoT::TopicRule", samTypeRestAPI, samTypeStage, samTypeV1Domain,
+		"AWS::ApiGateway::DomainNameV2", "AWS::ApiGateway::UsagePlan", "AWS::ApiGateway::ApiKey", resTypeSNSTopic,
 		"AWS::SQS::Queue", samTypeFunction, samTypeBucket, "AWS::StepFunctions::StateMachine")
 	samTagMapTypes = keySet("AWS::ApiGatewayV2::Stage", "AWS::ApiGatewayV2::DomainName")
 )

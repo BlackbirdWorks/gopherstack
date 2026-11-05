@@ -166,7 +166,7 @@ func samLambdaIdentity(id, payload string, identity, ext map[string]any) (string
 	var err error
 	switch payload {
 	case samTokenType:
-		header, err = samTokenIdentity(id, identity, ext)
+		header = samTokenIdentity(identity, ext)
 	case samAuthTypeReq:
 		err = samRequestIdentity(id, identity, ext)
 	default:
@@ -179,7 +179,7 @@ func samLambdaIdentity(id, payload string, identity, ext map[string]any) (string
 	return header, err
 }
 
-func samTokenIdentity(id string, identity, ext map[string]any) (string, error) {
+func samTokenIdentity(identity, ext map[string]any) string {
 	header := samAuthHeader
 	if h, ok := identity["Header"].(string); ok {
 		header = h
@@ -188,7 +188,7 @@ func samTokenIdentity(id string, identity, ext map[string]any) (string, error) {
 		ext["identityValidationExpression"] = v
 	}
 
-	return header, nil
+	return header
 }
 
 func samRequestIdentity(id string, identity, ext map[string]any) error {

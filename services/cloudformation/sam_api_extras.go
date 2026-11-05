@@ -286,7 +286,7 @@ func (a *samAPI) openAPIPostprocess(doc map[string]any) {
 		delete(options, "consumes")
 		headers := asMap(asMap(asMap(options[samKeyResponses])["200"])["headers"])
 		for h, val := range headers {
-			headers[h] = map[string]any{"schema": val}
+			headers[h] = map[string]any{samKeySchema: val}
 		}
 	}
 }
@@ -375,28 +375,19 @@ func (t *samTranslator) putUsagePlan(a *samAPI, stageID string) error {
 }
 
 type samSharedPlan struct {
-	delPolicy       string
-	updPolicy       string
-	apis            []string
-	stages          []any
-	keys            []any
-	conditions      []string
-	anyWithoutCond  bool
+	delPolicy      string
+	updPolicy      string
+	apis           []string
+	stages         []any
+	keys           []any
+	conditions     []string
+	anyWithoutCond bool
 }
 
 const samSharedPlanCondition = "SharedUsagePlanCondition"
 
-// combine folds one API's Condition, DeletionPolicy and UpdateReplacePolicy into the shared plan's attributes.
-func (p *samSharedPlan) combine(attrs map[string]any, conditions map[string]any) map[string]any {
-	if dp := asString(attrs[samKeyDelPolicy]); dp != "" && (p.delPolicy == "" || dp == samDeletionRetain) {
-		p.delPolicy = dp
-	}
-	if up := asString(attrs[samKeyUpdPolicy]); up != "" {
-		if p.updPolicy == "" || up == samDeletionRetain || (up == samDeletionSnapshot && p.updPolicy == samDeletionDelete) {
-			p.updPolicy = up
-		}
-	}
-	cond := asString(attrs[samKeyCondition])
+// addCondition records one API's Condition (empty for none) and keeps the template's shared condition current.
+func (p *samSharedPlan) addCondition(cond string, conditions map[string]any) {
 	switch {
 	case p.anyWithoutCond:
 	case cond == "":
@@ -415,6 +406,20 @@ func (p *samSharedPlan) combine(attrs map[string]any, conditions map[string]any)
 		}
 		conditions[samSharedPlanCondition] = map[string]any{samFnOr: or}
 	}
+}
+
+// combine folds one API's Condition, DeletionPolicy and UpdateReplacePolicy into the shared plan's attributes.
+func (p *samSharedPlan) combine(attrs map[string]any, conditions map[string]any) map[string]any {
+	if dp := asString(attrs[samKeyDelPolicy]); dp != "" && (p.delPolicy == "" || dp == samDeletionRetain) {
+		p.delPolicy = dp
+	}
+	if up := asString(attrs[samKeyUpdPolicy]); up != "" {
+		if p.updPolicy == "" || up == samDeletionRetain ||
+			(up == samDeletionSnapshot && p.updPolicy == samDeletionDelete) {
+			p.updPolicy = up
+		}
+	}
+	p.addCondition(asString(attrs[samKeyCondition]), conditions)
 	out := map[string]any{}
 	if p.delPolicy != "" {
 		out[samKeyDelPolicy] = p.delPolicy

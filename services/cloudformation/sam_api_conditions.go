@@ -9,13 +9,13 @@ import (
 
 const (
 	samMaxOrConditions   = 10
-	samNoValue           = "AWS::NoValue"
-	samKeyFnIf           = "Fn::If"
 	samImplicitAPICond   = "ServerlessRestApiCondition"
 	samPathCondSuffix    = "PathCondition"
 	samDeletionRetain    = "Retain"
 	samDeletionDelete    = "Delete"
 	samDeletionSnapshot  = "Snapshot"
+	samMethodAny         = "any"
+	samKeySchema         = "schema"
 	samPathSlash         = "SLASH"
 	samPathOpenBrace     = "OB"
 	samPathCloseBrace    = "CB"
@@ -24,7 +24,7 @@ const (
 )
 
 func samIf(cond string, then any) map[string]any {
-	return map[string]any{samKeyFnIf: []any{cond, then, samRef(samNoValue)}}
+	return map[string]any{fnIf: []any{cond, then, samRef(pseudoNoValue)}}
 }
 
 // makeCombinedCondition ORs conds into name, spilling into numbered conditions past ten operands.
@@ -141,7 +141,7 @@ func (a *samAPI) applyConditions(t *samTranslator, paths map[string]any) {
 
 func routeVerb(method string) string {
 	verb := strings.ToLower(method)
-	if verb == "any" {
+	if verb == samMethodAny {
 		return samAnyMethodKey
 	}
 

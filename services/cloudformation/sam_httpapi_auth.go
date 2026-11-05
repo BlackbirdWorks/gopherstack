@@ -246,7 +246,7 @@ func (e *samOpenAPI) setDefaultAuthorizer(id string, az *samHTTPAuthorizer) erro
 // operations without an integration and those with their own security.
 func defaultAuthTargets(id, path, method string, v any, item map[string]any) ([]map[string]any, error) {
 	norm := strings.ToLower(method)
-	if norm == "any" {
+	if norm == samMethodAny {
 		norm = samAnyMethodKey
 	}
 	if norm == samKOptions || norm == "parameters" {

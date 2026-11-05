@@ -171,7 +171,7 @@ func conditionalContents(item any) ([]any, bool) {
 	}
 	var out []any
 	for _, c := range args[min(1, len(args)):] {
-		if cm := asMap(c); len(cm) == 1 && cm[samKeyRef] == "AWS::NoValue" {
+		if cm := asMap(c); len(cm) == 1 && cm[samKeyRef] == pseudoNoValue {
 			continue
 		}
 		out = append(out, c)
@@ -197,7 +197,7 @@ func (a *samAPI) policyResources(path string, item, stage any) ([]any, error) {
 	var out []any
 	for _, m := range methods {
 		method := strings.ToUpper(m)
-		if lm := strings.ToLower(m); lm == samAnyMethodKey || lm == "any" {
+		if lm := strings.ToLower(m); lm == samAnyMethodKey || lm == samMethodAny {
 			method = "*"
 		}
 		out = append(out, map[string]any{samKeyFnSub: []any{
@@ -238,7 +238,7 @@ func addIAMPolicyStatement(policy map[string]any, v any, effect string, resource
 		return
 	}
 	stmt := map[string]any{
-		samKeyEffect: effect, samKeyAction: samInvokeAction, "Resource": resources,
+		samKeyEffect: effect, samKeyAction: samInvokeAction, samKeyResource: resources,
 		samKeyPrincipal: map[string]any{samKeyAwsPrincipal: list},
 	}
 	policy[samKeyVersion] = samPolicyVersion
@@ -256,10 +256,10 @@ func addIAMPolicyStatement(policy map[string]any, v any, effect string, resource
 
 func allowDenyPair(resources []any, denyCondition map[string]any) []map[string]any {
 	allow := map[string]any{
-		samKeyEffect: "Allow", samKeyAction: samInvokeAction, "Resource": resources, samKeyPrincipal: "*",
+		samKeyEffect: "Allow", samKeyAction: samInvokeAction, samKeyResource: resources, samKeyPrincipal: "*",
 	}
 	deny := map[string]any{
-		samKeyEffect: "Deny", samKeyAction: samInvokeAction, "Resource": resources, samKeyPrincipal: "*",
+		samKeyEffect: "Deny", samKeyAction: samInvokeAction, samKeyResource: resources, samKeyPrincipal: "*",
 		samKeyCondition: denyCondition,
 	}
 

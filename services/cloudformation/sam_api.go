@@ -3,7 +3,6 @@ package cloudformation
 import (
 	"maps"
 	"slices"
-	"strings"
 )
 
 const (
@@ -37,27 +36,27 @@ type samRoute struct {
 	apiKey                         *bool
 	fnID, path, method, authorizer string
 	// roleID is set for state machine routes: the API Gateway invoke role.
-	roleID   string
+	roleID    string
 	condition string
-	model    *samRequestModel
-	params   []samReqParam
-	unescape bool
+	model     *samRequestModel
+	params    []samReqParam
+	unescape  bool
 }
 
 // samAPI accumulates one AWS::Serverless::Api (or the implicit
 // ServerlessRestApi) until every Api event has been seen.
 type samAPI struct {
-	auth      *samAuth
-	raw       map[string]any
-	props     map[string]any
-	id        string
-	stageName string
-	stageRaw  any
-	routes    []samRoute
-	explicit  bool
-	plainRef  bool
+	stageRaw    any
+	auth        *samAuth
+	raw         map[string]any
+	props       map[string]any
+	id          string
+	stageName   string
+	routes      []samRoute
 	delPolicies []string
 	updPolicies []string
+	explicit    bool
+	plainRef    bool
 }
 
 func (rt samRoute) invokeRef() string {
@@ -245,7 +244,8 @@ func (t *samTranslator) prepareAuth(a *samAPI) error {
 		return err
 	}
 	for _, rt := range a.routes {
-		if n := rt.authorizer; n != "" && n != samAuthNone && n != samSecIAM && (a.auth == nil || a.auth.defs[n] == nil) {
+		if n := rt.authorizer; n != "" && n != samAuthNone && n != samSecIAM &&
+			(a.auth == nil || a.auth.defs[n] == nil) {
 			return samErr(rt.fnID, "Authorizer '%s' is not defined in Auth.Authorizers of API [%s].", n, a.id)
 		}
 	}
@@ -302,16 +302,7 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	if len(paths) > 0 || doc["paths"] != nil || a.props["DefinitionBody"] == nil {
 		doc["paths"] = paths
 	}
-	if cors, ok := a.props[samKeyCorsProp]; ok {
-		if err = addCorsPreflight(a.id, paths, cors); err != nil {
-			return nil, err
-		}
-	}
-	a.addSecurityDefinitions(doc)
-	if err = a.applyDefaultSecurity(doc); err != nil {
-		return nil, err
-	}
-	if err = a.addDocExtensions(t, doc); err != nil {
+	if err = a.decorate(t, doc, paths); err != nil {
 		return nil, err
 	}
 	a.applyConditions(t, paths)
@@ -328,6 +319,21 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	}
 
 	return doc, nil
+}
+
+// decorate adds Cors, Auth and the document-level Api properties to the document.
+func (a *samAPI) decorate(t *samTranslator, doc, paths map[string]any) error {
+	if cors, ok := a.props[samKeyCorsProp]; ok {
+		if err := addCorsPreflight(a.id, paths, cors); err != nil {
+			return err
+		}
+	}
+	a.addSecurityDefinitions(doc)
+	if err := a.applyDefaultSecurity(doc); err != nil {
+		return err
+	}
+
+	return a.addDocExtensions(t, doc)
 }
 
 // baseDocument is the user's DefinitionBody (copied) or SAM's skeleton.
@@ -391,10 +397,7 @@ func (a *samAPI) mergeRoute(doc, paths map[string]any, rt samRoute) error {
 	if item == nil {
 		item = map[string]any{}
 	}
-	verb := strings.ToLower(rt.method)
-	if verb == "any" {
-		verb = samAnyMethodKey
-	}
+	verb := routeVerb(rt.method)
 	existing := asMap(item[verb])
 	if existing != nil && existing[samIntegrationKey] != nil {
 		if a.managed() {

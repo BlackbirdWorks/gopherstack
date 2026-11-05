@@ -8,11 +8,11 @@ import (
 
 const (
 	samLambdaDurableExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy"
-	samLambdaBasicExec = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-	samLambdaVPCExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-	samXRayWrite       = "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
-	samTracingDisabled = "Disabled"
-	samKeyAutoPublish  = "AutoPublishAlias"
+	samLambdaBasicExec   = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+	samLambdaVPCExec     = "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+	samXRayWrite         = "arn:${AWS::Partition}:iam::aws:policy/AWSXrayWriteOnlyAccess"
+	samTracingDisabled   = "Disabled"
+	samKeyAutoPublish    = "AutoPublishAlias"
 )
 
 func samFnPassthrough() map[string]bool {

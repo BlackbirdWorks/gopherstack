@@ -50,7 +50,7 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 	if tags := asMap(props[scopeTags]); tags != nil {
 		tbl[scopeTags] = samTagList(tags)
 	}
-	base := map[string]any{samKeyType: "AWS::DynamoDB::Table", samKeyProps: tbl}
+	base := map[string]any{samKeyType: resTypeDynamoDBTable, samKeyProps: tbl}
 	carryAttrs(r, base)
 
 	return t.put(id, base)

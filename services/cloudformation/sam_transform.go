@@ -91,24 +91,24 @@ var ErrSAMTransform = errors.New("transform " + samTransformName + " failed with
 // samTranslator expands AWS::Serverless::* into plain CloudFormation; logical IDs follow
 // the SAM developer guide page "sam-specification-generated-resources".
 type samTranslator struct {
-	out        map[string]any
-	globals    map[string]map[string]any
+	refs       map[string]string
+	params     map[string]any
 	apis       map[string]*samAPI
 	httpAPIs   map[string]*samHTTPAPI
 	s3Configs  map[string][]any
 	s3Perms    map[string][]string
 	cognito    map[string][]samCognitoTrigger
 	input      map[string]any
-	refs       map[string]string
+	globals    map[string]map[string]any
+	out        map[string]any
 	pass       map[string]any
-	params     map[string]any
 	conditions map[string]any
+	bucketTags map[string]map[string]any
+	owner      map[string]string
+	curTags    map[string]any
+	cur        string
 	deploys    []*samDeployPref
 	sharedPlan samSharedPlan
-	curTags    map[string]any
-	owner      map[string]string
-	cur        string
-	bucketTags map[string]map[string]any
 }
 
 func samErr(id, format string, args ...any) error {
@@ -307,11 +307,11 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 //nolint:gochecknoglobals // read-only table
 var samReplacedTypes = map[string][]string{
 	samTypeFunction: {samResPrefix + samKeyFunction}, samTypeLayer: {samResPrefix + "LayerVersion"},
-	samTypeRestAPI: {samResPrefix + "Api"}, "AWS::ApiGatewayV2::Api": {samResPrefix + "HttpApi"},
-	samTypeBucket: {samTypeBucket}, "AWS::SNS::Topic": {"AWS::SNS::Topic"},
-	"AWS::DynamoDB::Table": {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
-	samTypeUserPool: {samTypeUserPool}, "AWS::ApiGateway::DomainName": {"AWS::ApiGateway::DomainName"},
-	"AWS::ApiGateway::BasePathMapping": {"AWS::ApiGateway::BasePathMapping"},
+	samTypeRestAPI: {samResPrefix + "Api"}, samTypeHTTPAPI: {samResPrefix + "HttpApi"},
+	samTypeBucket: {samTypeBucket}, resTypeSNSTopic: {resTypeSNSTopic},
+	resTypeDynamoDBTable: {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
+	samTypeUserPool: {samTypeUserPool}, samTypeV1Domain: {samTypeV1Domain},
+	samTypeV1Mapping:                   {samTypeV1Mapping},
 	"AWS::StepFunctions::StateMachine": {samResPrefix + "StateMachine"},
 }
 
@@ -416,7 +416,7 @@ func (t *samTranslator) resolveStringParam(v any) any {
 	}
 	s = samSubVarPattern.ReplaceAllStringFunc(s, func(ref string) string {
 		name := ref[2 : len(ref)-1]
-		if def, ok := t.params[name].(string); ok {
+		if def, isDefault := t.params[name].(string); isDefault {
 			return def
 		}
 
@@ -466,7 +466,12 @@ func (t *samTranslator) validateIgnoreGlobals(res map[string]any) error {
 			for _, k := range v {
 				name, _ := k.(string)
 				if _, ok := t.globals[section][name]; !ok {
-					return samErr(id, "Resource %s has invalid resource attribute 'IgnoreGlobals' on item '%s'.", id, name)
+					return samErr(
+						id,
+						"Resource %s has invalid resource attribute 'IgnoreGlobals' on item '%s'.",
+						id,
+						name,
+					)
 				}
 			}
 		default:
@@ -559,20 +564,32 @@ func rewriteSAMRefs(v any, refs map[string]string) map[string]any {
 	return asMap(rewriteRefValue(v, refs))
 }
 
+// rewriteRefIntrinsic redirects a Ref or Fn::GetAtt on a renamed resource.
+func rewriteRefIntrinsic(m map[string]any, refs map[string]string) (any, bool) {
+	if len(m) != 1 {
+		return nil, false
+	}
+	if ref, ok := m[samKeyRef].(string); ok {
+		to, hit := refs[ref]
+
+		return samRef(to), hit
+	}
+	if ga, ok := m[fnGetAtt].([]any); ok && len(ga) == samGetAttParts {
+		if name, isStr := ga[0].(string); isStr {
+			to, hit := refs[name]
+
+			return map[string]any{fnGetAtt: []any{to, ga[1]}}, hit
+		}
+	}
+
+	return nil, false
+}
+
 func rewriteRefValue(v any, refs map[string]string) any {
 	switch t := v.(type) {
 	case map[string]any:
-		if ref, ok := t[samKeyRef].(string); ok && len(t) == 1 {
-			if to, hit := refs[ref]; hit {
-				return samRef(to)
-			}
-		}
-		if ga, ok := t[fnGetAtt].([]any); ok && len(t) == 1 && len(ga) == 2 {
-			if name, isStr := ga[0].(string); isStr {
-				if to, hit := refs[name]; hit {
-					return map[string]any{fnGetAtt: []any{to, ga[1]}}
-				}
-			}
+		if replaced, ok := rewriteRefIntrinsic(t, refs); ok {
+			return replaced
 		}
 		out := make(map[string]any, len(t))
 		for k, e := range t {

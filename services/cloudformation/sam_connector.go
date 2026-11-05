@@ -21,6 +21,7 @@ const (
 	samProfileSQSPolicy  = "AWS_SQS_QUEUE_POLICY"
 	samProfileSNSPolicy  = "AWS_SNS_TOPIC_POLICY"
 	samProfileLambdaPerm = "AWS_LAMBDA_PERMISSION"
+	samGetAttParts       = 2
 	samEventSourceMap    = "DESTINATION_EVENT_SOURCE_MAPPING"
 )
 
@@ -45,9 +46,9 @@ func samConnCFNType(t string) string {
 	case samResPrefix + "Api":
 		return samTypeRestAPI
 	case samResPrefix + "HttpApi":
-		return "AWS::ApiGatewayV2::Api"
+		return samTypeHTTPAPI
 	case samResPrefix + "SimpleTable":
-		return "AWS::DynamoDB::Table"
+		return resTypeDynamoDBTable
 	}
 
 	return t
@@ -73,7 +74,11 @@ func extractEmbeddedConnectors(res map[string]any) error {
 				return err
 			}
 			if _, dup := res[full]; dup {
-				return samErr(srcID, "Resource with id [%s] is invalid. Resource with this Logical Id already exists.", full)
+				return samErr(
+					srcID,
+					"Resource with id [%s] is invalid. Resource with this Logical Id already exists.",
+					full,
+				)
 			}
 			res[full] = conn
 		}
@@ -159,13 +164,13 @@ func (t *samTranslator) expandConnector(id string, r map[string]any) ([]string, 
 
 	var generated []string
 	for i, d := range dests {
-		dest, ok := d.(map[string]any)
-		if !ok {
+		dest := asMap(d)
+		if dest == nil {
 			return nil, samErr(id, "Property 'Destination' should be a map or a list of maps.")
 		}
-		ids, err := t.connectOne(id, r, source, dest, perms, connIndex{i: i, multi: multi})
-		if err != nil {
-			return nil, err
+		ids, connErr := t.connectOne(id, r, source, dest, perms, connIndex{i: i, multi: multi})
+		if connErr != nil {
+			return nil, connErr
 		}
 		generated = append(generated, ids...)
 	}
@@ -219,8 +224,12 @@ func (t *samTranslator) connectOne(
 	}
 	entry, ok := samConnectorProfiles().Permissions[source.resType][dest.resType]
 	if !ok {
-		return nil, samErr(id, "Unable to create connector from %s to %s; it's not supported or the template is invalid.",
-			source.resType, dest.resType)
+		return nil, samErr(
+			id,
+			"Unable to create connector from %s to %s; it's not supported or the template is invalid.",
+			source.resType,
+			dest.resType,
+		)
 	}
 	props, err := connectorProfileProps(id, entry, source, dest, perms)
 	if err != nil {
@@ -294,8 +303,13 @@ func connectorProfileProps(
 	}
 	for _, p := range perms {
 		if _, ok := cats[p]; !ok {
-			return nil, samErr(id, "Unsupported 'Permissions' provided for connector from %s to %s; valid values are: %s.",
-				source.resType, dest.resType, strings.Join(valid, ", "))
+			return nil, samErr(
+				id,
+				"Unsupported 'Permissions' provided for connector from %s to %s; valid values are: %s.",
+				source.resType,
+				dest.resType,
+				strings.Join(valid, ", "),
+			)
 		}
 	}
 	if err := checkPermissionCombos(id, entry, source, dest, perms); err != nil {
@@ -425,7 +439,8 @@ func eventsRuleRole(connecting, props map[string]any) any {
 	for _, tg := range asList(props["Targets"]) {
 		target := asMap(tg)
 		tid := logicalIDFromIntrinsic(target["Arn"])
-		if (tid != "" && tid == cid) || (connecting["Arn"] != nil && fmt.Sprint(target["Arn"]) == fmt.Sprint(connecting["Arn"])) {
+		if (tid != "" && tid == cid) ||
+			(connecting["Arn"] != nil && fmt.Sprint(target["Arn"]) == fmt.Sprint(connecting["Arn"])) {
 			return target["RoleArn"]
 		}
 	}
@@ -447,7 +462,7 @@ func logicalIDFromIntrinsic(v any) string {
 			return s
 		}
 	case string:
-		if parts := strings.Split(ga, "."); len(parts) == 2 {
+		if parts := strings.Split(ga, "."); len(parts) == samGetAttParts {
 			return parts[0]
 		}
 	}
@@ -490,7 +505,7 @@ func (t *samTranslator) connectorResources(
 		t.addConnectorDependsOn(props, gid, source, dest)
 
 		return []map[string]any{mk(gid, "AWS::IAM::ManagedPolicy", map[string]any{
-			"PolicyDocument": policyStatements(props, perms), "Roles": []any{target.roleName},
+			samKeyPolicyDoc: policyStatements(props, perms), "Roles": []any{target.roleName},
 		})}, nil
 	case samProfileSQSPolicy:
 		if target.queueURL == nil {
@@ -498,7 +513,7 @@ func (t *samTranslator) connectorResources(
 		}
 
 		return []map[string]any{mk(idx.name(id, "QueuePolicy", ""), "AWS::SQS::QueuePolicy", map[string]any{
-			"PolicyDocument": policyStatements(props, perms), "Queues": []any{target.queueURL},
+			samKeyPolicyDoc: policyStatements(props, perms), "Queues": []any{target.queueURL},
 		})}, nil
 	case samProfileSNSPolicy:
 		if target.arn == nil {
@@ -506,7 +521,7 @@ func (t *samTranslator) connectorResources(
 		}
 
 		return []map[string]any{mk(idx.name(id, "TopicPolicy", ""), "AWS::SNS::TopicPolicy", map[string]any{
-			"PolicyDocument": policyStatements(props, perms), "Topics": []any{target.arn},
+			samKeyPolicyDoc: policyStatements(props, perms), "Topics": []any{target.arn},
 		})}, nil
 	case samProfileLambdaPerm:
 		if target.arn == nil {

@@ -3,6 +3,7 @@ package cloudformation
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -43,6 +44,11 @@ var samConnectorProfiles = sync.OnceValue(func() samConnProfile {
 })
 
 func rp(key string, value any) samReplacement { return samReplacement{key: key, value: value} }
+
+var (
+	errProfileValueMissing = errors.New("connector profile value is missing")
+	errProfileVarsLeft     = errors.New("connector profile variables have not been replaced")
+)
 
 var samProfileVarRe = regexp.MustCompile(`%\{[\w.]+\}`)
 
@@ -105,7 +111,7 @@ func profileReplaceString(s string, repl []samReplacement) (any, error) {
 			continue
 		}
 		if r.value == nil {
-			return nil, fmt.Errorf("%s is missing", r.key)
+			return nil, fmt.Errorf("%w: %s", errProfileValueMissing, r.key)
 		}
 		if pattern == s {
 			return r.value, nil
@@ -130,7 +136,7 @@ func verifyProfileVarsReplaced(obj any) error {
 		return err
 	}
 	if m := samProfileVarRe.FindAllString(string(raw), -1); len(m) > 0 {
-		return fmt.Errorf("the following variables have not been replaced: %v", m)
+		return fmt.Errorf("%w: %v", errProfileVarsLeft, m)
 	}
 
 	return nil

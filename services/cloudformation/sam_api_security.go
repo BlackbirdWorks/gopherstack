@@ -67,24 +67,32 @@ func (a *samAPI) applyDefaultSecurity(doc map[string]any) error {
 	return a.applyResourcePolicy(doc)
 }
 
+// forEachItemOp visits the integration operations of one path item, including conditional ones.
+func forEachItemOp(path string, item map[string]any, fn func(path, method string, op map[string]any) error) error {
+	for _, method := range slices.Sorted(maps.Keys(item)) {
+		ops, _ := conditionalContents(item[method])
+		for _, o := range ops {
+			op := asMap(o)
+			if op == nil || op[samIntegrationKey] == nil {
+				continue
+			}
+			if err := fn(path, method, op); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 // forEachIntegrationOp visits every operation that has an API Gateway integration, in a stable order.
 func forEachIntegrationOp(doc map[string]any, fn func(path, method string, op map[string]any) error) error {
 	paths := asMap(doc["paths"])
 	for _, path := range slices.Sorted(maps.Keys(paths)) {
 		contents, _ := conditionalContents(paths[path])
 		for _, c := range contents {
-			item := asMap(c)
-			for _, method := range slices.Sorted(maps.Keys(item)) {
-				ops, _ := conditionalContents(item[method])
-				for _, o := range ops {
-					op := asMap(o)
-					if op == nil || op[samIntegrationKey] == nil {
-						continue
-					}
-					if err := fn(path, method, op); err != nil {
-						return err
-					}
-				}
+			if err := forEachItemOp(path, asMap(c), fn); err != nil {
+				return err
 			}
 		}
 	}

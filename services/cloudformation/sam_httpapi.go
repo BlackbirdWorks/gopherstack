@@ -34,13 +34,13 @@ type samHTTPRoute struct {
 	payload  any
 	auth     map[string]any
 	settings map[string]any
+	pass     map[string]any
 	fnID     string
 	fn       string
 	target   string
 	event    string
 	path     string
 	method   string
-	pass     map[string]any
 }
 
 func (r samHTTPRoute) key() string {
@@ -80,6 +80,24 @@ type samHTTPAPI struct {
 	plainRef  bool
 }
 
+// httpStageName reads StageName: a literal, or an intrinsic whose stage id carries no name.
+func httpStageName(id string, props map[string]any) (string, any, error) {
+	v, ok := props[samKeyStageName]
+	if !ok {
+		return samDefaultStage, samDefaultStage, nil
+	}
+	switch s := v.(type) {
+	case string:
+		if s != "" {
+			return s, v, nil
+		}
+	case map[string]any:
+		return "", v, nil
+	}
+
+	return "", nil, samErr(id, "StageName must be a literal string.")
+}
+
 func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 	props := t.resProps("HttpApi", r)
 	if err := rejectUnknown(id, props, samHTTPAPIProps()); err != nil {
@@ -103,21 +121,9 @@ func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 	if props["DefinitionBody"] != nil && props["DefinitionUri"] != nil {
 		return samErr(id, "Specify either 'DefinitionUri' or 'DefinitionBody' property and not both.")
 	}
-	stage := samDefaultStage
-	var stageRaw any = samDefaultStage
-	if v, ok := props[samKeyStageName]; ok {
-		stageRaw = v
-		switch s := v.(type) {
-		case string:
-			if s == "" {
-				return samErr(id, "StageName must be a literal string.")
-			}
-			stage = s
-		case map[string]any:
-			stage = ""
-		default:
-			return samErr(id, "StageName must be a literal string.")
-		}
+	stage, stageRaw, err := httpStageName(id, props)
+	if err != nil {
+		return err
 	}
 	managed := props["DefinitionBody"] == nil && props["DefinitionUri"] == nil
 	t.httpAPIs[id] = &samHTTPAPI{id: id, stageName: stage, stageRaw: stageRaw, props: props, managed: managed, raw: r}
@@ -141,7 +147,11 @@ func (t *samTranslator) httpAPIFor(fnID string, apiID any) (*samHTTPAPI, error) 
 				return nil, err
 			}
 			t.httpAPIs[samImplicitHTTPAPI] = &samHTTPAPI{
-				id: samImplicitHTTPAPI, stageName: samDefaultStage, stageRaw: samDefaultStage, props: props, managed: true,
+				id:        samImplicitHTTPAPI,
+				stageName: samDefaultStage,
+				stageRaw:  samDefaultStage,
+				props:     props,
+				managed:   true,
 			}
 		}
 

@@ -24,9 +24,9 @@ func samCodeDeployConfigs() []string {
 // samDeployPref is one function's enabled DeploymentPreference.
 type samDeployPref struct {
 	dp        map[string]any
+	tags      map[string]any
 	fnID      string
 	condition string
-	tags      map[string]any
 }
 
 // deploymentPreference validates a function's DeploymentPreference and marks its alias with the CodeDeploy
