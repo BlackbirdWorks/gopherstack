@@ -16,6 +16,16 @@ import (
 func signedInCognitoUser(t *testing.T, client *cognitoidpsdk.Client) (string, string, string) {
 	t.Helper()
 
+	return signedInCognitoUserWithPool(t, client, nil)
+}
+
+// signedInCognitoUserWithPool is signedInCognitoUser with a hook that configures the pool
+// before the user signs in.
+func signedInCognitoUserWithPool(
+	t *testing.T, client *cognitoidpsdk.Client, configure func(poolID string),
+) (string, string, string) {
+	t.Helper()
+
 	var accessToken, poolID, username string
 	ctx := t.Context()
 
@@ -24,6 +34,10 @@ func signedInCognitoUser(t *testing.T, client *cognitoidpsdk.Client) (string, st
 	})
 	require.NoError(t, err, "CreateUserPool failed")
 	poolID = aws.ToString(poolOut.UserPool.Id)
+
+	if configure != nil {
+		configure(poolID)
+	}
 
 	clientOut, err := client.CreateUserPoolClient(ctx, &cognitoidpsdk.CreateUserPoolClientInput{
 		UserPoolId: aws.String(poolID),
@@ -126,8 +140,8 @@ func TestIntegration_CognitoIDP_DeviceLifecycle(t *testing.T) {
 }
 
 // TestIntegration_CognitoIDP_StartWebAuthnRegistration verifies StartWebAuthnRegistration
-// returns real, non-empty passkey creation options (rp, user, and a random challenge) rather
-// than a stubbed/empty document.
+// returns real passkey creation options on a pool configured for passkeys, and
+// WebAuthnNotEnabledException on one that is not.
 func TestIntegration_CognitoIDP_StartWebAuthnRegistration(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -135,7 +149,18 @@ func TestIntegration_CognitoIDP_StartWebAuthnRegistration(t *testing.T) {
 	client := createCognitoIDPClient(t)
 	ctx := t.Context()
 
-	accessToken, _, _ := signedInCognitoUser(t, client)
+	const rpID = "auth.example.com"
+
+	accessToken, _, _ := signedInCognitoUserWithPool(t, client, func(poolID string) {
+		_, err := client.SetUserPoolMfaConfig(ctx, &cognitoidpsdk.SetUserPoolMfaConfigInput{
+			UserPoolId: aws.String(poolID),
+			WebAuthnConfiguration: &cognitotypes.WebAuthnConfigurationType{
+				RelyingPartyId:   aws.String(rpID),
+				UserVerification: cognitotypes.UserVerificationTypePreferred,
+			},
+		})
+		require.NoError(t, err, "SetUserPoolMfaConfig failed")
+	})
 
 	out, err := client.StartWebAuthnRegistration(ctx, &cognitoidpsdk.StartWebAuthnRegistrationInput{
 		AccessToken: aws.String(accessToken),
@@ -152,9 +177,27 @@ func TestIntegration_CognitoIDP_StartWebAuthnRegistration(t *testing.T) {
 
 	rp, ok := opts["rp"].(map[string]any)
 	require.True(t, ok, "expected an 'rp' field in the credential creation options")
-	assert.NotEmpty(t, rp["id"], "rp.id should be populated")
+	assert.Equal(t, rpID, rp["id"], "rp.id should be the configured relying party id")
 
 	user, ok := opts["user"].(map[string]any)
 	require.True(t, ok, "expected a 'user' field in the credential creation options")
 	assert.NotEmpty(t, user["id"], "user.id should be populated")
+}
+
+// TestIntegration_CognitoIDP_StartWebAuthnRegistration_NotEnabled verifies a pool without
+// passkey configuration rejects registration with WebAuthnNotEnabledException.
+func TestIntegration_CognitoIDP_StartWebAuthnRegistration_NotEnabled(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCognitoIDPClient(t)
+	accessToken, _, _ := signedInCognitoUser(t, client)
+
+	_, err := client.StartWebAuthnRegistration(t.Context(), &cognitoidpsdk.StartWebAuthnRegistrationInput{
+		AccessToken: aws.String(accessToken),
+	})
+	require.Error(t, err)
+
+	var notEnabled *cognitotypes.WebAuthnNotEnabledException
+	require.ErrorAs(t, err, &notEnabled)
 }
