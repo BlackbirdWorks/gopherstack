@@ -1,7 +1,7 @@
 package sparql
 
 import (
-	"crypto/md5" //nolint:gosec // SPARQL MD5() is a required builtin over caller-supplied literals, not a credential
+	"crypto/md5"  //nolint:gosec // SPARQL MD5() is a required builtin over caller-supplied literals, not a credential
 	"crypto/sha1" //nolint:gosec // SPARQL SHA1() is a required builtin over caller-supplied literals, not a credential
 	"crypto/sha256"
 	"crypto/sha512"
