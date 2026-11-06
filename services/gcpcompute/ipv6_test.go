@@ -84,7 +84,10 @@ func TestNetworkULARange(t *testing.T) {
 			},
 		},
 		{
-			name: "requested", net: &computepb.Network{EnableUlaInternalIpv6: new(true), InternalIpv6Range: s("fd20:123:4::/48")},
+			name: "requested",
+			net: &computepb.Network{
+				EnableUlaInternalIpv6: new(true), InternalIpv6Range: s("fd20:123:4::/48"),
+			},
 			check: func(t *testing.T, n *computepb.Network) {
 				t.Helper()
 				assert.Equal(t, "fd20:123:4::/48", n.GetInternalIpv6Range())
@@ -279,7 +282,8 @@ func TestInstanceInternalIPv6(t *testing.T) {
 	)
 
 	_, err := e.subnets(t).Patch(t.Context(), &computepb.PatchSubnetworkRequest{
-		Project: project, Region: region, Subnetwork: "s6", SubnetworkResource: &computepb.Subnetwork{StackType: s("IPV4_ONLY")},
+		Project: project, Region: region, Subnetwork: "s6",
+		SubnetworkResource: &computepb.Subnetwork{StackType: s("IPV4_ONLY")},
 	})
 	assert.Error(t, err, "instances still use IPv6")
 }
@@ -408,7 +412,8 @@ func TestRegionalIPv6Addresses(t *testing.T) {
 			status: http.StatusBadRequest,
 		},
 		{
-			name: "address outside range", addr: &computepb.Address{Subnetwork: s(subRef("ext")), Address: s("2001:db8::")},
+			name:   "address outside range",
+			addr:   &computepb.Address{Subnetwork: s(subRef("ext")), Address: s("2001:db8::")},
 			status: http.StatusBadRequest,
 		},
 	}

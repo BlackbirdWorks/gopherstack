@@ -346,9 +346,12 @@ func (b *InMemoryBackend) updateNetworkInterface(
 			return nil, errNotFound(trimURL(nic.Subnetwork))
 		}
 
-		if next.AliasIpRanges, err = b.resolveAliasRangesLocked(sub, nic, in.AliasIpRanges, in.AliasIpv6Ranges); err != nil {
-			return nil, err
+		aliases, aerr := b.resolveAliasRangesLocked(sub, nic, in.AliasIpRanges, in.AliasIpv6Ranges)
+		if aerr != nil {
+			return nil, aerr
 		}
+
+		next.AliasIpRanges = aliases
 	}
 
 	if err = b.moveNICLocked(project, zone, r, next, in, raw); err != nil {

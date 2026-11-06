@@ -205,14 +205,16 @@ func TestVPNGatewayLabelsAndDelete(t *testing.T) {
 	require.NoError(t, err)
 
 	op, err := e.vpnGws(t).SetLabels(t.Context(), &computepb.SetLabelsVpnGatewayRequest{
-		Project: project, Region: region, Resource: "gw-a", RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
+		Project: project, Region: region, Resource: "gw-a",
+		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
 			Labels: map[string]string{"env": "x"}, LabelFingerprint: g.LabelFingerprint,
 		},
 	})
 	e.done(t, op, err)
 
 	_, err = e.vpnGws(t).SetLabels(t.Context(), &computepb.SetLabelsVpnGatewayRequest{
-		Project: project, Region: region, Resource: "gw-a", RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
+		Project: project, Region: region, Resource: "gw-a",
+		RegionSetLabelsRequestResource: &computepb.RegionSetLabelsRequest{
 			Labels: map[string]string{"env": "y"}, LabelFingerprint: s("stale"),
 		},
 	})
@@ -534,10 +536,10 @@ func TestClassicVPN(t *testing.T) {
 			fr.PortRange = s(ports)
 		}
 
-		op, err := rules.Insert(t.Context(), &computepb.InsertForwardingRuleRequest{
+		rop, rerr := rules.Insert(t.Context(), &computepb.InsertForwardingRuleRequest{
 			Project: project, Region: region, ForwardingRuleResource: fr,
 		})
-		e.done(t, op, err)
+		e.done(t, rop, rerr)
 	}
 
 	rule("esp", "ESP", "")
@@ -618,7 +620,8 @@ func TestClassicTunnelValidation(t *testing.T) {
 				e,
 				compute.NewTargetVpnGatewaysRESTClient,
 			).Insert(t.Context(), &computepb.InsertTargetVpnGatewayRequest{
-				Project: project, Region: region, TargetVpnGatewayResource: &computepb.TargetVpnGateway{Name: s("classic"), Network: s(vpcRef)},
+				Project: project, Region: region,
+				TargetVpnGatewayResource: &computepb.TargetVpnGateway{Name: s("classic"), Network: s(vpcRef)},
 			})
 			e.done(t, op, err)
 
@@ -912,7 +915,8 @@ func (e *env) internalRule(t *testing.T) {
 		e,
 		compute.NewRegionHealthChecksRESTClient,
 	).Insert(t.Context(), &computepb.InsertRegionHealthCheckRequest{
-		Project: project, Region: region, HealthCheckResource: &computepb.HealthCheck{Name: s("rhc"), TcpHealthCheck: &computepb.TCPHealthCheck{}},
+		Project: project, Region: region,
+		HealthCheckResource: &computepb.HealthCheck{Name: s("rhc"), TcpHealthCheck: &computepb.TCPHealthCheck{}},
 	})
 	e.done(t, op, err)
 

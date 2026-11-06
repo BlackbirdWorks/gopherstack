@@ -14,6 +14,10 @@ const (
 	localSSDTypeTag = "local-ssd"
 	ifaceNVMe       = "NVME"
 	ifaceSCSI       = "SCSI"
+	n2CPUs10        = 10
+	n2CPUs20        = 20
+	n2CPUs40        = 40
+	n2CPUs80        = 80
 )
 
 // n2Tiers are the N2 Local SSD counts by vCPU ceiling from the Local SSD documentation.
@@ -21,10 +25,10 @@ var n2Tiers = []struct { //nolint:gochecknoglobals // read-only lookup table
 	counts  []int
 	maxCPUs int64
 }{
-	{counts: []int{1, 2, 4, 8, 16, 24}, maxCPUs: 10},
-	{counts: []int{2, 4, 8, 16, 24}, maxCPUs: 20},
-	{counts: []int{4, 8, 16, 24}, maxCPUs: 40},
-	{counts: []int{8, 16, 24}, maxCPUs: 80},
+	{counts: []int{1, 2, 4, 8, 16, 24}, maxCPUs: n2CPUs10},
+	{counts: []int{2, 4, 8, 16, 24}, maxCPUs: n2CPUs20},
+	{counts: []int{4, 8, 16, 24}, maxCPUs: n2CPUs40},
+	{counts: []int{8, 16, 24}, maxCPUs: n2CPUs80},
 }
 
 // localSSDCounts lists the Local SSD counts the Compute Engine Local SSD documentation allows; nil means the

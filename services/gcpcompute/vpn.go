@@ -256,7 +256,7 @@ func prepExternalVPN(_ *InMemoryBackend, _ lbCtx, in *computeapi.ExternalVpnGate
 
 	want := map[string]int{
 		"SINGLE_IP_INTERNALLY_REDUNDANT": 1,
-		"TWO_IPS_REDUNDANCY":             2,
+		"TWO_IPS_REDUNDANCY":             vpnInterfaceCount,
 		"FOUR_IPS_REDUNDANCY":            externalMaxInterfaces,
 	}
 
@@ -605,7 +605,9 @@ func (b *InMemoryBackend) vpnGatewayStatus(c lbCtx, name string) (*computeapi.Vp
 		}
 
 		conn.Tunnels = append(conn.Tunnels, &computeapi.VpnGatewayStatusTunnel{
-			LocalGatewayInterface: t.VpnGatewayInterface, PeerGatewayInterface: tunnelPeerInterface(t), TunnelUrl: t.SelfLink,
+			LocalGatewayInterface: t.VpnGatewayInterface,
+			PeerGatewayInterface:  tunnelPeerInterface(t),
+			TunnelUrl:             t.SelfLink,
 		})
 	}
 

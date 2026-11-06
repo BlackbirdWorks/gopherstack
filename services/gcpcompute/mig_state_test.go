@@ -181,20 +181,16 @@ func (e *env) upsertConfig(t *testing.T, patch bool, cfg *computepb.PerInstanceC
 	)
 
 	if patch {
-		op, err = e.migs(t).
-			PatchPerInstanceConfigs(t.Context(), &computepb.PatchPerInstanceConfigsInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersPatchPerInstanceConfigsReqResource: &computepb.InstanceGroupManagersPatchPerInstanceConfigsReq{
-					PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
-				},
-			})
-	} else {
-		op, err = e.migs(t).UpdatePerInstanceConfigs(t.Context(), &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
+		body := &computepb.InstanceGroupManagersPatchPerInstanceConfigsReq{
+			PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
+		}
+		req := &computepb.PatchPerInstanceConfigsInstanceGroupManagerRequest{
 			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersUpdatePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersUpdatePerInstanceConfigsReq{
-				PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
-			},
-		})
+		}
+		req.InstanceGroupManagersPatchPerInstanceConfigsReqResource = body
+		op, err = e.migs(t).PatchPerInstanceConfigs(t.Context(), req)
+	} else {
+		op, err = e.migs(t).UpdatePerInstanceConfigs(t.Context(), updateCfgRequest(cfg))
 	}
 
 	return e.migOp(t, op, err)
@@ -256,13 +252,12 @@ func TestPerInstanceConfigs(t *testing.T) {
 	}), http.StatusNotFound, "")
 
 	del := func(n string) error {
-		op, err := e.migs(t).
-			DeletePerInstanceConfigs(t.Context(), &computepb.DeletePerInstanceConfigsInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersDeletePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersDeletePerInstanceConfigsReq{
-					Names: []string{n},
-				},
-			})
+		req := &computepb.DeletePerInstanceConfigsInstanceGroupManagerRequest{
+			Project: project, Zone: zone, InstanceGroupManager: "web",
+		}
+		body := &computepb.InstanceGroupManagersDeletePerInstanceConfigsReq{Names: []string{n}}
+		req.InstanceGroupManagersDeletePerInstanceConfigsReqResource = body
+		op, err := e.migs(t).DeletePerInstanceConfigs(t.Context(), req)
 
 		return e.migOp(t, op, err)
 	}
@@ -281,15 +276,9 @@ func TestPerInstanceConfigStatusOnClock(t *testing.T) {
 
 	name := e.migInstances(t)[0]
 
-	op, err := e.migs(t).
-		UpdatePerInstanceConfigs(t.Context(), &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersUpdatePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersUpdatePerInstanceConfigsReq{
-				PerInstanceConfigs: []*computepb.PerInstanceConfig{
-					{Name: s(name), PreservedState: meta(map[string]string{"a": "b"})},
-				},
-			},
-		})
+	op, err := e.migs(t).UpdatePerInstanceConfigs(t.Context(), updateCfgRequest(
+		&computepb.PerInstanceConfig{Name: s(name), PreservedState: meta(map[string]string{"a": "b"})},
+	))
 	require.NoError(t, err)
 	require.NotNil(t, op)
 
@@ -393,16 +382,10 @@ func TestStatefulPolicyKeepsDisks(t *testing.T) {
 			name := e.migInstances(t)[0]
 			before := bootDiskID(t, e, name)
 
-			op, err := e.migs(t).RecreateInstances(t.Context(), &computepb.RecreateInstancesInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersRecreateInstancesRequestResource: &computepb.InstanceGroupManagersRecreateInstancesRequest{
-					Instances: []string{e.instRef(name)},
-				},
-			})
-			require.NoError(t, e.migOp(t, op, err))
+			require.NoError(t, e.recreateMember(t, name))
 			assert.Equal(t, before, bootDiskID(t, e, name), "the boot disk survives a recreate")
 
-			op, err = e.migs(t).DeleteInstances(t.Context(), &computepb.DeleteInstancesInstanceGroupManagerRequest{
+			op, err := e.migs(t).DeleteInstances(t.Context(), &computepb.DeleteInstancesInstanceGroupManagerRequest{
 				Project: project, Zone: zone, InstanceGroupManager: "web",
 				InstanceGroupManagersDeleteInstancesRequestResource: &computepb.InstanceGroupManagersDeleteInstancesRequest{
 					Instances: []string{e.instRef(name)},
@@ -470,13 +453,7 @@ func TestStatefulPolicyKeepsInternalIP(t *testing.T) {
 	name := e.migInstances(t)[0]
 	ip := e.getVM(t, name).GetNetworkInterfaces()[0].GetNetworkIP()
 
-	op, err := e.migs(t).RecreateInstances(t.Context(), &computepb.RecreateInstancesInstanceGroupManagerRequest{
-		Project: project, Zone: zone, InstanceGroupManager: "web",
-		InstanceGroupManagersRecreateInstancesRequestResource: &computepb.InstanceGroupManagersRecreateInstancesRequest{
-			Instances: []string{e.instRef(name)},
-		},
-	})
-	require.NoError(t, e.migOp(t, op, err))
+	require.NoError(t, e.recreateMember(t, name))
 	assert.Equal(t, ip, e.getVM(t, name).GetNetworkInterfaces()[0].GetNetworkIP())
 }
 
@@ -700,4 +677,30 @@ func (e *env) webMIGOnSub(t *testing.T) {
 		},
 	})
 	e.done(t, op, err)
+}
+
+func updateCfgRequest(cfg *computepb.PerInstanceConfig) *computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest {
+	req := &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
+		Project: project, Zone: zone, InstanceGroupManager: "web",
+	}
+	body := &computepb.InstanceGroupManagersUpdatePerInstanceConfigsReq{
+		PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
+	}
+	req.InstanceGroupManagersUpdatePerInstanceConfigsReqResource = body
+
+	return req
+}
+
+func (e *env) recreateMember(t *testing.T, name string) error {
+	t.Helper()
+
+	req := &computepb.RecreateInstancesInstanceGroupManagerRequest{
+		Project: project, Zone: zone, InstanceGroupManager: "web",
+	}
+	req.InstanceGroupManagersRecreateInstancesRequestResource = &computepb.InstanceGroupManagersRecreateInstancesRequest{
+		Instances: []string{e.instRef(name)},
+	}
+	op, err := e.migs(t).RecreateInstances(t.Context(), req)
+
+	return e.migOp(t, op, err)
 }

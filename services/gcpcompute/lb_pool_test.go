@@ -198,14 +198,14 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 	assert.Len(t, e.getPool(t).GetInstances(), 1)
 
 	addHC := func(name string) error {
-		_, err := e.pools(t).AddHealthCheck(t.Context(), &computepb.AddHealthCheckTargetPoolRequest{
+		_, aerr := e.pools(t).AddHealthCheck(t.Context(), &computepb.AddHealthCheckTargetPoolRequest{
 			Project: project, Region: region, TargetPool: "pool",
 			TargetPoolsAddHealthCheckRequestResource: &computepb.TargetPoolsAddHealthCheckRequest{
 				HealthChecks: []*computepb.HealthCheckReference{{HealthCheck: s(gl + "httpHealthChecks/" + name)}},
 			},
 		})
 
-		return err
+		return aerr
 	}
 
 	require.NoError(t, addHC("lhc"))
@@ -439,8 +439,8 @@ func TestTargetInstanceForwardingRule(t *testing.T) {
 	found := 0
 
 	for {
-		kv, err := it.Next()
-		if err != nil {
+		kv, nerr := it.Next()
+		if nerr != nil {
 			break
 		}
 

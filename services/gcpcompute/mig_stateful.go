@@ -401,7 +401,9 @@ func (b *InMemoryBackend) overlayConfigLocked(
 			Source: pd.Source, DeviceName: dev, Mode: pd.Mode, AutoDelete: pd.AutoDelete == autoDeleteOnPerm,
 		}
 
-		if i := slices.IndexFunc(in.Disks, func(d *computeapi.AttachedDisk) bool { return d.DeviceName == dev }); i >= 0 {
+		byDevice := func(d *computeapi.AttachedDisk) bool { return d.DeviceName == dev }
+
+		if i := slices.IndexFunc(in.Disks, byDevice); i >= 0 {
 			att.Boot, att.Interface = in.Disks[i].Boot, in.Disks[i].Interface
 			in.Disks[i] = att
 
