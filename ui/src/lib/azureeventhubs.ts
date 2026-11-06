@@ -105,7 +105,11 @@ export async function peekEvents(
   return list(body.events).map((x) => parseEvent(x));
 }
 
-export type SendInput = { body: string; partitionKey: string; partition: string };
+export type SendInput = {
+  body: string;
+  partitionKey: string;
+  partition: string;
+};
 
 /** Resolves to the partition the event landed on. */
 export async function sendEvent(
@@ -140,4 +144,41 @@ export function validateSend(input: SendInput, partitionCount: number): string {
     if (input.partitionKey) return "Choose either a partition or a partition key, not both";
   }
   return "";
+}
+
+export type EhPolicy = { hub: string; name: string; rights: string[] };
+export type EhPolicyKeys = { primaryKey: string; secondaryKey: string };
+
+export async function listPolicies(ns: string, fetchFn?: FetchFn): Promise<EhPolicy[]> {
+  const body = await restCall(
+    EH_PROXY_BASE,
+    "GET",
+    `/namespaces/${seg(ns)}/policies`,
+    undefined,
+    fetchFn,
+  );
+  return list(body.policies).map((p) => ({
+    hub: str(p.hub),
+    name: str(p.name),
+    rights: strs(p.rights),
+  }));
+}
+
+/** Fetches one policy's keys. Only call this from an explicit reveal action. */
+export async function revealPolicyKeys(
+  ns: string,
+  policy: Pick<EhPolicy, "hub" | "name">,
+  fetchFn?: FetchFn,
+): Promise<EhPolicyKeys> {
+  const body = await restCall(
+    EH_PROXY_BASE,
+    "POST",
+    `/namespaces/${seg(ns)}/policies/reveal`,
+    { hub: policy.hub, name: policy.name },
+    fetchFn,
+  );
+  return {
+    primaryKey: str(body.primaryKey),
+    secondaryKey: str(body.secondaryKey),
+  };
 }

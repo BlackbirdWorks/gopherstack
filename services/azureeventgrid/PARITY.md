@@ -42,7 +42,6 @@ items_still_open:
   - "Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces."
   - "Resource-scope event subscriptions (e.g. a storage account) are stored, listed and patchable but receive no events: Microsoft.Resources events come only from subscription and resource group topics, and the emulated services (azureblob, azureservicebus, azurekeyvault) publish no system events (BlobCreated etc.). Only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted at subscription and resource group scope."
   - "Dead-letter blob write failures are not retried."
-  - "No dashboard page."
 leaks: {status: clean, note: "Shutdown cancels the delivery worker and waits for it, then closes the HTTPS server; the outbound HTTP client owns its transport (pkgs/httpclient)."}
 ---
 

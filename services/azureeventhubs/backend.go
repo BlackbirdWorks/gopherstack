@@ -3,6 +3,7 @@ package azureeventhubs
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -528,4 +529,26 @@ func (b *InMemoryBackend) NamespaceNames() []string {
 	sort.Strings(out)
 
 	return out
+}
+
+// ListRules returns the authorization rules of a namespace and its hubs, sorted by scope and name.
+func (b *InMemoryBackend) ListRules(nsName string) ([]RuleScope, error) {
+	b.mu.RLock("ListRules")
+	defer b.mu.RUnlock()
+
+	ns, err := b.nsLocked(nsName)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]RuleScope, 0, len(ns.Rules))
+	for _, r := range ns.Rules {
+		out = append(out, RuleScope{Hub: r.Hub, Rule: ruleView(r)})
+	}
+
+	slices.SortFunc(out, func(x, y RuleScope) int {
+		return strings.Compare(ruleKey(x.Hub, x.Rule.Name), ruleKey(y.Hub, y.Rule.Name))
+	})
+
+	return out, nil
 }

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 15 (8 ok, 7 partial) |
 | Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -23,7 +23,6 @@
 - Capture, geo-replication, compaction and application-group features are not implemented.
 - SAS claims are not scoped to the audience entity.
 - ARM namespace identity (SystemAssigned/UserAssigned), regenerateKeys and disasterRecoveryConfigs are not implemented.
-- No dashboard page.
 
 ## More
 
