@@ -76,6 +76,8 @@ func (h *DashboardHandler) registerAzureEventHubsRoutes() {
 		api.guard(api.events),
 	)
 	r.Add(http.MethodPost, azureEventHubsProxyPrefix+"/namespaces/:ns/hubs/:hub/events", api.guard(api.send))
+	r.Add(http.MethodGet, azureEventHubsProxyPrefix+"/namespaces/:ns/policies", api.guard(api.policies))
+	r.Add(http.MethodPost, azureEventHubsProxyPrefix+"/namespaces/:ns/policies/reveal", api.guard(api.revealPolicy))
 }
 
 type azureEventHubsAPI struct {

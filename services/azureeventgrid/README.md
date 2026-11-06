@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 9 (8 ok, 1 partial) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 15 |
+| Known gaps | 14 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -29,7 +29,6 @@
 - Namespace topic subscriptions have no dead-letter destination, push (webhook) delivery mode or ARM-level topic spaces.
 - Resource-scope event subscriptions (e.g. a storage account) are stored, listed and patchable but receive no events: Microsoft.Resources events come only from subscription and resource group topics, and the emulated services (azureblob, azureservicebus, azurekeyvault) publish no system events (BlobCreated etc.). Only the Succeeded outcomes (write, delete, action) of ARM lifecycle events are emitted at subscription and resource group scope.
 - Dead-letter blob write failures are not retried.
-- No dashboard page.
 
 ## More
 
