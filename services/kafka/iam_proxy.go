@@ -94,6 +94,7 @@ func (p *iamProxy) serve() {
 
 func (p *iamProxy) handle(client net.Conn) {
 	defer client.Close()
+	defer logger.Recover(context.Background(), "kafka.iamproxy", nil)
 
 	up, err := (&net.Dialer{Timeout: iamProxyDialTimeout}).DialContext(context.Background(), "tcp", p.backend)
 	if err != nil {

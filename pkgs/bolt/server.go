@@ -9,6 +9,8 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // Message tags.
@@ -118,6 +120,7 @@ type conn struct {
 // Serve speaks Bolt on nc until the client leaves or ctx ends, then closes nc.
 func Serve(ctx context.Context, nc net.Conn, cfg Config) {
 	defer func() { _ = nc.Close() }()
+	defer logger.Recover(ctx, "bolt.conn", nil)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -156,7 +159,7 @@ func (c *conn) step(ctx context.Context) error {
 		return err
 	}
 
-	if derr := c.dispatch(ctx, tag, fields); derr != nil {
+	if derr := c.guardedDispatch(ctx, tag, fields); derr != nil {
 		return derr
 	}
 
@@ -165,6 +168,15 @@ func (c *conn) step(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *conn) guardedDispatch(ctx context.Context, tag byte, fields []any) (err error) {
+	defer logger.Recover(ctx, "bolt.message", func(any) {
+		c.w.Reset(c.nc)
+		err = c.fail(&Error{Code: CodeDatabaseError, Message: "internal server error"})
+	})
+
+	return c.dispatch(ctx, tag, fields)
 }
 
 func parseMessage(raw []byte) (byte, []any, error) {

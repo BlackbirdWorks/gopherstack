@@ -6,6 +6,8 @@ import (
 	"errors"
 	"math"
 	"sync"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 type sendLink struct {
@@ -107,6 +109,7 @@ func (l *sendLink) finishDrain() {
 
 func (l *sendLink) run() {
 	defer l.finish()
+	defer logger.Recover(l.ctx, "amqp1.sendlink", l.s.c.internalError)
 
 	for l.waitCredit() {
 		nctx, stop := context.WithCancel(l.ctx)

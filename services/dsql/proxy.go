@@ -75,6 +75,7 @@ func (i *dockerInstance) acceptLoop() {
 
 func (i *dockerInstance) serve(raw net.Conn) {
 	defer func() { _ = raw.Close() }()
+	defer logger.Recover(context.Background(), "dsql.proxy", nil)
 
 	_ = raw.SetDeadline(time.Now().Add(proxyHandshakeTimeout))
 

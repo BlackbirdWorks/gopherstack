@@ -580,7 +580,11 @@ func (h *ruleHook) OnDisconnect(cl *mqtt.Client, err error, _ bool) {
 }
 
 // OnPublish is called for every MQTT message published to the broker.
-func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (packets.Packet, error) {
+func (h *ruleHook) OnPublish(cl *mqtt.Client, pk packets.Packet) (_ packets.Packet, err error) {
+	defer logger.Recover(h.ctx, "iot.onpublish", func(any) {
+		err = packets.ErrImplementationSpecificError
+	})
+
 	dispatcher := h.backend.GetDispatcher()
 	log := logger.Load(h.ctx)
 	hops := takeHops(&pk)

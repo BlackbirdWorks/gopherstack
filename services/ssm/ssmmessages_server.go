@@ -150,6 +150,8 @@ func (d *dataChannel) reject(reason string) {
 }
 
 func (d *dataChannel) readFrames(ctx context.Context, frames chan<- []byte) {
+	defer logger.Recover(ctx, "ssm.readframes", func(any) { _ = d.ws.Close() })
+
 	defer close(frames)
 
 	for {
@@ -353,6 +355,8 @@ func (d *dataChannel) startContainerCommand(ctx context.Context, opener ShellOpe
 }
 
 func (d *dataChannel) pumpShell(sh Shell) {
+	defer logger.Recover(context.Background(), "ssm.pumpshell", func(any) { _ = d.ws.Close() })
+
 	defer close(d.exited)
 
 	buf := make([]byte, shellReadChunk)

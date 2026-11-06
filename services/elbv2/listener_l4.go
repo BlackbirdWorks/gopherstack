@@ -147,6 +147,7 @@ func (h *Handler) pickL4Target(
 
 func (h *Handler) serveTCPConn(ctx context.Context, b *InMemoryBackend, arn string, c net.Conn) {
 	defer c.Close()
+	defer logger.Recover(ctx, "elbv2.l4", nil)
 
 	if tc, ok := c.(*tls.Conn); ok {
 		hctx, cancel := context.WithTimeout(ctx, tlsHandshakeLimit)
@@ -247,21 +248,29 @@ func (h *Handler) serveUDP(bl *boundListener, b *InMemoryBackend, arn string) {
 			return
 		}
 
-		key := caddr.String()
+		h.relayDatagram(bl, b, arn, caddr, buf[:n], &sessions)
+	}
+}
 
-		v, ok := sessions.Load(key)
-		if !ok {
-			sess := h.newUDPSession(bl, b, arn, caddr, key, &sessions)
-			if sess == nil {
-				continue
-			}
+func (h *Handler) relayDatagram(
+	bl *boundListener, b *InMemoryBackend, arn string, caddr net.Addr, dgram []byte, sessions *sync.Map,
+) {
+	defer logger.Recover(bl.ctx, "elbv2.udp", nil)
 
-			v = sess
+	key := caddr.String()
+
+	v, ok := sessions.Load(key)
+	if !ok {
+		sess := h.newUDPSession(bl, b, arn, caddr, key, sessions)
+		if sess == nil {
+			return
 		}
 
-		if s, isSess := v.(*udpSession); isSess {
-			_, _ = s.conn.Write(buf[:n])
-		}
+		v = sess
+	}
+
+	if s, isSess := v.(*udpSession); isSess {
+		_, _ = s.conn.Write(dgram)
 	}
 }
 

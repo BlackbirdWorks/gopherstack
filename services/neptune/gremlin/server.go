@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -94,6 +95,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	defer logger.Recover(r.Context(), "gremlin.ws", nil)
 
 	stop := context.AfterFunc(s.ctx, func() { _ = conn.Close() })
 	defer stop()
@@ -192,10 +194,22 @@ func parseJSONRequest(body []byte, c codec) (*message, error) {
 
 func (s *Server) handleFrame(
 	ctx context.Context, conn *websocket.Conn, mt int, data []byte, owned map[string]struct{},
-) error {
-	msg, err := parseFrame(mt, data)
+) (werr error) {
+	msg := &message{id: uuid.Nil.String(), codec: codecV3}
+
+	defer logger.Recover(ctx, "gremlin.frame", func(any) {
+		werr = writeResult(conn, msg, nil, &Error{
+			Code: CodeInternal, Status: StatusServerError, Detail: "An internal error occurred while processing the request.",
+		})
+	})
+
+	parsed, err := parseFrame(mt, data)
+	if err == nil {
+		msg = parsed
+	}
+
 	if err != nil {
-		return writeResult(conn, &message{id: uuid.Nil.String(), codec: codecV3}, nil, err)
+		return writeResult(conn, msg, nil, err)
 	}
 
 	if sid, ok := msg.args["session"].(string); ok && sid != "" {

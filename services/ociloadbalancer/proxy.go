@@ -19,6 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -534,6 +535,7 @@ func (d *dataPlane) acceptTCP(ctx context.Context, p *portListener, ln net.Liste
 		p.wg.Go(func() {
 			defer d.untrack(p, c)
 			defer c.Close()
+			defer logger.Recover(ctx, "ociloadbalancer.tcp", nil)
 
 			d.handleTCP(ctx, p.spec, c)
 		})

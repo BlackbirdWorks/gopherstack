@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
@@ -146,6 +147,7 @@ func (p *tlsProxy) permitted(c net.Conn) bool {
 
 func (p *tlsProxy) serve(c net.Conn) {
 	defer p.untrack(c)
+	defer logger.Recover(context.Background(), "ocidatabase.tlsproxy", func(any) { _ = c.Close() })
 
 	if !p.permitted(c) {
 		p.g.refusals.Add(1)

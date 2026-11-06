@@ -27,6 +27,7 @@ import (
 	"github.com/miekg/dns"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // DefaultListenAddr is the default UDP/TCP address the DNS server binds to.
@@ -360,6 +361,12 @@ func (s *Server) Stop() error {
 
 // handleQuery is the DNS handler that answers A/CNAME/AAAA queries for registered names.
 func (s *Server) handleQuery(w dns.ResponseWriter, r *dns.Msg) {
+	defer logger.Recover(context.Background(), "dns.query", func(any) {
+		fail := new(dns.Msg)
+		fail.SetRcode(r, dns.RcodeServerFailure)
+		_ = w.WriteMsg(fail)
+	})
+
 	msg := s.respond(w, r)
 
 	if werr := w.WriteMsg(msg); werr != nil {
