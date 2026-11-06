@@ -8115,6 +8115,22 @@ func (a *codepipelineCodeBuildAdapter) BuildStatus(ctx context.Context, buildID 
 	return builds[0].BuildStatus, nil
 }
 
+func (a *codepipelineCodeBuildAdapter) BuildExportedVariables(
+	ctx context.Context, buildID string,
+) (map[string]string, error) {
+	builds, _ := a.handler.BackendFor(awsmeta.Region(ctx)).BatchGetBuilds([]string{buildID})
+	if len(builds) == 0 {
+		return nil, fmt.Errorf("%w: build %s not found", codebuildbackend.ErrNotFound, buildID)
+	}
+
+	vars := make(map[string]string, len(builds[0].ExportedEnvironmentVariables))
+	for _, v := range builds[0].ExportedEnvironmentVariables {
+		vars[v.Name] = v.Value
+	}
+
+	return vars, nil
+}
+
 // wireCodePipelineS3 gives CodePipeline S3 for Source/S3 and Deploy/S3 actions and the
 // artifact store. s3.InMemoryBackend satisfies codepipeline.ArtifactS3 directly.
 func wireCodePipelineS3(codepipelineReg, s3Reg service.Registerable) {

@@ -24,6 +24,8 @@ const (
 
 var errNoArtifactFiles = errors.New("no matching artifact paths found")
 
+var errArtifactName = errors.New("invalid artifact name")
+
 // globMatch matches a slash-separated path against a pattern where "**" spans directories.
 func globMatch(pattern, name string) bool {
 	return matchSegments(strings.Split(strings.TrimPrefix(pattern, "./"), "/"), strings.Split(name, "/"))
@@ -213,7 +215,12 @@ func (r *buildRunner) uploadOne(ctx context.Context, dir string, cfg ProjectArti
 
 	name := cfg.Name
 	if cfg.OverrideArtifactName && sa.Name != "" {
-		name = sa.Name
+		expanded, nerr := r.expandArtifactName(sa.Name)
+		if nerr != nil {
+			return nerr
+		}
+
+		name = expanded
 	}
 
 	uuid := r.buildUUID()
@@ -290,4 +297,22 @@ func (r *buildRunner) buildUUID() string {
 	_, id, _ := strings.Cut(r.build.ID, ":")
 
 	return id
+}
+
+// expandArtifactName evaluates a buildspec artifact name with the shell command language in the build container,
+// so $VAR and $(cmd) expand as the buildspec reference describes.
+func (r *buildRunner) expandArtifactName(name string) (string, error) {
+	if !strings.ContainsAny(name, "$`") || r.containerID == "" {
+		return name, nil
+	}
+
+	quoted := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name)
+	script := "[ -f " + cbEnvFile + " ] && . " + cbEnvFile + "\nprintf %s \"" + quoted + "\""
+
+	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(script, r.spec.linuxShell(), ""))
+	if err != nil || res.ExitCode != 0 {
+		return "", fmt.Errorf("%w: cannot evaluate artifact name %q", errArtifactName, name)
+	}
+
+	return strings.TrimSpace(res.Stdout), nil
 }
