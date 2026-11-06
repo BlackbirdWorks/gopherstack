@@ -652,3 +652,15 @@ func TestRegionalResizeRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), m.GetTargetSize())
 }
+
+func (e *env) webMIGOnSub(t *testing.T) {
+	t.Helper()
+
+	tmpl := e.template(t, "tpl")
+	op, err := e.migs(t).Insert(t.Context(), &computepb.InsertInstanceGroupManagerRequest{
+		Project: project, Zone: zone, InstanceGroupManagerResource: &computepb.InstanceGroupManager{
+			Name: s("web"), BaseInstanceName: s("web"), InstanceTemplate: s(tmpl),
+		},
+	})
+	e.done(t, op, err)
+}
