@@ -103,7 +103,7 @@ func (b *InMemoryBackend) launchBuildLocked(build *Build) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	b.runs[build.ID] = &buildRun{cancel: cancel}
 
-	snap := *build
+	snap := *cloneBuild(build)
 
 	eng.wg.Go(func() {
 		defer cancel()

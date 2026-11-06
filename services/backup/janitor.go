@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -177,16 +178,15 @@ func (j *Janitor) advanceBackupAccessPoints(ctx context.Context) {
 		}
 
 		bap.Status = statusAvailable
-		if bap.AccessPointMetadata == nil {
-			bap.AccessPointMetadata = map[string]string{}
+		// Replace, don't mutate: handed-out copies share the old map.
+		md := maps.Clone(bap.AccessPointMetadata)
+		if md == nil {
+			md = map[string]string{}
 		}
 
-		bap.AccessPointMetadata["S3AccessPointArn"] = s3AccessPointArnFor(
-			j.Backend.region, j.Backend.accountID, bap.Name,
-		)
-		bap.AccessPointMetadata["S3AccessPointAlias"] = s3AccessPointAliasFor(
-			j.Backend.accountID, bap.Name,
-		)
+		md["S3AccessPointArn"] = s3AccessPointArnFor(j.Backend.region, j.Backend.accountID, bap.Name)
+		md["S3AccessPointAlias"] = s3AccessPointAliasFor(j.Backend.accountID, bap.Name)
+		bap.AccessPointMetadata = md
 	}
 	j.Backend.mu.Unlock()
 

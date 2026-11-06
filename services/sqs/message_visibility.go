@@ -182,8 +182,7 @@ func pickVisibleMessages(
 		}
 
 		if maxMessages > 0 && len(result) < maxMessages && !now.Before(msg.VisibleAt) {
-			enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc)
-			result = append(result, msg)
+			result = append(result, enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc))
 
 			continue
 		}
@@ -212,12 +211,14 @@ type receiveCtx struct {
 // as in-flight on q, and marks its FIFO group as blocked. Caller must hold q.mu.
 func enqueueReceivedMessage(
 	q *Queue,
-	msg *Message,
+	stored *Message,
 	blockedGroups map[string]bool,
 	now time.Time,
 	vt int,
 	rc receiveCtx,
-) {
+) *Message {
+	// Copy, don't mutate: a previous receive handed the old object to a handler.
+	msg := stored.withOwnAttributes()
 	q.receiveGeneration++
 	msg.ApproximateReceiveCount++
 	receipt := rc.codec.issue(q, msg.MessageID, msg.ApproximateReceiveCount)
@@ -246,6 +247,8 @@ func enqueueReceivedMessage(
 	if q.IsFIFO && msg.MessageGroupID != "" {
 		blockedGroups[msg.MessageGroupID] = true
 	}
+
+	return msg
 }
 
 // tryFastPickMessages attempts O(maxMessages) head-picking when the leading messages
@@ -282,8 +285,7 @@ func tryFastPickMessages(
 	result := make([]*Message, n)
 	for i := range n {
 		msg := q.messages[i]
-		enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc)
-		result[i] = msg
+		result[i] = enqueueReceivedMessage(q, msg, blockedGroups, now, vt, rc)
 		q.messages[i] = nil
 	}
 
