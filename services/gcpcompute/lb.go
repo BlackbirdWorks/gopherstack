@@ -58,9 +58,9 @@ type lbSpec[T any] struct {
 	view func(v *T)
 	// viewB derives output-only fields from backend state; it runs under the backend lock.
 	viewB func(b *InMemoryBackend, v *T)
-	coll string
-	kind string
-	noun string
+	coll  string
+	kind  string
+	noun  string
 }
 
 func lbTargetOf(c lbCtx, coll, name string, id uint64) target {

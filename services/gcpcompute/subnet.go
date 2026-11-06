@@ -354,15 +354,8 @@ func (b *InMemoryBackend) patchSubnet(
 		return nil, err
 	}
 
-	if _, ok := raw["stackType"]; ok || raw["ipv6AccessType"] != nil {
-		n := b.networkBySelfLinkLocked(s.Network)
-		if n == nil {
-			return nil, errNotFound(trimURL(s.Network))
-		}
-
-		if err = b.applySubnetStackLocked(n, s, in, false); err != nil {
-			return nil, err
-		}
+	if err = b.patchSubnetStackLocked(s, in, raw); err != nil {
+		return nil, err
 	}
 
 	if _, ok := raw["privateIpGoogleAccess"]; ok {

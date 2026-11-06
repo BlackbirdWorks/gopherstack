@@ -16,6 +16,17 @@ const (
 	ifaceSCSI       = "SCSI"
 )
 
+// n2Tiers are the N2 Local SSD counts by vCPU ceiling from the Local SSD documentation.
+var n2Tiers = []struct { //nolint:gochecknoglobals // read-only lookup table
+	counts  []int
+	maxCPUs int64
+}{
+	{counts: []int{1, 2, 4, 8, 16, 24}, maxCPUs: 10},
+	{counts: []int{2, 4, 8, 16, 24}, maxCPUs: 20},
+	{counts: []int{4, 8, 16, 24}, maxCPUs: 40},
+	{counts: []int{8, 16, 24}, maxCPUs: 80},
+}
+
 // localSSDCounts lists the Local SSD counts the Compute Engine Local SSD documentation allows; nil means the
 // machine series has no Local SSD support.
 func localSSDCounts(machine string, cpus int64) []int {
@@ -30,15 +41,10 @@ func localSSDCounts(machine string, cpus int64) []int {
 	case "n1":
 		return all
 	case "n2":
-		switch {
-		case cpus <= 10:
-			return []int{1, 2, 4, 8, 16, 24}
-		case cpus <= 20:
-			return []int{2, 4, 8, 16, 24}
-		case cpus <= 40:
-			return []int{4, 8, 16, 24}
-		case cpus <= 80:
-			return []int{8, 16, 24}
+		for _, t := range n2Tiers {
+			if cpus <= t.maxCPUs {
+				return t.counts
+			}
 		}
 
 		return []int{16, 24}
@@ -107,7 +113,10 @@ func checkLocalSSDCount(machine string, n int) *APIError {
 
 	allowed := localSSDCounts(name, machineCPUs(name))
 	if allowed == nil {
-		return errInvalid("Invalid value for field 'resource.disks': machine type '%s' does not support Local SSD.", name)
+		return errInvalid(
+			"Invalid value for field 'resource.disks': machine type '%s' does not support Local SSD.",
+			name,
+		)
 	}
 
 	if !slices.Contains(allowed, n) {

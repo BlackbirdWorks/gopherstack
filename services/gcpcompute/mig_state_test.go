@@ -30,9 +30,10 @@ func (e *env) webMIG(t *testing.T, size int32, policy *computepb.StatefulPolicy)
 func (e *env) migInstances(t *testing.T) []string {
 	t.Helper()
 
-	var out []string
+	managed := e.managed(t)
+	out := make([]string, 0, len(managed))
 
-	for _, mi := range e.managed(t) {
+	for _, mi := range managed {
 		out = append(out, mi.GetName())
 	}
 
@@ -65,7 +66,9 @@ func TestMIGPowerOps(t *testing.T) {
 
 		op, err := e.migs(t).StopInstances(t.Context(), &computepb.StopInstancesInstanceGroupManagerRequest{
 			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersStopInstancesRequestResource: &computepb.InstanceGroupManagersStopInstancesRequest{Instances: refs},
+			InstanceGroupManagersStopInstancesRequestResource: &computepb.InstanceGroupManagersStopInstancesRequest{
+				Instances: refs,
+			},
 		})
 
 		return e.migOp(t, op, err)
@@ -114,7 +117,9 @@ func TestMIGSuspendResume(t *testing.T) {
 
 	op, err := e.migs(t).SuspendInstances(t.Context(), &computepb.SuspendInstancesInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web",
-		InstanceGroupManagersSuspendInstancesRequestResource: &computepb.InstanceGroupManagersSuspendInstancesRequest{Instances: ref},
+		InstanceGroupManagersSuspendInstancesRequestResource: &computepb.InstanceGroupManagersSuspendInstancesRequest{
+			Instances: ref,
+		},
 	})
 	require.NoError(t, e.migOp(t, op, err))
 
@@ -125,13 +130,17 @@ func TestMIGSuspendResume(t *testing.T) {
 
 	_, err = e.migs(t).StartInstances(t.Context(), &computepb.StartInstancesInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web",
-		InstanceGroupManagersStartInstancesRequestResource: &computepb.InstanceGroupManagersStartInstancesRequest{Instances: ref},
+		InstanceGroupManagersStartInstancesRequestResource: &computepb.InstanceGroupManagersStartInstancesRequest{
+			Instances: ref,
+		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
 	op, err = e.migs(t).ResumeInstances(t.Context(), &computepb.ResumeInstancesInstanceGroupManagerRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web",
-		InstanceGroupManagersResumeInstancesRequestResource: &computepb.InstanceGroupManagersResumeInstancesRequest{Instances: ref},
+		InstanceGroupManagersResumeInstancesRequestResource: &computepb.InstanceGroupManagersResumeInstancesRequest{
+			Instances: ref,
+		},
 	})
 	require.NoError(t, e.migOp(t, op, err))
 	assert.Equal(t, int32(2), e.getMig(t).GetTargetSize())
@@ -172,12 +181,13 @@ func (e *env) upsertConfig(t *testing.T, patch bool, cfg *computepb.PerInstanceC
 	)
 
 	if patch {
-		op, err = e.migs(t).PatchPerInstanceConfigs(t.Context(), &computepb.PatchPerInstanceConfigsInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersPatchPerInstanceConfigsReqResource: &computepb.InstanceGroupManagersPatchPerInstanceConfigsReq{
-				PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
-			},
-		})
+		op, err = e.migs(t).
+			PatchPerInstanceConfigs(t.Context(), &computepb.PatchPerInstanceConfigsInstanceGroupManagerRequest{
+				Project: project, Zone: zone, InstanceGroupManager: "web",
+				InstanceGroupManagersPatchPerInstanceConfigsReqResource: &computepb.InstanceGroupManagersPatchPerInstanceConfigsReq{
+					PerInstanceConfigs: []*computepb.PerInstanceConfig{cfg},
+				},
+			})
 	} else {
 		op, err = e.migs(t).UpdatePerInstanceConfigs(t.Context(), &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
 			Project: project, Zone: zone, InstanceGroupManager: "web",
@@ -222,7 +232,11 @@ func TestPerInstanceConfigs(t *testing.T) {
 	require.NoError(t, e.upsertConfig(t, true, &computepb.PerInstanceConfig{
 		Name: s(names[0]), PreservedState: meta(map[string]string{"tier": "b", "extra": "x"}),
 	}))
-	assert.Equal(t, map[string]string{"role": "primary", "tier": "b", "extra": "x"}, e.listConfigs(t)[0].GetPreservedState().GetMetadata())
+	assert.Equal(
+		t,
+		map[string]string{"role": "primary", "tier": "b", "extra": "x"},
+		e.listConfigs(t)[0].GetPreservedState().GetMetadata(),
+	)
 
 	require.NoError(t, e.upsertConfig(t, false, &computepb.PerInstanceConfig{
 		Name: s(names[0]), PreservedState: meta(map[string]string{"only": "1"}),
@@ -242,12 +256,13 @@ func TestPerInstanceConfigs(t *testing.T) {
 	}), http.StatusNotFound, "")
 
 	del := func(n string) error {
-		op, err := e.migs(t).DeletePerInstanceConfigs(t.Context(), &computepb.DeletePerInstanceConfigsInstanceGroupManagerRequest{
-			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersDeletePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersDeletePerInstanceConfigsReq{
-				Names: []string{n},
-			},
-		})
+		op, err := e.migs(t).
+			DeletePerInstanceConfigs(t.Context(), &computepb.DeletePerInstanceConfigsInstanceGroupManagerRequest{
+				Project: project, Zone: zone, InstanceGroupManager: "web",
+				InstanceGroupManagersDeletePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersDeletePerInstanceConfigsReq{
+					Names: []string{n},
+				},
+			})
 
 		return e.migOp(t, op, err)
 	}
@@ -266,12 +281,15 @@ func TestPerInstanceConfigStatusOnClock(t *testing.T) {
 
 	name := e.migInstances(t)[0]
 
-	op, err := e.migs(t).UpdatePerInstanceConfigs(t.Context(), &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
-		Project: project, Zone: zone, InstanceGroupManager: "web",
-		InstanceGroupManagersUpdatePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersUpdatePerInstanceConfigsReq{
-			PerInstanceConfigs: []*computepb.PerInstanceConfig{{Name: s(name), PreservedState: meta(map[string]string{"a": "b"})}},
-		},
-	})
+	op, err := e.migs(t).
+		UpdatePerInstanceConfigs(t.Context(), &computepb.UpdatePerInstanceConfigsInstanceGroupManagerRequest{
+			Project: project, Zone: zone, InstanceGroupManager: "web",
+			InstanceGroupManagersUpdatePerInstanceConfigsReqResource: &computepb.InstanceGroupManagersUpdatePerInstanceConfigsReq{
+				PerInstanceConfigs: []*computepb.PerInstanceConfig{
+					{Name: s(name), PreservedState: meta(map[string]string{"a": "b"})},
+				},
+			},
+		})
 	require.NoError(t, err)
 	require.NotNil(t, op)
 
@@ -297,7 +315,9 @@ func TestCreateInstancesWithConfigs(t *testing.T) {
 
 		op, err := e.migs(t).CreateInstances(t.Context(), &computepb.CreateInstancesInstanceGroupManagerRequest{
 			Project: project, Zone: zone, InstanceGroupManager: "web",
-			InstanceGroupManagersCreateInstancesRequestResource: &computepb.InstanceGroupManagersCreateInstancesRequest{Instances: cfgs},
+			InstanceGroupManagersCreateInstancesRequestResource: &computepb.InstanceGroupManagersCreateInstancesRequest{
+				Instances: cfgs,
+			},
 		})
 
 		return e.migOp(t, op, err)
@@ -406,12 +426,15 @@ func TestStatefulPolicyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		policy *computepb.StatefulPolicy
+		name   string
 	}{
-		{name: "bad autodelete", policy: &computepb.StatefulPolicy{PreservedState: &computepb.StatefulPolicyPreservedState{
-			Disks: map[string]*computepb.StatefulPolicyPreservedStateDiskDevice{"d": {AutoDelete: s("SOMETIMES")}},
-		}}},
+		{
+			name: "bad autodelete",
+			policy: &computepb.StatefulPolicy{PreservedState: &computepb.StatefulPolicyPreservedState{
+				Disks: map[string]*computepb.StatefulPolicyPreservedStateDiskDevice{"d": {AutoDelete: s("SOMETIMES")}},
+			}},
+		},
 		{name: "bad nic key", policy: &computepb.StatefulPolicy{PreservedState: &computepb.StatefulPolicyPreservedState{
 			InternalIPs: map[string]*computepb.StatefulPolicyPreservedStateNetworkIp{"eth0": {AutoDelete: s("NEVER")}},
 		}}},
@@ -491,7 +514,10 @@ func TestResizeRequestLifecycle(t *testing.T) {
 	e.webMIG(t, 1, nil)
 	e.settle()
 
-	require.NoError(t, e.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr1"), ResizeBy: new(int32(2))}))
+	require.NoError(
+		t,
+		e.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr1"), ResizeBy: new(int32(2))}),
+	)
 
 	rr := e.resizeGet(t, "rr1")
 	assert.Equal(t, "ACCEPTED", rr.GetState())
@@ -529,7 +555,10 @@ func TestResizeRequestCancelAndDelete(t *testing.T) {
 
 	e := newEnv(t)
 	e.webMIG(t, 0, nil)
-	require.NoError(t, e.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr"), ResizeBy: new(int32(1))}))
+	require.NoError(
+		t,
+		e.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr"), ResizeBy: new(int32(1))}),
+	)
 
 	_, err := e.resizeClient(t).Delete(t.Context(), &computepb.DeleteInstanceGroupManagerResizeRequestRequest{
 		Project: project, Zone: zone, InstanceGroupManager: "web", ResizeRequest: "rr",
@@ -563,14 +592,22 @@ func TestResizeRequestValidation(t *testing.T) {
 		name   string
 		status int
 	}{
-		{name: "neither", rr: &computepb.InstanceGroupManagerResizeRequest{Name: s("rr")}, status: http.StatusBadRequest},
+		{
+			name:   "neither",
+			rr:     &computepb.InstanceGroupManagerResizeRequest{Name: s("rr")},
+			status: http.StatusBadRequest,
+		},
 		{
 			name: "both", status: http.StatusBadRequest,
 			rr: &computepb.InstanceGroupManagerResizeRequest{
 				Name: s("rr"), ResizeBy: new(int32(1)), Instances: []*computepb.PerInstanceConfig{{Name: s("a")}},
 			},
 		},
-		{name: "bad name", rr: &computepb.InstanceGroupManagerResizeRequest{Name: s("A_b"), ResizeBy: new(int32(1))}, status: http.StatusBadRequest},
+		{
+			name:   "bad name",
+			rr:     &computepb.InstanceGroupManagerResizeRequest{Name: s("A_b"), ResizeBy: new(int32(1))},
+			status: http.StatusBadRequest,
+		},
 		{name: "ok", rr: &computepb.InstanceGroupManagerResizeRequest{Name: s("rr"), ResizeBy: new(int32(1))}},
 	}
 

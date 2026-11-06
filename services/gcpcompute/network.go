@@ -151,14 +151,8 @@ func (b *InMemoryBackend) insertNetwork(
 
 	n.SelfLinkWithId = globalLink(project, "networks", strconv.FormatUint(n.Id, 10))
 
-	if in.EnableUlaInternalIpv6 {
-		n.EnableUlaInternalIpv6 = true
-
-		if err := b.assignULALocked(n, in.InternalIpv6Range); err != nil {
-			return nil, err
-		}
-	} else if in.InternalIpv6Range != "" {
-		return nil, errField("resource.internalIpv6Range", in.InternalIpv6Range, "Requires enableUlaInternalIpv6.")
+	if err := b.setupULALocked(n, in); err != nil {
+		return nil, err
 	}
 
 	b.networks[key(project, n.Name)] = n
@@ -251,19 +245,7 @@ func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Networ
 		}
 	}
 
-	for _, g := range b.vpnGateways {
-		if g.Network == n.SelfLink {
-			return trimURL(g.SelfLink)
-		}
-	}
-
-	for _, g := range b.targetVPNs {
-		if g.Network == n.SelfLink {
-			return trimURL(g.SelfLink)
-		}
-	}
-
-	return ""
+	return b.vpnGatewayUserLocked(n)
 }
 
 func isSystemRoute(r *computeapi.Route) bool {

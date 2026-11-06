@@ -388,18 +388,7 @@ func (b *InMemoryBackend) buildDisksLocked(
 			)
 		}
 
-		var (
-			att *computeapi.AttachedDisk
-			err *APIError
-		)
-
-		if ad.Type == diskScratch {
-			att, err = scratchDisk(i, scratch, ad)
-			scratch++
-		} else {
-			att, err = b.resolveAttachedLocked(project, zone, in.Name, i, ad, created)
-		}
-
+		att, err := b.buildDiskLocked(project, zone, in.Name, i, ad, &scratch, created)
 		if err != nil {
 			return nil, err
 		}
@@ -408,18 +397,15 @@ func (b *InMemoryBackend) buildDisksLocked(
 			return nil, errInvalid("Invalid value for field 'resource.disks[%d]': duplicate device name or source.", i)
 		}
 
-		if att.Source == "" {
-			devices[att.DeviceName] = true
-			out = append(out, att)
+		if att.Source != "" {
+			if by := b.diskWriterLocked(att, ""); by != "" {
+				return nil, errInUse("disk", trimURL(att.Source), by)
+			}
 
-			continue
+			sources[att.Source] = true
 		}
 
-		if by := b.diskWriterLocked(att, ""); by != "" {
-			return nil, errInUse("disk", trimURL(att.Source), by)
-		}
-
-		devices[att.DeviceName], sources[att.Source] = true, true
+		devices[att.DeviceName] = true
 		out = append(out, att)
 	}
 
@@ -428,6 +414,18 @@ func (b *InMemoryBackend) buildDisksLocked(
 	}
 
 	return out, nil
+}
+
+func (b *InMemoryBackend) buildDiskLocked(
+	project, zone, instName string, idx int, ad *computeapi.AttachedDisk, scratch *int, created *[]string,
+) (*computeapi.AttachedDisk, *APIError) {
+	if ad.Type != diskScratch {
+		return b.resolveAttachedLocked(project, zone, instName, idx, ad, created)
+	}
+
+	*scratch++
+
+	return scratchDisk(idx, *scratch-1, ad)
 }
 
 // diskWriterLocked returns an instance that blocks attaching ad (a read-write holder, or any holder for a
@@ -585,7 +583,10 @@ func (b *InMemoryBackend) buildNICLocked(
 
 	if nic.StackType == stackIPv6Only {
 		if in.NetworkIP != "" || len(in.AccessConfigs) > 0 || len(in.AliasIpRanges) > 0 {
-			return nil, errInvalid("Invalid value for field '%s': an IPV6_ONLY interface takes no IPv4 settings.", nicField(idx))
+			return nil, errInvalid(
+				"Invalid value for field '%s': an IPV6_ONLY interface takes no IPv4 settings.",
+				nicField(idx),
+			)
 		}
 
 		return nic, nil

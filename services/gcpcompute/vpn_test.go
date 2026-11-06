@@ -171,7 +171,8 @@ func TestVPNGatewayAddressesAreUnique(t *testing.T) {
 	seen := map[string]bool{}
 
 	for _, n := range []string{"gw-a", "gw-b"} {
-		g, err := e.vpnGws(t).Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: n})
+		g, err := e.vpnGws(t).
+			Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: n})
 		require.NoError(t, err)
 
 		for _, vi := range g.GetVpnInterfaces() {
@@ -185,7 +186,8 @@ func TestVPNGatewayAddressesAreUnique(t *testing.T) {
 	})
 	e.done(t, addr, err)
 
-	got, gerr := e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a"})
+	got, gerr := e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a"})
 	require.NoError(t, gerr)
 	assert.False(t, seen[got.GetAddress()], "reserved addresses skip VPN gateway IPs")
 }
@@ -198,7 +200,8 @@ func TestVPNGatewayLabelsAndDelete(t *testing.T) {
 	e.haGateway(t, "gw-a")
 	e.haGateway(t, "gw-b")
 
-	g, err := e.vpnGws(t).Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
+	g, err := e.vpnGws(t).
+		Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
 	require.NoError(t, err)
 
 	op, err := e.vpnGws(t).SetLabels(t.Context(), &computepb.SetLabelsVpnGatewayRequest{
@@ -215,22 +218,26 @@ func TestVPNGatewayLabelsAndDelete(t *testing.T) {
 	})
 	assertAPIError(t, err, http.StatusPreconditionFailed, "")
 
-	g, err = e.vpnGws(t).Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
+	g, err = e.vpnGws(t).
+		Get(t.Context(), &computepb.GetVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
 	require.NoError(t, err)
 	assert.Equal(t, "x", g.GetLabels()["env"])
 
 	require.NoError(t, e.insertTunnel(t, haTunnel("ta", gwA, gwB, 0)))
 
-	_, err = e.vpnGws(t).Delete(t.Context(), &computepb.DeleteVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
+	_, err = e.vpnGws(t).
+		Delete(t.Context(), &computepb.DeleteVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
 	_, err = e.networks(t).Delete(t.Context(), &computepb.DeleteNetworkRequest{Project: project, Network: "vpc"})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
-	op, err = e.vpnTunnels(t).Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
+	op, err = e.vpnTunnels(t).
+		Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
 	e.done(t, op, err)
 
-	op, err = e.vpnGws(t).Delete(t.Context(), &computepb.DeleteVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
+	op, err = e.vpnGws(t).
+		Delete(t.Context(), &computepb.DeleteVpnGatewayRequest{Project: project, Region: region, VpnGateway: "gw-a"})
 	e.done(t, op, err)
 }
 
@@ -244,18 +251,39 @@ func TestExternalVPNGateway(t *testing.T) {
 	}{
 		{
 			name: "four ips", gw: &computepb.ExternalVpnGateway{
-				Name: s("ext"), RedundancyType: s("FOUR_IPS_REDUNDANCY"), Interfaces: ifaces("1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4"),
+				Name: s(
+					"ext",
+				), RedundancyType: s("FOUR_IPS_REDUNDANCY"), Interfaces: ifaces("1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4"),
 			},
 		},
-		{name: "single", gw: &computepb.ExternalVpnGateway{Name: s("ext"), RedundancyType: s("SINGLE_IP_INTERNALLY_REDUNDANT"), Interfaces: ifaces("1.1.1.1")}},
+		{
+			name: "single",
+			gw: &computepb.ExternalVpnGateway{
+				Name:           s("ext"),
+				RedundancyType: s("SINGLE_IP_INTERNALLY_REDUNDANT"),
+				Interfaces:     ifaces("1.1.1.1"),
+			},
+		},
 		{
 			name: "count mismatch", status: http.StatusBadRequest,
-			gw: &computepb.ExternalVpnGateway{Name: s("ext"), RedundancyType: s("TWO_IPS_REDUNDANCY"), Interfaces: ifaces("1.1.1.1")},
+			gw: &computepb.ExternalVpnGateway{
+				Name:           s("ext"),
+				RedundancyType: s("TWO_IPS_REDUNDANCY"),
+				Interfaces:     ifaces("1.1.1.1"),
+			},
 		},
-		{name: "bad type", status: http.StatusBadRequest, gw: &computepb.ExternalVpnGateway{Name: s("ext"), RedundancyType: s("X")}},
+		{
+			name:   "bad type",
+			status: http.StatusBadRequest,
+			gw:     &computepb.ExternalVpnGateway{Name: s("ext"), RedundancyType: s("X")},
+		},
 		{
 			name: "bad ip", status: http.StatusBadRequest,
-			gw: &computepb.ExternalVpnGateway{Name: s("ext"), RedundancyType: s("SINGLE_IP_INTERNALLY_REDUNDANT"), Interfaces: ifaces("nope")},
+			gw: &computepb.ExternalVpnGateway{
+				Name:           s("ext"),
+				RedundancyType: s("SINGLE_IP_INTERNALLY_REDUNDANT"),
+				Interfaces:     ifaces("nope"),
+			},
 		},
 	}
 
@@ -266,7 +294,10 @@ func TestExternalVPNGateway(t *testing.T) {
 			e := newEnv(t)
 			c := client(t, e, compute.NewExternalVpnGatewaysRESTClient)
 
-			op, err := c.Insert(t.Context(), &computepb.InsertExternalVpnGatewayRequest{Project: project, ExternalVpnGatewayResource: tt.gw})
+			op, err := c.Insert(
+				t.Context(),
+				&computepb.InsertExternalVpnGatewayRequest{Project: project, ExternalVpnGatewayResource: tt.gw},
+			)
 			if tt.status != 0 {
 				assertAPIError(t, e.finish(t, op, err), tt.status, "")
 
@@ -275,7 +306,10 @@ func TestExternalVPNGateway(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, gerr := c.Get(t.Context(), &computepb.GetExternalVpnGatewayRequest{Project: project, ExternalVpnGateway: "ext"})
+			got, gerr := c.Get(
+				t.Context(),
+				&computepb.GetExternalVpnGatewayRequest{Project: project, ExternalVpnGateway: "ext"},
+			)
 			require.NoError(t, gerr)
 			assert.Len(t, got.GetInterfaces(), len(tt.gw.GetInterfaces()))
 			assert.Equal(t, "compute#externalVpnGateway", got.GetKind())
@@ -301,26 +335,62 @@ func TestHATunnelValidation(t *testing.T) {
 		status int
 	}{
 		{name: "ok", mut: func(*computepb.VpnTunnel) {}},
-		{name: "no secret", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.SharedSecret = nil }},
-		{name: "bad ike", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.IkeVersion = new(int32(3)) }},
-		{name: "bad interface", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.VpnGatewayInterface = new(int32(2)) }},
-		{name: "peer ip", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.PeerIp = s("203.0.113.5") }},
-		{name: "no peer", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.PeerGcpGateway = nil }},
+		{
+			name:   "no secret",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.SharedSecret = nil },
+		},
+		{
+			name:   "bad ike",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.IkeVersion = new(int32(3)) },
+		},
+		{
+			name:   "bad interface",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.VpnGatewayInterface = new(int32(2)) },
+		},
+		{
+			name:   "peer ip",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.PeerIp = s("203.0.113.5") },
+		},
+		{
+			name:   "no peer",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.PeerGcpGateway = nil },
+		},
 		{
 			name: "both peers", status: http.StatusBadRequest,
 			mut: func(tun *computepb.VpnTunnel) { tun.PeerExternalGateway = s(extRef) },
 		},
-		{name: "missing gateway", status: http.StatusNotFound, mut: func(tun *computepb.VpnTunnel) { tun.VpnGateway = s(regBase + "vpnGateways/none") }},
-		{name: "missing peer", status: http.StatusNotFound, mut: func(tun *computepb.VpnTunnel) { tun.PeerGcpGateway = s(regBase + "vpnGateways/none") }},
+		{
+			name:   "missing gateway",
+			status: http.StatusNotFound,
+			mut:    func(tun *computepb.VpnTunnel) { tun.VpnGateway = s(regBase + "vpnGateways/none") },
+		},
+		{
+			name:   "missing peer",
+			status: http.StatusNotFound,
+			mut:    func(tun *computepb.VpnTunnel) { tun.PeerGcpGateway = s(regBase + "vpnGateways/none") },
+		},
 		{
 			name: "classic and ha", status: http.StatusBadRequest,
 			mut: func(tun *computepb.VpnTunnel) { tun.TargetVpnGateway = s(regBase + "targetVpnGateways/t") },
 		},
-		{name: "missing router", status: http.StatusNotFound, mut: func(tun *computepb.VpnTunnel) { tun.Router = s(regBase + "routers/none") }},
+		{
+			name:   "missing router",
+			status: http.StatusNotFound,
+			mut:    func(tun *computepb.VpnTunnel) { tun.Router = s(regBase + "routers/none") },
+		},
 		{
 			name: "external interface", status: http.StatusBadRequest,
 			mut: func(tun *computepb.VpnTunnel) {
-				tun.PeerGcpGateway, tun.PeerExternalGateway, tun.PeerExternalGatewayInterface = nil, s(extRef), new(int32(3))
+				tun.PeerGcpGateway, tun.PeerExternalGateway, tun.PeerExternalGatewayInterface = nil, s(
+					extRef,
+				), new(
+					int32(3),
+				)
 			},
 		},
 	}
@@ -431,7 +501,10 @@ func TestClassicVPN(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	got, err := tg.Get(t.Context(), &computepb.GetTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"})
+	got, err := tg.Get(
+		t.Context(),
+		&computepb.GetTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "READY", got.GetStatus())
 
@@ -442,7 +515,9 @@ func TestClassicVPN(t *testing.T) {
 
 	tunnel := &computepb.VpnTunnel{
 		Name: s("ta"), TargetVpnGateway: s(regBase + "targetVpnGateways/classic"), PeerIp: s("198.51.100.7"),
-		SharedSecret: s("x"), LocalTrafficSelector: []string{"10.10.0.0/24"}, RemoteTrafficSelector: []string{"192.168.0.0/16"},
+		SharedSecret: s(
+			"x",
+		), LocalTrafficSelector: []string{"10.10.0.0/24"}, RemoteTrafficSelector: []string{"192.168.0.0/16"},
 		IkeVersion: new(int32(1)),
 	}
 	require.NoError(t, e.insertTunnel(t, tunnel))
@@ -482,15 +557,22 @@ func TestClassicVPN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, route.GetNextHopVpnTunnel(), "/vpnTunnels/ta")
 
-	got, err = tg.Get(t.Context(), &computepb.GetTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"})
+	got, err = tg.Get(
+		t.Context(),
+		&computepb.GetTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"},
+	)
 	require.NoError(t, err)
 	assert.Len(t, got.GetForwardingRules(), 3)
 	assert.Len(t, got.GetTunnels(), 1)
 
-	_, err = e.vpnTunnels(t).Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
+	_, err = e.vpnTunnels(t).
+		Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	_, err = tg.Delete(t.Context(), &computepb.DeleteTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"})
+	_, err = tg.Delete(
+		t.Context(),
+		&computepb.DeleteTargetVpnGatewayRequest{Project: project, Region: region, TargetVpnGateway: "classic"},
+	)
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 }
 
@@ -504,7 +586,11 @@ func TestClassicTunnelValidation(t *testing.T) {
 	}{
 		{name: "ok", mut: func(*computepb.VpnTunnel) {}},
 		{name: "no peer ip", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.PeerIp = nil }},
-		{name: "ipv6 peer", status: http.StatusBadRequest, mut: func(tun *computepb.VpnTunnel) { tun.PeerIp = s("2001:db8::1") }},
+		{
+			name:   "ipv6 peer",
+			status: http.StatusBadRequest,
+			mut:    func(tun *computepb.VpnTunnel) { tun.PeerIp = s("2001:db8::1") },
+		},
 		{
 			name: "bad selector", status: http.StatusBadRequest,
 			mut: func(tun *computepb.VpnTunnel) { tun.LocalTrafficSelector = []string{"nope"} },
@@ -527,13 +613,19 @@ func TestClassicTunnelValidation(t *testing.T) {
 			e.baseNet(t)
 			e.haGateway(t, "gw-b")
 
-			op, err := client(t, e, compute.NewTargetVpnGatewaysRESTClient).Insert(t.Context(), &computepb.InsertTargetVpnGatewayRequest{
+			op, err := client(
+				t,
+				e,
+				compute.NewTargetVpnGatewaysRESTClient,
+			).Insert(t.Context(), &computepb.InsertTargetVpnGatewayRequest{
 				Project: project, Region: region, TargetVpnGatewayResource: &computepb.TargetVpnGateway{Name: s("classic"), Network: s(vpcRef)},
 			})
 			e.done(t, op, err)
 
 			tun := &computepb.VpnTunnel{
-				Name: s("ta"), TargetVpnGateway: s(regBase + "targetVpnGateways/classic"), PeerIp: s("198.51.100.7"), SharedSecret: s("x"),
+				Name: s(
+					"ta",
+				), TargetVpnGateway: s(regBase + "targetVpnGateways/classic"), PeerIp: s("198.51.100.7"), SharedSecret: s("x"),
 			}
 			tt.mut(tun)
 
@@ -572,7 +664,8 @@ func TestRouterBGPPeersOverTunnels(t *testing.T) {
 	}
 
 	insertRouter := func(r *computepb.Router) error {
-		op, err := e.routers(t).Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: r})
+		op, err := e.routers(t).
+			Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: r})
 
 		return e.finish(t, op, err)
 	}
@@ -590,7 +683,9 @@ func TestRouterBGPPeersOverTunnels(t *testing.T) {
 
 	ifc := &computepb.RouterInterface{Name: s("if0"), LinkedVpnTunnel: s(tunARef), IpRange: s("169.254.0.1/30")}
 	peer := &computepb.RouterBgpPeer{
-		Name: s("p0"), InterfaceName: s("if0"), IpAddress: s("169.254.0.1"), PeerIpAddress: s("169.254.0.2"), PeerAsn: new(uint32(65002)),
+		Name: s(
+			"p0",
+		), InterfaceName: s("if0"), IpAddress: s("169.254.0.1"), PeerIpAddress: s("169.254.0.2"), PeerAsn: new(uint32(65002)),
 	}
 
 	op, err := e.routers(t).Patch(t.Context(), &computepb.PatchRouterRequest{
@@ -598,7 +693,8 @@ func TestRouterBGPPeersOverTunnels(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	got, err := e.routers(t).Get(t.Context(), &computepb.GetRouterRequest{Project: project, Region: region, Router: "r1"})
+	got, err := e.routers(t).
+		Get(t.Context(), &computepb.GetRouterRequest{Project: project, Region: region, Router: "r1"})
 	require.NoError(t, err)
 	require.Len(t, got.GetBgpPeers(), 1)
 	assert.Equal(t, "TRUE", got.GetBgpPeers()[0].GetEnable())
@@ -616,12 +712,15 @@ func TestRouterBGPPeersOverTunnels(t *testing.T) {
 	assert.Equal(t, "Established", ps[0].GetState())
 	assert.Equal(t, "169.254.0.2", ps[0].GetPeerIpAddress())
 
-	_, err = e.routers(t).Delete(t.Context(), &computepb.DeleteRouterRequest{Project: project, Region: region, Router: "r1"})
+	_, err = e.routers(t).
+		Delete(t.Context(), &computepb.DeleteRouterRequest{Project: project, Region: region, Router: "r1"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
-	_, err = e.vpnTunnels(t).Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
+	_, err = e.vpnTunnels(t).
+		Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "ta"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	op, err = e.vpnTunnels(t).Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "tb"})
+	op, err = e.vpnTunnels(t).
+		Delete(t.Context(), &computepb.DeleteVpnTunnelRequest{Project: project, Region: region, VpnTunnel: "tb"})
 	e.done(t, op, err)
 
 	status, err = e.routers(t).GetRouterStatus(t.Context(), &computepb.GetRouterStatusRouterRequest{
@@ -636,15 +735,27 @@ func TestRouterVPNValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		ifc    *computepb.RouterInterface
 		peer   *computepb.RouterBgpPeer
+		name   string
 		status int
 	}{
-		{name: "public range", status: http.StatusBadRequest, ifc: &computepb.RouterInterface{Name: s("if0"), IpRange: s("10.0.0.1/30")}},
-		{name: "bad range", status: http.StatusBadRequest, ifc: &computepb.RouterInterface{Name: s("if0"), IpRange: s("nope")}},
+		{
+			name:   "public range",
+			status: http.StatusBadRequest,
+			ifc:    &computepb.RouterInterface{Name: s("if0"), IpRange: s("10.0.0.1/30")},
+		},
+		{
+			name:   "bad range",
+			status: http.StatusBadRequest,
+			ifc:    &computepb.RouterInterface{Name: s("if0"), IpRange: s("nope")},
+		},
 		{name: "ula range", ifc: &computepb.RouterInterface{Name: s("if0"), IpRange: s("fdff:1::1/126")}},
-		{name: "missing tunnel", status: http.StatusNotFound, ifc: &computepb.RouterInterface{Name: s("if0"), LinkedVpnTunnel: s(regBase + "vpnTunnels/none")}},
+		{
+			name:   "missing tunnel",
+			status: http.StatusNotFound,
+			ifc:    &computepb.RouterInterface{Name: s("if0"), LinkedVpnTunnel: s(regBase + "vpnTunnels/none")},
+		},
 		{
 			name: "interconnect", status: http.StatusBadRequest,
 			ifc: &computepb.RouterInterface{Name: s("if0"), LinkedInterconnectAttachment: s("x")},
@@ -660,8 +771,13 @@ func TestRouterVPNValidation(t *testing.T) {
 		},
 		{
 			name: "peer ip", status: http.StatusBadRequest,
-			ifc:  &computepb.RouterInterface{Name: s("if0")},
-			peer: &computepb.RouterBgpPeer{Name: s("p0"), InterfaceName: s("if0"), PeerAsn: new(uint32(1)), PeerIpAddress: s("x")},
+			ifc: &computepb.RouterInterface{Name: s("if0")},
+			peer: &computepb.RouterBgpPeer{
+				Name:          s("p0"),
+				InterfaceName: s("if0"),
+				PeerAsn:       new(uint32(1)),
+				PeerIpAddress: s("x"),
+			},
 		},
 		{
 			name: "peer ok",
@@ -686,7 +802,8 @@ func TestRouterVPNValidation(t *testing.T) {
 				r.BgpPeers = []*computepb.RouterBgpPeer{tt.peer}
 			}
 
-			op, err := e.routers(t).Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: r})
+			op, err := e.routers(t).
+				Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region, RouterResource: r})
 			if tt.status != 0 {
 				assertAPIError(t, e.finish(t, op, err), tt.status, "")
 
@@ -712,15 +829,28 @@ func TestRouteNextHops(t *testing.T) {
 		},
 		{
 			name: "missing tunnel", status: http.StatusNotFound,
-			route: &computepb.Route{Name: s("r"), DestRange: s("192.168.0.0/16"), NextHopVpnTunnel: s(regBase + "vpnTunnels/none")},
+			route: &computepb.Route{
+				Name:             s("r"),
+				DestRange:        s("192.168.0.0/16"),
+				NextHopVpnTunnel: s(regBase + "vpnTunnels/none"),
+			},
 		},
 		{
 			name: "tunnel and ip", status: http.StatusBadRequest,
-			route: &computepb.Route{Name: s("r"), DestRange: s("192.168.0.0/16"), NextHopVpnTunnel: s(tunARef), NextHopIp: s("10.10.0.5")},
+			route: &computepb.Route{
+				Name:             s("r"),
+				DestRange:        s("192.168.0.0/16"),
+				NextHopVpnTunnel: s(tunARef),
+				NextHopIp:        s("10.10.0.5"),
+			},
 		},
 		{
-			name:  "ilb by url",
-			route: &computepb.Route{Name: s("r"), DestRange: s("192.168.0.0/16"), NextHopIlb: s(regBase + "forwardingRules/ilb")},
+			name: "ilb by url",
+			route: &computepb.Route{
+				Name:       s("r"),
+				DestRange:  s("192.168.0.0/16"),
+				NextHopIlb: s(regBase + "forwardingRules/ilb"),
+			},
 		},
 		{
 			name:  "ilb by ip",
@@ -732,7 +862,11 @@ func TestRouteNextHops(t *testing.T) {
 		},
 		{
 			name: "ilb missing rule", status: http.StatusNotFound,
-			route: &computepb.Route{Name: s("r"), DestRange: s("192.168.0.0/16"), NextHopIlb: s(regBase + "forwardingRules/none")},
+			route: &computepb.Route{
+				Name:       s("r"),
+				DestRange:  s("192.168.0.0/16"),
+				NextHopIlb: s(regBase + "forwardingRules/none"),
+			},
 		},
 		{
 			name: "network is output only", status: http.StatusBadRequest,
@@ -752,7 +886,8 @@ func TestRouteNextHops(t *testing.T) {
 			e.internalRule(t)
 
 			tt.route.Network = s(vpcRef)
-			op, err := e.routes(t).Insert(t.Context(), &computepb.InsertRouteRequest{Project: project, RouteResource: tt.route})
+			op, err := e.routes(t).
+				Insert(t.Context(), &computepb.InsertRouteRequest{Project: project, RouteResource: tt.route})
 
 			if tt.status != 0 {
 				assertAPIError(t, e.finish(t, op, err), tt.status, "")
@@ -772,19 +907,33 @@ func TestRouteNextHops(t *testing.T) {
 func (e *env) internalRule(t *testing.T) {
 	t.Helper()
 
-	op, err := client(t, e, compute.NewRegionHealthChecksRESTClient).Insert(t.Context(), &computepb.InsertRegionHealthCheckRequest{
+	op, err := client(
+		t,
+		e,
+		compute.NewRegionHealthChecksRESTClient,
+	).Insert(t.Context(), &computepb.InsertRegionHealthCheckRequest{
 		Project: project, Region: region, HealthCheckResource: &computepb.HealthCheck{Name: s("rhc"), TcpHealthCheck: &computepb.TCPHealthCheck{}},
 	})
 	e.done(t, op, err)
 
-	op, err = client(t, e, compute.NewRegionBackendServicesRESTClient).Insert(t.Context(), &computepb.InsertRegionBackendServiceRequest{
+	op, err = client(
+		t,
+		e,
+		compute.NewRegionBackendServicesRESTClient,
+	).Insert(t.Context(), &computepb.InsertRegionBackendServiceRequest{
 		Project: project, Region: region, BackendServiceResource: &computepb.BackendService{
-			Name: s("rbs"), Protocol: s("TCP"), LoadBalancingScheme: s("INTERNAL"), HealthChecks: []string{regBase + "healthChecks/rhc"},
+			Name: s(
+				"rbs",
+			), Protocol: s("TCP"), LoadBalancingScheme: s("INTERNAL"), HealthChecks: []string{regBase + "healthChecks/rhc"},
 		},
 	})
 	e.done(t, op, err)
 
-	op, err = client(t, e, compute.NewForwardingRulesRESTClient).Insert(t.Context(), &computepb.InsertForwardingRuleRequest{
+	op, err = client(
+		t,
+		e,
+		compute.NewForwardingRulesRESTClient,
+	).Insert(t.Context(), &computepb.InsertForwardingRuleRequest{
 		Project: project, Region: region, ForwardingRuleResource: &computepb.ForwardingRule{
 			Name: s("ilb"), LoadBalancingScheme: s("INTERNAL"), Subnetwork: s(subnetRef), Ports: []string{"80"},
 			BackendService: s(regBase + "backendServices/rbs"),

@@ -205,8 +205,8 @@ func validateBgp(bgp *computeapi.RouterBgp) *APIError {
 
 	switch bgp.AdvertiseMode {
 	case "":
-		bgp.AdvertiseMode = "DEFAULT"
-	case "DEFAULT", "CUSTOM":
+		bgp.AdvertiseMode = instFromDefault
+	case instFromDefault, "CUSTOM":
 	default:
 		return errField("resource.bgp.advertiseMode", bgp.AdvertiseMode, "")
 	}

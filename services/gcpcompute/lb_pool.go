@@ -52,39 +52,52 @@ func targetInstanceSpec() lbSpec[computeapi.TargetInstance] {
 	}
 }
 
+func legacyHealthSpec[T any](
+	coll, kind, noun string,
+	m func(b *InMemoryBackend) map[string]*T,
+	meta func(v *T) lbMeta,
+	prep func(v *T) *APIError,
+) lbSpec[T] {
+	return lbSpec[T]{
+		coll: coll, kind: kind, noun: noun, m: m, meta: meta,
+		prep: func(_ *InMemoryBackend, _ lbCtx, in *T, _ map[string]any) *APIError { return prep(in) },
+	}
+}
+
 func httpHealthSpec() lbSpec[computeapi.HttpHealthCheck] {
-	return lbSpec[computeapi.HttpHealthCheck]{
-		coll: collHTTPHealth, kind: "compute#httpHealthCheck", noun: "http_health_check",
-		m: func(b *InMemoryBackend) map[string]*computeapi.HttpHealthCheck { return b.httpHealths },
-		meta: func(v *computeapi.HttpHealthCheck) lbMeta {
+	return legacyHealthSpec(collHTTPHealth, "compute#httpHealthCheck", "http_health_check",
+		func(b *InMemoryBackend) map[string]*computeapi.HttpHealthCheck { return b.httpHealths },
+		func(v *computeapi.HttpHealthCheck) lbMeta {
 			return lbMeta{
 				name: &v.Name, kind: &v.Kind, created: &v.CreationTimestamp, self: &v.SelfLink, id: &v.Id,
 			}
 		},
-		prep: func(_ *InMemoryBackend, _ lbCtx, in *computeapi.HttpHealthCheck, _ map[string]any) *APIError {
+		func(in *computeapi.HttpHealthCheck) *APIError {
 			return prepLegacyHealth(&in.Port, portHTTP, &in.RequestPath, &in.CheckIntervalSec, &in.TimeoutSec,
 				&in.HealthyThreshold, &in.UnhealthyThreshold)
-		},
-	}
+		})
 }
 
 func httpsHealthSpec() lbSpec[computeapi.HttpsHealthCheck] {
-	return lbSpec[computeapi.HttpsHealthCheck]{
-		coll: collHTTPSHealth, kind: "compute#httpsHealthCheck", noun: "https_health_check",
-		m: func(b *InMemoryBackend) map[string]*computeapi.HttpsHealthCheck { return b.httpsHealths },
-		meta: func(v *computeapi.HttpsHealthCheck) lbMeta {
+	return legacyHealthSpec(collHTTPSHealth, "compute#httpsHealthCheck", "https_health_check",
+		func(b *InMemoryBackend) map[string]*computeapi.HttpsHealthCheck { return b.httpsHealths },
+		func(v *computeapi.HttpsHealthCheck) lbMeta {
 			return lbMeta{
 				name: &v.Name, kind: &v.Kind, created: &v.CreationTimestamp, self: &v.SelfLink, id: &v.Id,
 			}
 		},
-		prep: func(_ *InMemoryBackend, _ lbCtx, in *computeapi.HttpsHealthCheck, _ map[string]any) *APIError {
+		func(in *computeapi.HttpsHealthCheck) *APIError {
 			return prepLegacyHealth(&in.Port, portHTTPS, &in.RequestPath, &in.CheckIntervalSec, &in.TimeoutSec,
 				&in.HealthyThreshold, &in.UnhealthyThreshold)
-		},
-	}
+		})
 }
 
-func prepLegacyHealth(port *int64, defPort int64, path *string, interval, timeout, healthy, unhealthy *int64) *APIError {
+func prepLegacyHealth(
+	port *int64,
+	defPort int64,
+	path *string,
+	interval, timeout, healthy, unhealthy *int64,
+) *APIError {
 	if *port == 0 {
 		*port = defPort
 	}
@@ -288,7 +301,10 @@ func prepTargetInstance(
 	return nil
 }
 
-func (b *InMemoryBackend) targetPoolHealth(c lbCtx, name, instance string) (*computeapi.TargetPoolInstanceHealth, error) {
+func (b *InMemoryBackend) targetPoolHealth(
+	c lbCtx,
+	name, instance string,
+) (*computeapi.TargetPoolInstanceHealth, error) {
 	b.mu.RLock("GetTargetPoolHealth")
 	defer b.mu.RUnlock()
 
@@ -342,7 +358,11 @@ type poolHealthChecksRequest struct {
 	HealthChecks []*computeapi.HealthCheckReference `json:"healthChecks"`
 }
 
-func (b *InMemoryBackend) poolAddInstances(c lbCtx, name string, in *poolInstancesRequest) (*computeapi.Operation, error) {
+func (b *InMemoryBackend) poolAddInstances(
+	c lbCtx,
+	name string,
+	in *poolInstancesRequest,
+) (*computeapi.Operation, error) {
 	return lbMutate(b, targetPoolSpec(), c, name, "addInstance", nil,
 		func(cur *computeapi.TargetPool) (*computeapi.TargetPool, *APIError) {
 			if len(in.Instances) == 0 {
@@ -350,7 +370,10 @@ func (b *InMemoryBackend) poolAddInstances(c lbCtx, name string, in *poolInstanc
 			}
 
 			for _, r := range in.Instances {
-				if slices.ContainsFunc(cur.Instances, func(s string) bool { return sameTail(s, r.Instance, instanceTailSegs) }) {
+				if slices.ContainsFunc(
+					cur.Instances,
+					func(s string) bool { return sameTail(s, r.Instance, instanceTailSegs) },
+				) {
 					return nil, errField("instances", r.Instance, "The instance is already in the target pool.")
 				}
 
@@ -367,7 +390,10 @@ func (b *InMemoryBackend) poolRemoveInstances(
 	return lbMutate(b, targetPoolSpec(), c, name, "removeInstance", nil,
 		func(cur *computeapi.TargetPool) (*computeapi.TargetPool, *APIError) {
 			for _, r := range in.Instances {
-				i := slices.IndexFunc(cur.Instances, func(s string) bool { return sameTail(s, r.Instance, instanceTailSegs) })
+				i := slices.IndexFunc(
+					cur.Instances,
+					func(s string) bool { return sameTail(s, r.Instance, instanceTailSegs) },
+				)
 				if i < 0 {
 					return nil, errNotFound(trimURL(r.Instance))
 				}
@@ -398,7 +424,10 @@ func (b *InMemoryBackend) poolRemoveHealthChecks(
 	return lbMutate(b, targetPoolSpec(), c, name, "removeHealthCheck", nil,
 		func(cur *computeapi.TargetPool) (*computeapi.TargetPool, *APIError) {
 			for _, r := range in.HealthChecks {
-				i := slices.IndexFunc(cur.HealthChecks, func(s string) bool { return sameTail(s, r.HealthCheck, healthTailSegs) })
+				i := slices.IndexFunc(
+					cur.HealthChecks,
+					func(s string) bool { return sameTail(s, r.HealthCheck, healthTailSegs) },
+				)
 				if i < 0 {
 					return nil, errNotFound(trimURL(r.HealthCheck))
 				}
@@ -435,7 +464,11 @@ func (h *Handler) registerPoolOps() {
 	regional := []string{scopeRegion}
 
 	registerLB(h, targetPoolSpec(), lbOpts[computeapi.TargetPool]{scopes: regional, agg: regionScopes()})
-	registerLB(h, targetInstanceSpec(), lbOpts[computeapi.TargetInstance]{scopes: []string{scopeZone}, agg: zoneScopes()})
+	registerLB(
+		h,
+		targetInstanceSpec(),
+		lbOpts[computeapi.TargetInstance]{scopes: []string{scopeZone}, agg: zoneScopes()},
+	)
 	registerLB(h, httpHealthSpec(), lbOpts[computeapi.HttpHealthCheck]{
 		scopes: []string{scopeGlobal}, patch: true, put: true,
 	})

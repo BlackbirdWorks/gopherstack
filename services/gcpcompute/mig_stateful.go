@@ -49,39 +49,40 @@ func validStatefulPolicy(p *computeapi.StatefulPolicy) *APIError {
 	}
 
 	ps := p.PreservedState
+	pre := "resource.statefulPolicy.preservedState"
 
 	for k, d := range ps.Disks {
 		if k == "" {
-			return errField("resource.statefulPolicy.preservedState.disks", "", "Device names must not be empty.")
+			return errField(pre+".disks", "", "Device names must not be empty.")
 		}
 
-		if err := validAutoDelete("resource.statefulPolicy.preservedState.disks.autoDelete", d.AutoDelete); err != nil {
+		if err := validAutoDelete(pre+".disks.autoDelete", d.AutoDelete); err != nil {
 			return err
 		}
 
-		if d.AutoDelete == "" {
-			d.AutoDelete = autoDeleteNever
-			ps.Disks[k] = d
-		}
+		d.AutoDelete = cmpOr(d.AutoDelete, autoDeleteNever)
+		ps.Disks[k] = d
 	}
 
-	for field, m := range map[string]map[string]computeapi.StatefulPolicyPreservedStateNetworkIp{
-		"externalIPs": ps.ExternalIPs, "internalIPs": ps.InternalIPs,
-	} {
-		for k, ip := range m {
-			if _, ok := nicNumber(k); !ok {
-				return errField("resource.statefulPolicy.preservedState."+field, k, "Keys are network interface names such as nic0.")
-			}
+	if err := normalizePolicyIPs(pre+".externalIPs", ps.ExternalIPs); err != nil {
+		return err
+	}
 
-			if err := validAutoDelete("resource.statefulPolicy.preservedState."+field+".autoDelete", ip.AutoDelete); err != nil {
-				return err
-			}
+	return normalizePolicyIPs(pre+".internalIPs", ps.InternalIPs)
+}
 
-			if ip.AutoDelete == "" {
-				ip.AutoDelete = autoDeleteNever
-				m[k] = ip
-			}
+func normalizePolicyIPs(field string, m map[string]computeapi.StatefulPolicyPreservedStateNetworkIp) *APIError {
+	for k, ip := range m {
+		if _, ok := nicNumber(k); !ok {
+			return errField(field, k, "Keys are network interface names such as nic0.")
 		}
+
+		if err := validAutoDelete(field+".autoDelete", ip.AutoDelete); err != nil {
+			return err
+		}
+
+		ip.AutoDelete = cmpOr(ip.AutoDelete, autoDeleteNever)
+		m[k] = ip
 	}
 
 	return nil
@@ -172,23 +173,7 @@ func (b *InMemoryBackend) validatePreservedStateLocked(project, zone string, ps 
 	const f = "resource.preservedState"
 
 	for dev, d := range ps.Disks {
-		if dev == "" {
-			return errField(f+".disks", "", "Device names must not be empty.")
-		}
-
-		if d.Source == "" {
-			return errRequired(f + ".disks.source")
-		}
-
-		if _, err := b.attachableDiskLocked(project, zone, f+".disks", d.Source); err != nil {
-			return err
-		}
-
-		if d.Mode != "" && d.Mode != modeReadWrite && d.Mode != modeReadOnly {
-			return errField(f+".disks.mode", d.Mode, "Must be READ_ONLY or READ_WRITE.")
-		}
-
-		if err := validAutoDelete(f+".disks.autoDelete", d.AutoDelete); err != nil {
+		if err := b.validatePreservedDiskLocked(project, zone, f+".disks", dev, d); err != nil {
 			return err
 		}
 	}
@@ -199,19 +184,7 @@ func (b *InMemoryBackend) validatePreservedStateLocked(project, zone string, ps 
 		"externalIPs": ps.ExternalIPs, "internalIPs": ps.InternalIPs,
 	} {
 		for k, ip := range m {
-			if _, ok := nicNumber(k); !ok {
-				return errField(f+"."+field, k, "Keys are network interface names such as nic0.")
-			}
-
-			if err := validAutoDelete(f+"."+field+".autoDelete", ip.AutoDelete); err != nil {
-				return err
-			}
-
-			if ip.IpAddress == nil || ip.IpAddress.Address == "" {
-				return errRequired(f + "." + field + ".ipAddress.address")
-			}
-
-			if _, err := b.resolvePreservedIPLocked(project, region, f+"."+field+".ipAddress", ip.IpAddress.Address); err != nil {
+			if err := b.validatePreservedIPLocked(project, region, f+"."+field, k, ip); err != nil {
 				return err
 			}
 		}
@@ -224,6 +197,48 @@ func (b *InMemoryBackend) validatePreservedStateLocked(project, zone string, ps 
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) validatePreservedDiskLocked(
+	project, zone, f, dev string, d computeapi.PreservedStatePreservedDisk,
+) *APIError {
+	if dev == "" {
+		return errField(f, "", "Device names must not be empty.")
+	}
+
+	if d.Source == "" {
+		return errRequired(f + ".source")
+	}
+
+	if _, err := b.attachableDiskLocked(project, zone, f, d.Source); err != nil {
+		return err
+	}
+
+	if d.Mode != "" && d.Mode != modeReadWrite && d.Mode != modeReadOnly {
+		return errField(f+".mode", d.Mode, "Must be READ_ONLY or READ_WRITE.")
+	}
+
+	return validAutoDelete(f+".autoDelete", d.AutoDelete)
+}
+
+func (b *InMemoryBackend) validatePreservedIPLocked(
+	project, region, f, nic string, ip computeapi.PreservedStatePreservedNetworkIp,
+) *APIError {
+	if _, ok := nicNumber(nic); !ok {
+		return errField(f, nic, "Keys are network interface names such as nic0.")
+	}
+
+	if err := validAutoDelete(f+".autoDelete", ip.AutoDelete); err != nil {
+		return err
+	}
+
+	if ip.IpAddress == nil || ip.IpAddress.Address == "" {
+		return errRequired(f + ".ipAddress.address")
+	}
+
+	_, err := b.resolvePreservedIPLocked(project, region, f+".ipAddress", ip.IpAddress.Address)
+
+	return err
 }
 
 func mergePreserved(dst, src *computeapi.PreservedState) *computeapi.PreservedState {
@@ -248,9 +263,7 @@ func mergeMap[V any](dst, src map[string]V) map[string]V {
 		dst = map[string]V{}
 	}
 
-	for k, v := range src {
-		dst[k] = v
-	}
+	maps.Copy(dst, src)
 
 	return dst
 }

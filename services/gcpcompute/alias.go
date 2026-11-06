@@ -46,30 +46,39 @@ func (b *InMemoryBackend) aliasInUseLocked(subnet, rangeName string, skip *compu
 	return out
 }
 
+type aliasSpec struct {
+	prefix   netip.Prefix
+	sizeOnly bool
+}
+
 // parseAliasSpec reads an alias ipCidrRange: a single IP, a CIDR range, or a bare netmask such as /24.
-func parseAliasSpec(raw string) (prefix netip.Prefix, sizeOnly bool, err *APIError) {
+func parseAliasSpec(raw string) (aliasSpec, *APIError) {
 	if rest, ok := strings.CutPrefix(raw, "/"); ok {
 		n, perr := strconv.Atoi(rest)
 		if perr != nil || n < 0 || n > maxAliasBits {
-			return netip.Prefix{}, false, errField("aliasIpRanges.ipCidrRange", raw, "Not a valid netmask.")
+			return aliasSpec{}, errField("aliasIpRanges.ipCidrRange", raw, "Not a valid netmask.")
 		}
 
-		return netip.PrefixFrom(netip.IPv4Unspecified(), n), true, nil
+		return aliasSpec{prefix: netip.PrefixFrom(netip.IPv4Unspecified(), n), sizeOnly: true}, nil
 	}
 
 	if p, perr := netip.ParsePrefix(raw); perr == nil && p.Addr().Is4() {
 		if p != p.Masked() {
-			return netip.Prefix{}, false, errField("aliasIpRanges.ipCidrRange", raw, "The range is not aligned to its prefix length.")
+			return aliasSpec{}, errField(
+				"aliasIpRanges.ipCidrRange",
+				raw,
+				"The range is not aligned to its prefix length.",
+			)
 		}
 
-		return p, false, nil
+		return aliasSpec{prefix: p}, nil
 	}
 
 	if a, perr := netip.ParseAddr(raw); perr == nil && a.Is4() {
-		return netip.PrefixFrom(a, maxAliasBits), false, nil
+		return aliasSpec{prefix: netip.PrefixFrom(a, maxAliasBits)}, nil
 	}
 
-	return netip.Prefix{}, false, errField("aliasIpRanges.ipCidrRange", raw, "Must be a CIDR range, an IP address or a netmask.")
+	return aliasSpec{}, errField("aliasIpRanges.ipCidrRange", raw, "Must be a CIDR range, an IP address or a netmask.")
 }
 
 // resolveAliasRangesLocked validates the alias ranges of a nic and allocates those given as a netmask only.
@@ -98,25 +107,42 @@ func (b *InMemoryBackend) resolveAliasRangesLocked(
 			taken[a.SubnetworkRangeName] = b.aliasInUseLocked(s.SelfLink, a.SubnetworkRangeName, nic)
 		}
 
-		got, err := pickAlias(a, base, taken[a.SubnetworkRangeName], a.SubnetworkRangeName == "", primaryUsed, nic.NetworkIP)
+		got, err := pickAlias(
+			a,
+			base,
+			taken[a.SubnetworkRangeName],
+			a.SubnetworkRangeName == "",
+			primaryUsed,
+			nic.NetworkIP,
+		)
 		if err != nil {
 			return nil, err
 		}
 
 		taken[a.SubnetworkRangeName] = append(taken[a.SubnetworkRangeName], got)
-		out = append(out, &computeapi.AliasIpRange{IpCidrRange: got.String(), SubnetworkRangeName: a.SubnetworkRangeName})
+		out = append(
+			out,
+			&computeapi.AliasIpRange{IpCidrRange: got.String(), SubnetworkRangeName: a.SubnetworkRangeName},
+		)
 	}
 
 	return out, nil
 }
 
 func pickAlias(
-	a *computeapi.AliasIpRange, base netip.Prefix, taken []netip.Prefix, primary bool, used map[netip.Addr]bool, own string,
+	a *computeapi.AliasIpRange,
+	base netip.Prefix,
+	taken []netip.Prefix,
+	primary bool,
+	used map[netip.Addr]bool,
+	own string,
 ) (netip.Prefix, *APIError) {
-	want, sizeOnly, err := parseAliasSpec(a.IpCidrRange)
+	spec, err := parseAliasSpec(a.IpCidrRange)
 	if err != nil {
 		return netip.Prefix{}, err
 	}
+
+	want, sizeOnly := spec.prefix, spec.sizeOnly
 
 	free := func(c netip.Prefix) bool {
 		if overlaps(c, taken...) || primary && !withinUsable(base, c) {
@@ -141,7 +167,11 @@ func pickAlias(
 	}
 
 	if want.Bits() < base.Bits() {
-		return netip.Prefix{}, errField("aliasIpRanges.ipCidrRange", a.IpCidrRange, "The netmask is larger than the subnetwork range.")
+		return netip.Prefix{}, errField(
+			"aliasIpRanges.ipCidrRange",
+			a.IpCidrRange,
+			"The netmask is larger than the subnetwork range.",
+		)
 	}
 
 	for c := netip.PrefixFrom(base.Addr(), want.Bits()); base.Contains(c.Addr()); c = nextBlock(c) {

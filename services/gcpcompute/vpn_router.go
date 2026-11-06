@@ -18,6 +18,8 @@ const (
 	bgpEstablished  = "Established"
 	bgpIdle         = "Idle"
 	maxIPv6RangeLen = 126
+	secsPerHour     = 3600
+	secsPerMinute   = 60
 )
 
 var (
@@ -33,7 +35,11 @@ func validInterfaceRange(field, raw string) *APIError {
 
 	if p.Addr().Is4() {
 		if !linkLocalV4.Contains(p.Addr()) {
-			return errField(field, raw, "IPv4 interface ranges must be in the RFC 3927 link-local space (169.254.0.0/16).")
+			return errField(
+				field,
+				raw,
+				"IPv4 interface ranges must be in the RFC 3927 link-local space (169.254.0.0/16).",
+			)
 		}
 
 		return nil
@@ -158,8 +164,8 @@ func normalizeBgpPeer(p *computeapi.RouterBgpPeer, ifaces map[string]bool) *APIE
 
 	switch p.AdvertiseMode {
 	case "":
-		p.AdvertiseMode = "DEFAULT"
-	case "DEFAULT", "CUSTOM":
+		p.AdvertiseMode = instFromDefault
+	case instFromDefault, "CUSTOM":
 	default:
 		return errField("resource.bgpPeers.advertiseMode", p.AdvertiseMode, "")
 	}
@@ -173,7 +179,7 @@ func normalizeBgpPeer(p *computeapi.RouterBgpPeer, ifaces map[string]bool) *APIE
 
 func formatUptime(d time.Duration) string {
 	secs := int64(d.Seconds())
-	h, m, s := secs/3600, secs%3600/60, secs%60
+	h, m, s := secs/secsPerHour, secs%secsPerHour/secsPerMinute, secs%secsPerMinute
 
 	var parts []string
 
@@ -193,7 +199,7 @@ func formatUptime(d time.Duration) string {
 // bgpPeerStatusesLocked reports each BGP peer from its linked tunnel: the session is up only while the tunnel
 // is ESTABLISHED, and no routes are ever learned because no peer speaks BGP.
 func (b *InMemoryBackend) bgpPeerStatusesLocked(r *computeapi.Router) []*computeapi.RouterStatusBgpPeerStatus {
-	var out []*computeapi.RouterStatusBgpPeerStatus
+	out := make([]*computeapi.RouterStatusBgpPeerStatus, 0, len(r.BgpPeers))
 
 	for _, p := range r.BgpPeers {
 		st := &computeapi.RouterStatusBgpPeerStatus{

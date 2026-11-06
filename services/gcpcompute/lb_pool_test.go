@@ -33,7 +33,10 @@ func (e *env) legacy(t *testing.T) *computeapi.Service {
 func (e *env) legacyHC(t *testing.T, name string) {
 	t.Helper()
 
-	op, err := e.legacy(t).HttpHealthChecks.Insert(project, &computeapi.HttpHealthCheck{Name: name}).Context(t.Context()).Do()
+	op, err := e.legacy(t).
+		HttpHealthChecks.Insert(project, &computeapi.HttpHealthCheck{Name: name}).
+		Context(t.Context()).
+		Do()
 	require.NoError(t, err)
 	e.settle()
 	require.Empty(t, op.Error)
@@ -55,11 +58,11 @@ func (e *env) poolInsert(t *testing.T, p *computepb.TargetPool) error {
 	return e.finish(t, op, err)
 }
 
-func (e *env) getPool(t *testing.T, name string) *computepb.TargetPool {
+func (e *env) getPool(t *testing.T) *computepb.TargetPool {
 	t.Helper()
 
 	p, err := e.pools(t).Get(t.Context(), &computepb.GetTargetPoolRequest{
-		Project: project, Region: region, TargetPool: name,
+		Project: project, Region: region, TargetPool: "pool",
 	})
 	require.NoError(t, err)
 
@@ -97,7 +100,11 @@ func TestTargetPoolInsert(t *testing.T) {
 				assert.Equal(t, "CLIENT_IP", p.GetSessionAffinity())
 			},
 		},
-		{name: "bad affinity", pool: &computepb.TargetPool{Name: s("pool"), SessionAffinity: s("COOKIE")}, status: http.StatusBadRequest},
+		{
+			name:   "bad affinity",
+			pool:   &computepb.TargetPool{Name: s("pool"), SessionAffinity: s("COOKIE")},
+			status: http.StatusBadRequest,
+		},
 		{
 			name: "two checks", status: http.StatusBadRequest,
 			pool: &computepb.TargetPool{Name: s("pool"), HealthChecks: []string{lhcRef, lhcRef}},
@@ -148,7 +155,7 @@ func TestTargetPoolInsert(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			tt.check(t, e.getPool(t, "pool"))
+			tt.check(t, e.getPool(t))
 		})
 	}
 }
@@ -171,7 +178,7 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 		},
 	})
 	e.done(t, op, err)
-	assert.Len(t, e.getPool(t, "pool").GetInstances(), 2)
+	assert.Len(t, e.getPool(t).GetInstances(), 2)
 
 	_, err = e.pools(t).AddInstance(t.Context(), &computepb.AddInstanceTargetPoolRequest{
 		Project: project, Region: region, TargetPool: "pool",
@@ -188,7 +195,7 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 		},
 	})
 	e.done(t, op, err)
-	assert.Len(t, e.getPool(t, "pool").GetInstances(), 1)
+	assert.Len(t, e.getPool(t).GetInstances(), 1)
 
 	addHC := func(name string) error {
 		_, err := e.pools(t).AddHealthCheck(t.Context(), &computepb.AddHealthCheckTargetPoolRequest{
@@ -203,7 +210,7 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 
 	require.NoError(t, addHC("lhc"))
 	assertAPIError(t, addHC("lhc2"), http.StatusBadRequest, "")
-	assert.Len(t, e.getPool(t, "pool").GetHealthChecks(), 1)
+	assert.Len(t, e.getPool(t).GetHealthChecks(), 1)
 
 	op, err = e.pools(t).RemoveHealthCheck(t.Context(), &computepb.RemoveHealthCheckTargetPoolRequest{
 		Project: project, Region: region, TargetPool: "pool",
@@ -212,7 +219,7 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 		},
 	})
 	e.done(t, op, err)
-	assert.Empty(t, e.getPool(t, "pool").GetHealthChecks())
+	assert.Empty(t, e.getPool(t).GetHealthChecks())
 
 	op, err = e.pools(t).SetBackup(t.Context(), &computepb.SetBackupTargetPoolRequest{
 		Project: project, Region: region, TargetPool: "pool", FailoverRatio: new(float32(0.25)),
@@ -220,7 +227,7 @@ func TestTargetPoolMembersAndBackup(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	p := e.getPool(t, "pool")
+	p := e.getPool(t)
 	assert.Contains(t, p.GetBackupPool(), "/targetPools/pool2")
 	assert.InDelta(t, 0.25, p.GetFailoverRatio(), 0.001)
 }
@@ -230,9 +237,9 @@ func TestTargetPoolHealth(t *testing.T) {
 
 	tests := []struct {
 		name  string
+		want  string
 		check bool
 		stop  bool
-		want  string
 	}{
 		{name: "running with check", check: true, want: "HEALTHY"},
 		{name: "stopped with check", check: true, stop: true, want: "UNHEALTHY"},
@@ -359,7 +366,11 @@ func TestTargetInstances(t *testing.T) {
 				assert.Contains(t, ti.GetZone(), "/zones/"+zone)
 			},
 		},
-		{name: "missing instance", ti: &computepb.TargetInstance{Name: s("ti"), Instance: s(vm2Ref)}, status: http.StatusNotFound},
+		{
+			name:   "missing instance",
+			ti:     &computepb.TargetInstance{Name: s("ti"), Instance: s(vm2Ref)},
+			status: http.StatusNotFound,
+		},
 		{name: "no instance", ti: &computepb.TargetInstance{Name: s("ti")}, status: http.StatusBadRequest},
 		{
 			name: "bad nat policy", status: http.StatusBadRequest,
@@ -476,7 +487,11 @@ func TestLegacyHTTPHealthChecks(t *testing.T) {
 			name: "timeout above interval", status: http.StatusBadRequest,
 			in: &computeapi.HttpHealthCheck{Name: "h", CheckIntervalSec: 3, TimeoutSec: 5},
 		},
-		{name: "bad path", in: &computeapi.HttpHealthCheck{Name: "h", RequestPath: "ping"}, status: http.StatusBadRequest},
+		{
+			name:   "bad path",
+			in:     &computeapi.HttpHealthCheck{Name: "h", RequestPath: "ping"},
+			status: http.StatusBadRequest,
+		},
 		{name: "bad port", in: &computeapi.HttpHealthCheck{Name: "h", Port: 70000}, status: http.StatusBadRequest},
 	}
 

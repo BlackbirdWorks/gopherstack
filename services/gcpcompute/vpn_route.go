@@ -54,3 +54,19 @@ func (b *InMemoryBackend) resolveNextHopILBLocked(project string, in, out *compu
 
 	return nil
 }
+
+func (b *InMemoryBackend) vpnGatewayUserLocked(n *computeapi.Network) string {
+	for _, g := range b.vpnGateways {
+		if g.Network == n.SelfLink {
+			return trimURL(g.SelfLink)
+		}
+	}
+
+	for _, g := range b.targetVPNs {
+		if g.Network == n.SelfLink {
+			return trimURL(g.SelfLink)
+		}
+	}
+
+	return ""
+}

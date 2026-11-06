@@ -98,7 +98,11 @@ func TestNetworkULARange(t *testing.T) {
 			name: "wrong size", status: http.StatusBadRequest,
 			net: &computepb.Network{EnableUlaInternalIpv6: new(true), InternalIpv6Range: s("fd20:1::/32")},
 		},
-		{name: "range without ula", status: http.StatusBadRequest, net: &computepb.Network{InternalIpv6Range: s("fd20:1:2::/48")}},
+		{
+			name:   "range without ula",
+			status: http.StatusBadRequest,
+			net:    &computepb.Network{InternalIpv6Range: s("fd20:1:2::/48")},
+		},
 		{
 			name: "default off",
 			net:  &computepb.Network{},
@@ -116,7 +120,8 @@ func TestNetworkULARange(t *testing.T) {
 			e := newEnv(t)
 			tt.net.Name, tt.net.AutoCreateSubnetworks = s("n"), new(false)
 
-			op, err := e.networks(t).Insert(t.Context(), &computepb.InsertNetworkRequest{Project: project, NetworkResource: tt.net})
+			op, err := e.networks(t).
+				Insert(t.Context(), &computepb.InsertNetworkRequest{Project: project, NetworkResource: tt.net})
 			if tt.status != 0 {
 				assertAPIError(t, e.finish(t, op, err), tt.status, "")
 
@@ -248,15 +253,30 @@ func TestInstanceInternalIPv6(t *testing.T) {
 	assert.Equal(t, "IPV4_ONLY", e.getVMNic(t, "vm3").GetStackType())
 	assert.Empty(t, e.getVMNic(t, "vm3").GetIpv6Address())
 
-	assertAPIError(t, e.vmOn(t, "bad1", "v4", &computepb.NetworkInterface{StackType: s("IPV4_IPV6")}), http.StatusBadRequest, "")
-	assertAPIError(t, e.vmOn(t, "bad2", "s6", &computepb.NetworkInterface{Ipv6Address: s(n1.GetIpv6Address())}), http.StatusBadRequest, "")
+	assertAPIError(
+		t,
+		e.vmOn(t, "bad1", "v4", &computepb.NetworkInterface{StackType: s("IPV4_IPV6")}),
+		http.StatusBadRequest,
+		"",
+	)
+	assertAPIError(
+		t,
+		e.vmOn(t, "bad2", "s6", &computepb.NetworkInterface{Ipv6Address: s(n1.GetIpv6Address())}),
+		http.StatusBadRequest,
+		"",
+	)
 	assertAPIError(t, e.vmOn(t, "bad3", "s6", &computepb.NetworkInterface{
 		StackType: s("IPV4_IPV6"), Ipv6Address: s(n1.GetIpv6Address()),
 	}), http.StatusBadRequest, "")
 	assertAPIError(t, e.vmOn(t, "bad4", "s6", &computepb.NetworkInterface{
 		StackType: s("IPV4_IPV6"), Ipv6Address: s("2001:db8::"),
 	}), http.StatusBadRequest, "")
-	assertAPIError(t, e.vmOn(t, "bad5", "s6", &computepb.NetworkInterface{StackType: s("DUAL")}), http.StatusBadRequest, "")
+	assertAPIError(
+		t,
+		e.vmOn(t, "bad5", "s6", &computepb.NetworkInterface{StackType: s("DUAL")}),
+		http.StatusBadRequest,
+		"",
+	)
 
 	_, err := e.subnets(t).Patch(t.Context(), &computepb.PatchSubnetworkRequest{
 		Project: project, Region: region, Subnetwork: "s6", SubnetworkResource: &computepb.Subnetwork{StackType: s("IPV4_ONLY")},
@@ -282,7 +302,11 @@ func TestInstanceExternalIPv6AndIPv6Only(t *testing.T) {
 	ac := nic.GetIpv6AccessConfigs()[0]
 	assert.Equal(t, "DIRECT_IPV6", ac.GetType())
 	assert.EqualValues(t, 96, ac.GetExternalIpv6PrefixLength())
-	assert.True(t, netip.MustParsePrefix(e.getSubnet(t, "ext").GetExternalIpv6Prefix()).Contains(netip.MustParseAddr(ac.GetExternalIpv6())))
+	assert.True(
+		t,
+		netip.MustParsePrefix(e.getSubnet(t, "ext").GetExternalIpv6Prefix()).
+			Contains(netip.MustParseAddr(ac.GetExternalIpv6())),
+	)
 	assert.Empty(t, nic.GetIpv6Address(), "external access subnets assign through ipv6AccessConfigs")
 
 	assertAPIError(t, e.vmOn(t, "bad", "ext", &computepb.NetworkInterface{
@@ -296,7 +320,12 @@ func TestInstanceExternalIPv6AndIPv6Only(t *testing.T) {
 	assert.Empty(t, six.GetNetworkIP())
 	assert.NotEmpty(t, six.GetIpv6Address())
 
-	assertAPIError(t, e.vmOn(t, "six2", "only", &computepb.NetworkInterface{NetworkIP: s("10.31.0.5")}), http.StatusBadRequest, "")
+	assertAPIError(
+		t,
+		e.vmOn(t, "six2", "only", &computepb.NetworkInterface{NetworkIP: s("10.31.0.5")}),
+		http.StatusBadRequest,
+		"",
+	)
 }
 
 func TestUpdateNICStack(t *testing.T) {
@@ -360,8 +389,16 @@ func TestRegionalIPv6Addresses(t *testing.T) {
 			},
 		},
 		{name: "no subnetwork", addr: &computepb.Address{}, status: http.StatusBadRequest},
-		{name: "wrong access type", addr: &computepb.Address{Subnetwork: s(subRef("int"))}, status: http.StatusBadRequest},
-		{name: "ipv4 only subnet", addr: &computepb.Address{Subnetwork: s(subRef("v4"))}, status: http.StatusBadRequest},
+		{
+			name:   "wrong access type",
+			addr:   &computepb.Address{Subnetwork: s(subRef("int"))},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "ipv4 only subnet",
+			addr:   &computepb.Address{Subnetwork: s(subRef("v4"))},
+			status: http.StatusBadRequest,
+		},
 		{
 			name: "bad endpoint", addr: &computepb.Address{Subnetwork: s(subRef("ext")), Ipv6EndpointType: s("FR")},
 			status: http.StatusBadRequest,
@@ -399,7 +436,8 @@ func TestRegionalIPv6Addresses(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, gerr := e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
+			got, gerr := e.addresses(t).
+				Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
 			require.NoError(t, gerr)
 			assert.Equal(t, "IPV6", got.GetIpVersion())
 			tt.check(t, got)
@@ -421,13 +459,23 @@ func TestReservedIPv6UsedByInstance(t *testing.T) {
 	})
 	e.done(t, op, err)
 
-	addr, err := e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
+	addr, err := e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
 	require.NoError(t, err)
 
-	require.NoError(t, e.vmOn(t, "vm1", "int", &computepb.NetworkInterface{StackType: s("IPV4_IPV6"), Ipv6Address: s(addr.GetAddress())}))
+	require.NoError(
+		t,
+		e.vmOn(
+			t,
+			"vm1",
+			"int",
+			&computepb.NetworkInterface{StackType: s("IPV4_IPV6"), Ipv6Address: s(addr.GetAddress())},
+		),
+	)
 	assert.Equal(t, addr.GetAddress(), e.getVMNic(t, "vm1").GetIpv6Address())
 
-	addr, err = e.addresses(t).Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
+	addr, err = e.addresses(t).
+		Get(t.Context(), &computepb.GetAddressRequest{Project: project, Region: region, Address: "a6"})
 	require.NoError(t, err)
 	assert.Equal(t, "IN_USE", addr.GetStatus())
 	assert.Contains(t, addr.GetUsers()[0], "/instances/vm1")
@@ -436,10 +484,12 @@ func TestReservedIPv6UsedByInstance(t *testing.T) {
 		StackType: s("IPV4_IPV6"), Ipv6Address: s(addr.GetAddress()),
 	}), http.StatusBadRequest, "")
 
-	_, err = e.addresses(t).Delete(t.Context(), &computepb.DeleteAddressRequest{Project: project, Region: region, Address: "a6"})
+	_, err = e.addresses(t).
+		Delete(t.Context(), &computepb.DeleteAddressRequest{Project: project, Region: region, Address: "a6"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 
-	_, err = e.subnets(t).Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "int"})
+	_, err = e.subnets(t).
+		Delete(t.Context(), &computepb.DeleteSubnetworkRequest{Project: project, Region: region, Subnetwork: "int"})
 	assertAPIError(t, err, http.StatusBadRequest, "resourceInUseByAnotherResource")
 }
 
@@ -452,11 +502,23 @@ func TestPrivateServiceConnectAddresses(t *testing.T) {
 		status int
 	}{
 		{name: "ok", addr: &computepb.Address{Address: s("10.50.0.5")}},
-		{name: "no network", status: http.StatusBadRequest, addr: &computepb.Address{Address: s("10.50.0.5"), Network: nil}},
+		{
+			name:   "no network",
+			status: http.StatusBadRequest,
+			addr:   &computepb.Address{Address: s("10.50.0.5"), Network: nil},
+		},
 		{name: "no address", status: http.StatusBadRequest, addr: &computepb.Address{}},
 		{name: "ipv6 literal", status: http.StatusBadRequest, addr: &computepb.Address{Address: s("fd00::1")}},
-		{name: "prefix", status: http.StatusBadRequest, addr: &computepb.Address{Address: s("10.50.0.5"), PrefixLength: new(int32(24))}},
-		{name: "other purpose", status: http.StatusBadRequest, addr: &computepb.Address{Address: s("10.50.0.5"), Purpose: s("SHARED_LOADBALANCER_VIP")}},
+		{
+			name:   "prefix",
+			status: http.StatusBadRequest,
+			addr:   &computepb.Address{Address: s("10.50.0.5"), PrefixLength: new(int32(24))},
+		},
+		{
+			name:   "other purpose",
+			status: http.StatusBadRequest,
+			addr:   &computepb.Address{Address: s("10.50.0.5"), Purpose: s("SHARED_LOADBALANCER_VIP")},
+		},
 	}
 
 	for _, tt := range tests {
@@ -487,17 +549,21 @@ func TestPrivateServiceConnectAddresses(t *testing.T) {
 
 			e.done(t, op, err)
 
-			got, gerr := e.globalAddresses(t).Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "psc"})
+			got, gerr := e.globalAddresses(t).
+				Get(t.Context(), &computepb.GetGlobalAddressRequest{Project: project, Address: "psc"})
 			require.NoError(t, gerr)
 			assert.Equal(t, "10.50.0.5", got.GetAddress())
 			assert.Equal(t, "PRIVATE_SERVICE_CONNECT", got.GetPurpose())
 			assert.Contains(t, got.GetNetwork(), "/networks/vpc")
 
 			dup := &computepb.Address{
-				Name: s("psc2"), AddressType: s("INTERNAL"), Purpose: s("PRIVATE_SERVICE_CONNECT"), Address: s("10.50.0.5"),
+				Name: s(
+					"psc2",
+				), AddressType: s("INTERNAL"), Purpose: s("PRIVATE_SERVICE_CONNECT"), Address: s("10.50.0.5"),
 				Network: s(vpcRef),
 			}
-			_, err = e.globalAddresses(t).Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: dup})
+			_, err = e.globalAddresses(t).
+				Insert(t.Context(), &computepb.InsertGlobalAddressRequest{Project: project, AddressResource: dup})
 			assertAPIError(t, err, http.StatusBadRequest, "")
 		})
 	}
@@ -510,7 +576,9 @@ func (e *env) aliasSubnet(t *testing.T) {
 	op, err := e.subnets(t).Insert(t.Context(), &computepb.InsertSubnetworkRequest{
 		Project: project, Region: region, SubnetworkResource: &computepb.Subnetwork{
 			Name: s("sub"), Network: s(vpcRef), IpCidrRange: s("10.10.0.0/24"),
-			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/22")}},
+			SecondaryIpRanges: []*computepb.SubnetworkSecondaryRange{
+				{RangeName: s("pods"), IpCidrRange: s("192.168.0.0/22")},
+			},
 		},
 	})
 	e.done(t, op, err)
@@ -536,7 +604,10 @@ func TestAliasIPRanges(t *testing.T) {
 		{
 			name: "two netmasks", want: []string{"192.168.0.0/24", "192.168.1.0/24"},
 			aliases: []*computepb.AliasIpRange{
-				{IpCidrRange: s("/24"), SubnetworkRangeName: s("pods")}, {IpCidrRange: s("/24"), SubnetworkRangeName: s("pods")},
+				{
+					IpCidrRange:         s("/24"),
+					SubnetworkRangeName: s("pods"),
+				}, {IpCidrRange: s("/24"), SubnetworkRangeName: s("pods")},
 			},
 		},
 		{
@@ -613,12 +684,19 @@ func TestAliasRangesAcrossInstances(t *testing.T) {
 	e.aliasSubnet(t)
 
 	alias := func(cidr string) *computepb.NetworkInterface {
-		return &computepb.NetworkInterface{AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s(cidr), SubnetworkRangeName: s("pods")}}}
+		return &computepb.NetworkInterface{
+			AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s(cidr), SubnetworkRangeName: s("pods")}},
+		}
 	}
 
 	require.NoError(t, e.vmOn(t, "vm1", "sub", alias("/24")))
 	require.NoError(t, e.vmOn(t, "vm2", "sub", alias("/24")))
-	assert.Equal(t, "192.168.1.0/24", e.getVMNic(t, "vm2").GetAliasIpRanges()[0].GetIpCidrRange(), "the second /24 skips the first")
+	assert.Equal(
+		t,
+		"192.168.1.0/24",
+		e.getVMNic(t, "vm2").GetAliasIpRanges()[0].GetIpCidrRange(),
+		"the second /24 skips the first",
+	)
 
 	assertAPIError(t, e.vmOn(t, "vm3", "sub", alias("192.168.1.64/26")), http.StatusBadRequest, "")
 
@@ -626,25 +704,42 @@ func TestAliasRangesAcrossInstances(t *testing.T) {
 	op, err := e.instances(t).UpdateNetworkInterface(t.Context(), &computepb.UpdateNetworkInterfaceInstanceRequest{
 		Project: project, Zone: zone, Instance: "vm2", NetworkInterface: "nic0",
 		NetworkInterfaceResource: &computepb.NetworkInterface{
-			Fingerprint:   nic.Fingerprint,
-			AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s("192.168.1.0/25"), SubnetworkRangeName: s("pods")}},
+			Fingerprint: nic.Fingerprint,
+			AliasIpRanges: []*computepb.AliasIpRange{
+				{IpCidrRange: s("192.168.1.0/25"), SubnetworkRangeName: s("pods")},
+			},
 		},
 	})
 	e.done(t, op, err)
-	assert.Equal(t, "192.168.1.0/25", e.getVMNic(t, "vm2").GetAliasIpRanges()[0].GetIpCidrRange(), "a nic may reshape its own range")
+	assert.Equal(
+		t,
+		"192.168.1.0/25",
+		e.getVMNic(t, "vm2").GetAliasIpRanges()[0].GetIpCidrRange(),
+		"a nic may reshape its own range",
+	)
 
 	nic = e.getVMNic(t, "vm2")
 	_, err = e.instances(t).UpdateNetworkInterface(t.Context(), &computepb.UpdateNetworkInterfaceInstanceRequest{
 		Project: project, Zone: zone, Instance: "vm2", NetworkInterface: "nic0",
 		NetworkInterfaceResource: &computepb.NetworkInterface{
-			Fingerprint:   nic.Fingerprint,
-			AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s("192.168.0.128/25"), SubnetworkRangeName: s("pods")}},
+			Fingerprint: nic.Fingerprint,
+			AliasIpRanges: []*computepb.AliasIpRange{
+				{IpCidrRange: s("192.168.0.128/25"), SubnetworkRangeName: s("pods")},
+			},
 		},
 	})
 	assertAPIError(t, err, http.StatusBadRequest, "")
 
 	// primary-range aliases keep other nics off their addresses
-	require.NoError(t, e.vmOn(t, "vm4", "sub", &computepb.NetworkInterface{AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s("10.10.0.5")}}}))
+	require.NoError(
+		t,
+		e.vmOn(
+			t,
+			"vm4",
+			"sub",
+			&computepb.NetworkInterface{AliasIpRanges: []*computepb.AliasIpRange{{IpCidrRange: s("10.10.0.5")}}},
+		),
+	)
 	require.NoError(t, e.vmOn(t, "vm5", "sub", &computepb.NetworkInterface{}))
 	assert.NotEqual(t, "10.10.0.5", e.getVMNic(t, "vm5").GetNetworkIP())
 }
@@ -662,10 +757,10 @@ func TestLocalSSD(t *testing.T) {
 	}
 
 	tests := []struct {
+		mut     func(d []*computepb.AttachedDisk)
 		name    string
 		machine string
 		disks   []*computepb.AttachedDisk
-		mut     func(d []*computepb.AttachedDisk)
 		status  int
 	}{
 		{name: "n1 one", machine: "n1-standard-4", disks: scratch(1, "NVME")},
@@ -673,8 +768,18 @@ func TestLocalSSD(t *testing.T) {
 		{name: "n1 nine", machine: "n1-standard-8", disks: scratch(9, "SCSI"), status: http.StatusBadRequest},
 		{name: "n1 sixteen", machine: "n1-standard-32", disks: scratch(16, "NVME")},
 		{name: "n2 four on 4 cpus", machine: "n2-standard-4", disks: scratch(4, "NVME")},
-		{name: "n2 three on 4 cpus", machine: "n2-standard-4", disks: scratch(3, "NVME"), status: http.StatusBadRequest},
-		{name: "n2 one on 16 cpus", machine: "n2-standard-16", disks: scratch(1, "NVME"), status: http.StatusBadRequest},
+		{
+			name:    "n2 three on 4 cpus",
+			machine: "n2-standard-4",
+			disks:   scratch(3, "NVME"),
+			status:  http.StatusBadRequest,
+		},
+		{
+			name:    "n2 one on 16 cpus",
+			machine: "n2-standard-16",
+			disks:   scratch(1, "NVME"),
+			status:  http.StatusBadRequest,
+		},
 		{name: "n2 two on 16 cpus", machine: "n2-standard-16", disks: scratch(2, "NVME")},
 		{name: "n2 eight on 80 cpus", machine: "n2-standard-80", disks: scratch(8, "NVME")},
 		{name: "e2 unsupported", machine: "e2-standard-4", disks: scratch(1, "NVME"), status: http.StatusBadRequest},
@@ -750,11 +855,11 @@ func TestLocalSSDDoesNotAffectPersistentDisks(t *testing.T) {
 	spec.Disks = append(spec.Disks, &computepb.AttachedDisk{Type: s("SCRATCH")})
 	e.vm(t, spec)
 
-	op, err := e.instances(t).Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
+	op, err := e.instances(t).
+		Delete(t.Context(), &computepb.DeleteInstanceRequest{Project: project, Zone: zone, Instance: "vm1"})
 	e.done(t, op, err)
 
 	it := e.disks(t).List(t.Context(), &computepb.ListDisksRequest{Project: project, Zone: zone})
 	_, nerr := it.Next()
 	require.Error(t, nerr, "the boot disk is auto-deleted and the scratch disk never was a disk resource")
-
 }

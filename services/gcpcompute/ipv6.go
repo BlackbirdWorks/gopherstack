@@ -1,6 +1,7 @@
 package gcpcompute
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -14,21 +15,25 @@ const (
 	accessExternal  = "EXTERNAL"
 	accessInternal  = "INTERNAL"
 	ipv6Block       = 96
-	maxIPv6Blocks   = 1 << 16
 	endpointVM      = "VM"
 	endpointNetLB   = "NETLB"
 	directIPv6      = "DIRECT_IPV6"
 	externalIPv6Fmt = "2600:1900:4000:%x::/64"
 	ulaBits         = 48
 	gceEndpointFull = "VM_AND_FR"
+	ipv6BlockOffset = 10
+	ulaSubnetOffset = 6
+	ulaIDMask       = 0xffff
+	ulaCandidates   = 1 << 12
+	subnetV6Bits    = 64
 )
 
 var ulaPool = netip.MustParsePrefix("fd20::/20") //nolint:gochecknoglobals // constant range
 
 // ipv6BlockAddr returns the n-th /96 block of a /64 prefix.
-func ipv6BlockAddr(p netip.Prefix, n int) netip.Addr {
+func ipv6BlockAddr(p netip.Prefix, n uint16) netip.Addr {
 	raw := p.Addr().As16()
-	raw[10], raw[11] = byte(n>>8), byte(n)
+	binary.BigEndian.PutUint16(raw[ipv6BlockOffset:], n)
 
 	return netip.AddrFrom16(raw)
 }
@@ -45,8 +50,8 @@ func (b *InMemoryBackend) assignULALocked(n *computeapi.Network, given string) *
 		return nil
 	}
 
-	for i := range 1 << 12 {
-		cand := fmt.Sprintf("fd20:%x:%x::/48", i, n.Id&0xffff)
+	for i := range ulaCandidates {
+		cand := fmt.Sprintf("fd20:%x:%x::/48", i, n.Id&ulaIDMask)
 		if !b.ulaTakenLocked(cand) {
 			n.InternalIpv6Range = netip.MustParsePrefix(cand).String()
 
@@ -75,7 +80,7 @@ func (b *InMemoryBackend) networkULALocked(n *computeapi.Network) netip.Prefix {
 		return p
 	}
 
-	return netip.MustParsePrefix(fmt.Sprintf("fd20:0:%x::/48", n.Id&0xffff))
+	return netip.MustParsePrefix(fmt.Sprintf("fd20:0:%x::/48", n.Id&ulaIDMask))
 }
 
 func (b *InMemoryBackend) subnetPrefixTakenLocked(want string) bool {
@@ -100,15 +105,17 @@ func (b *InMemoryBackend) allocSubnetV6Locked(n *computeapi.Network, access stri
 
 	base := b.networkULALocked(n).Addr().As16()
 
-	for i := 1; ; i++ {
+	for i := uint16(1); i != 0; i++ {
 		raw := base
-		raw[6], raw[7] = byte(i>>8), byte(i)
+		binary.BigEndian.PutUint16(raw[ulaSubnetOffset:], i)
 
-		cand := netip.PrefixFrom(netip.AddrFrom16(raw), ulaBits+16).String()
+		cand := netip.PrefixFrom(netip.AddrFrom16(raw), subnetV6Bits).String()
 		if !b.subnetPrefixTakenLocked(cand) {
 			return cand
 		}
 	}
+
+	return ""
 }
 
 // applySubnetStackLocked sets a subnetwork's stack type and, for a dual-stack or IPv6-only one, its IPv6 range.
@@ -126,31 +133,12 @@ func (b *InMemoryBackend) applySubnetStackLocked(
 	}
 
 	if stack == stackIPv4Only {
-		if in.Ipv6AccessType != "" && s.Ipv6AccessType == "" {
-			return errField("resource.ipv6AccessType", in.Ipv6AccessType, "Only valid for a dual-stack or IPv6-only subnetwork.")
-		}
-
-		if !creating && s.StackType != stackIPv4Only && b.subnetUsesIPv6Locked(s) {
-			return errInvalid("Invalid value for field 'resource.stackType': instances in the subnetwork use IPv6.")
-		}
-
-		s.StackType = stack
-
-		return nil
+		return b.applyIPv4OnlyStackLocked(s, in, creating)
 	}
 
-	access := s.Ipv6AccessType
-	if in.Ipv6AccessType != "" && access != "" && in.Ipv6AccessType != access {
-		return errField("resource.ipv6AccessType", in.Ipv6AccessType, "The access type is immutable.")
-	}
-
-	access = cmpOr(access, in.Ipv6AccessType)
-	if access == "" {
-		return errRequired("resource.ipv6AccessType")
-	}
-
-	if access != accessExternal && access != accessInternal {
-		return errField("resource.ipv6AccessType", access, "Must be EXTERNAL or INTERNAL.")
+	access, err := subnetAccess(s, in)
+	if err != nil {
+		return err
 	}
 
 	s.StackType, s.Ipv6AccessType = stack, access
@@ -165,6 +153,39 @@ func (b *InMemoryBackend) applySubnetStackLocked(
 	}
 
 	return nil
+}
+
+func (b *InMemoryBackend) applyIPv4OnlyStackLocked(s, in *computeapi.Subnetwork, creating bool) *APIError {
+	if in.Ipv6AccessType != "" && s.Ipv6AccessType == "" {
+		return errField("resource.ipv6AccessType", in.Ipv6AccessType,
+			"Only valid for a dual-stack or IPv6-only subnetwork.")
+	}
+
+	if !creating && s.StackType != stackIPv4Only && b.subnetUsesIPv6Locked(s) {
+		return errInvalid("Invalid value for field 'resource.stackType': instances in the subnetwork use IPv6.")
+	}
+
+	s.StackType = stackIPv4Only
+
+	return nil
+}
+
+// subnetAccess returns the immutable IPv6 access type: the existing one, or the requested one on first use.
+func subnetAccess(s, in *computeapi.Subnetwork) (string, *APIError) {
+	if in.Ipv6AccessType != "" && s.Ipv6AccessType != "" && in.Ipv6AccessType != s.Ipv6AccessType {
+		return "", errField("resource.ipv6AccessType", in.Ipv6AccessType, "The access type is immutable.")
+	}
+
+	access := cmpOr(s.Ipv6AccessType, in.Ipv6AccessType)
+	if access == "" {
+		return "", errRequired("resource.ipv6AccessType")
+	}
+
+	if access != accessExternal && access != accessInternal {
+		return "", errField("resource.ipv6AccessType", access, "Must be EXTERNAL or INTERNAL.")
+	}
+
+	return access, nil
 }
 
 func (b *InMemoryBackend) subnetUsesIPv6Locked(s *computeapi.Subnetwork) bool {
@@ -217,7 +238,7 @@ func (b *InMemoryBackend) usedIPv6Locked(subnet string) map[netip.Addr]bool {
 }
 
 func nextFreeV6(p netip.Prefix, used map[netip.Addr]bool) (netip.Addr, bool) {
-	for n := 1; n < maxIPv6Blocks; n++ {
+	for n := uint16(1); n != 0; n++ {
 		if a := ipv6BlockAddr(p, n); !used[a] {
 			return a, true
 		}
@@ -299,14 +320,21 @@ func (b *InMemoryBackend) buildNICIPv6Locked(
 
 	if stack == stackIPv4Only {
 		if in.Ipv6Address != "" || len(in.Ipv6AccessConfigs) > 0 {
-			return errInvalid("Invalid value for field '%s.ipv6Address': the interface stack type is IPV4_ONLY.", nicField(idx))
+			return errInvalid(
+				"Invalid value for field '%s.ipv6Address': the interface stack type is IPV4_ONLY.",
+				nicField(idx),
+			)
 		}
 
 		return nil
 	}
 
 	if s.StackType != stack && s.StackType != stackIPv4IPv6 {
-		return errField(nicField(idx)+".stackType", stack, "The subnetwork's stack type is "+cmpOr(s.StackType, stackIPv4Only)+".")
+		return errField(
+			nicField(idx)+".stackType",
+			stack,
+			"The subnetwork's stack type is "+cmpOr(s.StackType, stackIPv4Only)+".",
+		)
 	}
 
 	if s.StackType == stackIPv4IPv6 && stack == stackIPv6Only {
@@ -327,7 +355,11 @@ func (b *InMemoryBackend) buildNICIPv6Locked(
 	}
 
 	if in.Ipv6Address != "" {
-		return errField(nicField(idx)+".ipv6Address", in.Ipv6Address, "External IPv6 subnetworks assign addresses through ipv6AccessConfigs.")
+		return errField(
+			nicField(idx)+".ipv6Address",
+			in.Ipv6Address,
+			"External IPv6 subnetworks assign addresses through ipv6AccessConfigs.",
+		)
 	}
 
 	return b.buildV6AccessConfigsLocked(s, in, nic, idx)
@@ -339,7 +371,10 @@ func (b *InMemoryBackend) buildV6AccessConfigsLocked(
 	s *computeapi.Subnetwork, in, nic *computeapi.NetworkInterface, idx int,
 ) *APIError {
 	if len(in.Ipv6AccessConfigs) > 1 {
-		return errInvalid("Invalid value for field '%s.ipv6AccessConfigs': only one DIRECT_IPV6 config is supported.", nicField(idx))
+		return errInvalid(
+			"Invalid value for field '%s.ipv6AccessConfigs': only one DIRECT_IPV6 config is supported.",
+			nicField(idx),
+		)
 	}
 
 	for _, ac := range in.Ipv6AccessConfigs {
@@ -372,7 +407,11 @@ func (b *InMemoryBackend) buildRegionalIPv6Locked(project, region string, in, a 
 	}
 
 	if in.PrefixLength != 0 && in.PrefixLength != ipv6Block {
-		return errField("resource.prefixLength", strconv.FormatInt(in.PrefixLength, 10), "IPV6 addresses are /96 ranges.")
+		return errField(
+			"resource.prefixLength",
+			strconv.FormatInt(in.PrefixLength, 10),
+			"IPV6 addresses are /96 ranges.",
+		)
 	}
 
 	s, err := b.resolveSubnetLocked(project, region, in.Subnetwork)
@@ -429,7 +468,9 @@ func (b *InMemoryBackend) buildPSCLocked(project string, in, a *computeapi.Addre
 	}
 
 	if in.Subnetwork != "" {
-		return errInvalid("Invalid value for field 'resource.subnetwork': global addresses cannot specify a subnetwork.")
+		return errInvalid(
+			"Invalid value for field 'resource.subnetwork': global addresses cannot specify a subnetwork.",
+		)
 	}
 
 	if in.PrefixLength != 0 {
@@ -444,7 +485,11 @@ func (b *InMemoryBackend) buildPSCLocked(project string, in, a *computeapi.Addre
 
 	ip, perr := netip.ParseAddr(in.Address)
 	if perr != nil || !ip.Is4() {
-		return errField("resource.address", in.Address, "A Private Service Connect address must be a valid IPv4 address.")
+		return errField(
+			"resource.address",
+			in.Address,
+			"A Private Service Connect address must be a valid IPv4 address.",
+		)
 	}
 
 	for _, o := range b.addresses {
@@ -468,4 +513,31 @@ func usesV6(a *computeapi.Address, nic *computeapi.NetworkInterface) bool {
 	return slices.ContainsFunc(nic.Ipv6AccessConfigs, func(ac *computeapi.AccessConfig) bool {
 		return ac.ExternalIpv6 == a.Address
 	})
+}
+
+func (b *InMemoryBackend) setupULALocked(n, in *computeapi.Network) *APIError {
+	if !in.EnableUlaInternalIpv6 {
+		if in.InternalIpv6Range != "" {
+			return errField("resource.internalIpv6Range", in.InternalIpv6Range, "Requires enableUlaInternalIpv6.")
+		}
+
+		return nil
+	}
+
+	n.EnableUlaInternalIpv6 = true
+
+	return b.assignULALocked(n, in.InternalIpv6Range)
+}
+
+func (b *InMemoryBackend) patchSubnetStackLocked(s, in *computeapi.Subnetwork, raw map[string]any) *APIError {
+	if _, ok := raw["stackType"]; !ok && raw["ipv6AccessType"] == nil {
+		return nil
+	}
+
+	n := b.networkBySelfLinkLocked(s.Network)
+	if n == nil {
+		return errNotFound(trimURL(s.Network))
+	}
+
+	return b.applySubnetStackLocked(n, s, in, false)
 }

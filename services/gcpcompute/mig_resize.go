@@ -47,7 +47,9 @@ func validResizeRequest(in *computeapi.InstanceGroupManagerResizeRequest) *APIEr
 	}
 
 	if (in.ResizeBy > 0) == (len(in.Instances) > 0) {
-		return errInvalid("Invalid value for field 'resource': exactly one of resizeBy and instances must be specified.")
+		return errInvalid(
+			"Invalid value for field 'resource': exactly one of resizeBy and instances must be specified.",
+		)
 	}
 
 	if in.ResizeBy < 0 {

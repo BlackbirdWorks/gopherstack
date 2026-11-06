@@ -49,25 +49,25 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	DeleteAt     time.Time         `json:"deleteAt"`
 	LastProbe    time.Time         `json:"lastProbe,omitzero"`
-	Zone         string            `json:"zone"`
+	RunUntil     time.Time         `json:"runUntil,omitzero"`
+	DeleteAt     time.Time         `json:"deleteAt"`
+	KeptExt      map[string]string `json:"keptExternal,omitempty"`
+	KeptInt      map[string]string `json:"keptInternal,omitempty"`
 	LastError    string            `json:"lastError,omitempty"`
-	Name         string            `json:"name"`
-	Health       string            `json:"health,omitempty"`
 	Template     string            `json:"template"`
-	InstanceID   uint64            `json:"instanceId,omitempty"`
+	Health       string            `json:"health,omitempty"`
+	Name         string            `json:"name"`
+	Zone         string            `json:"zone"`
+	Request      string            `json:"request,omitempty"`
+	Parked       string            `json:"parked,omitempty"`
+	Startup      string            `json:"startup,omitempty"`
 	HealthyRun   int               `json:"healthyRun,omitempty"`
 	UnhealthyRun int               `json:"unhealthyRun,omitempty"`
-	Verified     bool              `json:"verified,omitempty"`
-	Deleting     bool              `json:"deleting"`
+	InstanceID   uint64            `json:"instanceId,omitempty"`
 	Recreating   bool              `json:"recreating"`
-	RunUntil     time.Time         `json:"runUntil,omitzero"`
-	Startup      string            `json:"startup,omitempty"`
-	Parked       string            `json:"parked,omitempty"`
-	Request      string            `json:"request,omitempty"`
-	KeptInt      map[string]string `json:"keptInternal,omitempty"`
-	KeptExt      map[string]string `json:"keptExternal,omitempty"`
+	Deleting     bool              `json:"deleting"`
+	Verified     bool              `json:"verified,omitempty"`
 }
 
 type migRec struct {

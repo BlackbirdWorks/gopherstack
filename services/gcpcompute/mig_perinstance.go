@@ -193,7 +193,10 @@ func (b *InMemoryBackend) deletePerInstanceConfigs(
 		}
 	}
 
-	rec.Configs = slices.DeleteFunc(rec.Configs, func(c *picRec) bool { return slices.Contains(req.Names, c.Config.Name) })
+	rec.Configs = slices.DeleteFunc(
+		rec.Configs,
+		func(c *picRec) bool { return slices.Contains(req.Names, c.Config.Name) },
+	)
 
 	return b.newOpLocked(opMIG+"deletePerInstanceConfigs", migOpTarget(project, rec.Mgr), b.timing.Done), nil
 }

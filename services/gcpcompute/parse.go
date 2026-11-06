@@ -153,22 +153,30 @@ const (
 	resizeActionOffset = 4
 )
 
+func isResizeRoute(rest []string) bool {
+	return len(rest) >= resizeSegments && rest[0] == collMIG && rest[2] == "resizeRequests"
+}
+
+func resizeRoute(rt reqRoute, rest []string) (reqRoute, bool) {
+	if len(rest) > resizeMaxSegments {
+		return reqRoute{}, false
+	}
+
+	rt.collection, rt.parent = collMIGResize, rest[1]
+	if len(rest) > resizeNameSegment {
+		rt.name = rest[resizeNameSegment]
+	}
+
+	if len(rest) > resizeActionOffset {
+		rt.action = rest[resizeActionOffset]
+	}
+
+	return rt, true
+}
+
 func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
-	if len(rest) >= resizeSegments && rest[0] == collMIG && rest[2] == "resizeRequests" {
-		if len(rest) > resizeMaxSegments {
-			return reqRoute{}, false
-		}
-
-		rt.collection, rt.parent = collMIGResize, rest[1]
-		if len(rest) > resizeNameSegment {
-			rt.name = rest[resizeNameSegment]
-		}
-
-		if len(rest) > resizeActionOffset {
-			rt.action = rest[resizeActionOffset]
-		}
-
-		return rt, true
+	if isResizeRoute(rest) {
+		return resizeRoute(rt, rest)
 	}
 
 	if len(rest) == 0 || len(rest) > maxPathTail {

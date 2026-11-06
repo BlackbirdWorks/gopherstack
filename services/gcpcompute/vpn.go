@@ -254,7 +254,11 @@ func prepExternalVPN(_ *InMemoryBackend, _ lbCtx, in *computeapi.ExternalVpnGate
 
 	in.LabelFingerprint = labelFP(in.Labels)
 
-	want := map[string]int{"SINGLE_IP_INTERNALLY_REDUNDANT": 1, "TWO_IPS_REDUNDANCY": 2, "FOUR_IPS_REDUNDANCY": externalMaxInterfaces}
+	want := map[string]int{
+		"SINGLE_IP_INTERNALLY_REDUNDANT": 1,
+		"TWO_IPS_REDUNDANCY":             2,
+		"FOUR_IPS_REDUNDANCY":            externalMaxInterfaces,
+	}
 
 	n, ok := want[in.RedundancyType]
 	if !ok {
@@ -299,7 +303,7 @@ func secretHash(secret string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])[:20]
 }
 
-func prepVPNTunnel(b *InMemoryBackend, c lbCtx, in *computeapi.VpnTunnel, raw map[string]any) *APIError {
+func prepVPNTunnel(b *InMemoryBackend, c lbCtx, in *computeapi.VpnTunnel, _ map[string]any) *APIError {
 	if (in.VpnGateway == "") == (in.TargetVpnGateway == "") {
 		return errInvalid("Invalid value for field 'resource': exactly one of vpnGateway and targetVpnGateway " +
 			"must be specified.")
@@ -408,8 +412,13 @@ func (b *InMemoryBackend) resolveTunnelPeerLocked(c lbCtx, in *computeapi.VpnTun
 		return nil
 	}
 
-	l, err := lbResolve(b, externalVPNSpec(), lbCtx{project: c.project, scope: scopeGlobal}, "resource.peerExternalGateway",
-		in.PeerExternalGateway)
+	l, err := lbResolve(
+		b,
+		externalVPNSpec(),
+		lbCtx{project: c.project, scope: scopeGlobal},
+		"resource.peerExternalGateway",
+		in.PeerExternalGateway,
+	)
 	if err != nil {
 		return err
 	}
@@ -458,18 +467,6 @@ func (b *InMemoryBackend) prepClassicTunnelLocked(c lbCtx, in *computeapi.VpnTun
 	}
 
 	return nil
-}
-
-func (b *InMemoryBackend) tunnelGatewayNetworkLocked(t *computeapi.VpnTunnel) string {
-	if g := lbFind(b, vpnGatewaySpec(), t.VpnGateway); g != nil {
-		return g.Network
-	}
-
-	if g := lbFind(b, targetVPNSpec(), t.TargetVpnGateway); g != nil {
-		return g.Network
-	}
-
-	return ""
 }
 
 func (b *InMemoryBackend) ruleMatchesLocked(gateway, protocol, ports string) bool {
@@ -599,7 +596,10 @@ func (b *InMemoryBackend) vpnGatewayStatus(c lbCtx, name string) (*computeapi.Vp
 
 		conn, found := conns[peer]
 		if !found {
-			conn = &computeapi.VpnGatewayStatusVpnConnection{PeerGcpGateway: t.PeerGcpGateway, PeerExternalGateway: t.PeerExternalGateway}
+			conn = &computeapi.VpnGatewayStatusVpnConnection{
+				PeerGcpGateway:      t.PeerGcpGateway,
+				PeerExternalGateway: t.PeerExternalGateway,
+			}
 			conns[peer] = conn
 			order = append(order, peer)
 		}
@@ -626,7 +626,9 @@ func (b *InMemoryBackend) vpnGatewayStatus(c lbCtx, name string) (*computeapi.Vp
 	return &computeapi.VpnGatewaysGetStatusResponse{Result: out}, nil
 }
 
-func redundancyState(tunnels []*computeapi.VpnGatewayStatusTunnel) *computeapi.VpnGatewayStatusHighAvailabilityRequirementState {
+func redundancyState(
+	tunnels []*computeapi.VpnGatewayStatusTunnel,
+) *computeapi.VpnGatewayStatusHighAvailabilityRequirementState {
 	local := map[int64]bool{}
 	for _, t := range tunnels {
 		local[t.LocalGatewayInterface] = true

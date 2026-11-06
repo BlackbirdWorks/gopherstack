@@ -27,7 +27,10 @@ func TestExpansionStateSurvivesRestore(t *testing.T) {
 	src.externalGateway(t)
 
 	src.webMIGOnSub(t)
-	require.NoError(t, src.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr"), ResizeBy: new(int32(1))}))
+	require.NoError(
+		t,
+		src.resizeInsert(t, &computepb.InstanceGroupManagerResizeRequest{Name: s("rr"), ResizeBy: new(int32(1))}),
+	)
 	src.settle()
 
 	cfgName := src.migInstances(t)[0]
@@ -42,7 +45,7 @@ func TestExpansionStateSurvivesRestore(t *testing.T) {
 	dst.clock.Advance(src.clock.Now().Sub(dst.clock.Now()) + time.Minute)
 
 	assert.NotEmpty(t, dst.getVMNic(t, "vm1").GetIpv6Address())
-	assert.Len(t, dst.getPool(t, "pool").GetInstances(), 1)
+	assert.Len(t, dst.getPool(t).GetInstances(), 1)
 	assert.Equal(t, "ESTABLISHED", dst.tunnel(t, "ta").GetStatus())
 	assert.Equal(t, "SUCCEEDED", dst.resizeGet(t, "rr").GetState())
 	assert.Len(t, dst.listConfigs(t), 1)
