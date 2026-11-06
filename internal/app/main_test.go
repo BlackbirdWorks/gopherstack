@@ -55,14 +55,10 @@ func TestMultipleServersStartupAndShutdown(t *testing.T) {
 	}
 }
 
-// startServerRetryingPort starts Gopherstack on a freshly picked ephemeral port and waits for its
-// server to answer as this attempt (STS account ID match). freeTCPPort's Listen-then-Close releases the port immediately, but the real
-// bind happens much later, at the end of run's init chain -- a wide TOCTOU window in which something
-// else can take the same port first. When that happens run exits with a bind error before the
-// dashboard ever comes up; this retries on a fresh port rather than burning the rest of the deadline
-// on a port already lost (gopherstack-tajh, following the pkgs/dns TOCTOU precedent fixed in
-// gopherstack-nn94/7tbt). A plain timeout with no error from run is a genuine hang, not a port race,
-// and is not retried -- retrying would not fix it and could make things worse under load.
+// startServerRetryingPort starts Gopherstack on a fresh ephemeral port and waits until that attempt's own
+// server answers (STS account ID match, so a squatter on the port is not mistaken for it). freeTCPPort
+// releases the port before run binds it, so a bind error from run is retried on a new port; a plain
+// timeout with no run error is a genuine hang and is not retried.
 func startServerRetryingPort(t *testing.T, demo bool) (int, chan struct{}, chan error) {
 	t.Helper()
 
@@ -230,7 +226,8 @@ func TestWaitForInstanceRejectsForeignServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			up, runErr := waitForInstance(port, tt.accountID, make(chan error), 300*time.Millisecond, 20*time.Millisecond)
+			up, runErr := waitForInstance(
+				port, tt.accountID, make(chan error), 300*time.Millisecond, 20*time.Millisecond)
 			require.NoError(t, runErr)
 			require.Equal(t, tt.wantUp, up)
 		})
