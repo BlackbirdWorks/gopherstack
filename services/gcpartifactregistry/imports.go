@@ -13,9 +13,11 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ObjectStore reads Cloud Storage objects for the import RPCs; the in-process GCS emulator implements it.
+// ObjectStore reads and writes Cloud Storage objects for the import and export RPCs; the in-process GCS
+// emulator implements it.
 type ObjectStore interface {
 	ReadObject(bucket, object string) ([]byte, error)
+	WriteObject(bucket, object string, data []byte, contentType string) error
 	ListObjects(bucket, prefix string) ([]string, error)
 }
 
@@ -247,12 +249,7 @@ func (b *InMemoryBackend) ImportYumArtifacts(
 	return b.doneWith(ref.parent(), &artifactregistrypb.ImportYumArtifactsMetadata{}, resp)
 }
 
-// doneWith finishes an operation with its own metadata type.
+// doneWith records an operation with its own metadata type that finishes with resp.
 func (b *InMemoryBackend) doneWith(parent string, meta, resp proto.Message) (*longrunningpb.Operation, error) {
-	op, err := gcplroDone(parent, meta, resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.ops.Put(op), nil
+	return b.startOp(parent, meta, false, func() (proto.Message, error) { return resp, nil })
 }

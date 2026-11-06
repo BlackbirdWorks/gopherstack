@@ -122,7 +122,7 @@ func logInterceptor(log debugLogger) grpc.UnaryServerInterceptor {
 
 func (h *Handler) registerServers(srv *grpc.Server) {
 	artifactregistrypb.RegisterArtifactRegistryServer(srv, &server{b: h.Backend})
-	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
+	longrunningpb.RegisterOperationsServer(srv, opsServer{Store: h.Backend.ops, b: h.Backend})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.

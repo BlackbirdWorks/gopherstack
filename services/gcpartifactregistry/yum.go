@@ -330,7 +330,7 @@ func (b *InMemoryBackend) serveYum(w http.ResponseWriter, r *http.Request, rc re
 
 	switch {
 	case strings.HasPrefix(p, "repodata/"):
-		serveRepodata(w, entries, p, b.now())
+		b.serveRepodata(w, rc, entries, p)
 	case strings.HasPrefix(p, yumDir):
 		for _, e := range entries {
 			if e.path != p {
@@ -354,7 +354,8 @@ func (b *InMemoryBackend) serveYum(w http.ResponseWriter, r *http.Request, rc re
 	}
 }
 
-func serveRepodata(w http.ResponseWriter, entries []rpmEntry, p string, now time.Time) {
+func (b *InMemoryBackend) serveRepodata(w http.ResponseWriter, rc repoCtx, entries []rpmEntry, p string) {
+	now := b.now()
 	files := repodata(entries)
 
 	var newest time.Time
@@ -369,8 +370,13 @@ func serveRepodata(w http.ResponseWriter, entries []rpmEntry, p string, now time
 		newest = now
 	}
 
-	if p == "repodata/repomd.xml" {
+	switch p {
+	case "repodata/repomd.xml":
 		writeBytes(w, "application/xml", repomdXML(files, newest))
+
+		return
+	case "repodata/repomd.xml.asc", "repodata/repomd.xml.key":
+		b.serveRepomdSignature(w, rc, p, repomdXML(files, newest))
 
 		return
 	}
@@ -384,4 +390,31 @@ func serveRepodata(w http.ResponseWriter, entries []rpmEntry, p string, now time
 	}
 
 	writePlain(w, http.StatusNotFound, "Not found: "+p)
+}
+
+// serveRepomdSignature serves the detached signature of repomd.xml and the key that verifies it, the layout
+// createrepo and dnf (repo_gpgcheck=1, gpgkey=) use.
+func (b *InMemoryBackend) serveRepomdSignature(w http.ResponseWriter, rc repoCtx, p string, repomd []byte) {
+	signer, err := b.signerFor(rc.ref)
+	if err != nil {
+		writePlain(w, http.StatusInternalServerError, "Signing key unavailable.")
+
+		return
+	}
+
+	var out []byte
+
+	if strings.HasSuffix(p, ".asc") {
+		out, err = signer.detached(repomd)
+	} else {
+		out, err = signer.publicKey(true)
+	}
+
+	if err != nil {
+		writePlain(w, http.StatusInternalServerError, "Signing failed.")
+
+		return
+	}
+
+	writeBytes(w, "application/pgp-signature", out)
 }

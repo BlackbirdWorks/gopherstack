@@ -30,6 +30,16 @@ func (m memStore) ReadObject(bucket, object string) ([]byte, error) {
 	return nil, errNoObject
 }
 
+func (m memStore) WriteObject(bucket, object string, data []byte, _ string) error {
+	if !strings.HasPrefix(bucket, "bkt") {
+		return errNoObject
+	}
+
+	m[bucket+"/"+object] = data
+
+	return nil
+}
+
 func (m memStore) ListObjects(bucket, prefix string) ([]string, error) {
 	var out []string
 

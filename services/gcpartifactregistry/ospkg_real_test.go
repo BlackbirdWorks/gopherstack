@@ -156,3 +156,44 @@ func TestYumClientInstallsFromRepository(t *testing.T) {
 	out := dockerRun(t, "fedora:latest", script)
 	assert.Contains(t, out, "arhello-ran")
 }
+
+func TestAptClientVerifiesSignedRelease(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "apt-signed", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_APT})
+
+	_, err := restService(t, e).Projects.Locations.Repositories.AptArtifacts.
+		Upload(repoName("apt-signed"), &arapi.UploadAptArtifactRequest{}).
+		Media(bytes.NewReader(buildRealDeb(t, "arsigned", "1.0", "gzip"))).Context(t.Context()).Do()
+	require.NoError(t, err)
+
+	base := "http://127.0.0.1:" + e.port + "/apt/projects/" + project
+	key := fetchOK(t, base+"/dists/apt-signed/apt-key.asc")
+
+	script := "cat > /tmp/ar.asc <<'KEY'\n" + string(key) + "KEY\n" +
+		"echo 'deb [signed-by=/tmp/ar.asc] " + base + " apt-signed main' > /etc/apt/sources.list.d/ar.list && " +
+		"apt-get update -qq && apt-get install -y -qq arsigned >/dev/null && arsigned"
+
+	out := dockerRun(t, "debian:stable-slim", script)
+	assert.Contains(t, out, "arsigned-ran")
+}
+
+func TestYumClientVerifiesRepoGPG(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	e.createRepo(t, "yum-signed", &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_YUM})
+
+	_, err := restService(t, e).Projects.Locations.Repositories.YumArtifacts.
+		Upload(repoName("yum-signed"), &arapi.UploadYumArtifactRequest{}).
+		Media(bytes.NewReader(makeRPM(t, "arsigned", "1.0", "1", "noarch"))).Context(t.Context()).Do()
+	require.NoError(t, err)
+
+	base := "http://127.0.0.1:" + e.port + "/yum/projects/" + project + "/yum-signed"
+	script := "printf '[ar]\\nname=ar\\nbaseurl=" + base + "\\nenabled=1\\ngpgcheck=0\\nrepo_gpgcheck=1\\ngpgkey=" +
+		base + "/repodata/repomd.xml.key\\n' > /etc/yum.repos.d/ar.repo && " +
+		"dnf -y -q --disablerepo='*' --enablerepo=ar install arsigned && arsigned"
+
+	assert.Contains(t, dockerRun(t, "fedora:latest", script), "arsigned-ran")
+}

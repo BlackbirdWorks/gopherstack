@@ -7,14 +7,19 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 )
 
-// isNPMRepo reports whether ref is an existing NPM repository; any other repository is left to the Docker path.
-func (b *InMemoryBackend) isNPMRepo(ref repoRef) bool {
-	b.mu.RLock("isNPMRepo")
+// hasPackageTags reports whether ref is an existing NPM or KFP repository, whose tags live in pkgTags; any other
+// repository is left to the Docker path.
+func (b *InMemoryBackend) hasPackageTags(ref repoRef) bool {
+	b.mu.RLock("hasPackageTags")
 	defer b.mu.RUnlock()
 
 	rec, ok := b.repos[ref.full()]
 
-	return ok && rec.pb.GetFormat() == artifactregistrypb.Repository_NPM
+	return ok && usesPackageTags(rec.pb.GetFormat())
+}
+
+func usesPackageTags(f artifactregistrypb.Repository_Format) bool {
+	return f == artifactregistrypb.Repository_NPM || f == artifactregistrypb.Repository_KFP
 }
 
 // npmDistTags returns a copy of a package's dist-tags, failing when the package does not exist.

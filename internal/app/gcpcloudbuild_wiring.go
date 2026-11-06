@@ -166,7 +166,8 @@ func wireGCPSecretRotation(byName map[string]service.Registerable) {
 	}
 }
 
-// wireGCPArtifactRegistry lets the apt and yum import RPCs read objects from the GCS emulator.
+// wireGCPArtifactRegistry connects Artifact Registry to the GCS emulator (imports and exports) and to Secret
+// Manager (remote repository credentials).
 func wireGCPArtifactRegistry(byName map[string]service.Registerable) {
 	ar, okAR := byName["GCPArtifactRegistry"].(*gcparbackend.Handler)
 	gcs, okGCS := byName["GCPStorage"].(*gcpstoragebackend.Handler)
@@ -174,4 +175,22 @@ func wireGCPArtifactRegistry(byName map[string]service.Registerable) {
 	if okAR && okGCS {
 		ar.Backend.SetObjectStore(gcsObjectStore{b: gcs.Backend})
 	}
+
+	if sm, okSM := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); okAR && okSM {
+		ar.Backend.SetSecretResolver(arSecrets{b: sm.Backend})
+	}
+}
+
+// arSecrets resolves Artifact Registry upstream_credentials password secret versions.
+type arSecrets struct {
+	b *gcpsecretmanagerbackend.InMemoryBackend
+}
+
+func (s arSecrets) AccessSecretVersion(name string) ([]byte, error) {
+	resp, err := s.b.AccessSecretVersion(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.GetPayload().GetData(), nil
 }
