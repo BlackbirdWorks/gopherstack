@@ -148,6 +148,9 @@ func webSubRoutes() []webSubRoute {
 		newWebSubRoute(post, []string{"slotsdiffs"}, (*Handler).webSlotDiffs),
 		newWebSubRoute(get, []string{webFunctionsSeg}, (*Handler).webListFunctions),
 		newWebSubRoute(get, []string{webFunctionsSeg, "*"}, (*Handler).webGetFunction),
+		newWebSubRoute(del, []string{webFunctionsSeg, "*"}, (*Handler).webDeleteFunction),
+		newWebSubRoute(get, []string{webFunctionsSeg, "admin", "token"}, (*Handler).webFunctionsAdminToken),
+		newWebSubRoute(post, []string{"syncfunctiontriggers"}, (*Handler).webSyncFunctionTriggers),
 		newWebSubRoute(post, []string{webFunctionsSeg, "*", webListKeysSeg}, (*Handler).webFunctionKeys),
 		newWebSubRoute(post, []string{webFunctionsSeg, "*", "listsecrets"}, (*Handler).webFunctionSecrets),
 		newWebSubRoute(put, []string{webFunctionsSeg, "*", webSubKeysSeg, "*"}, (*Handler).webSetFunctionKey),
@@ -289,6 +292,31 @@ func (h *Handler) webListFunctions(c *echo.Context, p *WebProvider, id ResourceI
 
 func (h *Handler) webGetFunction(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
 	return h.writeResult(c, func() (map[string]any, error) { return p.GetFunction(c.Request().Context(), id, rest[1]) })
+}
+
+func (h *Handler) webDeleteFunction(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {
+	if err := p.DeleteFunction(c.Request().Context(), id, rest[1]); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) webFunctionsAdminToken(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	token, err := p.FunctionsAdminToken(id)
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeJSON(c, http.StatusOK, token)
+}
+
+func (h *Handler) webSyncFunctionTriggers(c *echo.Context, p *WebProvider, id ResourceID, _ []string) error {
+	if err := p.SyncFunctionTriggers(c.Request().Context(), id); err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) webFunctionKeys(c *echo.Context, p *WebProvider, id ResourceID, rest []string) error {

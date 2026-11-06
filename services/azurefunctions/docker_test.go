@@ -154,6 +154,19 @@ func TestDocker_NodeAuthLevels(t *testing.T) {
 		}, time.Minute, time.Second)
 	})
 
+	t.Run("admin token is accepted by the host", func(t *testing.T) {
+		t.Parallel()
+
+		token, tokErr := e.backend.AdminToken("real")
+		require.NoError(t, tokErr)
+
+		r, _ := e.do(t, http.MethodGet, host, "/admin/functions", nil, map[string]string{"Authorization": "Bearer " + token})
+		assert.Equal(t, http.StatusOK, r.StatusCode)
+
+		r, _ = e.do(t, http.MethodGet, host, "/admin/functions", nil, map[string]string{"Authorization": "Bearer " + token + "x"})
+		assert.Equal(t, http.StatusUnauthorized, r.StatusCode, "a tampered token is rejected")
+	})
+
 	t.Run("function listing comes from the host", func(t *testing.T) {
 		t.Parallel()
 

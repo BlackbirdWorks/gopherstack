@@ -60,6 +60,7 @@ type appState struct {
 	Zip             []byte                       `json:"zip"`
 	Deployments     []Deployment                 `json:"deployments"`
 	Stopped         bool                         `json:"stopped"`
+	Flex            bool                         `json:"flex,omitempty"`
 }
 
 // app is a function app with its running host, if any.
@@ -82,6 +83,7 @@ type InMemoryBackend struct {
 	runtime        func() (Runner, error)
 	onClose        func()
 	ports          PortPool
+	network        Network
 	transport      *http.Transport
 	wg             *sync.WaitGroup
 	apps           map[string]*app
@@ -116,6 +118,10 @@ func (b *InMemoryBackend) Configure(s Settings) {
 
 	if s.Port != 0 {
 		b.port = s.Port
+	}
+
+	if s.ContainerHost != "" {
+		b.network.Host = s.ContainerHost
 	}
 
 	if s.StartupTimeout > 0 {
@@ -238,6 +244,7 @@ type AppConfig struct {
 	LinuxFx         string
 	AppCommandLine  string
 	HealthCheckPath string
+	Flex            bool
 }
 
 // AppInfo is the data plane's view of an app.
@@ -306,7 +313,7 @@ func (b *InMemoryBackend) PutApp(name string, cfg AppConfig) AppInfo {
 		b.apps[strs.Fold(name)] = a
 	}
 
-	a.Kind = cfg.Kind
+	a.Kind, a.Flex = cfg.Kind, cfg.Flex
 	if a.Kind == "" {
 		a.Kind = defaultKindName
 	}
@@ -416,6 +423,7 @@ func (b *InMemoryBackend) SetSettings(name string, settings map[string]string) e
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
@@ -436,11 +444,12 @@ func (b *InMemoryBackend) SetStopped(name string, stopped bool) error {
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
 
-// Restart discards the running host; the next request starts a fresh one.
+// Restart discards the running host; the next request (or, for background triggers, a fresh start) replaces it.
 func (b *InMemoryBackend) Restart(name string) error {
 	b.mu.Lock("Restart")
 
@@ -455,6 +464,7 @@ func (b *InMemoryBackend) Restart(name string) error {
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return nil
 }
@@ -513,6 +523,7 @@ func (b *InMemoryBackend) Deploy(name string, zipData []byte, deployer, message 
 	b.mu.Unlock()
 
 	b.teardown(old)
+	b.autoStart(name)
 
 	return d, nil
 }

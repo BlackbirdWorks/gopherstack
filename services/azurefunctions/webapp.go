@@ -377,6 +377,8 @@ func (a *app) webServable() bool {
 
 // launchWeb starts a web app's container and waits until it answers, honouring siteConfig.healthCheckPath.
 func (b *InMemoryBackend) launchWeb(st *appState, host string) (box, error) {
+	st = b.forContainer(st)
+
 	rt, err := chooseWebRuntime(st.LinuxFx)
 	if err != nil {
 		return box{}, err

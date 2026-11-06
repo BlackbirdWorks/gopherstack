@@ -23,5 +23,12 @@ var (
 	errTooLarge      = errors.New("archive is too large when unpacked")
 	errNoHost        = errors.New("function app is not running")
 	errUnsupportedRT = errors.New("unsupported runtime")
+	errPackageFetch  = errors.New("fetch WEBSITE_RUN_FROM_PACKAGE")
 	errInvalidConfig = errors.New("invalid site configuration")
 )
+
+// ErrFunctionInCode is returned when deleting a function that has no function.json in the deployed package.
+var ErrFunctionInCode = errors.New("azurefunctions: function is defined in code; remove it from the source and redeploy")
+
+// ErrFunctionAppOnly is returned by operations that only apply to function apps, not web apps.
+var ErrFunctionAppOnly = errors.New("azurefunctions: operation is only valid for function apps")

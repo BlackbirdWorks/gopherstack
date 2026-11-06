@@ -117,6 +117,8 @@ func (b *InMemoryBackend) serveKudu(w http.ResponseWriter, r *http.Request, name
 		b.kuduDeploy(w, r, name, "ZipDeploy")
 	case p == kuduPublish:
 		b.kuduPublish(w, r, name)
+	case strings.HasPrefix(r.URL.Path, kuduVFS):
+		b.kuduVFS(w, r, name)
 	case p == kuduZip:
 		b.kuduDownload(w, r, name)
 	case p == kuduDeployments:
@@ -129,8 +131,21 @@ func (b *InMemoryBackend) serveKudu(w http.ResponseWriter, r *http.Request, name
 }
 
 func (b *InMemoryBackend) kuduPublish(w http.ResponseWriter, r *http.Request, name string) {
-	if t := r.URL.Query().Get("type"); !strings.EqualFold(t, "zip") {
+	q := r.URL.Query()
+	t := q.Get("type")
+
+	if t == "" && b.IsFlex(name) {
+		t = "zip"
+	}
+
+	if !strings.EqualFold(t, "zip") {
 		http.Error(w, "unsupported publish type "+t+"; the emulator supports type=zip", http.StatusBadRequest)
+
+		return
+	}
+
+	if strings.EqualFold(q.Get("RemoteBuild"), "true") {
+		http.Error(w, "remote build is not supported; deploy a package with its dependencies", http.StatusBadRequest)
 
 		return
 	}

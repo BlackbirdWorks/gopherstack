@@ -319,6 +319,11 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
+	flex, err := p.checkFlexSite(kind, farm, props)
+	if err != nil {
+		return nil, err
+	}
+
 	ident, err := p.siteIdentity(body, existing)
 	if err != nil {
 		return nil, err
@@ -328,6 +333,10 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
 		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
 		Extra: webSiteExtra(props),
+	}
+
+	if flex != nil {
+		rec.Extra[webFieldFlexConfig] = flex
 	}
 
 	if exists {
@@ -343,7 +352,12 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
 	rec.Configs[webConfigWeb] = cfgWeb
 
-	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb))
+	appCfg := siteAppConfig(kind, cfgWeb)
+	if flex != nil {
+		appCfg.LinuxFx, appCfg.Flex = flexLinuxFx(flex), true
+	}
+
+	info, err := p.dataPlane.PutApp(name, appCfg)
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -673,6 +687,10 @@ func webErrorDetails(err error) (errorEntry, bool) {
 	}{
 		{ErrWebSiteNotFound, notFoundEntry("The web app was not found.")},
 		{ErrWebFunctionNotFound, notFoundEntry("The function was not found.")},
+		{ErrWebFunctionInCode, errorEntry{
+			webCodeBadRequest, "The function is defined in code and cannot be deleted through the management API.",
+			http.StatusBadRequest,
+		}},
 		{ErrWebKeyNotFound, notFoundEntry("The key was not found.")},
 		{ErrWebConfigNotFound, notFoundEntry("The site configuration was not found.")},
 		{ErrWebPlanNotFound, errorEntry{

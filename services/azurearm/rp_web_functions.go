@@ -361,3 +361,37 @@ func tagsAsAny(tags map[string]string) map[string]any {
 
 	return out
 }
+
+// DeleteFunction serves DELETE .../functions/{fn}.
+func (p *WebProvider) DeleteFunction(ctx context.Context, id ResourceID, fn string) error {
+	s, err := p.lockedFunctionApp(id)
+	if err != nil {
+		return err
+	}
+
+	return p.dataPlane.DeleteFunction(ctx, s.dpName(), fn)
+}
+
+// FunctionsAdminToken serves GET .../functions/admin/token.
+func (p *WebProvider) FunctionsAdminToken(id ResourceID) (string, error) {
+	s, err := p.lockedFunctionApp(id)
+	if err != nil {
+		return "", err
+	}
+
+	return p.dataPlane.AdminToken(s.dpName())
+}
+
+// SyncFunctionTriggers serves POST .../syncfunctiontriggers.
+func (p *WebProvider) SyncFunctionTriggers(ctx context.Context, id ResourceID) error {
+	s, err := p.lockedFunctionApp(id)
+	if err != nil {
+		return err
+	}
+
+	if err = p.dataPlane.SyncTriggers(ctx, s.dpName()); err != nil {
+		return badWebRequest(err)
+	}
+
+	return nil
+}

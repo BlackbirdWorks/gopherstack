@@ -63,6 +63,7 @@ var (
 	ErrWebSiteNotFound         = errors.New("azurearm: web site not found")
 	ErrWebPlanNotFound         = errors.New("azurearm: app service plan not found")
 	ErrWebFunctionNotFound     = errors.New("azurearm: function not found")
+	ErrWebFunctionInCode       = errors.New("azurearm: function is defined in code, not by a function.json file")
 	ErrWebKeyNotFound          = errors.New("azurearm: function key not found")
 	ErrWebConfigNotFound       = errors.New("azurearm: site configuration not found")
 	ErrWebNameTaken            = errors.New("azurearm: site name is already in use")
