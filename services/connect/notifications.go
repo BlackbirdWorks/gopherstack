@@ -168,29 +168,44 @@ func (r *notificationRec) view() Notification {
 	}
 }
 
-// reaches reports whether the notification addresses the user, directly or through the instance ARN.
-func (r *notificationRec) reaches(instARN, userARN string) bool {
-	return slices.Contains(r.Recipients, instARN) || slices.Contains(r.Recipients, userARN)
+// parseRecipient splits a recipient ARN of the instance into whether it is the instance itself and the user ID otherwise.
+func parseRecipient(inst, recipient string) (bool, string, bool) {
+	_, rest, ok := strings.Cut(recipient, ":instance/")
+	if !ok || !strings.HasPrefix(rest, inst) {
+		return false, "", false
+	}
+
+	switch tail := strings.TrimPrefix(rest, inst); {
+	case tail == "":
+		return true, "", true
+	case strings.HasPrefix(tail, "/agent/") && len(tail) > len("/agent/"):
+		return false, strings.TrimPrefix(tail, "/agent/"), true
+	}
+
+	return false, "", false
 }
 
-func (b *Backend) checkRecipients(ctx context.Context, inst string, recipients []string) error {
+// reaches reports whether the notification addresses the user, directly or through the instance ARN.
+func (r *notificationRec) reaches(userID string) bool {
+	return slices.ContainsFunc(r.Recipients, func(rc string) bool {
+		whole, id, ok := parseRecipient(r.InstanceID, rc)
+
+		return ok && (whole || id == userID)
+	})
+}
+
+func (b *Backend) checkRecipients(inst string, recipients []string) error {
 	if n := len(recipients); n < 1 || n > maxNotifRecipients {
 		return invalidParamErr("Recipients must hold 1-%d items", maxNotifRecipients)
 	}
 
-	instARN := b.buildARN(ctx, "instance/"+inst)
-
 	for _, r := range recipients {
-		if r == instARN {
-			continue
-		}
-
-		_, id, ok := strings.Cut(r, instARN+"/agent/")
-		if !ok || id == "" {
+		whole, id, ok := parseRecipient(inst, r)
+		if !ok {
 			return invalidParamErr("recipient %q must be a user ARN of this instance or the instance ARN", r)
 		}
 
-		if !b.users.has(inst, id) {
+		if !whole && !b.users.has(inst, id) {
 			return notFoundErr(labelUser, id)
 		}
 	}
@@ -208,7 +223,7 @@ func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotification
 	}
 
 	return writeInstance(b, "CreateNotification", in.InstanceID, func(inst string) (*notificationCreated, error) {
-		if err := b.checkRecipients(ctx, inst, in.Recipients); err != nil {
+		if err := b.checkRecipients(inst, in.Recipients); err != nil {
 			return nil, err
 		}
 
@@ -377,11 +392,10 @@ func (b *Backend) ListUserNotifications(inst, userID, token string, maxResults i
 		recs := b.notifications.in(inst)
 		slices.SortStableFunc(recs, func(a, c *notificationRec) int { return c.CreatedAt.Time.Compare(a.CreatedAt.Time) })
 
-		instARN := strings.TrimSuffix(b.instanceARN(inst), "/")
 		out := make([]UserNotificationSummary, 0, len(recs))
 
 		for _, r := range recs {
-			if r.reaches(instARN, u.User.Arn) && r.ExpiresAt.After(b.now()) {
+			if r.reaches(u.User.ID) && r.ExpiresAt.After(b.now()) {
 				out = append(out, userNotification(r, u.User.ID))
 			}
 		}
@@ -403,10 +417,6 @@ func userNotification(r *notificationRec, userID string) UserNotificationSummary
 	}
 }
 
-func (b *Backend) instanceARN(inst string) string {
-	return b.buildARN(context.Background(), "instance/"+inst)
-}
-
 // UpdateUserNotificationStatus marks a notification READ, UNREAD or HIDDEN for one recipient.
 func (b *Backend) UpdateUserNotificationStatus(in *UpdateUserNotificationStatusInput) (*empty, error) {
 	if err := oneOf("Status", in.Status, "READ", notifStatusUnread, "HIDDEN"); err != nil {
@@ -424,7 +434,7 @@ func (b *Backend) UpdateUserNotificationStatus(in *UpdateUserNotificationStatusI
 			return nil, err
 		}
 
-		if !r.reaches(strings.TrimSuffix(b.instanceARN(inst), "/"), u.User.Arn) {
+		if !r.reaches(u.User.ID) {
 			return nil, notFoundErr(labelNotification, in.NotificationID)
 		}
 
