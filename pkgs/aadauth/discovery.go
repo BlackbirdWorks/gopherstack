@@ -26,7 +26,7 @@ func BuildOpenIDConfiguration(baseURL, tenant string) OpenIDConfiguration {
 		ResponseTypesSupp:     []string{"code", "id_token", "code id_token", "token"},
 		SubjectTypesSupp:      []string{"pairwise"},
 		IDTokenSigningAlgs:    []string{"RS256"},
-		TokenEndpointAuthMeth: []string{"client_secret_post", "client_secret_basic"},
+		TokenEndpointAuthMeth: []string{"client_secret_post", "client_secret_basic", "private_key_jwt"},
 	}
 }
 

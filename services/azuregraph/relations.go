@@ -117,12 +117,12 @@ func (b *Backend) edit(op, ownerID, refID, relation string, relations map[string
 		return notFound(refID)
 	}
 
-	if relation == "owners" &&
+	if relation == propOwners &&
 		(!ownable(parent.objKind()) || (child.objKind() != kindUser && child.objKind() != kindServicePrincipal)) {
 		return badRequest("Invalid object type for the owners relationship.")
 	}
 
-	if relation == "members" && (parent.objKind() != kindGroup || ownerID == refID) {
+	if relation == propMembers && (parent.objKind() != kindGroup || ownerID == refID) {
 		return badRequest("Invalid object type for the members relationship.")
 	}
 
@@ -151,22 +151,22 @@ func (b *Backend) edit(op, ownerID, refID, relation string, relations map[string
 
 // AddOwner adds an owner reference.
 func (b *Backend) AddOwner(id, ownerID string) error {
-	return b.edit("AddOwner", id, ownerID, "owners", b.owners, true)
+	return b.edit("AddOwner", id, ownerID, propOwners, b.owners, true)
 }
 
 // RemoveOwner removes an owner reference.
 func (b *Backend) RemoveOwner(id, ownerID string) error {
-	return b.edit("RemoveOwner", id, ownerID, "owners", b.owners, false)
+	return b.edit("RemoveOwner", id, ownerID, propOwners, b.owners, false)
 }
 
 // AddMember adds a group member reference.
 func (b *Backend) AddMember(groupID, memberID string) error {
-	return b.edit("AddMember", groupID, memberID, "members", b.members, true)
+	return b.edit("AddMember", groupID, memberID, propMembers, b.members, true)
 }
 
 // RemoveMember removes a group member reference.
 func (b *Backend) RemoveMember(groupID, memberID string) error {
-	return b.edit("RemoveMember", groupID, memberID, "members", b.members, false)
+	return b.edit("RemoveMember", groupID, memberID, propMembers, b.members, false)
 }
 
 // Owners lists the owners of an application, service principal or group.

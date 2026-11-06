@@ -24,6 +24,7 @@ type listQuery struct {
 	order   string
 	token   string
 	selects []string
+	expand  []expandSpec
 	top     int
 	desc    bool
 	count   bool
@@ -51,9 +52,12 @@ func parseListQuery(r *http.Request, resource string, fields map[string]bool) (*
 		return nil, err
 	}
 
-	if vals.Get("$expand") != "" {
-		return nil, unsupported("Expanding relationships with $expand is not supported by this emulator.")
+	exp, expErr := parseExpand(vals.Get("$expand"))
+	if expErr != nil {
+		return nil, expErr
 	}
+
+	q.expand = exp
 
 	if err := q.parseOrder(vals.Get("$orderby"), resource, fields); err != nil {
 		return nil, err
@@ -129,7 +133,7 @@ func (q *listQuery) parseFilter(r *http.Request, expr, resource string, fields m
 // userDefaultSelect is the property set Graph returns for a user when $select is absent.
 func userDefaultSelect() []string {
 	return []string{
-		"businessPhones", "displayName", "givenName", "jobTitle", "mail", "mobilePhone", "officeLocation",
+		"businessPhones", propDisplayName, "givenName", "jobTitle", "mail", "mobilePhone", "officeLocation",
 		"preferredLanguage", "surname", "userPrincipalName",
 	}
 }
