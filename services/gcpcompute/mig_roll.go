@@ -36,7 +36,7 @@ func outdatedMembers(rec *migRec) []*memberRec {
 
 	var out []*memberRec
 
-	for _, m := range liveMembers(rec) {
+	for _, m := range activeMembers(rec) {
 		if !targets[m.Template] {
 			out = append(out, m)
 		}
@@ -59,7 +59,7 @@ func (b *InMemoryBackend) memberAvailableLocked(rec *migRec, m *memberRec, now t
 func (b *InMemoryBackend) availableCountLocked(rec *migRec, now time.Time) int {
 	n := 0
 
-	for _, m := range liveMembers(rec) {
+	for _, m := range activeMembers(rec) {
 		if b.memberAvailableLocked(rec, m, now) {
 			n++
 		}
@@ -100,7 +100,7 @@ func (b *InMemoryBackend) rollStepLocked(project string, rec *migRec) {
 			continue
 		}
 
-		live := len(liveMembers(rec))
+		live := len(activeMembers(rec))
 		if live-len(outdated) < target && live < target+surge && b.growLocked(project, rec, 1) == nil {
 			progressed = true
 
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) rollStepLocked(project string, rec *migRec) {
 			}
 
 			if after >= target-unavail {
-				b.markDeletingLocked(project, o)
+				b.markDeletingLocked(project, rec, o)
 
 				progressed = true
 
@@ -129,7 +129,7 @@ func (b *InMemoryBackend) rollStepLocked(project string, rec *migRec) {
 func (b *InMemoryBackend) recreateStepLocked(
 	project string, rec *migRec, outdated []*memberRec, unavail int, now time.Time,
 ) bool {
-	down := len(liveMembers(rec)) - b.availableCountLocked(rec, now)
+	down := len(activeMembers(rec)) - b.availableCountLocked(rec, now)
 
 	for _, o := range outdated {
 		if !b.memberAvailableLocked(rec, o, now) {

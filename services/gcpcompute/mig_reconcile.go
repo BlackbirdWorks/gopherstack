@@ -24,6 +24,19 @@ func liveMembers(rec *migRec) []*memberRec {
 	return out
 }
 
+// activeMembers are the live members that count toward targetSize: stopped and suspended ones are parked.
+func activeMembers(rec *migRec) []*memberRec {
+	var out []*memberRec
+
+	for _, m := range liveMembers(rec) {
+		if m.Parked == "" {
+			out = append(out, m)
+		}
+	}
+
+	return out
+}
+
 func (b *InMemoryBackend) templateByLinkLocked(link string) *computeapi.InstanceTemplate {
 	for _, t := range b.templates {
 		if t.SelfLink == link {
@@ -77,12 +90,18 @@ func (b *InMemoryBackend) createInstanceForLocked(project string, rec *migRec, z
 		&computeapi.MetadataItems{Key: "instance-template", Value: &tmpl},
 	)
 
+	if err := b.restoreStateLocked(project, rec, zone, in); err != nil {
+		return err
+	}
+
 	_, err := b.insertInstanceLocked(project, zone, in)
 
 	return err
 }
 
-func (b *InMemoryBackend) removeMemberInstanceLocked(project string, m *memberRec) {
+func (b *InMemoryBackend) removeMemberInstanceLocked(project string, rec *migRec, m *memberRec, permanent bool) {
+	b.retainStateLocked(rec, project, m, permanent)
+
 	if r, ok := b.instances[key(project, m.Zone, m.Name)]; ok {
 		b.removeInstanceLocked(project, m.Zone, r)
 	}
@@ -181,7 +200,7 @@ func (b *InMemoryBackend) pickVersion(rec *migRec, counts map[string]int) string
 }
 
 func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIError {
-	live := liveMembers(rec)
+	live := activeMembers(rec)
 	tc, zc := templateCounts(live), zoneCounts(rec)
 	added := make([]*memberRec, 0, n)
 
@@ -192,7 +211,7 @@ func (b *InMemoryBackend) growLocked(project string, rec *migRec, n int) *APIErr
 
 		if err := b.createInstanceForLocked(project, rec, zone, name, tmpl); err != nil {
 			for _, m := range added {
-				b.removeMemberInstanceLocked(project, m)
+				b.removeMemberInstanceLocked(project, rec, m, true)
 				rec.Members = dropMember(rec.Members, m)
 			}
 
@@ -221,14 +240,14 @@ func dropMember(ms []*memberRec, drop *memberRec) []*memberRec {
 	return out
 }
 
-func (b *InMemoryBackend) markDeletingLocked(project string, m *memberRec) {
+func (b *InMemoryBackend) markDeletingLocked(project string, rec *migRec, m *memberRec) {
 	m.Deleting, m.DeleteAt = true, b.now().UTC().Add(b.timing.Stop)
-	b.removeMemberInstanceLocked(project, m)
+	b.removeMemberInstanceLocked(project, rec, m, true)
 }
 
 func (b *InMemoryBackend) shrinkLocked(project string, rec *migRec, n int) {
 	for range n {
-		live := liveMembers(rec)
+		live := activeMembers(rec)
 		if len(live) == 0 {
 			return
 		}
@@ -269,7 +288,7 @@ func (b *InMemoryBackend) shrinkLocked(project string, rec *migRec, n int) {
 			return live[i].Name > live[j].Name
 		})
 
-		b.markDeletingLocked(project, live[0])
+		b.markDeletingLocked(project, rec, live[0])
 	}
 }
 
@@ -293,7 +312,7 @@ func (b *InMemoryBackend) reconcileLocked(rec *migRec) *APIError {
 	project := rec.Project
 	b.healVanishedLocked(project, rec)
 
-	live := len(liveMembers(rec))
+	live := len(activeMembers(rec))
 	want := migTargetSize(rec.Mgr.TargetSize)
 
 	switch {
@@ -320,6 +339,7 @@ func (b *InMemoryBackend) sweepGroupsLocked() {
 
 		rec.Members = kept
 		b.healVanishedLocked(rec.Project, rec)
+		b.advanceResizesLocked(rec)
 		b.rollStepLocked(rec.Project, rec)
 	}
 }
@@ -333,7 +353,7 @@ func (b *InMemoryBackend) recreateMemberLocked(project string, rec *migRec, m *m
 	}
 
 	tmpl := b.pickVersion(rec, templateCounts(others))
-	b.removeMemberInstanceLocked(project, m)
+	b.removeMemberInstanceLocked(project, rec, m, false)
 
 	if err := b.createInstanceForLocked(project, rec, m.Zone, m.Name, tmpl); err != nil {
 		rec.Members = dropMember(rec.Members, m)
@@ -341,7 +361,7 @@ func (b *InMemoryBackend) recreateMemberLocked(project string, rec *migRec, m *m
 		return err
 	}
 
-	m.Template, m.Recreating = tmpl, true
+	m.Template, m.Recreating, m.Startup, m.Parked = tmpl, true, "", ""
 
 	return nil
 }
@@ -368,9 +388,17 @@ func (b *InMemoryBackend) memberActionLocked(rec *migRec, m *memberRec) (memberA
 	}
 
 	switch r.status(now, b.timing) {
+	case stStopping:
+		return memberAction{action: actStopping, inst: r}, true
+	case stSuspending:
+		return memberAction{action: actSuspending, inst: r}, true
 	case stProvision, stStaging:
 		if m.Recreating {
 			return memberAction{action: actRecreating, inst: r}, true
+		}
+
+		if m.Startup != "" {
+			return memberAction{action: m.Startup, inst: r}, true
 		}
 
 		return memberAction{action: actCreating, inst: r}, true
@@ -395,6 +423,14 @@ func countAction(sum *computeapi.InstanceGroupManagerActionsSummary, action stri
 		sum.Recreating++
 	case actVerifying:
 		sum.Verifying++
+	case actStarting:
+		sum.Starting++
+	case actStopping:
+		sum.Stopping++
+	case actSuspending:
+		sum.Suspending++
+	case actResuming:
+		sum.Resuming++
 	}
 }
 
@@ -414,7 +450,7 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 
 		if a.action != actNone {
 			stable = false
-		} else {
+		} else if m.Parked == "" {
 			tc[m.Template]++
 		}
 	}
@@ -433,11 +469,12 @@ func (b *InMemoryBackend) migViewLocked(rec *migRec) *computeapi.InstanceGroupMa
 		}
 	}
 
-	live := len(liveMembers(rec))
+	live := len(activeMembers(rec))
 	out.CurrentActions = sum
 	out.Status = &computeapi.InstanceGroupManagerStatus{
 		IsStable:      stable && versionOK && live == migTargetSize(out.TargetSize),
 		VersionTarget: &computeapi.InstanceGroupManagerStatusVersionTarget{IsReached: versionOK},
+		Stateful:      b.statefulStatusLocked(rec),
 	}
 
 	for _, a := range b.scalers {
@@ -468,6 +505,9 @@ func (b *InMemoryBackend) managedInstancesLocked(rec *migRec) []*computeapi.Mana
 		if a.inst != nil {
 			mi.Id = a.inst.Inst.Id
 			mi.InstanceStatus = a.inst.status(b.now().UTC(), b.timing)
+			if m.Parked == parkedStopped && mi.InstanceStatus == stTerminated {
+				mi.InstanceStatus = parkedStopped
+			}
 			mi.InstanceHealth = b.healthStateLocked(rec, m)
 		}
 

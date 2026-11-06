@@ -328,6 +328,10 @@ func (b *InMemoryBackend) normalizeMIGLocked(project, scope, loc string, m *comp
 		return errField("resource.targetSize", "", "Must not be negative.")
 	}
 
+	if err := validStatefulPolicy(m.StatefulPolicy); err != nil {
+		return err
+	}
+
 	if m.TargetSize > math.MaxInt32 {
 		return errField("resource.targetSize", "", "Must be at most 2147483647.")
 	}
@@ -482,7 +486,7 @@ func (b *InMemoryBackend) deleteMIG(project, scope, loc, name string) (*computea
 	}
 
 	for _, m := range liveMembers(r) {
-		b.removeMemberInstanceLocked(project, m)
+		b.removeMemberInstanceLocked(project, r, m, true)
 	}
 
 	for k, a := range b.scalers {

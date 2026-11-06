@@ -31,6 +31,7 @@ type reqRoute struct {
 	collection string
 	name       string
 	action     string
+	parent     string
 	aggregated bool
 }
 
@@ -145,7 +146,31 @@ func parseRequest(escapedPath string) (reqRoute, bool) {
 	return finishRoute(rt, rest)
 }
 
+const (
+	resizeSegments     = 3
+	resizeMaxSegments  = 5
+	resizeNameSegment  = 3
+	resizeActionOffset = 4
+)
+
 func finishRoute(rt reqRoute, rest []string) (reqRoute, bool) {
+	if len(rest) >= resizeSegments && rest[0] == collMIG && rest[2] == "resizeRequests" {
+		if len(rest) > resizeMaxSegments {
+			return reqRoute{}, false
+		}
+
+		rt.collection, rt.parent = collMIGResize, rest[1]
+		if len(rest) > resizeNameSegment {
+			rt.name = rest[resizeNameSegment]
+		}
+
+		if len(rest) > resizeActionOffset {
+			rt.action = rest[resizeActionOffset]
+		}
+
+		return rt, true
+	}
+
 	if len(rest) == 0 || len(rest) > maxPathTail {
 		return reqRoute{}, false
 	}

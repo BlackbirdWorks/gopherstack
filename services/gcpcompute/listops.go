@@ -23,6 +23,10 @@ func collectionID(rt reqRoute) string {
 }
 
 func listBody(rq *request, kind string, entries []entry) (any, error) {
+	return listBodyAt(rq, kind, strings.TrimSuffix(collectionID(rq.rt), "/"), entries)
+}
+
+func listBodyAt(rq *request, kind, id string, entries []entry) (any, error) {
 	lq, err := parseListQuery(rq.q)
 	if err != nil {
 		return nil, err
@@ -35,7 +39,6 @@ func listBody(rq *request, kind string, entries []entry) (any, error) {
 		items[i] = e.item
 	}
 
-	id := strings.TrimSuffix(collectionID(rq.rt), "/")
 	resp := &listResponse{Kind: kind, ID: id, SelfLink: apiBase + id, NextPageToken: pg.Next}
 
 	if len(items) > 0 {

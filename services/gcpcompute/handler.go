@@ -203,7 +203,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.fail(c, apiErr)
 		}
 
-		if rt.collection == collMIG || rt.collection == collGroups {
+		if rt.collection == collMIG || rt.collection == collGroups || rt.collection == collMIGResize {
 			h.Backend.TickGroups(r.Context())
 		}
 

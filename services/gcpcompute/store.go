@@ -49,25 +49,33 @@ type routerRec struct {
 }
 
 type memberRec struct {
-	DeleteAt     time.Time `json:"deleteAt"`
-	LastProbe    time.Time `json:"lastProbe,omitzero"`
-	Zone         string    `json:"zone"`
-	LastError    string    `json:"lastError,omitempty"`
-	Name         string    `json:"name"`
-	Health       string    `json:"health,omitempty"`
-	Template     string    `json:"template"`
-	InstanceID   uint64    `json:"instanceId,omitempty"`
-	HealthyRun   int       `json:"healthyRun,omitempty"`
-	UnhealthyRun int       `json:"unhealthyRun,omitempty"`
-	Verified     bool      `json:"verified,omitempty"`
-	Deleting     bool      `json:"deleting"`
-	Recreating   bool      `json:"recreating"`
+	DeleteAt     time.Time         `json:"deleteAt"`
+	LastProbe    time.Time         `json:"lastProbe,omitzero"`
+	Zone         string            `json:"zone"`
+	LastError    string            `json:"lastError,omitempty"`
+	Name         string            `json:"name"`
+	Health       string            `json:"health,omitempty"`
+	Template     string            `json:"template"`
+	InstanceID   uint64            `json:"instanceId,omitempty"`
+	HealthyRun   int               `json:"healthyRun,omitempty"`
+	UnhealthyRun int               `json:"unhealthyRun,omitempty"`
+	Verified     bool              `json:"verified,omitempty"`
+	Deleting     bool              `json:"deleting"`
+	Recreating   bool              `json:"recreating"`
+	RunUntil     time.Time         `json:"runUntil,omitzero"`
+	Startup      string            `json:"startup,omitempty"`
+	Parked       string            `json:"parked,omitempty"`
+	Request      string            `json:"request,omitempty"`
+	KeptInt      map[string]string `json:"keptInternal,omitempty"`
+	KeptExt      map[string]string `json:"keptExternal,omitempty"`
 }
 
 type migRec struct {
 	Project string                           `json:"project"`
 	Mgr     *computeapi.InstanceGroupManager `json:"mgr"`
 	Members []*memberRec                     `json:"members"`
+	Configs []*picRec                        `json:"configs,omitempty"`
+	Resizes []*resizeRec                     `json:"resizes,omitempty"`
 }
 
 type groupRec struct {

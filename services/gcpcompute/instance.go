@@ -952,13 +952,24 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 		return nil, err
 	}
 
-	if st := r.status(b.now().UTC(), b.timing); st == stSuspended || st == stSuspending {
-		return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name),
+	d, err := b.startLocked(project, zone, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.newOpLocked("start", instTarget(project, zone, r.Inst), d), nil
+}
+
+// startLocked starts a stopped instance and returns how long the operation takes.
+func (b *InMemoryBackend) startLocked(project, zone string, r *instRec) (time.Duration, *APIError) {
+	st := r.status(b.now().UTC(), b.timing)
+	if st == stSuspended || st == stSuspending {
+		return 0, errNotReady(relPath(project, scopeZone, zone, "instances", r.Inst.Name),
 			"the instance is suspended; use instances.resume")
 	}
 
-	if r.status(b.now().UTC(), b.timing) != stTerminated {
-		return b.newOpLocked("start", instTarget(project, zone, r.Inst), b.timing.Pending), nil
+	if st != stTerminated {
+		return b.timing.Pending, nil
 	}
 
 	region := regionOfZone(zone)
@@ -973,7 +984,7 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 
 			ip, aerr := b.allocExternalLocked(region, pending...)
 			if aerr != nil {
-				return nil, aerr
+				return 0, aerr
 			}
 
 			pending, ac.NatIP = append(pending, ip), ip
@@ -985,7 +996,7 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 	r.Inst.LastStartTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
 
-	return b.newOpLocked("start", instTarget(project, zone, r.Inst), b.timing.Stage), nil
+	return b.timing.Stage, nil
 }
 
 func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.Operation, error) {
@@ -997,9 +1008,14 @@ func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.
 		return nil, err
 	}
 
+	return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.stopLocked(r)), nil
+}
+
+// stopLocked stops an instance and returns how long the operation takes.
+func (b *InMemoryBackend) stopLocked(r *instRec) time.Duration {
 	st := r.status(b.now().UTC(), b.timing)
 	if st == stTerminated || st == stStopping {
-		return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.timing.Pending), nil
+		return b.timing.Pending
 	}
 
 	for _, nic := range r.Inst.NetworkInterfaces {
@@ -1015,7 +1031,7 @@ func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.
 	r.Inst.LastStopTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
 
-	return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.timing.Stop), nil
+	return b.timing.Stop
 }
 
 func (b *InMemoryBackend) resetInstance(project, zone, name string) (*computeapi.Operation, error) {
