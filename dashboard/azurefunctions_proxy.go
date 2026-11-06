@@ -26,6 +26,7 @@ type azureFunctionAppJSON struct {
 	SCMHost    string     `json:"scmHost"`
 	Image      string     `json:"image"`
 	Worker     string     `json:"worker"`
+	Failure    string     `json:"failure,omitempty"`
 	State      string     `json:"state"`
 	Stopped    bool       `json:"stopped"`
 	Deployed   bool       `json:"deployed"`
@@ -68,6 +69,9 @@ func (h *DashboardHandler) registerAzureFunctionsRoutes() {
 	r.Add(http.MethodPost, azureFunctionsProxyPrefix+"/apps/:name/settings/reveal", api.guard(api.reveal))
 	r.Add(http.MethodGet, azureFunctionsProxyPrefix+"/apps/:name/functions", api.guard(api.functions))
 	r.Add(http.MethodGet, azureFunctionsProxyPrefix+"/apps/:name/deployments", api.guard(api.deployments))
+	r.Add(http.MethodGet, azureFunctionsProxyPrefix+"/apps/:name/keys", api.guard(api.hostKeys))
+	r.Add(http.MethodPost, azureFunctionsProxyPrefix+"/apps/:name/keys/reveal", api.guard(api.revealKey))
+	r.Add(http.MethodPost, azureFunctionsProxyPrefix+"/apps/:name/invoke", api.guard(api.invoke))
 	r.Add(http.MethodPost, azureFunctionsProxyPrefix+"/apps/:name/:action", api.guard(api.lifecycle))
 }
 
@@ -97,7 +101,7 @@ func (a *azureFunctionsAPI) fail(c *echo.Context, err error) error {
 func azureFunctionApp(name string, i functionsbackend.AppInfo) azureFunctionAppJSON {
 	out := azureFunctionAppJSON{
 		Name: name, Created: i.Created, HostName: i.HostName, SCMHost: i.SCMHost,
-		Image: i.Image, Worker: i.Worker, Stopped: i.Stopped, Deployed: i.Deployed, State: "Running",
+		Image: i.Image, Worker: i.Worker, Failure: i.Failure, Stopped: i.Stopped, Deployed: i.Deployed, State: "Running",
 	}
 
 	if i.Stopped {
@@ -163,6 +167,8 @@ func (a *azureFunctionsAPI) reveal(c *echo.Context) error {
 	if !ok {
 		return cloudJSONFail(c, http.StatusNotFound, cloudStatusNotFnd, "setting not found")
 	}
+
+	c.Response().Header().Set("Cache-Control", "no-store")
 
 	return c.JSON(http.StatusOK, azureFunctionSettingJSON{Name: in.Name, Value: value})
 }

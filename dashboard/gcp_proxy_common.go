@@ -128,6 +128,10 @@ func (h *DashboardHandler) registerGCPRESTProxyVersion(prefix, version string, r
 
 		r := c.Request()
 
+		if r.Method == http.MethodPost {
+			c.Response().Header().Set("Cache-Control", "no-store")
+		}
+
 		segs, verb, ok := parseGCPRESTPath(strings.TrimPrefix(r.URL.EscapedPath(), prefix), version)
 		if !ok {
 			return c.String(http.StatusBadRequest, "unsupported GCP proxy request")

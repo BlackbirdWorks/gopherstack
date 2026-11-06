@@ -43,7 +43,7 @@ families:
   backends: {status: ok, note: "HTTP(S) backends through one pooled client: TLS is always verified, redirects are returned, the dialer checks the resolved peer address and refuses anything outside 127.0.0.0/8 and ::1 unless --gcp-apigateway-allow-external-backends is set; the same rule covers remote JWKS fetches. Cloud Run and Cloud Functions serving URLs (*.localhost) are mapped to loopback, so they reach the emulated services without a separate interface. Refused destinations are 502, connect errors 503."}
   routing_isolation: {status: ok, note: "Own gRPC server with the REST transcoder and the gateway route bound in StartWorker to --gcp-apigateway-port / GCP_APIGATEWAY_PORT (default 8146, fails fast if taken); never registered on the shared AWS router. cli.go reserves the port in the shared PortAlloc pool."}
   auth: {status: partial, note: "No control-plane request is authenticated or authorised."}
-  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. No dashboard page."}
+  observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug."}
 items_still_open:
   - "The Cloud Run / Functions gateway-to-backend identity token (Authorization: Bearer ID token, jwt_audience) is not minted: the original Authorization header is moved to X-Forwarded-Authorization and the backend gets none."
   - "API keys are not validated against any project or key store (no API Keys or Service Usage emulator); any non-empty key passes, so the 400 invalid-key and 403 API-not-enabled answers cannot occur."
@@ -51,7 +51,6 @@ items_still_open:
   - "Whether OpenAPI 2.0 documents without any x-google-backend are rejected at config creation is undocumented (oasv2 page: only address is Required inside the block); the emulator rejects them as it does 3.x. The 3.x docs example gives address without a scheme (myapp.run.app), the emulator requires http(s). The 3.x quota limit unit is undocumented; limits are taken as per project per minute."
   - "Data-plane texts not in a primary source: the detail after 429 RESOURCE_EXHAUSTED (from Service Control), 502 for refused destinations (emulator-only), the Gateway-not-found and not-ready answers, and the Envoy JWT messages for header/payload parse failures (jwt_verify_lib has distinct strings; only the three-section case is distinguished)."
   - "Control-plane error codes and texts (AlreadyExists, FAILED_PRECONDITION for in-use resources, id charset, the global-only rule for APIs and configs, the single CREATING config rule) have no primary text: googleapis apigateway.proto only says ids 'must be unique within scope of the parent resource'."
-  - "No dashboard page or proxy."
 leaks: {status: clean, note: "The only background resources are the grpc.Server and its serve goroutine, joined by Shutdown, and the pooled backend client, closed there."}
 ---
 
