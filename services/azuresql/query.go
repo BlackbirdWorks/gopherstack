@@ -17,6 +17,7 @@ const (
 	QueryDeadline = 20 * time.Second
 	maxQueryBytes = 1 << 20
 	colSep        = "\x1f"
+	headerLines   = 2
 )
 
 // ErrNoEngine is returned when the server has no SQL engine (no container runtime) to run a query.
@@ -58,14 +59,8 @@ func ValidateQuery(text string) error {
 		return fmt.Errorf("%w: query is longer than %d characters", ErrInvalid, MaxQueryLen)
 	}
 
-	for _, r := range text {
-		if (r < ' ' && r != '\t' && r != '\n' && r != '\r') || r == 0x7f {
-			return fmt.Errorf("%w: query contains a control character", ErrInvalid)
-		}
-	}
-
-	if strings.Contains(text, "--") || strings.Contains(text, "/*") || strings.Contains(text, "*/") {
-		return fmt.Errorf("%w: comments are not allowed", ErrInvalid)
+	if err := checkPlainText(text); err != nil {
+		return err
 	}
 
 	bare := literalOrQuoted.ReplaceAllString(text, "''")
@@ -84,6 +79,20 @@ func ValidateQuery(text string) error {
 
 	if forbiddenPrefix.MatchString(bare) {
 		return fmt.Errorf("%w: system procedures and functions are not allowed", ErrInvalid)
+	}
+
+	return nil
+}
+
+func checkPlainText(text string) error {
+	for _, r := range text {
+		if (r < ' ' && r != '\t' && r != '\n' && r != '\r') || r == 0x7f {
+			return fmt.Errorf("%w: query contains a control character", ErrInvalid)
+		}
+	}
+
+	if strings.Contains(text, "--") || strings.Contains(text, "/*") || strings.Contains(text, "*/") {
+		return fmt.Errorf("%w: comments are not allowed", ErrInvalid)
 	}
 
 	return nil
@@ -143,13 +152,13 @@ func parseQueryOutput(out string, maxRows int) QueryResult {
 	}
 
 	lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
-	if len(lines) < 2 {
+	if len(lines) < headerLines {
 		return QueryResult{Columns: []string{}, Rows: [][]string{}}
 	}
 
 	res := QueryResult{Columns: strings.Split(lines[0], colSep), Rows: [][]string{}}
 
-	for _, line := range lines[2:] {
+	for _, line := range lines[headerLines:] {
 		if line == "" {
 			break
 		}

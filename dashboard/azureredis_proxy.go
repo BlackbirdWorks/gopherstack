@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -17,6 +18,9 @@ const (
 	redisMaxKeyName       = 1024
 	redisMaxCacheID       = 512
 	redisMask             = "••••••••"
+	redisKeysField        = "keys"
+	redisKeyField         = "key"
+	redisTruncatedField   = "truncated"
 )
 
 type redisCacheJSON struct {
@@ -25,13 +29,13 @@ type redisCacheJSON struct {
 	SKU              string `json:"sku"`
 	MinTLS           string `json:"minTlsVersion"`
 	Host             string `json:"host"`
+	AccessKeysMasked string `json:"accessKeys"`
 	Port             int    `json:"port"`
 	SSLPort          int    `json:"sslPort"`
 	Keys             int    `json:"keyCount"`
 	NonSSLEnabled    bool   `json:"enableNonSslPort"`
 	Persistence      bool   `json:"persistence"`
 	AuthNotRequired  bool   `json:"authNotRequired"`
-	AccessKeysMasked string `json:"accessKeys"`
 }
 
 type redisKeyJSON struct {
@@ -142,19 +146,19 @@ func (a *azureRedisAPI) scan(c *echo.Context) error {
 
 	keys := make([]redisKeyJSON, 0, len(entries))
 	for _, e := range entries {
-		keys = append(keys, redisKeyJSON{Key: e.Key, Type: e.Type, TTLSeconds: redisTTL(e.TTL.Milliseconds())})
+		keys = append(keys, redisKeyJSON{Key: e.Key, Type: e.Type, TTLSeconds: redisTTL(e.TTL)})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"keys": keys, "next": next})
+	return c.JSON(http.StatusOK, map[string]any{redisKeysField: keys, "next": next})
 }
 
 // redisTTL reports -1 for a key without expiry, as Redis does.
-func redisTTL(ms int64) int64 {
-	if ms <= 0 {
+func redisTTL(d time.Duration) int64 {
+	if d <= 0 {
 		return -1
 	}
 
-	return (ms + 999) / 1000
+	return int64((d + time.Second - 1) / time.Second)
 }
 
 func (a *azureRedisAPI) value(c *echo.Context) error {
@@ -179,8 +183,8 @@ func (a *azureRedisAPI) value(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"key": v.Key, "type": v.Type, "text": v.Text, "elements": elems, "total": v.Total,
-		"truncated": v.Truncated, "ttlSeconds": redisTTL(v.TTL.Milliseconds()),
+		redisKeyField: v.Key, "type": v.Type, "text": v.Text, "elements": elems, "total": v.Total,
+		redisTruncatedField: v.Truncated, "ttlSeconds": redisTTL(v.TTL),
 	})
 }
 

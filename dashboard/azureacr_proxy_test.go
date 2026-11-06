@@ -96,12 +96,18 @@ func TestAzureACRProxy(t *testing.T) {
 			wantCode: 400, wantBody: "invalid repository name",
 		},
 		{
-			name: "bad tag", method: http.MethodDelete, path: acrBase + "/devregistry/tags?repo=team%2Fapp&tag=sha256:abc",
-			wantCode: 400, wantBody: "invalid tag name",
+			name:     "bad tag",
+			method:   http.MethodDelete,
+			path:     acrBase + "/devregistry/tags?repo=team%2Fapp&tag=sha256:abc",
+			wantCode: 400,
+			wantBody: "invalid tag name",
 		},
 		{
-			name: "delete missing tag", method: http.MethodDelete, path: acrBase + "/devregistry/tags?repo=team%2Fapp&tag=zzz",
-			wantCode: 404, wantBody: "NOT_FOUND",
+			name:     "delete missing tag",
+			method:   http.MethodDelete,
+			path:     acrBase + "/devregistry/tags?repo=team%2Fapp&tag=zzz",
+			wantCode: 404,
+			wantBody: "NOT_FOUND",
 		},
 		{
 			name: "no write to repositories", method: http.MethodPost, path: acrBase + "/devregistry/repositories",

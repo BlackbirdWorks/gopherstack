@@ -155,7 +155,9 @@ func TestAzureRedisProxy(t *testing.T) {
 			wantBody: []string{"cache is required"},
 		},
 		{
-			name: "long pattern", path: redisURL("/keys", url.Values{"match": {strings.Repeat("a", 300)}}), wantCode: 400,
+			name:     "long pattern",
+			path:     redisURL("/keys", url.Values{"match": {strings.Repeat("a", 300)}}),
+			wantCode: 400,
 			wantBody: []string{"too long"},
 		},
 		{
@@ -189,7 +191,11 @@ func TestAzureRedisKeysNeverInGets(t *testing.T) {
 
 	env := newRedisEnv(t)
 
-	for _, path := range []string{redisPxBase + "/caches", redisURL("/keys", nil), redisURL("/value", url.Values{"key": {"user:1"}})} {
+	paths := []string{
+		redisPxBase + "/caches", redisURL("/keys", nil), redisURL("/value", url.Values{"key": {"user:1"}}),
+	}
+
+	for _, path := range paths {
 		rec := doProxy(t, env.h, http.MethodGet, path, "")
 		assert.NotContains(t, rec.Body.String(), env.keys.Primary, path)
 		assert.NotContains(t, rec.Body.String(), env.keys.Secondary, path)

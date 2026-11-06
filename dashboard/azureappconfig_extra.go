@@ -17,6 +17,9 @@ const (
 	appConfigMaxRevision = 200
 	appConfigMaxFlagID   = 256
 	appConfigMask        = "••••••••"
+	appConfigItemsKey    = "items"
+	appConfigKeysKey     = "keys"
+	appConfigSecretKey   = "secret"
 )
 
 type appConfigSnapshotJSON struct {
@@ -122,7 +125,7 @@ func (a *azureAppConfigAPI) snapshotItems(c *echo.Context) error {
 		return a.fail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": appConfigKVs(kvs)})
+	return c.JSON(http.StatusOK, map[string]any{appConfigItemsKey: appConfigKVs(kvs)})
 }
 
 // revisions returns the newest recorded states of the matching key-values, newest first.
@@ -146,7 +149,7 @@ func (a *azureAppConfigAPI) revisions(c *echo.Context) error {
 		items = items[:appConfigMaxRevision]
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": items})
+	return c.JSON(http.StatusOK, map[string]any{appConfigItemsKey: items})
 }
 
 func (a *azureAppConfigAPI) features(c *echo.Context) error {
@@ -239,7 +242,7 @@ func (a *azureAppConfigAPI) accessKeys(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"keys": items})
+	return c.JSON(http.StatusOK, map[string]any{appConfigKeysKey: items})
 }
 
 // revealKey is the only route that sends a credential secret out.
@@ -258,7 +261,7 @@ func (a *azureAppConfigAPI) revealKey(c *echo.Context) error {
 		if k.ID == in.ID {
 			c.Response().Header().Set("Cache-Control", "no-store")
 
-			return c.JSON(http.StatusOK, map[string]string{"id": k.ID, "secret": k.Secret})
+			return c.JSON(http.StatusOK, map[string]string{"id": k.ID, appConfigSecretKey: k.Secret})
 		}
 	}
 

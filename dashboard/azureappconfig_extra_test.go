@@ -14,7 +14,8 @@ import (
 
 const (
 	acPxBase = "/dashboard/api/v1/azure/appconfig/stores/store1"
-	acFlag   = `{"id":"beta","description":"Beta UI","enabled":false,"conditions":{"client_filters":[{"name":"Microsoft.Percentage","parameters":{"Value":50}}]}}`
+	acFlag   = `{"id":"beta","description":"Beta UI","enabled":false,"conditions":` +
+		`{"client_filters":[{"name":"Microsoft.Percentage","parameters":{"Value":50}}]}}`
 )
 
 func newAppConfigEnv(t *testing.T) (*dashboard.DashboardHandler, string) {
@@ -25,7 +26,13 @@ func newAppConfigEnv(t *testing.T) (*dashboard.DashboardHandler, string) {
 	require.NoError(t, err)
 
 	set := func(key, label, value string, ct *string) {
-		_, setErr := b.SetKeyValue("store1", key, label, azureappconfig.KVInput{Value: &value, ContentType: ct}, azureappconfig.Precondition{})
+		_, setErr := b.SetKeyValue(
+			"store1",
+			key,
+			label,
+			azureappconfig.KVInput{Value: &value, ContentType: ct},
+			azureappconfig.Precondition{},
+		)
 		require.NoError(t, setErr)
 	}
 
@@ -43,7 +50,9 @@ func newAppConfigEnv(t *testing.T) (*dashboard.DashboardHandler, string) {
 	keys, err := b.AccessKeys("store1")
 	require.NoError(t, err)
 
-	return dashboard.NewHandler(dashboard.Config{AzureAppConfigOps: azureappconfig.NewHandler(b, azureappconfig.Settings{})}), keys[0].ID
+	return dashboard.NewHandler(
+		dashboard.Config{AzureAppConfigOps: azureappconfig.NewHandler(b, azureappconfig.Settings{})},
+	), keys[0].ID
 }
 
 func TestAzureAppConfigExtraReads(t *testing.T) {
@@ -55,12 +64,42 @@ func TestAzureAppConfigExtraReads(t *testing.T) {
 		wantBody []string
 		wantCode int
 	}{
-		{name: "snapshots", path: acPxBase + "/snapshots", wantCode: 200, wantBody: []string{`"snap1"`, `"itemCount":1`}},
-		{name: "snapshot items", path: acPxBase + "/snapshots/snap1/kv", wantCode: 200, wantBody: []string{`"app/key"`, `"v2"`}},
-		{name: "missing snapshot", path: acPxBase + "/snapshots/nope/kv", wantCode: 404, wantBody: []string{"NOT_FOUND"}},
-		{name: "revisions newest first", path: acPxBase + "/revisions?key=app/key", wantCode: 200, wantBody: []string{`"v2"`, `"v1"`}},
-		{name: "features", path: acPxBase + "/features", wantCode: 200, wantBody: []string{`"id":"beta"`, `"description":"Beta UI"`, `"filterCount":1`, `"id":"gamma"`}},
-		{name: "missing store", path: "/dashboard/api/v1/azure/appconfig/stores/nope/features", wantCode: 404, wantBody: []string{"NOT_FOUND"}},
+		{
+			name:     "snapshots",
+			path:     acPxBase + "/snapshots",
+			wantCode: 200,
+			wantBody: []string{`"snap1"`, `"itemCount":1`},
+		},
+		{
+			name:     "snapshot items",
+			path:     acPxBase + "/snapshots/snap1/kv",
+			wantCode: 200,
+			wantBody: []string{`"app/key"`, `"v2"`},
+		},
+		{
+			name:     "missing snapshot",
+			path:     acPxBase + "/snapshots/nope/kv",
+			wantCode: 404,
+			wantBody: []string{"NOT_FOUND"},
+		},
+		{
+			name:     "revisions newest first",
+			path:     acPxBase + "/revisions?key=app/key",
+			wantCode: 200,
+			wantBody: []string{`"v2"`, `"v1"`},
+		},
+		{
+			name:     "features",
+			path:     acPxBase + "/features",
+			wantCode: 200,
+			wantBody: []string{`"id":"beta"`, `"description":"Beta UI"`, `"filterCount":1`, `"id":"gamma"`},
+		},
+		{
+			name:     "missing store",
+			path:     "/dashboard/api/v1/azure/appconfig/stores/nope/features",
+			wantCode: 404,
+			wantBody: []string{"NOT_FOUND"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -101,7 +140,13 @@ func TestAzureAppConfigToggleKeepsDocument(t *testing.T) {
 
 	h, _ := newAppConfigEnv(t)
 
-	rec := doProxy(t, h, http.MethodPost, acPxBase+"/features/toggle", `{"id":"beta","label":"prod","enabled":true,"value":"IGNORED","key":"app/key"}`)
+	rec := doProxy(
+		t,
+		h,
+		http.MethodPost,
+		acPxBase+"/features/toggle",
+		`{"id":"beta","label":"prod","enabled":true,"value":"IGNORED","key":"app/key"}`,
+	)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	rec = doProxy(t, h, http.MethodGet, acPxBase+"/features", "")

@@ -151,10 +151,10 @@ type sqlTestEngine struct {
 }
 
 func (*sqlTestEngine) Endpoint() (string, int)                              { return "127.0.0.1", 1 }
-func (*sqlTestEngine) SetLogin(context.Context, string, string) error      { return nil }
+func (*sqlTestEngine) SetLogin(context.Context, string, string) error       { return nil }
 func (*sqlTestEngine) CreateDatabase(context.Context, string, string) error { return nil }
-func (*sqlTestEngine) DropDatabase(context.Context, string) error          { return nil }
-func (*sqlTestEngine) ListDatabases(context.Context) ([]string, error)     { return nil, nil }
+func (*sqlTestEngine) DropDatabase(context.Context, string) error           { return nil }
+func (*sqlTestEngine) ListDatabases(context.Context) ([]string, error)      { return nil, nil }
 func (*sqlTestEngine) Close(context.Context)                                {}
 
 func (e *sqlTestEngine) Query(_ context.Context, db, text string, _ int) (azuresql.QueryResult, error) {
@@ -261,7 +261,13 @@ func TestAzureSQLQueryReachesEngineOnlyWhenValid(t *testing.T) {
 
 	h, eng := newSQLQueryDashboard(t, true)
 
-	rec := doProxy(t, h, http.MethodPost, sqlQueryURL, `{"server":"`+sqlServer+`","database":"app","query":"DROP TABLE t"}`)
+	rec := doProxy(
+		t,
+		h,
+		http.MethodPost,
+		sqlQueryURL,
+		`{"server":"`+sqlServer+`","database":"app","query":"DROP TABLE t"}`,
+	)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Empty(t, eng.gotQ)
 

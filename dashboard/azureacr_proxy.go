@@ -15,9 +15,9 @@ const (
 	azureACRProxyPrefix = "/dashboard/api/v1/azure/acr"
 	acrMaxTags          = 200
 	acrMask             = "••••••••"
+	acrKeyPassword      = "password"
 )
 
-//nolint:gochecknoglobals // immutable allow-list patterns
 var (
 	acrRepoRe = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 	acrTagRe  = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
@@ -52,9 +52,9 @@ type acrManifestJSON struct {
 }
 
 type acrTagJSON struct {
-	Updated time.Time `json:"updated"`
 	acrManifestJSON
-	Name string `json:"name"`
+	Updated time.Time `json:"updated"`
+	Name    string    `json:"name"`
 }
 
 // registerAzureACRRoutes serves the Container Registry page from the backend in-process: repositories, tags and
@@ -295,6 +295,6 @@ func (a *azureACRAPI) reveal(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-store")
 
 	return c.JSON(http.StatusOK, map[string]string{
-		"username": creds.Username, "password": creds.Password1, "password2": creds.Password2,
+		"username": creds.Username, acrKeyPassword: creds.Password1, "password2": creds.Password2,
 	})
 }

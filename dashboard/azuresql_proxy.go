@@ -24,9 +24,11 @@ const (
 	sqlPxRGList         = 7
 	sqlPxChildItem      = 2
 	sqlPxMaxServerID    = 512
+	sqlPxRowsField      = "rows"
+	sqlPxPropsField     = "properties"
 )
 
-var sqlPxRuleRE = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`) //nolint:gochecknoglobals // immutable pattern
+var sqlPxRuleRE = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 // registerAzureSQLRoutes exposes logical servers, databases and firewall rules by dispatching in-process to the ARM
 // handler (firewall rules are the only writes, with a body rebuilt from fixed fields; the administrator password
@@ -60,22 +62,25 @@ func sqlProxyAllowed(method string, p []string) bool {
 		return false
 	}
 
-	if name == "" {
+	if name == "" || len(rest) == 0 {
 		return method == http.MethodGet
 	}
 
-	switch len(rest) {
-	case 0:
-		return method == http.MethodGet
-	case 1:
-		return method == http.MethodGet && (rest[0] == sqlPxDatabases || rest[0] == sqlPxFirewall)
-	case sqlPxChildItem:
-		switch method {
-		case http.MethodGet:
-			return rest[0] == sqlPxDatabases || rest[0] == sqlPxFirewall
-		case http.MethodPut, http.MethodDelete:
-			return rest[0] == sqlPxFirewall && sqlPxRuleRE.MatchString(rest[1])
-		}
+	return sqlProxyChild(method, rest)
+}
+
+func sqlProxyChild(method string, rest []string) bool {
+	readable := rest[0] == sqlPxDatabases || rest[0] == sqlPxFirewall
+
+	switch {
+	case len(rest) == 1:
+		return method == http.MethodGet && readable
+	case len(rest) != sqlPxChildItem:
+		return false
+	case method == http.MethodGet:
+		return readable
+	case method == http.MethodPut || method == http.MethodDelete:
+		return rest[0] == sqlPxFirewall && sqlPxRuleRE.MatchString(rest[1])
 	}
 
 	return false
@@ -102,7 +107,7 @@ func sqlProxyBody(method string, _ []string, in []byte) ([]byte, bool) {
 		return nil, false
 	}
 
-	b, err := json.Marshal(map[string]any{"properties": map[string]any{
+	b, err := json.Marshal(map[string]any{sqlPxPropsField: map[string]any{
 		"startIpAddress": start.String(), "endIpAddress": end.String(),
 	}})
 
@@ -155,8 +160,7 @@ func (a *azureSQLQueryAPI) run(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"columns": res.Columns, "rows": res.Rows, "truncated": res.Truncated,
+		"columns": res.Columns, sqlPxRowsField: res.Rows, "truncated": res.Truncated,
 		"maxRows": sqlbackend.MaxQueryRows, "elapsedMs": time.Since(started).Milliseconds(),
 	})
 }
-

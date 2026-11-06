@@ -113,19 +113,54 @@ func TestBackendQuery(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		launcher azuresql.Launcher
+		wantErr  error
+		name     string
 		server   string
 		db       string
 		query    string
-		wantErr  error
 	}{
 		{name: "runs on the engine", launcher: &queryLauncher{}, server: "SRV", db: "master", query: "SELECT 1"},
-		{name: "unknown server", launcher: &queryLauncher{}, server: "nope", db: "master", query: "SELECT 1", wantErr: azuresql.ErrNotFound},
-		{name: "state only", launcher: nil, server: "srv", db: "master", query: "SELECT 1", wantErr: azuresql.ErrNoEngine},
-		{name: "engine without query support", launcher: &fakeLauncher{}, server: "srv", db: "master", query: "SELECT 1", wantErr: azuresql.ErrNoEngine},
-		{name: "rejects writes", launcher: &queryLauncher{}, server: "srv", db: "master", query: "DELETE FROM t", wantErr: azuresql.ErrInvalid},
-		{name: "rejects bad database", launcher: &queryLauncher{}, server: "srv", db: "a]b", query: "SELECT 1", wantErr: azuresql.ErrInvalid},
+		{
+			name:     "unknown server",
+			launcher: &queryLauncher{},
+			server:   "nope",
+			db:       "master",
+			query:    "SELECT 1",
+			wantErr:  azuresql.ErrNotFound,
+		},
+		{
+			name:     "state only",
+			launcher: nil,
+			server:   "srv",
+			db:       "master",
+			query:    "SELECT 1",
+			wantErr:  azuresql.ErrNoEngine,
+		},
+		{
+			name:     "engine without query support",
+			launcher: &fakeLauncher{},
+			server:   "srv",
+			db:       "master",
+			query:    "SELECT 1",
+			wantErr:  azuresql.ErrNoEngine,
+		},
+		{
+			name:     "rejects writes",
+			launcher: &queryLauncher{},
+			server:   "srv",
+			db:       "master",
+			query:    "DELETE FROM t",
+			wantErr:  azuresql.ErrInvalid,
+		},
+		{
+			name:     "rejects bad database",
+			launcher: &queryLauncher{},
+			server:   "srv",
+			db:       "a]b",
+			query:    "SELECT 1",
+			wantErr:  azuresql.ErrInvalid,
+		},
 	}
 
 	for _, tt := range tests {
