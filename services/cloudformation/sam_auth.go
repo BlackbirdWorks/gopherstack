@@ -49,6 +49,9 @@ func (t *samTranslator) parseAPIAuth(apiID string, props map[string]any) (*samAu
 	}
 	authorizers := asMap(raw["Authorizers"])
 	for _, name := range slices.Sorted(maps.Keys(authorizers)) {
+		if err := validateAuthorizerShape(apiID, name, authorizers[name]); err != nil {
+			return nil, err
+		}
 		def, perm, err := samAuthorizer(apiID, name, authorizers[name])
 		if err != nil {
 			return nil, err
@@ -152,7 +155,7 @@ func samLambdaAuthorizer(apiID, name string, cfg map[string]any) (map[string]any
 	var perm map[string]any
 	if cfg["DisableFunctionDefaultPermissions"] != true {
 		perm = lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: []any{
-			"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/authorizers/*",
+			samAuthorizersSourceARN,
 			map[string]any{samAPIIDMarker: samRef(apiID)},
 		}})
 		asMap(perm[samKeyProps])[samKeyFnName] = fnArn
@@ -219,7 +222,7 @@ func identitySources(identity map[string]any) []string {
 	var out []string
 	for _, p := range []struct{ key, prefix string }{
 		{samKeyHeaders, samHeaderParam}, {samKQueryStrings, "method.request.querystring."},
-		{samKeyStageVars, "stageVariables."}, {"Context", "context."},
+		{samKeyStageVars, "stageVariables."}, {samKeyContext, "context."},
 	} {
 		for _, v := range asList(identity[p.key]) {
 			if s, ok := v.(string); ok {

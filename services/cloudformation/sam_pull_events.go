@@ -109,7 +109,20 @@ func samPullDirect() map[string]bool {
 		"ProvisionedPollerConfig", "MetricsConfig", "LoggingConfig")
 }
 
+func checkSACType(id string, props map[string]any) error {
+	if v, has := props[samKeySAC]; has && v != nil {
+		if _, isList := v.([]any); !isList {
+			return samErr(id, "Type of property '%s' is invalid.", samKeySAC)
+		}
+	}
+
+	return nil
+}
+
 func validatePullProps(fnID, name, kind string, props map[string]any) error {
+	if err := checkSACType(fnID+name, props); err != nil {
+		return err
+	}
 	if fc := asMap(props["FilterCriteria"]); fc != nil && !isIntrinsicValue(fc) {
 		if !containsString(samFilterKinds(), kind) {
 			return samErr(fnID, "Event [%s] FilterCriteria is only available for DocumentDB, DynamoDB, Kinesis, MQ, "+
@@ -246,14 +259,14 @@ func (t *samTranslator) pullPolicies(ev *samEventCtx, name, kind string, props m
 		ev.role.addManaged(samDynamoDBExec)
 	case samEventMSK:
 		ev.role.addManaged(samMSKExec)
-		if statements := mskStatements(props); len(statements) > 0 {
+		if statements := t.mskStatements(props); len(statements) > 0 {
 			ev.role.addInline(map[string]any{samKeyPolicyName: "MSKExecutionRolePolicy",
 				samKeyPolicyDoc: map[string]any{samKeyStatement: statements}})
 		}
 	case samEventMQ:
 		return mqPolicy(ev, id, props)
 	case samEventKafka:
-		return kafkaPolicy(ev, id, props)
+		return t.kafkaPolicy(ev, id, props)
 	case samEventDocDB:
 		return docDBPolicy(ev, id, props)
 	}
@@ -285,14 +298,14 @@ func kmsDecryptStatement(keyID any, list bool) map[string]any {
 	}
 }
 
-func mskStatements(props map[string]any) []any {
+func (t *samTranslator) mskStatements(props map[string]any) []any {
 	var statements []any
 	if reg := asMap(props[samKeySchemaReg]); reg != nil {
-		statements = append(statements, schemaRegistryStatements(reg)...)
+		statements = append(statements, t.schemaRegistryStatements(reg)...)
 	}
 	for _, c := range asList(props[samKeySAC]) {
 		conf := asMap(c)
-		if conf["Type"] == "CLIENT_CERTIFICATE_TLS_AUTH" && conf[samKeyURI2] != nil {
+		if conf[samKeyType] == "CLIENT_CERTIFICATE_TLS_AUTH" && conf[samKeyURI2] != nil {
 			statements = append(statements, secretStatement(conf[samKeyURI2]))
 		}
 	}
@@ -301,7 +314,7 @@ func mskStatements(props map[string]any) []any {
 }
 
 // schemaRegistryStatements grants the Glue Schema Registry reads a SchemaRegistryConfig implies.
-func schemaRegistryStatements(reg map[string]any) []any {
+func (t *samTranslator) schemaRegistryStatements(reg map[string]any) []any {
 	var out []any
 	for _, c := range asList(reg["AccessConfigs"]) {
 		if conf := asMap(c); conf[samKeyURI2] != nil {
@@ -310,7 +323,7 @@ func schemaRegistryStatements(reg map[string]any) []any {
 	}
 	uri := reg["SchemaRegistryURI"]
 	var arnText string
-	switch u := uri.(type) {
+	switch u := t.resolveParamRefs(uri).(type) {
 	case string:
 		arnText = u
 	case map[string]any:
@@ -338,7 +351,7 @@ func glueRegistryName(registryARN string) string {
 	if !strings.HasPrefix(registryARN, "arn") {
 		return ""
 	}
-	parts := strings.Split(registryARN, ":")
+	parts := strings.Split(samSubVarPattern.ReplaceAllString(registryARN, "x"), ":")
 	if len(parts) >= arnSegments && strings.HasPrefix(parts[registrySegment], "registry/") {
 		return strings.TrimPrefix(parts[registrySegment], "registry/")
 	}
@@ -429,7 +442,7 @@ func requiredSACURI(id, label string, props map[string]any, supported []string, 
 		if conf == nil {
 			return nil, samErr(id, "SourceAccessConfigurations[%d] must be a map.", i)
 		}
-		typ, ok := conf["Type"].(string)
+		typ, ok := conf[samKeyType].(string)
 		if !ok {
 			return nil, samErr(id, "SourceAccessConfigurations[%d].Type must be a string.", i)
 		}
@@ -464,7 +477,7 @@ func samKafkaOAuthMetadata() []string {
 		"OAUTHBEARER_IDENTITY_POOL"}
 }
 
-func kafkaPolicy(ev *samEventCtx, id string, props map[string]any) error {
+func (t *samTranslator) kafkaPolicy(ev *samEventCtx, id string, props map[string]any) error {
 	if props[samKeyBootstrap] == nil {
 		return samErr(id, "No KafkaBootstrapServers provided for self managed kafka as an event source")
 	}
@@ -500,7 +513,7 @@ func kafkaPolicy(ev *samEventCtx, id string, props map[string]any) error {
 		statements = append(statements, kmsDecryptStatement(k, true))
 	}
 	if reg := asMap(props[samKeySchemaReg]); reg != nil {
-		statements = append(statements, schemaRegistryStatements(reg)...)
+		statements = append(statements, t.schemaRegistryStatements(reg)...)
 	}
 	if len(statements) == 0 {
 		return nil
@@ -541,7 +554,7 @@ func kafkaSecrets(id string, sac any) (any, any, bool, error) {
 }
 
 func (s *kafkaSAC) add(id string, conf map[string]any) error {
-	typ, _ := conf["Type"].(string)
+	typ, _ := conf[samKeyType].(string)
 	uri := conf[samKeyURI2]
 	switch {
 	case typ == "VPC_SUBNET", typ == "VPC_SECURITY_GROUP":

@@ -90,8 +90,8 @@ func (t *samTranslator) smDLQ(smID, name string, props map[string]any, ruleARN a
 
 func (t *samTranslator) smScheduleEvent(smID, targetID, name string, props map[string]any, boundary any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, "Name", samKeyDesc,
-		samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
+	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, attrNameName,
+		samKeyDesc, samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
 		return err
 	}
 	if props["Schedule"] == nil {
@@ -211,6 +211,11 @@ func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string
 		return err
 	}
 
+	if v, has := props[samUnescapeFlag]; has && v != nil {
+		if _, isBool := v.(bool); !isBool {
+			return samErr(id, "Type of property '%s' is invalid.", samUnescapeFlag)
+		}
+	}
 	unescape, _ := props[samUnescapeFlag].(bool)
 	api.addRoute(
 		samRoute{
@@ -222,6 +227,7 @@ func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string
 			unescape:   unescape,
 			apiKey:     apiKey,
 			scopes:     scopes,
+			auth:       asMap(props[samAuthKey]),
 		},
 		t.pass,
 	)

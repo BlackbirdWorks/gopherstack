@@ -1,0 +1,24 @@
+Transform: AWS::Serverless-2016-10-31
+Resources:
+  SuperCoolAPI:
+    Type: AWS::Serverless::GraphQLApi
+    Properties:
+      Name: SomeApi
+      SchemaInline: |
+        type Mutation {
+          addTodo(id: ID!, name: String, description: String, priority: Int): Todo
+        }
+      XrayEnabled: true
+      Auth:
+        Type: AWS_IAM
+      Tags:
+        key1: value1
+        key2: value2
+      DataSources:
+        DynamoDb:
+          MyDataSource:
+            TableName: some-table
+            TableArn: arn:aws:dynamodb:us-west-2:987654321098:table/dec86919-7219-4e8d-8871-7f1609df2c7f
+          AnotherDataSource:
+            TableName: cool-table
+            TableArn: arn:aws:dynamodb:us-west-2:987654321098:table/dec86919-7219-4e8d-8871-7f1609df2c7f

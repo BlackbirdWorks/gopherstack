@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 // isValidGetTemplateStage reports whether stage is one of the only two real
@@ -48,7 +50,7 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	}
 
 	if form.Get("TemplateStage") == "Processed" {
-		if body, err = ProcessedTemplateBody(body); err != nil {
+		if body, err = ProcessedTemplateBody(body, awsmeta.Region(c.Request().Context())); err != nil {
 			return h.xmlError(c, "ValidationError", err.Error())
 		}
 	}

@@ -37,7 +37,7 @@ func (t *samTranslator) deploymentPreference(id string, r, props map[string]any)
 		return err
 	}
 	pref := &samDeployPref{fnID: id, dp: dp, tags: maps.Clone(t.curTags)}
-	if pass, _ := t.paramDefault(dp["PassthroughCondition"]).(bool); pass {
+	if pass, _ := dp["PassthroughCondition"].(bool); pass {
 		pref.condition = asString(r[samKeyCondition])
 	}
 	t.deploys = append(t.deploys, pref)
@@ -77,7 +77,7 @@ func (t *samTranslator) readDeploymentPreference(id string, props map[string]any
 	if _, has := dp[samKeyType]; !has {
 		return nil, false, samErr(id, "'DeploymentPreference' is missing required Property 'Type'")
 	}
-	dp[samKeyType] = t.paramDefault(dp[samKeyType])
+	dp[samKeyType] = t.resolveParamRefs(dp[samKeyType])
 	if hooks, has := dp["Hooks"]; has && hooks != nil {
 		if _, isMap := hooks.(map[string]any); !isMap {
 			return nil, false, samErr(id, "'Hooks' property of 'DeploymentPreference' must be a dictionary")
@@ -85,6 +85,13 @@ func (t *samTranslator) readDeploymentPreference(id string, props map[string]any
 	}
 	if props[samKeyAutoPublish] == nil {
 		return nil, false, samErr(id, "'DeploymentPreference' requires AutoPublishAlias property to be specified.")
+	}
+	if v, has := dp["PassthroughCondition"]; has && v != nil {
+		pass, err := t.passthroughCondition(id, v)
+		if err != nil {
+			return nil, false, err
+		}
+		dp["PassthroughCondition"] = pass
 	}
 
 	return dp, true, nil

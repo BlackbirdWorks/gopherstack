@@ -45,6 +45,9 @@ func (t *samTranslator) translateFunction(id string, r map[string]any) error {
 	if v, ok := props["AutoPublishCodeSha256"]; ok {
 		props["AutoPublishCodeSha256"] = t.paramDefault(v)
 	}
+	if err := t.validateFunctionShape(id, props); err != nil {
+		return err
+	}
 	if v, ok := props[samKeyAutoPublish]; ok {
 		alias, isStr := t.paramDefault(v).(string)
 		if !isStr || alias == "" {
@@ -307,7 +310,7 @@ func autoPublishDescription(desc any, sha string) any {
 
 // capacityProviderConfig nests SAM's flat CapacityProviderConfig under LambdaManagedInstancesCapacityProviderConfig.
 func capacityProviderConfig(cp map[string]any) map[string]any {
-	inner := map[string]any{"CapacityProviderArn": cp["Arn"]}
+	inner := map[string]any{"CapacityProviderArn": cp[attrNameArn]}
 	for _, k := range []string{"PerExecutionEnvironmentMaxConcurrency", "ExecutionEnvironmentMemoryGiBPerVCpu"} {
 		if v, ok := cp[k]; ok && v != nil {
 			inner[k] = v
@@ -346,8 +349,16 @@ func lambdaCode(id string, props map[string]any) (map[string]any, error) {
 func s3Location(id, prop string, v any, bucketKey, keyKey, verKey string) (map[string]any, error) {
 	switch u := v.(type) {
 	case string:
+		if samDynamicRefRe.MatchString(u) {
+			return nil, samErr(id, "Unsupported dynamic reference detected in '%s'. Please consider using alternative "+
+				"'FunctionCode' object format.", prop)
+		}
 		rest, ok := strings.CutPrefix(u, "s3://")
 		bucket, key, hasKey := strings.Cut(rest, "/")
+		if strings.ContainsAny(bucket, "[]") {
+			return nil, samErr(id, "'%s' is not a valid S3 Uri of the form 's3://bucket/key' with optional versionId "+
+				"query parameter.", prop)
+		}
 		key, query, _ := strings.Cut(key, "?")
 		if !ok || bucket == "" || !hasKey || key == "" {
 			return nil, samErr(id, "'%s' is not a valid S3 Uri of the form \"s3://bucket/key\".", prop)

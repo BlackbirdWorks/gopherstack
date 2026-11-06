@@ -111,7 +111,7 @@ func (m *samRequestModel) apply(doc, op map[string]any) {
 	name := strings.ToLower(m.model)
 	if _, isV3 := doc["openapi"]; isV3 {
 		body := map[string]any{"content": map[string]any{samJSONMime: map[string]any{
-			samKeySchema: map[string]any{"$ref": "#/components/schemas/" + name},
+			samKeySchema: map[string]any{samKeyDollarRef: "#/components/schemas/" + name},
 		}}}
 		if m.required != nil {
 			body["required"] = m.required
@@ -119,7 +119,7 @@ func (m *samRequestModel) apply(doc, op map[string]any) {
 		op["requestBody"] = body
 	} else {
 		param := map[string]any{"in": "body", samKeyNameLower: name,
-			samKeySchema: map[string]any{"$ref": "#/definitions/" + name}}
+			samKeySchema: map[string]any{samKeyDollarRef: "#/definitions/" + name}}
 		if m.required != nil {
 			param["required"] = m.required
 		}

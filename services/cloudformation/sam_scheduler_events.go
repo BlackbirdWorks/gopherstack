@@ -26,7 +26,7 @@ func lambdaInvokePolicy(policyName string, resource any) map[string]any {
 }
 
 func samScheduleKeys() map[string]bool {
-	return keySet("ScheduleExpression", "ScheduleExpressionTimezone", "StartDate", "EndDate", samKeyState, "Name",
+	return keySet("ScheduleExpression", "ScheduleExpressionTimezone", "StartDate", "EndDate", samKeyState, attrNameName,
 		"OmitName", samKeyDesc, "GroupName", "FlexibleTimeWindow", samKeyInput, "KmsKeyArn", samKeyRetry, samKeyRoleArn,
 		"PermissionsBoundary", samKeyDLC)
 }
@@ -110,13 +110,13 @@ func scheduleBody(logicalID string, props map[string]any) (map[string]any, error
 		}
 	}
 	switch {
-	case props["OmitName"] == true && props["Name"] != nil:
+	case props["OmitName"] == true && props[attrNameName] != nil:
 		return nil, samErr(logicalID, "Name cannot be set when OmitName is True")
 	case props["OmitName"] == true:
-	case props["Name"] != nil:
-		sched["Name"] = props["Name"]
+	case props[attrNameName] != nil:
+		sched[attrNameName] = props[attrNameName]
 	default:
-		sched["Name"] = logicalID
+		sched[attrNameName] = logicalID
 	}
 
 	return sched, nil

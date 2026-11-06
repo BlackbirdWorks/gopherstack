@@ -1,6 +1,19 @@
 package cloudformation
 
 const (
+	samAuthorizersSourceARN = "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:" +
+		"${__ApiId__}/authorizers/*"
+	samKeyAccessLog               = "AccessLogSettings"
+	samKeyAccessMode              = "EndpointAccessMode"
+	samKeyBinaryTypes             = "BinaryMediaTypes"
+	samKeyCertArn                 = "CertificateArn"
+	samKeyContext                 = "Context"
+	samKeyDefaultRoute            = "DefaultRouteSettings"
+	samKeyDisableEndpoint         = "DisableExecuteApiEndpoint"
+	samKeyDollarRef               = "$ref"
+	samKeyGWResponses             = "GatewayResponses"
+	samKeyLambdaAuthCfg           = "LambdaAuthorizerConfig"
+	samPermWrite                  = "Write"
 	samKeyDescLower               = "description"
 	samAPIIDMarker                = "__ApiId__"
 	samKeyEventBus                = "EventBusName"

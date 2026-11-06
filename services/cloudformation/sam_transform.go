@@ -103,6 +103,7 @@ type samTranslator struct {
 	out        map[string]any
 	pass       map[string]any
 	conditions map[string]any
+	mappings   map[string]any
 	bucketTags map[string]map[string]any
 	owner      map[string]string
 	curTags    map[string]any
@@ -144,12 +145,16 @@ func isSAMTransform(doc map[string]any) bool {
 
 // expandSAMDocument expands a decoded SAM template in place of Resources and
 // drops Globals; Transform is left for the caller to keep or strip.
-func expandSAMDocument(doc map[string]any) (err error) {
+func expandSAMDocument(doc map[string]any, region string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w. Unexpected template shape: %v", ErrSAMTransform, r)
 		}
 	}()
+
+	if err = validateSAMDocument(doc); err != nil {
+		return err
+	}
 
 	t := &samTranslator{
 		out:        map[string]any{},
@@ -163,8 +168,12 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		refs:       map[string]string{},
 		params:     map[string]any{},
 		conditions: map[string]any{},
+		mappings:   asMap(doc["Mappings"]),
 		bucketTags: map[string]map[string]any{},
 		owner:      map[string]string{},
+	}
+	if region != "" {
+		t.params["AWS::Region"] = region
 	}
 	for name, p := range asMap(doc["Parameters"]) {
 		if def, ok := asMap(p)["Default"]; ok {
@@ -172,6 +181,9 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		}
 	}
 	if err = t.readGlobals(asMap(doc["Globals"])); err != nil {
+		return err
+	}
+	if err = t.validateSubVariables(doc["Resources"]); err != nil {
 		return err
 	}
 	delete(doc, "Globals")
@@ -196,7 +208,10 @@ func expandSAMDocument(doc map[string]any) (err error) {
 func (t *samTranslator) readGlobals(g map[string]any) error {
 	for section, v := range g {
 		switch section {
-		case samKeyFunction, "Api", "HttpApi", "SimpleTable":
+		case samKeyFunction, "Api", "HttpApi", "SimpleTable", "StateMachine", "LayerVersion", "WebSocketApi":
+			if err := validateGlobalsSection(section, asMap(v)); err != nil {
+				return err
+			}
 			t.globals[section] = asMap(v)
 		default:
 			return fmt.Errorf("%w. Globals section [%s] is not supported", ErrSAMTransform, section)
@@ -274,6 +289,10 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 		return t.translateWithTags("StateMachine", r, func() error { return t.translateStateMachine(id, r) })
 	case samResPrefix + "Application":
 		return t.translateApplication(id, r)
+	case samResPrefix + "WebSocketApi":
+		return t.translateWebSocketAPI(id, r)
+	case samResPrefix + "GraphQLApi":
+		return t.translateGraphQLApi(id, r)
 	case samResPrefix + "Api", samResPrefix + "HttpApi", samTypeConnector:
 		return nil
 	}
@@ -307,10 +326,11 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 //nolint:gochecknoglobals // read-only table
 var samReplacedTypes = map[string][]string{
 	samTypeFunction: {samResPrefix + samKeyFunction}, samTypeLayer: {samResPrefix + "LayerVersion"},
-	samTypeRestAPI: {samResPrefix + "Api"}, samTypeHTTPAPI: {samResPrefix + "HttpApi"},
+	samTypeRestAPI: {samResPrefix + "Api"}, samTypeHTTPAPI: {samResPrefix + "HttpApi", samResPrefix + "WebSocketApi"},
 	samTypeBucket: {samTypeBucket}, resTypeSNSTopic: {resTypeSNSTopic},
 	resTypeDynamoDBTable: {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
 	samTypeUserPool: {samTypeUserPool}, samTypeV1Domain: {samTypeV1Domain},
+	samTypeAppSyncAPI:                  {samResPrefix + "GraphQLApi"},
 	samTypeV1Mapping:                   {samTypeV1Mapping},
 	"AWS::StepFunctions::StateMachine": {samResPrefix + "StateMachine"},
 }
@@ -381,6 +401,12 @@ func (t *samTranslator) resolveParamRefs(v any) any {
 		if r := t.paramDefault(val); len(val) == 1 && val[samKeyRef] != nil {
 			return r
 		}
+		if _, isSub := val[samKeyFnSub].(string); isSub && len(val) == 1 {
+			return t.resolveStringParam(val)
+		}
+		if args, isFind := val["Fn::FindInMap"].([]any); isFind && len(val) == 1 {
+			return t.resolveFindInMap(args)
+		}
 		out := make(map[string]any, len(val))
 		for k, e := range val {
 			out[k] = t.resolveParamRefs(e)
@@ -427,7 +453,13 @@ func (t *samTranslator) resolveStringParam(v any) any {
 }
 
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
-	return mergeSAMGlobals(t.globalsFor(section, r), asMap(r[samKeyProps]))
+	local := asMap(r[samKeyProps])
+	merged := mergeSAMGlobals(t.globalsFor(section, r), local)
+	if arch, has := local["Architectures"]; has && section == samKeyFunction {
+		merged["Architectures"] = arch
+	}
+
+	return merged
 }
 
 // globalsFor is the section's Globals minus what the resource's IgnoreGlobals attribute drops.
@@ -616,8 +648,9 @@ func rewriteRefValue(v any, refs map[string]string) any {
 }
 
 // ProcessedTemplateBody returns the template as CloudFormation reports it for
-// GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed.
-func ProcessedTemplateBody(body string) (string, error) {
+// GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed. A non-empty region is
+// substituted for AWS::Region where the transform resolves parameters.
+func ProcessedTemplateBody(body, region string) (string, error) {
 	if !strings.Contains(body, samTransformName) {
 		return body, nil
 	}
@@ -625,7 +658,7 @@ func ProcessedTemplateBody(body string) (string, error) {
 	if err != nil || !isSAMTransform(doc) {
 		return body, err
 	}
-	if err = expandSAMDocument(doc); err != nil {
+	if err = expandSAMDocument(doc, region); err != nil {
 		return "", err
 	}
 	if rest := slices.DeleteFunc(parseTransform(doc["Transform"]), func(s string) bool {
@@ -650,7 +683,7 @@ func expandSAMBody(body string) (string, error) {
 	if err != nil || !isSAMTransform(doc) {
 		return body, err
 	}
-	if err = expandSAMDocument(doc); err != nil {
+	if err = expandSAMDocument(doc, ""); err != nil {
 		return "", err
 	}
 	out, err := json.Marshal(doc)

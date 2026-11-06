@@ -23,6 +23,9 @@ const samGoldenDir = "testdata/sam_translator"
 
 const samGoldenTransform = "Transform: AWS::Serverless-2016-10-31\n"
 
+// samGoldenRegion is the region the translator's own test suite patches into boto3.
+const samGoldenRegion = "ap-southeast-1"
+
 var (
 	samHashSuffixRe = regexp.MustCompile(`[0-9a-f]{10}$`)
 	samDigestRe     = regexp.MustCompile(`^RestApi deployment id: [0-9a-f]{40}$`)
@@ -132,7 +135,7 @@ func transformGolden(t *testing.T, name string) (string, error) {
 		}
 	}
 
-	return cloudformation.ProcessedTemplateBody(body)
+	return cloudformation.ProcessedTemplateBody(body, samGoldenRegion)
 }
 
 func resourceTypes(res map[string]any) map[string]string {

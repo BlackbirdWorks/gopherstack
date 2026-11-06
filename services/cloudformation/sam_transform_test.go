@@ -393,8 +393,8 @@ func TestSAMTransform_Failures(t *testing.T) {
 	}{
 		{
 			name:     "unsupported_resource_type",
-			template: samHeader + "Resources:\n  G:\n    Type: AWS::Serverless::GraphQLApi\n    Properties: {}\n",
-			reason:   "AWS::Serverless::GraphQLApi",
+			template: samHeader + "Resources:\n  G:\n    Type: AWS::Serverless::WebFunction\n    Properties: {}\n",
+			reason:   "AWS::Serverless::WebFunction",
 		},
 		{
 			name: "unsupported_function_property",

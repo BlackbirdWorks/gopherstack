@@ -102,12 +102,17 @@ func forEachIntegrationOp(doc map[string]any, fn func(path, method string, op ma
 
 func securityList(op map[string]any) ([]any, error) {
 	v, has := op[samOAPISecurity]
-	if !has || v == nil {
+	if !has {
 		return nil, nil
 	}
 	list, ok := v.([]any)
 	if !ok {
-		return nil, samErr("", "Type of security must be a list")
+		return nil, samInvalid("Type of security must be a list")
+	}
+	for _, s := range list {
+		if _, isDict := s.(map[string]any); !isDict {
+			return nil, samInvalid("%v in Security is not a valid dictionary.", s)
+		}
 	}
 
 	return list, nil

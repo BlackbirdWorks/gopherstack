@@ -25,8 +25,8 @@ func samSMAllowed() map[string]bool {
 		samKeyRolePath,
 		"DefinitionSubstitutions",
 		samKeyEvents,
-		"Name",
-		"Type",
+		attrNameName,
+		samKeyType,
 		samKeyTags,
 		"PropagateTags",
 		"Policies",
@@ -65,7 +65,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 			return err
 		}
 	}
-	for src, dst := range map[string]string{attrNameName: "StateMachineName", "Type": "StateMachineType",
+	for src, dst := range map[string]string{attrNameName: "StateMachineName", samKeyType: "StateMachineType",
 		"Logging": "LoggingConfiguration", "Tracing": "TracingConfiguration"} {
 		if props[src] != nil {
 			sm[dst] = props[src]
@@ -102,6 +102,9 @@ func smDefinition(id string, props, sm map[string]any) error {
 	case def != nil && uri != nil:
 		return samErr(id, "Specify either 'Definition' or 'DefinitionUri' property and not both.")
 	case def != nil:
+		if _, isMap := def.(map[string]any); !isMap {
+			return samErr(id, "Property 'Definition' should be a map.")
+		}
 		doc, err := deepCopyAny(def)
 		if err != nil {
 			return samErr(id, "Definition is not valid JSON: %v", err)
@@ -124,6 +127,9 @@ func smDefinition(id string, props, sm map[string]any) error {
 		}
 		sm["DefinitionString"] = map[string]any{samFnJoin: []any{"\n", list}}
 	case uri != nil:
+		if m, isMap := uri.(map[string]any); isMap && (m["Bucket"] == nil || m[samKeyKey] == nil) {
+			return samErr(id, "'DefinitionUri' requires Bucket and Key properties to be specified.")
+		}
 		loc, err := s3Location(id, "DefinitionUri", uri, "Bucket", "Key", "Version")
 		if err != nil {
 			return err
@@ -249,7 +255,7 @@ func (t *samTranslator) putSMAlias(id string, props map[string]any) (string, err
 	if err := t.put(
 		aliasID,
 		map[string]any{samKeyType: samTypeSFNAlias, samKeyProps: map[string]any{
-			"Name": name, "DeploymentPreference": pref,
+			attrNameName: name, "DeploymentPreference": pref,
 		}},
 	); err != nil {
 		return "", err
