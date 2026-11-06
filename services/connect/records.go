@@ -90,20 +90,20 @@ type promptRec struct {
 }
 
 type contactRec struct {
+	PausedAt         *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	MediaProcessor   *mediaProcessor      `json:"mediaProcessor,omitempty"`
+	Recording        map[string]*recState `json:"recording,omitempty"`
+	Streams          map[string]string    `json:"streams,omitempty"`
 	InstanceID       string               `json:"instanceId"`
 	ParticipantID    string               `json:"participantId,omitempty"`
 	ParticipantToken string               `json:"participantToken,omitempty"`
 	FlowID           string               `json:"flowId,omitempty"`
 	TaskTemplateID   string               `json:"taskTemplateId,omitempty"`
-	Contact          Contact              `json:"contact"`
 	References       json.RawMessage      `json:"references,omitempty"`
-	PausedAt         *awstime.EpochTime   `json:"pausedAt,omitempty"`
-	Recording        map[string]*recState `json:"recording,omitempty"`
-	Streams          map[string]string    `json:"streams,omitempty"`
-	MediaProcessor   *mediaProcessor      `json:"mediaProcessor,omitempty"`
 	Participants     []participantRec     `json:"participants,omitempty"`
 	Emails           []emailMessageRec    `json:"emails,omitempty"`
 	MonitorCaps      []string             `json:"monitorCapabilities,omitempty"`
+	Contact          Contact              `json:"contact"`
 }
 
 type emailMessageRec struct {

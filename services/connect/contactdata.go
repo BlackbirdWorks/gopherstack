@@ -119,6 +119,10 @@ func validateCreateContact(in *CreateContactInput) error {
 		return invalidRequestErr("PreviousContactId is only supported for external audio contacts")
 	}
 
+	return checkCreateContactText(in)
+}
+
+func checkCreateContactText(in *CreateContactInput) error {
 	if in.ExpiryDurationInMinutes != nil && *in.ExpiryDurationInMinutes < 1 {
 		return invalidParamErr("ExpiryDurationInMinutes must be positive")
 	}
