@@ -232,6 +232,19 @@ func (r *Registry) SetKeyVaultSecrets(v KeyVaultSecrets) {
 	}
 }
 
+// SetACAQueueMeters gives the registered Microsoft.App provider (if any) the queue depths that KEDA queue scale rules
+// and event-driven jobs poll.
+func (r *Registry) SetACAQueueMeters(m ACAQueueMeters) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftApp)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerAppsProvider); cpOk {
+		cp.SetQueueMeters(m)
+	}
+}
+
 // CloseAll stops the workloads of every provider that runs any.
 func (r *Registry) CloseAll() {
 	for _, p := range r.providers {

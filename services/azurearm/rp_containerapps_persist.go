@@ -13,10 +13,12 @@ func (p *ContainerAppsProvider) snapshot() *containerAppsSnapshot {
 	p.mu.Lock("snapshot")
 	defer p.mu.Unlock()
 
+	now := p.now().UTC()
+
 	for _, j := range p.jobs {
 		for _, e := range j.Executions {
-			if e.Status, e.End = p.execStatus(j, e); e.Status == acaExecUnknown {
-				e.Status = ""
+			if v := p.evaluate(j, e, now); v.final {
+				e.Status, e.End, e.Done = v.status, v.end, true
 			}
 		}
 	}
@@ -40,6 +42,7 @@ func (p *ContainerAppsProvider) snapshot() *containerAppsSnapshot {
 func (p *ContainerAppsProvider) restore(snap *containerAppsSnapshot) {
 	p.opMu.Lock("restore")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	p.rt.closeAll()
 

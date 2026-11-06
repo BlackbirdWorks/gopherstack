@@ -114,6 +114,9 @@ type ContainerAppsProvider struct {
 	jobs    map[string]*storedACAJob
 	hosts   map[string]acaHostTarget
 	rt      *acaRuntime
+	meters  ACAQueueMeters
+
+	lastPoll map[string]time.Time
 }
 
 // NewContainerAppsProvider creates a provider that runs replicas in engine. backend serves the Microsoft.App types
@@ -125,7 +128,7 @@ func NewContainerAppsProvider(
 		now: time.Now, backend: backend, net: network, ids: ids,
 		mu: lockmetrics.New("azurearm.containerapps"), opMu: lockmetrics.New("azurearm.containerapps.ops"),
 		envs: map[string]*storedACAEnv{}, apps: map[string]*storedACAApp{}, jobs: map[string]*storedACAJob{},
-		hosts: map[string]acaHostTarget{}, rt: newACARuntime(engine),
+		hosts: map[string]acaHostTarget{}, rt: newACARuntime(engine), lastPoll: map[string]time.Time{},
 	}
 }
 
@@ -154,7 +157,10 @@ func (p *ContainerAppsProvider) SetKeyVaultSecrets(v KeyVaultSecrets) {
 }
 
 // SetClock replaces the clock that drives scale-to-zero; for tests.
-func (p *ContainerAppsProvider) SetClock(c ACAClock) { p.rt.setClock(c) }
+func (p *ContainerAppsProvider) SetClock(c ACAClock) {
+	p.rt.setClock(c)
+	p.now = c.Now
+}
 
 // SetTrafficPicker replaces the source of the 0..n-1 draw that splits traffic between revisions; for tests.
 func (p *ContainerAppsProvider) SetTrafficPicker(fn func(n int) int) { p.rt.setPick(fn) }
@@ -340,7 +346,10 @@ func (p *ContainerAppsProvider) DeleteResourcesInGroup(_ context.Context, resour
 }
 
 // Close stops every replica.
-func (p *ContainerAppsProvider) Close() { p.rt.closeAll() }
+func (p *ContainerAppsProvider) Close() {
+	p.rt.stop()
+	p.rt.closeAll()
+}
 
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))

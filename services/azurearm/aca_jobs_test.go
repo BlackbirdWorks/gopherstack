@@ -92,10 +92,10 @@ func (s *acaStack) executions(t *testing.T, job string) []*armappcontainers.JobE
 	return out
 }
 
-func (s *acaStack) startJob(t *testing.T, rg, job string) string {
+func (s *acaStack) startJob(t *testing.T, job string) string {
 	t.Helper()
 
-	poller, err := s.factory.NewJobsClient().BeginStart(t.Context(), rg, job, nil)
+	poller, err := s.factory.NewJobsClient().BeginStart(t.Context(), "rg", job, nil)
 	require.NoError(t, err)
 
 	res, err := poller.PollUntilDone(t.Context(), pollFast())
@@ -130,7 +130,7 @@ func TestACA_JobLifecycleAndExecutions(t *testing.T) {
 			assert.Equal(t, armappcontainers.JobProvisioningStateSucceeded, *job.Properties.ProvisioningState)
 			assert.Equal(t, armappcontainers.TriggerTypeManual, *job.Properties.Configuration.TriggerType)
 
-			exec := s.startJob(t, "rg", "batch")
+			exec := s.startJob(t, "batch")
 			assert.Regexp(t, `^batch-[0-9a-f]{7}$`, exec)
 
 			require.Eventually(t, func() bool {
@@ -220,7 +220,7 @@ func TestACA_JobParallelismRunsReplicas(t *testing.T) {
 	_, err := s.putJob(t, "fan", envID, acaJob{image: "job-fan", parallelism: 3})
 	require.NoError(t, err)
 
-	s.startJob(t, "rg", "fan")
+	s.startJob(t, "fan")
 	assert.Equal(t, 3, s.rt.live())
 
 	stop, err := s.factory.NewJobsClient().BeginStopMultipleExecutions(t.Context(), "rg", "fan", nil)
@@ -283,7 +283,7 @@ func TestACA_JobValidationAndCascade(t *testing.T) {
 
 		_, err = s.putJob(t, "gone", envID, acaJob{image: "job-run"})
 		require.NoError(t, err)
-		s.startJob(t, "rg", "gone")
+		s.startJob(t, "gone")
 		assert.Equal(t, 1, s.rt.live())
 
 		status, _ := s.raw(t, http.MethodPut, "", "/subscriptions/"+aciSub+"/resourcegroups/rg?api-version=2021-04-01")
