@@ -292,6 +292,8 @@ func keyOf(v any) string {
 		return "m:" + mapKey(t)
 	case *Path:
 		return "P:" + joinKeys(t.Objects)
+	case *Tree:
+		return "T:" + mapKey(t.asMap())
 	}
 
 	if isInt(v) {

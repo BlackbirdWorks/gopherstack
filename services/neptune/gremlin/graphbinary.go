@@ -536,6 +536,8 @@ func (w *bbWriter) fq(v any) {
 		w.items(t)
 	case *Map:
 		w.mapValue(t)
+	case *Tree:
+		w.mapValue(t.asMap())
 	case Token:
 		w.enum(t)
 	default:

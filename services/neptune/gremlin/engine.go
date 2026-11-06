@@ -2,6 +2,7 @@ package gremlin
 
 import (
 	"context"
+	"math/rand/v2"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
@@ -32,11 +33,31 @@ type Property struct {
 
 // Engine runs Gremlin against an openCypher graph.
 type Engine struct {
-	steps map[string]stepFn
+	steps   map[string]stepFn
+	newRand func() *rand.Rand
+}
+
+// Option configures an Engine.
+type Option func(*Engine)
+
+// WithRand sets the factory for the per-query random source behind sample() and coin().
+func WithRand(f func() *rand.Rand) Option {
+	return func(e *Engine) { e.newRand = f }
 }
 
 // NewEngine returns an engine with every supported step registered.
-func NewEngine() *Engine { return &Engine{steps: buildSteps()} }
+func NewEngine(opts ...Option) *Engine {
+	e := &Engine{steps: buildSteps(), newRand: defaultRand}
+	for _, o := range opts {
+		o(e)
+	}
+
+	return e
+}
+
+func defaultRand() *rand.Rand {
+	return rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // traversal sampling, not security
+}
 
 // Eval parses and runs a Gremlin script.
 func (e *Engine) Eval(ctx context.Context, g *opencypher.Graph, script string, bindings map[string]any) ([]any, error) {
@@ -56,10 +77,15 @@ func (e *Engine) Bytecode(ctx context.Context, g *opencypher.Graph, tr *Traversa
 func (e *Engine) runStmts(ctx context.Context, st *opencypher.Store, stmts []Stmt) ([]any, error) {
 	var result []any
 
-	x := newExec(ctx, st, e.steps)
+	x := newExec(ctx, st, e.steps, e.newRand())
 
 	for _, s := range stmts {
-		out, err := x.run(s.Tr, rootTrav())
+		root, err := x.rootFor(s.Tr)
+		if err != nil {
+			return nil, err
+		}
+
+		out, err := x.run(s.Tr, root)
 		if err != nil {
 			return nil, err
 		}
@@ -180,6 +206,10 @@ func detach(st *opencypher.Store, v any) any {
 		return detachMap(st, t)
 	case *Path:
 		return &Path{Labels: t.Labels, Objects: detachAll(st, t.Objects)}
+	case *Tree:
+		return detachTree(st, t)
+	case *subgraphAcc:
+		return t.snapshot(st)
 	}
 
 	return v
