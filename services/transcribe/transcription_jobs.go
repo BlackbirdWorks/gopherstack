@@ -111,7 +111,10 @@ func viewTranscription(j *TranscriptionJob) jobView {
 			j.ManagedToken, j.TranscriptJSON, j.ManagedOutputs = d.token, d.main, d.extra
 
 			if j.Subtitles != nil && len(d.subtitles) > 0 {
-				j.Subtitles.SubtitleFileURIs = d.subtitles
+				// Replace, don't mutate: copies handed out earlier share this pointer.
+				sub := *j.Subtitles
+				sub.SubtitleFileURIs = d.subtitles
+				j.Subtitles = &sub
 			}
 		},
 	}
