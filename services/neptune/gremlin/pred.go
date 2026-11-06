@@ -37,7 +37,7 @@ func bareToken(name string) (Token, bool) {
 		return Token{Kind: kindCardinality, Name: name}, true
 	case "first", "last", "all", "mixed":
 		return Token{Kind: kindPop, Name: name}, true
-	case stepSum, "sumLong", "min", "max", "assign", opAnd, opOr, "addAll", "mult", "div":
+	case stepSum, "sumLong", "min", "max", "assign", opAnd, opOr, "addAll", "mult", "div", "minus":
 		return Token{Kind: kindOperator, Name: name}, true
 	case "none", "any":
 		return Token{Kind: kindPick, Name: name}, true

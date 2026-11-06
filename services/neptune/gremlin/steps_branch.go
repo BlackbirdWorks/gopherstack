@@ -333,7 +333,7 @@ func (x *exec) advance(spec *loopSpec, cont []*trav, out *[]*trav) ([]*trav, err
 		}
 
 		for _, r := range res {
-			r = &trav{v: r.v, path: r.path, loops: c.loops + 1}
+			r = &trav{v: r.v, sack: r.sack, path: r.path, loops: c.loops + 1}
 
 			done, derr := x.loopDone(spec, r, false)
 			if derr != nil {

@@ -12,6 +12,12 @@ func buildSteps() map[string]stepFn {
 	regMutate(m)
 	regMerge(m)
 	regString(m)
+	regSack(m)
+	regIndex(m)
+	regMath(m)
+	regSample(m)
+	regTree(m)
+	regSubgraph(m)
 
 	return m
 }

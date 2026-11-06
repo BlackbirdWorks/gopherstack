@@ -158,6 +158,12 @@ func (p *parser) parseChain(tr *Traversal, top bool) (string, int, error) {
 			return name.text, termCount(args), nil
 		}
 
+		if top && name.text == "withSack" {
+			tr.Sources = append(tr.Sources, Step{Name: name.text, Args: args})
+
+			continue
+		}
+
 		if skipSourceStep(name.text) {
 			continue
 		}
@@ -170,7 +176,7 @@ func (p *parser) parseChain(tr *Traversal, top bool) (string, int, error) {
 
 func skipSourceStep(name string) bool {
 	switch name {
-	case "withSideEffect", "withStrategies", "withoutStrategies", "withBulk", "withPath", "withSack":
+	case "withSideEffect", "withStrategies", "withoutStrategies", "withBulk", "withPath":
 		return true
 	}
 

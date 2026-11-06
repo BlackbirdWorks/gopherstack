@@ -3,6 +3,7 @@ package gremlin
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
@@ -22,16 +23,17 @@ type pathNode struct {
 // trav is one traverser: the current object, its path and its loop count.
 type trav struct {
 	v     any
+	sack  any
 	path  *pathNode
 	loops int
 }
 
 func (t *trav) next(v any) *trav {
-	return &trav{v: v, path: &pathNode{parent: t.path, obj: v}, loops: t.loops}
+	return &trav{v: v, sack: t.sack, path: &pathNode{parent: t.path, obj: v}, loops: t.loops}
 }
 
 func (t *trav) keep(v any) *trav {
-	return &trav{v: v, path: t.path, loops: t.loops}
+	return &trav{v: v, sack: t.sack, path: t.path, loops: t.loops}
 }
 
 func (t *trav) labeled(labels []string) *trav {
@@ -42,7 +44,7 @@ func (t *trav) labeled(labels []string) *trav {
 	merged := append(append([]string(nil), t.path.labels...), labels...)
 
 	return &trav{
-		v: t.v, loops: t.loops,
+		v: t.v, sack: t.sack, loops: t.loops,
 		path: &pathNode{parent: t.path.parent, obj: t.path.obj, labels: merged},
 	}
 }
@@ -98,10 +100,12 @@ type exec struct {
 	st    *opencypher.Store
 	steps map[string]stepFn
 	side  map[string]any
+	rnd   *rand.Rand
+	sack  sackConfig
 }
 
-func newExec(ctx context.Context, st *opencypher.Store, steps map[string]stepFn) *exec {
-	return &exec{ctx: ctx, st: st, steps: steps, side: map[string]any{}}
+func newExec(ctx context.Context, st *opencypher.Store, steps map[string]stepFn, rnd *rand.Rand) *exec {
+	return &exec{ctx: ctx, st: st, steps: steps, side: map[string]any{}, rnd: rnd}
 }
 
 func (x *exec) run(tr *Traversal, in []*trav) ([]*trav, error) {

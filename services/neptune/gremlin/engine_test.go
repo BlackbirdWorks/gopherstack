@@ -47,6 +47,17 @@ func render(v any) string {
 		return "{" + strings.Join(parts, ",") + "}"
 	case *gremlin.Path:
 		return "path" + render(t.Objects)
+	case *gremlin.Tree:
+		parts := make([]string, t.Len())
+
+		for i := range parts {
+			k, c := t.Entry(i)
+			parts[i] = render(k) + ":" + render(c)
+		}
+
+		return "{" + strings.Join(parts, ",") + "}"
+	case *gremlin.SubGraph:
+		return fmt.Sprintf("graph[v=%d,e=%d]", len(t.Vertices), len(t.Edges))
 	default:
 		return fmt.Sprint(v)
 	}
