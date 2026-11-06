@@ -1674,6 +1674,28 @@
    }
   },
   {
+   "name": "AWSAppSyncPushToCloudWatchLogs",
+   "path": "/service-role/",
+   "defaultVersionId": "v1",
+   "createDate": "2018-04-09T19:38:00Z",
+   "updateDate": "2018-04-09T19:38:00Z",
+   "approximate": false,
+   "document": {
+    "Version": "2012-10-17",
+    "Statement": [
+     {
+      "Effect": "Allow",
+      "Action": [
+       "logs:CreateLogGroup",
+       "logs:CreateLogStream",
+       "logs:PutLogEvents"
+      ],
+      "Resource": "*"
+     }
+    ]
+   }
+  },
+  {
    "name": "AWSLambdaBasicExecutionRole",
    "path": "/service-role/",
    "defaultVersionId": "v1",
