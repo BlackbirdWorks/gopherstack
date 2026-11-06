@@ -70,24 +70,30 @@ type loadError struct {
 }
 
 type loadJob struct {
-	endTime    time.Time
-	startTime  time.Time
-	cancel     context.CancelFunc
-	status     string
-	id         string
-	graph      string
-	base       string
-	bucket     string
-	source     string
-	errors     []loadError
-	deps       []string
-	keys       []string
-	feeds      []*loadFeed
-	format     sparql.Format
-	failOnErr  bool
-	queued     bool
-	finished   bool
-	cancelUser bool
+	endTime      time.Time
+	startTime    time.Time
+	cancel       context.CancelFunc
+	cache        map[string][]byte
+	status       string
+	id           string
+	graph        string
+	base         string
+	bucket       string
+	source       string
+	pg           string
+	feeds        []*loadFeed
+	keys         []string
+	deps         []string
+	errors       []loadError
+	format       sparql.Format
+	edgeOnly     bool
+	allowEmpty   bool
+	updateSingle bool
+	userEdgeIDs  bool
+	failOnErr    bool
+	queued       bool
+	finished     bool
+	cancelUser   bool
 }
 
 type loaderState struct {
@@ -104,16 +110,20 @@ func newLoaderState() *loaderState {
 }
 
 type loadRequest struct {
-	Source      string `json:"source"`
-	Format      string `json:"format"`
-	IAMRoleArn  string `json:"iamRoleArn"`
-	Mode        string `json:"mode"`
-	Region      string `json:"region"`
-	FailOnError string `json:"failOnError"`
-	Queue       string `json:"queueRequest"`
-	Parser      struct {
-		NamedGraph string `json:"namedGraphUri"`
-		BaseURI    string `json:"baseUri"`
+	Source       string `json:"source"`
+	Format       string `json:"format"`
+	IAMRoleArn   string `json:"iamRoleArn"`
+	Mode         string `json:"mode"`
+	Region       string `json:"region"`
+	FailOnError  string `json:"failOnError"`
+	Queue        string `json:"queueRequest"`
+	EdgeOnly     string `json:"edgeOnlyLoad"`
+	UpdateSingle string `json:"updateSingleCardinalityProperties"`
+	UserEdgeIDs  string `json:"userProvidedEdgeIds"`
+	Parser       struct {
+		NamedGraph string   `json:"namedGraphUri"`
+		BaseURI    string   `json:"baseUri"`
+		AllowEmpty flexFlag `json:"allowEmptyStrings"`
 	} `json:"parserConfiguration"`
 	Deps []string `json:"dependencies"`
 }
@@ -131,6 +141,15 @@ func loaderFormat(s string) (sparql.Format, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// flexFlag decodes a JSON boolean or a "TRUE"/"FALSE" string.
+type flexFlag bool
+
+func (f *flexFlag) UnmarshalJSON(b []byte) error {
+	*f = flexFlag(strings.EqualFold(strings.Trim(string(b), `"`), "true"))
+
+	return nil
 }
 
 func envelope(payload any) map[string]any {
@@ -225,12 +244,9 @@ func (rs *rdfService) newLoadJob(ctx context.Context, req loadRequest) (*loadJob
 	}
 
 	format, ok := loaderFormat(req.Format)
-	if !ok {
-		if slices.Contains([]string{"csv", "opencypher"}, strings.ToLower(req.Format)) {
-			return nil, "Loader format " + strconv.Quote(req.Format) +
-				" (property-graph CSV) is not supported by this emulator; use ntriples, nquads, rdfxml or turtle"
-		}
+	pg := strings.ToLower(req.Format)
 
+	if !ok && pg != pgCSV && pg != pgOpenCypher {
 		return nil, "Invalid format " + strconv.Quote(
 			req.Format,
 		) + "; allowed values are csv, opencypher, ntriples, nquads, rdfxml, turtle"
@@ -246,8 +262,15 @@ func (rs *rdfService) newLoadJob(ctx context.Context, req loadRequest) (*loadJob
 		return nil, "Failed to start new load for the source " + strconv.Quote(req.Source) + ": " + err.Error()
 	}
 
+	if ok {
+		pg = ""
+	}
+
 	job := &loadJob{
-		id: uuid.NewString(), source: req.Source, bucket: bucket, format: format, keys: keys,
+		pg: pg, edgeOnly: strings.EqualFold(req.EdgeOnly, formTrueUpper), allowEmpty: bool(req.Parser.AllowEmpty),
+		updateSingle: strings.EqualFold(req.UpdateSingle, formTrueUpper),
+		userEdgeIDs:  !strings.EqualFold(req.UserEdgeIDs, "FALSE"),
+		id:           uuid.NewString(), source: req.Source, bucket: bucket, format: format, keys: keys,
 		status: loadNotStarted, failOnErr: !strings.EqualFold(req.FailOnError, "FALSE"),
 		graph: req.Parser.NamedGraph, base: req.Parser.BaseURI, deps: req.Deps,
 	}
@@ -388,8 +411,18 @@ func (ls *loaderState) finish(ctx context.Context, rs *rdfService, id string) {
 func (rs *rdfService) runLoad(ctx context.Context, job *loadJob) {
 	status := loadCompleted
 
-	for i, key := range job.keys {
-		feed := job.feeds[i]
+	order := make([]int, len(job.keys))
+	for i := range order {
+		order[i] = i
+	}
+
+	if job.pg != "" {
+		order = rs.pgOrder(ctx, job)
+		defer func() { job.cache = nil }()
+	}
+
+	for _, i := range order {
+		key, feed := job.keys[i], job.feeds[i]
 		st := rs.loadFeed(ctx, job, feed, key)
 
 		if st != loadCompleted {
@@ -416,11 +449,13 @@ func (rs *rdfService) runLoad(ctx context.Context, job *loadJob) {
 }
 
 type feedResult struct {
-	status  string
-	errs    []loadError
-	records int
-	dups    int
-	parsing int
+	status   string
+	errs     []loadError
+	datatype int
+	insert   int
+	records  int
+	dups     int
+	parsing  int
 }
 
 func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed, key string) string {
@@ -437,6 +472,7 @@ func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed
 	defer ls.mu.Unlock()
 
 	feed.Status, feed.Records, feed.Dups, feed.Parsing = res.status, res.records, res.dups, res.parsing
+	feed.Datatype, feed.Insert = res.datatype, res.insert
 	feed.Spent = int64(time.Since(start).Seconds())
 	job.errors = append(job.errors, res.errs[:min(len(res.errs), loaderErrorsKept-len(job.errors))]...)
 
@@ -446,6 +482,10 @@ func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed
 func (rs *rdfService) readFeed(ctx context.Context, job *loadJob, uri, key string) feedResult {
 	if ctx.Err() != nil {
 		return feedResult{status: loadCancelledUser}
+	}
+
+	if job.pg != "" {
+		return rs.readPGFeed(ctx, job, uri, key)
 	}
 
 	data, err := rs.readObject(ctx, job.bucket, key)

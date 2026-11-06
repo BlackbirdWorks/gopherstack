@@ -18,7 +18,13 @@ func parse(src string) (*query, error) {
 	}
 
 	p := &parser{src: src, toks: toks}
-	q := &query{}
+
+	return p.parseParts()
+}
+
+func (p *parser) parseParts() (*query, error) {
+	head := &query{}
+	cur, prevAll := head, false
 
 	for {
 		for p.accept(";") {
@@ -28,24 +34,81 @@ func parse(src string) (*query, error) {
 			break
 		}
 
-		c, werr := p.parseClause()
-		if werr != nil {
-			return nil, werr
+		if p.peek().is("UNION") {
+			next, all, err := p.unionBoundary(head, cur, prevAll)
+			if err != nil {
+				return nil, err
+			}
+
+			cur.union, cur.unionAll, cur, prevAll = next, all, next, all
+
+			continue
 		}
 
-		switch c.(type) {
-		case createClause, mergeClause, setClause, removeClause, deleteClause:
-			q.write = true
+		if err := p.parseInto(cur); err != nil {
+			return nil, err
 		}
-
-		q.clauses = append(q.clauses, c)
 	}
 
-	if len(q.clauses) == 0 {
+	if len(cur.clauses) == 0 {
 		return nil, malformed("Query is empty")
 	}
 
-	return q, p.validate(q)
+	if err := p.validate(cur); err != nil {
+		return nil, err
+	}
+
+	return head, rejectUnionWrites(head)
+}
+
+func (p *parser) parseInto(q *query) error {
+	c, err := p.parseClause()
+	if err != nil {
+		return err
+	}
+
+	switch c.(type) {
+	case createClause, mergeClause, setClause, removeClause, deleteClause:
+		q.write = true
+	}
+
+	q.clauses = append(q.clauses, c)
+
+	return nil
+}
+
+func rejectUnionWrites(head *query) error {
+	if head.union == nil {
+		return nil
+	}
+
+	for part := head; part != nil; part = part.union {
+		if part.write {
+			return unsupported("UNION with an updating clause is not supported; only read-only queries can be combined")
+		}
+	}
+
+	return nil
+}
+
+// unionBoundary consumes UNION [ALL] after a finished RETURN-terminated part and starts the next part.
+func (p *parser) unionBoundary(head, cur *query, prevAll bool) (*query, bool, error) {
+	if len(cur.clauses) == 0 {
+		return nil, false, p.unexpected("a clause")
+	}
+
+	if _, ok := cur.clauses[len(cur.clauses)-1].(returnClause); !ok {
+		return nil, false, malformed("Each part of a UNION must end with RETURN")
+	}
+
+	p.pos++
+
+	all := p.accept("ALL")
+	if head != cur && all != prevAll {
+		return nil, false, malformed("Invalid combination of UNION and UNION ALL")
+	}
+
+	return &query{}, all, nil
 }
 
 func (p *parser) validate(q *query) error {
@@ -167,7 +230,7 @@ func (p *parser) parseClause() (clause, error) {
 		proj, err := p.parseProjection()
 
 		return returnClause{proj: proj}, err
-	case "CALL", "UNION", "FOREACH", "LOAD":
+	case "CALL", "FOREACH", "LOAD":
 		return nil, unsupported("%s is not supported by this openCypher implementation", strings.ToUpper(t.text))
 	default:
 		return nil, p.unexpected("a clause")
@@ -499,6 +562,11 @@ func (p *parser) parsePattern() (pattern, error) {
 	if p.peek().kind == tkIdent && p.peek2().is("=") {
 		pat.pathVar, _ = p.ident()
 		p.pos++
+	}
+
+	if t := p.peek(); t.kind == tkIdent && p.peek2().is("(") &&
+		(strings.EqualFold(t.text, "shortestPath") || strings.EqualFold(t.text, "allShortestPaths")) {
+		return pat, unsupported("%s() is not supported by Neptune openCypher", t.text)
 	}
 
 	n, err := p.parseNodePat()

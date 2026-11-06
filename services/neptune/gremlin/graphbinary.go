@@ -384,7 +384,9 @@ func (r *bbReader) bytecode() (any, error) {
 		return nil, err
 	}
 
-	if err := r.instructions(func(string, []any) {}); err != nil {
+	if err := r.instructions(func(name string, args []any) {
+		tr.Sources = append(tr.Sources, Step{Name: name, Args: args})
+	}); err != nil {
 		return nil, err
 	}
 

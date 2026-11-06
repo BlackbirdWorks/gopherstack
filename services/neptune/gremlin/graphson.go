@@ -362,6 +362,23 @@ func decodeBytecodeJSON(val any) (any, error) {
 		tr.add(Step{Name: name, Args: args})
 	}
 
+	srcs, _ := m["source"].([]any)
+	for _, raw := range srcs {
+		parts, _ := raw.([]any)
+		if len(parts) == 0 {
+			continue
+		}
+
+		name, _ := parts[0].(string)
+
+		args, err := decodeGraphSONList(parts[1:])
+		if err != nil {
+			return nil, err
+		}
+
+		tr.Sources = append(tr.Sources, Step{Name: name, Args: args})
+	}
+
 	return tr, nil
 }
 

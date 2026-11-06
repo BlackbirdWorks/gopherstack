@@ -10,6 +10,8 @@ func buildSteps() map[string]stepFn {
 	regReduce(m)
 	regBranch(m)
 	regMutate(m)
+	regMerge(m)
+	regString(m)
 
 	return m
 }

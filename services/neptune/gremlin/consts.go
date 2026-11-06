@@ -34,5 +34,7 @@ const (
 	tokID        = "id"
 	stepSum      = "sum"
 	jsonCode     = "code"
+	labelVertex  = "vertex"
+	termToList   = "toList"
 	jsonReqID    = "requestId"
 )
