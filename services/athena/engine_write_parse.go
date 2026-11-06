@@ -15,11 +15,11 @@ const (
 // writeStmt is a parsed CTAS, INSERT INTO or UNLOAD statement.
 type writeStmt struct {
 	props       map[string][]string
+	dml         *dmlSpec
 	location    string
 	body        string
 	target      []string
 	insertCols  []string
-	dml         *dmlSpec
 	kind        writeKind
 	ifNotExists bool
 	noData      bool

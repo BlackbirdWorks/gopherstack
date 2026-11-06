@@ -113,9 +113,9 @@ func (m *TableMetadata) PlanCommit(
 		return nil, err
 	}
 
-	objs := append(pc.objects, Object{Location: listLoc, Body: listBody}, Object{Location: metaLoc, Body: body})
+	pc.objects = append(pc.objects, Object{Location: listLoc, Body: listBody}, Object{Location: metaLoc, Body: body})
 
-	return &AppendPlan{Metadata: next, MetadataLocation: metaLoc, Objects: objs}, nil
+	return &AppendPlan{Metadata: next, MetadataLocation: metaLoc, Objects: pc.objects}, nil
 }
 
 type planCtx struct {

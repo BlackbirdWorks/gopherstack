@@ -32,34 +32,37 @@ func andWhere(where string) string {
 	return " WHERE (" + where + ")"
 }
 
-func (p *writePlan) lookupDML(ctx context.Context, get S3Getter) (*GlueTableDef, *icebergTable, statementOutcome) {
+func (p *writePlan) lookupDML(ctx context.Context, get S3Getter) (*icebergTable, statementOutcome) {
 	def, err := p.cat.GetTableDef(p.db, p.table)
 	if err != nil {
-		return nil, nil, stmtFail(athenaErrTypeEntityMiss,
+		return nil, stmtFail(athenaErrTypeEntityMiss,
 			"TABLE_NOT_FOUND: line 1:1: Table '%s' does not exist", p.display())
 	}
 
 	if tableTypeOf(def) != tableTypeIceberg {
 		if p.stmt.kind == writeOptimize {
-			return nil, nil, stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: OPTIMIZE is supported only for Iceberg tables")
+			return nil, stmtFail(
+				athenaErrTypeSyntax,
+				"NOT_SUPPORTED: OPTIMIZE is supported only for Iceberg tables",
+			)
 		}
 
-		return nil, nil, stmtFail(athenaErrTypeSyntax, "%s", nonIcebergDML)
+		return nil, stmtFail(athenaErrTypeSyntax, "%s", nonIcebergDML)
 	}
 
 	l := &tableLoader{get: get, limits: defaultEngineLimits()}
 
 	tbl, err := l.openIceberg(ctx, def, p.db+"."+p.table)
 	if err != nil {
-		return nil, nil, engineFailure(err)
+		return nil, engineFailure(err)
 	}
 
-	return def, tbl, stmtOK()
+	return tbl, stmtOK()
 }
 
 // prepareDML resolves the Iceberg target and builds the SELECT that feeds the write.
 func (p *writePlan) prepareDML(get S3Getter) statementOutcome {
-	_, tbl, out := p.lookupDML(context.Background(), get)
+	tbl, out := p.lookupDML(context.Background(), get)
 	if out.failed {
 		return out
 	}
@@ -291,7 +294,7 @@ func mergeBlock(mc mergeClause, names []string, alias string) ([]string, stateme
 
 // openForApply re-reads the target and fails when it moved since the query read it.
 func (p *writePlan) openForApply(ctx context.Context) (*tableLoader, statementOutcome) {
-	_, tbl, out := p.lookupDML(ctx, p.get)
+	tbl, out := p.lookupDML(ctx, p.get)
 	if out.failed {
 		return nil, out
 	}
@@ -359,7 +362,12 @@ func (p *writePlan) sliceRows(res *sqlResult, rows []int, off int) *sqlResult {
 	return out
 }
 
-func (p *writePlan) applyMerge(ctx context.Context, l *tableLoader, res *sqlResult, limits EngineLimits) statementOutcome {
+func (p *writePlan) applyMerge(
+	ctx context.Context,
+	l *tableLoader,
+	res *sqlResult,
+	limits EngineLimits,
+) statementOutcome {
 	d := p.stmt.dml
 	ncols := len(p.ice.meta.CurrentSchema().Fields)
 
@@ -544,7 +552,7 @@ func (p *writePlan) positionDeleteFiles(
 			return cmp.Or(strings.Compare(a.path, b.path), cmp.Compare(a.pos, b.pos))
 		})
 
-		res := &sqlResult{columns: []sqlColumn{{name: "file_path"}, {name: "pos"}}}
+		res := &sqlResult{columns: []sqlColumn{{name: colFilePath}, {name: colPosName}}}
 		idxs := make([]int, len(g.rows))
 
 		for i, ref := range g.rows {
@@ -553,8 +561,8 @@ func (p *writePlan) positionDeleteFiles(
 		}
 
 		cols := []outCol{
-			{name: "file_path", typ: "string", src: 0, id: posDeleteFilePathID},
-			{name: "pos", typ: "bigint", src: 1, id: posDeletePosID},
+			{name: colFilePath, typ: "string", src: 0, id: posDeleteFilePathID},
+			{name: colPosName, typ: "bigint", src: 1, id: posDeletePosID},
 		}
 
 		body, eerr := encodeParquetRows(res, idxs, cols, meta.Properties[propParquetCodec])

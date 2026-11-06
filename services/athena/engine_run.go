@@ -20,14 +20,14 @@ var (
 
 type planTable struct {
 	def       *GlueTableDef
+	travel    travelSpec
 	schema    string
 	name      string
 	display   string
 	metaTable string
-	travel    travelSpec
+	loadedAt  string
 	parts     []GluePartitionDef
 	rowIDs    bool
-	loadedAt  string
 }
 
 type enginePlan struct {
@@ -80,6 +80,16 @@ func normalizeCatalog(c string) string {
 	return c
 }
 
+func isWriteLeader(upper string) bool {
+	for _, k := range []string{"CREATE", "INSERT", "UNLOAD", "DELETE", "UPDATE", "MERGE", "OPTIMIZE"} {
+		if hasKeyword(upper, k) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // planEngineQuery translates a SELECT over Glue tables with S3 locations, or
 // a CTAS/INSERT/UNLOAD whose source is such a SELECT. It returns planned=false
 // when the statement should take the legacy in-memory path.
@@ -89,9 +99,7 @@ func (b *InMemoryBackend) planEngineQuery(
 	upper := strings.ToUpper(strings.TrimSpace(query))
 	isRead := hasKeyword(upper, "SELECT") || hasKeyword(upper, "WITH")
 
-	if !isRead && !hasKeyword(upper, "CREATE") && !hasKeyword(upper, "INSERT") && !hasKeyword(upper, "UNLOAD") &&
-		!hasKeyword(upper, "DELETE") && !hasKeyword(upper, "UPDATE") && !hasKeyword(upper, "MERGE") &&
-		!hasKeyword(upper, "OPTIMIZE") {
+	if !isRead && !isWriteLeader(upper) {
 		return nil, stmtOK(), false
 	}
 

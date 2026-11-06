@@ -26,7 +26,8 @@ const eventsAvroSchema = `{"type":"record","name":"events","fields":[
  {"name":"price","type":{"type":"bytes","logicalType":"decimal","precision":10,"scale":2}},
  {"name":"tags","type":{"type":"array","items":"string"}},
  {"name":"attrs","type":{"type":"map","values":"long"}},
- {"name":"owner","type":{"type":"record","name":"owner_t","fields":[{"name":"first","type":"string"},{"name":"age","type":"int"}]}}
+ {"name":"owner","type":{"type":"record","name":"owner_t","fields":[
+   {"name":"first","type":"string"},{"name":"age","type":"int"}]}}
 ]}`
 
 func eventsAvroFile(t *testing.T, codec ocf.CodecName) []byte {
@@ -223,12 +224,14 @@ func TestSDK_AvroWriteErrors(t *testing.T) {
 		name, sql, reason string
 	}{
 		{
-			"gzip", "CREATE TABLE shop.o WITH (format = 'AVRO', write_compression = 'GZIP', external_location = 's3://lake/o/') " +
+			"gzip",
+			"CREATE TABLE shop.o WITH (format = 'AVRO', write_compression = 'GZIP', external_location = 's3://lake/o/') " +
 				"AS SELECT id FROM events",
 			"compression GZIP is not supported for AVRO",
 		},
 		{
-			"orc", "CREATE TABLE shop.o WITH (format = 'ORC', external_location = 's3://lake/o/') AS SELECT id FROM events",
+			"orc",
+			"CREATE TABLE shop.o WITH (format = 'ORC', external_location = 's3://lake/o/') AS SELECT id FROM events",
 			"format ORC is not supported",
 		},
 	}

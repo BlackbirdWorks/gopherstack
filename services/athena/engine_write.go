@@ -35,7 +35,7 @@ var (
 func isWriteProp(k string) bool {
 	switch k {
 	case propFormat, "external_location", "partitioned_by", "field_delimiter",
-		propWriteCompression, "compression", "parquet_compression", "orc_compression", "is_external":
+		propWriteCompression, propCompression, propParquetComp, "orc_compression", propIsExternal:
 		return true
 	default:
 		return false
@@ -60,24 +60,24 @@ type outCol struct {
 
 // writePlan is the write side of a CTAS, INSERT or UNLOAD.
 type writePlan struct {
-	cat            GlueTableCatalog
 	put            S3Storer
 	list           S3Lister
 	get            S3Getter
+	cat            GlueTableCatalog
+	ice            *icebergTable
 	now            func() time.Time
 	def            *GlueTableDef
 	stmt           *writeStmt
-	catalog        string
+	target         *planTable
 	db             string
 	table          string
-	ice            *icebergTable
-	target         *planTable
-	iceCTAS        bool
+	catalog        string
 	queryID        string
 	outputLocation string
 	location       string
 	partitionBy    []string
 	format         outFormat
+	iceCTAS        bool
 	s3tables       bool
 }
 
@@ -229,7 +229,7 @@ func (p *writePlan) validateProps() statementOutcome {
 func (p *writePlan) validateCompression() statementOutcome {
 	props := p.stmt.props
 	c := strings.ToUpper(orDefault(firstProp(props, propWriteCompression),
-		orDefault(firstProp(props, "compression"), firstProp(props, "parquet_compression"))))
+		orDefault(firstProp(props, propCompression), firstProp(props, propParquetComp))))
 
 	if out := p.checkCompression(c); out.failed {
 		return out
@@ -246,7 +246,7 @@ func (p *writePlan) validateCompression() statementOutcome {
 func (p *writePlan) checkCompression(c string) statementOutcome {
 	if p.format.kind == fmtAvro {
 		switch c {
-		case "", compressionNone, "DEFLATE", "SNAPPY":
+		case "", compressionNone, codecDeflate, codecSnappy:
 			p.format.codec = c
 
 			return stmtOK()
@@ -258,7 +258,7 @@ func (p *writePlan) checkCompression(c string) statementOutcome {
 
 	if p.format.kind == fmtParquet {
 		switch c {
-		case "", "SNAPPY", compressionGzip, "ZSTD", "LZ4", compressionNone:
+		case "", codecSnappy, compressionGzip, "ZSTD", "LZ4", compressionNone:
 			p.format.codec = c
 
 			return stmtOK()

@@ -72,7 +72,17 @@ func (b *InMemoryBackend) icebergTargetFor(
 		return nil, engineFailure(err), true
 	}
 
-	wp := &writePlan{cat: cat, put: put, get: get, list: list, now: b.now, catalog: catalog, db: db, table: table, ice: tbl}
+	wp := &writePlan{
+		cat:     cat,
+		put:     put,
+		get:     get,
+		list:    list,
+		now:     b.now,
+		catalog: catalog,
+		db:      db,
+		table:   table,
+		ice:     tbl,
+	}
 	del, _ := b.s3.(S3Deleter)
 
 	return &icebergTarget{wp: wp, l: l, tbl: tbl, del: del}, stmtOK(), true
@@ -117,24 +127,32 @@ func propInt64(props map[string]string, key string, def int64) int64 {
 	return int64(intProp(props, key, int(min(def, int64(1<<31-1)))))
 }
 
+// protectedSnapshots picks the snapshots VACUUM keeps: the newest vacuum_min_snapshots_to_keep
+// and anything newer than the cutoff.
+func protectedSnapshots(meta *iceberg.TableMetadata, cutoffMS int64) map[int64]bool {
+	minKeep := intProp(meta.Properties, propMinSnapshots, defaultMinSnapshots)
+	newest := slices.Clone(meta.Snapshots)
+	slices.SortFunc(newest, func(a, b iceberg.Snapshot) int { return int(b.TimestampMS - a.TimestampMS) })
+
+	protected := map[int64]bool{}
+
+	for i, s := range newest {
+		if i < minKeep || s.TimestampMS >= cutoffMS {
+			protected[s.SnapshotID] = true
+		}
+	}
+
+	return protected
+}
+
 func (tg *icebergTarget) vacuum(ctx context.Context) statementOutcome {
 	p := tg.wp
 	meta := tg.tbl.meta
 	now := p.now().UTC()
 	ageMS := propInt64(meta.Properties, propMaxSnapshotAgeMS, defaultSnapshotAgeMS)
-	minKeep := intProp(meta.Properties, propMinSnapshots, defaultMinSnapshots)
 	maxMeta := intProp(meta.Properties, propMaxMetadataFiles, defaultMetadataFiles)
 	cutoff := now.UnixMilli() - ageMS
-
-	newest := slices.Clone(meta.Snapshots)
-	slices.SortFunc(newest, func(a, b iceberg.Snapshot) int { return int(b.TimestampMS - a.TimestampMS) })
-
-	protected := map[int64]bool{}
-	for i, s := range newest {
-		if i < minKeep || s.TimestampMS >= cutoff {
-			protected[s.SnapshotID] = true
-		}
-	}
+	protected := protectedSnapshots(meta, cutoff)
 
 	var gone []iceberg.Snapshot
 
@@ -150,30 +168,48 @@ func (tg *icebergTarget) vacuum(ctx context.Context) statementOutcome {
 		return engineFailure(err)
 	}
 
-	retained := plan.Metadata
+	committed := len(gone) > 0 || len(dropped) > 0
+	retained := meta
 
-	if len(gone) > 0 || len(dropped) > 0 {
-		conflict, out := p.publishPlan(ctx, tg.tbl, plan)
-		if out.failed {
-			return out
-		}
+	if committed {
+		retained = plan.Metadata
 
-		if conflict {
-			return stmtFail(athenaErrTypeSyntax,
-				"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s (concurrent modification)", p.display())
+		if conflict, out := p.publishPlan(ctx, tg.tbl, plan); out.failed || conflict {
+			if out.failed {
+				return out
+			}
+
+			return stmtFail(
+				athenaErrTypeSyntax,
+				"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s (concurrent modification)",
+				p.display(),
+			)
 		}
-	} else {
-		retained = meta
 	}
 
-	keep, err := tg.reachable(ctx, retained.Snapshots)
+	keep, force, err := tg.cleanupSets(ctx, retained, gone, dropped)
 	if err != nil {
 		return engineFailure(err)
+	}
+
+	keep[tg.tbl.location] = true
+	keep[plan.MetadataLocation] = committed
+
+	return tg.removeUnreferenced(ctx, keep, force, cutoff)
+}
+
+// cleanupSets returns the files to keep and the files that must go even when young.
+func (tg *icebergTarget) cleanupSets(
+	ctx context.Context, retained *iceberg.TableMetadata, gone []iceberg.Snapshot, dropped []iceberg.MetadataLogEntry,
+) (map[string]bool, map[string]bool, error) {
+	keep, err := tg.reachable(ctx, retained.Snapshots)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	force, err := tg.reachable(ctx, gone)
 	if err != nil {
-		return engineFailure(err)
+		return nil, nil, err
 	}
 
 	for k := range keep {
@@ -188,12 +224,7 @@ func (tg *icebergTarget) vacuum(ctx context.Context) statementOutcome {
 		force[e.MetadataFile] = true
 	}
 
-	keep[tg.tbl.location] = true
-	if len(gone) > 0 || len(dropped) > 0 {
-		keep[plan.MetadataLocation] = true
-	}
-
-	return tg.removeUnreferenced(ctx, keep, force, cutoff)
+	return keep, force, nil
 }
 
 // reachable lists the manifest lists, manifests and data/delete files of the snapshots.
@@ -254,7 +285,13 @@ func (tg *icebergTarget) removeUnreferenced(
 			Bucket: aws.String(bucket), Prefix: aws.String(prefix), ContinuationToken: token,
 		})
 		if err != nil {
-			return stmtFail(athenaErrTypeSyntax, "ICEBERG_FILESYSTEM_ERROR: cannot list s3://%s/%s: %s", bucket, prefix, err)
+			return stmtFail(
+				athenaErrTypeSyntax,
+				"ICEBERG_FILESYSTEM_ERROR: cannot list s3://%s/%s: %s",
+				bucket,
+				prefix,
+				err,
+			)
 		}
 
 		for _, o := range out.Contents {

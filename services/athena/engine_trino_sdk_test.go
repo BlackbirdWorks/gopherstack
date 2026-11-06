@@ -214,7 +214,11 @@ func TestSDK_TrinoLambdas(t *testing.T) {
 		{"any_match", "SELECT any_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"false"}, {"true"}}},
 		{"all_match", "SELECT all_match(nums, x -> x > 1) FROM docs ORDER BY id", [][]string{{"false"}, {"true"}}},
 		{"none_match", "SELECT none_match(nums, x -> x > 4) FROM docs ORDER BY id", [][]string{{"true"}, {"false"}}},
-		{"any_match empty", "SELECT any_match(tags, x -> x = 'x') FROM docs ORDER BY id", [][]string{{"true"}, {"false"}}},
+		{
+			"any_match empty",
+			"SELECT any_match(tags, x -> x = 'x') FROM docs ORDER BY id",
+			[][]string{{"true"}, {"false"}},
+		},
 		{
 			"map_filter",
 			"SELECT map_filter(m, (k, v) -> v > 1) FROM docs ORDER BY id",

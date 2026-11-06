@@ -41,12 +41,17 @@ func (l *tableLoader) deleteRefs(ctx context.Context, dels []fileEntry) (map[str
 
 		pf, err := parquetio.Open(data)
 		if err != nil {
-			return nil, icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open delete file %s: %v", d.entry.DataFile.Path, err)
+			return nil, icebergFailf(
+				"ICEBERG_CANNOT_OPEN_SPLIT",
+				"Cannot open delete file %s: %v",
+				d.entry.DataFile.Path,
+				err,
+			)
 		}
 
 		refs := map[string]bool{}
 
-		err = pf.ForEach([]string{"file_path"}, func(vals []any) error {
+		err = pf.ForEach([]string{colFilePath}, func(vals []any) error {
 			if s, ok := vals[0].(string); ok {
 				refs[s] = true
 			}
@@ -54,7 +59,12 @@ func (l *tableLoader) deleteRefs(ctx context.Context, dels []fileEntry) (map[str
 			return nil
 		})
 		if err != nil {
-			return nil, icebergFailf("ICEBERG_CURSOR_ERROR", "Cannot read delete file %s: %v", d.entry.DataFile.Path, err)
+			return nil, icebergFailf(
+				"ICEBERG_CURSOR_ERROR",
+				"Cannot read delete file %s: %v",
+				d.entry.DataFile.Path,
+				err,
+			)
 		}
 
 		out[d.entry.DataFile.Path] = refs
@@ -69,44 +79,53 @@ type optGroup struct {
 	deletes bool
 }
 
-func (p *writePlan) applyOptimize(ctx context.Context, l *tableLoader, res *sqlResult, limits EngineLimits) statementOutcome {
-	snap, ok := p.ice.meta.CurrentSnapshot()
-	if !ok {
-		return stmtOK()
-	}
+type optInputs struct {
+	refs    map[string]map[string]bool
+	byFile  map[string][]int
+	matched map[string]bool
+	files   snapshotFiles
+}
 
+func specKey(spec int, part map[string]any) string {
+	return strconv.Itoa(spec) + "|" + partitionKey(part)
+}
+
+func (p *writePlan) optimizeInputs(
+	ctx context.Context, l *tableLoader, res *sqlResult, snap iceberg.Snapshot,
+) (*optInputs, error) {
 	files, err := l.snapshotFiles(ctx, snap)
 	if err != nil {
-		return engineFailure(err)
+		return nil, err
 	}
 
 	refs, err := l.deleteRefs(ctx, files.deletes)
 	if err != nil {
-		return engineFailure(err)
+		return nil, err
 	}
 
-	byFile := map[string][]int{}
-	matched := map[string]bool{}
+	in := &optInputs{files: files, refs: refs, byFile: map[string][]int{}, matched: map[string]bool{}}
 
 	for r, row := range res.rows {
-		byFile[row[0]] = append(byFile[row[0]], r)
+		in.byFile[row[0]] = append(in.byFile[row[0]], r)
 
 		if v := row[dmlHidden]; v == "1" || v == strTrue {
-			matched[row[0]] = true
+			in.matched[row[0]] = true
 		}
 	}
 
-	props := p.ice.meta.Properties
-	dataThr := intProp(props, propRewriteDataThreshold, defaultDataThreshold)
+	return in, nil
+}
+
+// groups buckets the data files worth rewriting by partition.
+func (in *optInputs) groups(props map[string]string) ([]string, map[string]*optGroup) {
 	delThr := intProp(props, propRewriteDeleteThreshold, defaultDeleteThreshold)
 	minSize := int64(defaultTargetFileBytes * minFileRatioNum / minFileRatioDen)
 	maxSize := int64(defaultTargetFileBytes * maxFileRatioNum / maxFileRatioDen)
-
 	matchedParts := map[string]bool{}
 
-	for _, f := range files.data {
-		if matched[f.entry.DataFile.Path] {
-			matchedParts[strconv.Itoa(f.spec)+"|"+partitionKey(f.entry.DataFile.Partition)] = true
+	for _, f := range in.files.data {
+		if in.matched[f.entry.DataFile.Path] {
+			matchedParts[specKey(f.spec, f.entry.DataFile.Partition)] = true
 		}
 	}
 
@@ -114,44 +133,51 @@ func (p *writePlan) applyOptimize(ctx context.Context, l *tableLoader, res *sqlR
 
 	var keys []string
 
-	for _, f := range files.data {
+	for _, f := range in.files.data {
 		df := f.entry.DataFile
-		key := strconv.Itoa(f.spec) + "|" + partitionKey(df.Partition)
+		key := specKey(f.spec, df.Partition)
+		inScope := in.matched[df.Path] || (len(in.byFile[df.Path]) == 0 && matchedParts[key])
+		heavy := in.deleteCount(df.Path) >= delThr
 
-		if !matched[df.Path] && !(len(byFile[df.Path]) == 0 && matchedParts[key]) {
-			continue
-		}
-
-		n := 0
-
-		for _, r := range refs {
-			if r[df.Path] {
-				n++
-			}
-		}
-
-		heavy := n >= delThr
-		if df.FileSize >= minSize && df.FileSize <= maxSize && !heavy {
+		if !inScope || (df.FileSize >= minSize && df.FileSize <= maxSize && !heavy) {
 			continue
 		}
 
 		g, found := groups[key]
 		if !found {
 			g = &optGroup{}
-			groups[key] = g
-			keys = append(keys, key)
+			groups[key], keys = g, append(keys, key)
 		}
 
 		g.files = append(g.files, df.Path)
-		g.rows = append(g.rows, byFile[df.Path]...)
+		g.rows = append(g.rows, in.byFile[df.Path]...)
 		g.deletes = g.deletes || heavy
 	}
 
 	sort.Strings(keys)
 
+	return keys, groups
+}
+
+func (in *optInputs) deleteCount(dataPath string) int {
+	n := 0
+
+	for _, r := range in.refs {
+		if r[dataPath] {
+			n++
+		}
+	}
+
+	return n
+}
+
+func (in *optInputs) change(props map[string]string) (iceberg.Change, []int) {
+	dataThr := intProp(props, propRewriteDataThreshold, defaultDataThreshold)
 	ch := iceberg.Change{Operation: iceberg.OpReplace, RemoveData: map[string]bool{}, RemoveDeletes: map[string]bool{}}
 
 	var rewrite []int
+
+	keys, groups := in.groups(props)
 
 	for _, k := range keys {
 		g := groups[k]
@@ -166,25 +192,44 @@ func (p *writePlan) applyOptimize(ctx context.Context, l *tableLoader, res *sqlR
 		rewrite = append(rewrite, g.rows...)
 	}
 
-	if len(ch.RemoveData) == 0 {
-		return stmtOK()
-	}
-
-	for dp, r := range refs {
-		all := len(r) > 0
-
-		for ref := range r {
-			if !ch.RemoveData[ref] {
-				all = false
-			}
-		}
-
-		if all {
+	for dp, r := range in.refs {
+		if len(r) > 0 && allRemoved(r, ch.RemoveData) {
 			ch.RemoveDeletes[dp] = true
 		}
 	}
 
 	sort.Ints(rewrite)
+
+	return ch, rewrite
+}
+
+func allRemoved(refs, removed map[string]bool) bool {
+	for ref := range refs {
+		if !removed[ref] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (p *writePlan) applyOptimize(
+	ctx context.Context, l *tableLoader, res *sqlResult, limits EngineLimits,
+) statementOutcome {
+	snap, ok := p.ice.meta.CurrentSnapshot()
+	if !ok {
+		return stmtOK()
+	}
+
+	in, err := p.optimizeInputs(ctx, l, res, snap)
+	if err != nil {
+		return engineFailure(err)
+	}
+
+	ch, rewrite := in.change(p.ice.meta.Properties)
+	if len(ch.RemoveData) == 0 {
+		return stmtOK()
+	}
 
 	if len(rewrite) > 0 {
 		added := p.sliceRows(res, rewrite, dmlHidden+1)
@@ -202,10 +247,5 @@ func (p *writePlan) applyOptimize(ctx context.Context, l *tableLoader, res *sqlR
 		ch.AddData = newFiles
 	}
 
-	if out := p.commitIcebergChange(ctx, ch, false); out.failed {
-		return out
-	}
-
-	return stmtOK()
+	return p.commitIcebergChange(ctx, ch, false)
 }
-

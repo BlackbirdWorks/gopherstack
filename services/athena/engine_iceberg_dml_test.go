@@ -81,8 +81,17 @@ func TestIceberg_UpdateAndMerge(t *testing.T) {
 	e := newOrders(t, "PARTITIONED BY (category)")
 
 	e.mustRun(t, "UPDATE orders SET qty = qty + 10, price = price * 2 WHERE category = 'a'")
-	assert.Equal(t, [][]string{{"1", "11", "21.0"}, {"2", "2", "20.0"}, {"3", "13", "60.0"}, {"4", "4", "40.0"}, {"5", "5", "50.0"}},
-		e.mustRun(t, "SELECT id, qty, price FROM orders ORDER BY id"))
+	assert.Equal(
+		t,
+		[][]string{
+			{"1", "11", "21.0"},
+			{"2", "2", "20.0"},
+			{"3", "13", "60.0"},
+			{"4", "4", "40.0"},
+			{"5", "5", "50.0"},
+		},
+		e.mustRun(t, "SELECT id, qty, price FROM orders ORDER BY id"),
+	)
 
 	meta, _ := e.metadata(t, "orders")
 	cur, _ := meta.CurrentSnapshot()
@@ -143,15 +152,21 @@ func TestIceberg_CTAS(t *testing.T) {
 	cases := []struct {
 		name  string
 		with  string
-		parts []string
 		files string
+		parts []string
 	}{
-		{"plain", "table_type='ICEBERG', location='s3://lake/c1/', is_external=false", nil, ".parquet"},
+		{name: "plain", with: "table_type='ICEBERG', location='s3://lake/c1/', is_external=false", files: ".parquet"},
 		{
-			"partitioned", "table_type='ICEBERG', location='s3://lake/c2/', is_external=false, " +
-				"partitioning=ARRAY['category', 'bucket(id, 4)']", []string{"identity", "bucket[4]"}, ".parquet",
+			name: "partitioned",
+			with: "table_type='ICEBERG', location='s3://lake/c2/', is_external=false, " +
+				"partitioning=ARRAY['category', 'bucket(id, 4)']",
+			parts: []string{"identity", "bucket[4]"}, files: ".parquet",
 		},
-		{"avro", "table_type='ICEBERG', location='s3://lake/c3/', format='AVRO', write_compression='snappy'", nil, ".avro"},
+		{
+			name:  "avro",
+			with:  "table_type='ICEBERG', location='s3://lake/c3/', format='AVRO', write_compression='snappy'",
+			files: ".avro",
+		},
 	}
 
 	for _, tc := range cases {
@@ -159,10 +174,22 @@ func TestIceberg_CTAS(t *testing.T) {
 			t.Parallel()
 
 			e := newOrders(t, "")
-			e.mustRun(t, "CREATE TABLE copy WITH ("+tc.with+") AS SELECT id, category, qty > 2 AS big, price FROM orders")
+			e.mustRun(
+				t,
+				"CREATE TABLE copy WITH ("+tc.with+") AS SELECT id, category, qty > 2 AS big, price FROM orders",
+			)
 
-			assert.Equal(t, [][]string{{"1", "a", "false"}, {"2", "b", "false"}, {"3", "a", "true"}, {"4", "c", "true"}, {"5", "b", "true"}},
-				e.mustRun(t, "SELECT id, category, big FROM copy ORDER BY id"))
+			assert.Equal(
+				t,
+				[][]string{
+					{"1", "a", "false"},
+					{"2", "b", "false"},
+					{"3", "a", "true"},
+					{"4", "c", "true"},
+					{"5", "b", "true"},
+				},
+				e.mustRun(t, "SELECT id, category, big FROM copy ORDER BY id"),
+			)
 
 			meta, _ := e.metadata(t, "copy")
 			assert.Equal(t, "boolean", string(meta.CurrentSchema().Fields[2].Type[1:8]))
@@ -191,9 +218,19 @@ func TestIceberg_CTAS(t *testing.T) {
 	}
 
 	e := newOrders(t, "")
-	e.mustRun(t, "CREATE TABLE empty WITH (table_type='ICEBERG', location='s3://lake/e/') AS SELECT id FROM orders WITH NO DATA")
+	e.mustRun(
+		t,
+		"CREATE TABLE empty WITH (table_type='ICEBERG', location='s3://lake/e/') AS SELECT id FROM orders WITH NO DATA",
+	)
 	assert.Equal(t, [][]string{{"0"}}, e.mustRun(t, "SELECT count(*) FROM empty"))
-	assert.Contains(t, e.failure(t, "CREATE TABLE bad WITH (table_type='ICEBERG', format='ORC', location='s3://lake/b/') AS SELECT id FROM orders"), "ORC")
+	assert.Contains(
+		t,
+		e.failure(
+			t,
+			"CREATE TABLE bad WITH (table_type='ICEBERG', format='ORC', location='s3://lake/b/') AS SELECT id FROM orders",
+		),
+		"ORC",
+	)
 }
 
 func TestIceberg_AlterTable(t *testing.T) {
@@ -219,7 +256,7 @@ func TestIceberg_AlterTable(t *testing.T) {
 	assert.Len(t, meta.Schemas, 5)
 	assert.Equal(t, 6, meta.LastColumnID)
 
-	var names []string
+	names := make([]string, 0, len(meta.CurrentSchema().Fields))
 	for _, f := range meta.CurrentSchema().Fields {
 		names = append(names, f.Name)
 	}
@@ -246,12 +283,15 @@ func TestIceberg_Vacuum(t *testing.T) {
 
 	e := newOrders(t, "")
 	e.mustRun(t, "DELETE FROM orders WHERE id = 1")
-	e.mustRun(t, "ALTER TABLE orders SET TBLPROPERTIES ('vacuum_max_snapshot_age_seconds'='1', 'vacuum_min_snapshots_to_keep'='1')")
+	e.mustRun(
+		t,
+		"ALTER TABLE orders SET TBLPROPERTIES ('vacuum_max_snapshot_age_seconds'='1', 'vacuum_min_snapshots_to_keep'='1')",
+	)
 
 	before, _ := e.metadata(t, "orders")
 	require.Len(t, before.Snapshots, 3)
 
-	var oldFiles []string
+	oldFiles := make([]string, 0, 2)
 
 	for _, s := range before.Snapshots[:2] {
 		oldFiles = append(oldFiles, s.ManifestList)
@@ -288,7 +328,11 @@ func TestIceberg_DMLErrors(t *testing.T) {
 	}{
 		{"update unknown column", "UPDATE orders SET nope = 1", "COLUMN_NOT_FOUND"},
 		{"missing table", "DELETE FROM ghost WHERE id = 1", "TABLE_NOT_FOUND"},
-		{"merge arity", "MERGE INTO orders t USING orders s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (id) VALUES (1, 2)", "mismatched"},
+		{
+			"merge arity",
+			"MERGE INTO orders t USING orders s ON t.id = s.id WHEN NOT MATCHED THEN INSERT (id) VALUES (1, 2)",
+			"mismatched",
+		},
 		{"vacuum missing", "VACUUM ghost", "does not exist"},
 	}
 

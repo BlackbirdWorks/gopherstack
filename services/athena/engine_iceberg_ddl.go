@@ -223,7 +223,7 @@ func parseTransformCall(sig []token) (transformCall, error) {
 	args := splitCommas(sig[2 : len(sig)-1])
 	colArg := 0
 
-	if c.fn == "bucket" || c.fn == fnTruncate {
+	if c.fn == fnBucket || c.fn == fnTruncate {
 		if len(args) != argsTwo {
 			return c, ddlSyntax(c.fn + " takes a width and a column")
 		}
@@ -263,7 +263,7 @@ func partitionField(schema iceberg.Schema, sig []token) (iceberg.PartitionField,
 	transform, suffix := c.fn, "_"+c.fn
 
 	switch c.fn {
-	case "bucket", fnTruncate:
+	case fnBucket, fnTruncate:
 		transform = c.fn + "[" + c.width + "]"
 		if c.fn == fnTruncate {
 			suffix = "_trunc"

@@ -3,6 +3,7 @@ package athena
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,6 +30,12 @@ const (
 	hiveStruct         = "struct"
 	hiveDecimal        = "decimal"
 	avroTimeLayout     = "2006-01-02 15:04:05.999999999"
+	avroKeyType        = "type"
+	avroKeyName        = "name"
+	avroKeyDefault     = "default"
+	avroKeyLogical     = "logicalType"
+	codecDeflate       = "DEFLATE"
+	codecSnappy        = "SNAPPY"
 )
 
 var (
@@ -72,70 +79,77 @@ func splitTop(s string, sep byte) []string {
 	return append(parts, s[start:])
 }
 
-func parseHiveType(raw string) (*hiveType, error) {
-	t := strings.ToLower(strings.TrimSpace(raw))
-	base, rest, hasArgs := strings.Cut(t, "<")
-
-	if !hasArgs {
-		base, rest, hasArgs = strings.Cut(t, "(")
-		if hasArgs {
-			rest = strings.TrimSuffix(rest, ")")
-		}
-	} else {
-		rest = strings.TrimSuffix(rest, ">")
+func splitTypeArgs(t string) (string, string, bool) {
+	if base, rest, ok := strings.Cut(t, "<"); ok {
+		return strings.TrimSpace(base), strings.TrimSuffix(rest, ">"), true
 	}
 
-	base = strings.TrimSpace(base)
+	if base, rest, ok := strings.Cut(t, "("); ok {
+		return strings.TrimSpace(base), strings.TrimSuffix(rest, ")"), true
+	}
+
+	return strings.TrimSpace(t), "", false
+}
+
+func parseHiveType(raw string) (*hiveType, error) {
+	base, args, hasArgs := splitTypeArgs(strings.ToLower(strings.TrimSpace(raw)))
 	ht := &hiveType{base: base}
+
+	var err error
 
 	switch base {
 	case hiveArray:
-		el, err := parseHiveType(rest)
-		ht.elem = el
-
-		return ht, err
+		ht.elem, err = parseHiveType(args)
 	case hiveMap:
-		kv := splitTop(rest, ',')
+		kv := splitTop(args, ',')
 		if len(kv) != argsTwo {
 			return nil, fmt.Errorf("%w: %s", errAvroType, raw)
 		}
 
-		el, err := parseHiveType(kv[1])
-		ht.elem = el
-
-		return ht, err
+		ht.elem, err = parseHiveType(kv[1])
 	case hiveStruct:
-		for _, f := range splitTop(rest, ',') {
-			name, typ, ok := strings.Cut(strings.TrimSpace(f), ":")
-			if !ok {
-				return nil, fmt.Errorf("%w: %s", errAvroType, raw)
-			}
-
-			ft, err := parseHiveType(typ)
-			if err != nil {
-				return nil, err
-			}
-
-			ht.fields = append(ht.fields, hiveField{name: strings.TrimSpace(name), typ: ft})
-		}
-
-		return ht, nil
+		ht.fields, err = parseStructFields(args, raw)
 	case hiveDecimal, typeNumeric:
 		ht.base, ht.prec = hiveDecimal, defaultDecimalPrec
 
 		if hasArgs {
-			ps := strings.Split(rest, ",")
-			ht.prec, _ = strconv.Atoi(strings.TrimSpace(ps[0]))
-
-			if len(ps) > 1 {
-				ht.scale, _ = strconv.Atoi(strings.TrimSpace(ps[1]))
-			}
+			ht.prec, ht.scale = parseDecimalArgs(args)
 		}
-
-		return ht, nil
 	}
 
-	return ht, nil
+	return ht, err
+}
+
+func parseStructFields(args, raw string) ([]hiveField, error) {
+	var out []hiveField
+
+	for _, f := range splitTop(args, ',') {
+		name, typ, ok := strings.Cut(strings.TrimSpace(f), ":")
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", errAvroType, raw)
+		}
+
+		ft, err := parseHiveType(typ)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, hiveField{name: strings.TrimSpace(name), typ: ft})
+	}
+
+	return out, nil
+}
+
+func parseDecimalArgs(args string) (int, int) {
+	ps := strings.Split(args, ",")
+	prec, _ := strconv.Atoi(strings.TrimSpace(ps[0]))
+	scale := 0
+
+	if len(ps) > 1 {
+		scale, _ = strconv.Atoi(strings.TrimSpace(ps[1]))
+	}
+
+	return prec, scale
 }
 
 type avroNamer struct{ n int }
@@ -146,58 +160,73 @@ func (a *avroNamer) next(prefix string) string {
 	return prefix + strconv.Itoa(a.n)
 }
 
-func nullable(v any) []any { return []any{"null", v} }
+func nullable(v any) []any { return []any{kwNull, v} }
+
+func avroPrimitiveSchema(base string) (any, bool) {
+	switch base {
+	case typeBoolean:
+		return "boolean", true
+	case typeTinyint, typeSmallint, typeInt, typeInteger:
+		return "int", true
+	case typeBigint:
+		return "long", true
+	case typeFloat, typeReal:
+		return "float", true
+	case typeDouble:
+		return "double", true
+	case columnTypeString, typeVarchar, "char":
+		return "string", true
+	case "binary", "varbinary":
+		return "bytes", true
+	case typeDate:
+		return map[string]any{avroKeyType: "int", avroKeyLogical: typeDate}, true
+	case typeTimestamp:
+		return map[string]any{avroKeyType: "long", avroKeyLogical: "timestamp-millis"}, true
+	}
+
+	return nil, false
+}
 
 func (t *hiveType) avroSchema(nm *avroNamer) (any, error) {
+	if sch, ok := avroPrimitiveSchema(t.base); ok {
+		return sch, nil
+	}
+
 	switch t.base {
-	case typeBoolean:
-		return "boolean", nil
-	case typeTinyint, typeSmallint, typeInt, typeInteger:
-		return "int", nil
-	case typeBigint:
-		return "long", nil
-	case typeFloat, typeReal:
-		return "float", nil
-	case typeDouble:
-		return "double", nil
-	case columnTypeString, typeVarchar, "char":
-		return "string", nil
-	case "binary", "varbinary":
-		return "bytes", nil
-	case typeDate:
-		return map[string]any{"type": "int", "logicalType": "date"}, nil
-	case typeTimestamp:
-		return map[string]any{"type": "long", "logicalType": "timestamp-millis"}, nil
 	case hiveDecimal:
 		return map[string]any{
-			"type": "bytes", "logicalType": "decimal", "precision": t.prec, "scale": t.scale,
+			avroKeyType: "bytes", avroKeyLogical: hiveDecimal, "precision": t.prec, "scale": t.scale,
 		}, nil
 	case hiveArray:
 		el, err := t.elem.avroSchema(nm)
 
-		return map[string]any{"type": "array", "items": nullable(el)}, err
+		return map[string]any{avroKeyType: hiveArray, "items": nullable(el)}, err
 	case hiveMap:
 		el, err := t.elem.avroSchema(nm)
 
-		return map[string]any{"type": "map", "values": nullable(el)}, err
+		return map[string]any{avroKeyType: hiveMap, "values": nullable(el)}, err
 	case hiveStruct:
-		fields := make([]any, 0, len(t.fields))
-
-		for _, f := range t.fields {
-			ft, err := f.typ.avroSchema(nm)
-			if err != nil {
-				return nil, err
-			}
-
-			fields = append(fields, map[string]any{"name": f.name, "type": nullable(ft), "default": nil})
-		}
-
-		t.name = nm.next("struct_")
-
-		return map[string]any{"type": "record", "name": t.name, "fields": fields}, nil
+		return t.structSchema(nm)
 	default:
 		return nil, fmt.Errorf("%w: %s", errAvroType, t.base)
 	}
+}
+
+func (t *hiveType) structSchema(nm *avroNamer) (any, error) {
+	fields := make([]any, 0, len(t.fields))
+
+	for _, f := range t.fields {
+		ft, err := f.typ.avroSchema(nm)
+		if err != nil {
+			return nil, err
+		}
+
+		fields = append(fields, map[string]any{avroKeyName: f.name, avroKeyType: nullable(ft), avroKeyDefault: nil})
+	}
+
+	t.name = nm.next("struct_")
+
+	return map[string]any{avroKeyType: "record", avroKeyName: t.name, "fields": fields}, nil
 }
 
 func avroSchemaFor(cols []outCol) (string, []*hiveType, error) {
@@ -217,10 +246,10 @@ func avroSchemaFor(cols []outCol) (string, []*hiveType, error) {
 		}
 
 		types[i] = ht
-		fields = append(fields, map[string]any{"name": c.name, "type": nullable(sch), "default": nil})
+		fields = append(fields, map[string]any{avroKeyName: c.name, avroKeyType: nullable(sch), avroKeyDefault: nil})
 	}
 
-	b, err := json.Marshal(map[string]any{"type": "record", "name": avroRootName, "fields": fields})
+	b, err := json.Marshal(map[string]any{avroKeyType: "record", avroKeyName: avroRootName, "fields": fields})
 
 	return string(b), types, err
 }
@@ -295,67 +324,79 @@ func (t *hiveType) fromJSON(v any) (any, error) {
 
 	switch t.base {
 	case hiveArray:
-		arr, ok := v.([]any)
-		if !ok {
-			return nil, fmt.Errorf("%w: expected array", errAvroValue)
-		}
-
-		out := make([]any, len(arr))
-
-		for i, e := range arr {
-			ev, err := t.elem.fromJSON(e)
-			if err != nil {
-				return nil, err
-			}
-
-			out[i] = t.elem.union(ev)
-		}
-
-		return out, nil
+		return t.arrayFromJSON(v)
 	case hiveMap:
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%w: expected map", errAvroValue)
-		}
-
-		out := make(map[string]any, len(m))
-
-		for k, e := range m {
-			ev, err := t.elem.fromJSON(e)
-			if err != nil {
-				return nil, err
-			}
-
-			out[k] = t.elem.union(ev)
-		}
-
-		return out, nil
+		return t.mapFromJSON(v)
 	case hiveStruct:
-		m, ok := v.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%w: expected struct", errAvroValue)
-		}
-
-		lower := make(map[string]any, len(m))
-		for k, e := range m {
-			lower[strings.ToLower(k)] = e
-		}
-
-		out := make(map[string]any, len(t.fields))
-
-		for _, f := range t.fields {
-			ev, err := f.typ.fromJSON(lower[strings.ToLower(f.name)])
-			if err != nil {
-				return nil, err
-			}
-
-			out[f.name] = f.typ.union(ev)
-		}
-
-		return out, nil
+		return t.structFromJSON(v)
 	default:
 		return t.fromText(jsonScalarText(v))
 	}
+}
+
+func (t *hiveType) arrayFromJSON(v any) (any, error) {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: expected array", errAvroValue)
+	}
+
+	out := make([]any, len(arr))
+
+	for i, e := range arr {
+		ev, err := t.elem.fromJSON(e)
+		if err != nil {
+			return nil, err
+		}
+
+		out[i] = t.elem.union(ev)
+	}
+
+	return out, nil
+}
+
+func (t *hiveType) mapFromJSON(v any) (any, error) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: expected map", errAvroValue)
+	}
+
+	out := make(map[string]any, len(m))
+
+	for k, e := range m {
+		ev, err := t.elem.fromJSON(e)
+		if err != nil {
+			return nil, err
+		}
+
+		out[k] = t.elem.union(ev)
+	}
+
+	return out, nil
+}
+
+func (t *hiveType) structFromJSON(v any) (any, error) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w: expected struct", errAvroValue)
+	}
+
+	lower := make(map[string]any, len(m))
+	for k, e := range m {
+		lower[strings.ToLower(k)] = e
+	}
+
+	out := make(map[string]any, len(t.fields))
+
+	for _, f := range t.fields {
+		ev, err := f.typ.fromJSON(lower[strings.ToLower(f.name)])
+		if err != nil {
+			return nil, err
+		}
+
+		out[f.name] = f.typ.union(ev)
+	}
+
+	return out, nil
 }
 
 // union wraps a map or record value for its ["null", T] slot: the encoder
@@ -377,9 +418,9 @@ func avroCodec(name string) (ocf.CodecName, error) {
 	switch strings.ToUpper(name) {
 	case "", compressionNone:
 		return ocf.Null, nil
-	case "DEFLATE":
+	case codecDeflate:
 		return ocf.Deflate, nil
-	case "SNAPPY":
+	case codecSnappy:
 		return ocf.Snappy, nil
 	default:
 		return "", fmt.Errorf("%w: compression %s", errAvroType, name)
@@ -455,7 +496,7 @@ func avroNorm(v any, t *hiveType) any {
 	case []byte:
 		return string(n)
 	case [16]byte:
-		return fmt.Sprintf("%x", n[:])
+		return hex.EncodeToString(n[:])
 	case float32:
 		return float64(n)
 	case []any:
@@ -667,32 +708,7 @@ func (l *tableLoader) decodeAvro(
 		}
 
 		obj, _ = avroUnwrap(obj, dec.Schema()).(map[string]any)
-
-		lower := make(map[string]any, len(obj))
-		for k, v := range obj {
-			lower[strings.ToLower(k)] = v
-		}
-
-		extra := 0
-		if opts.rowIDs {
-			extra = argsTwo
-		}
-
-		rec := make([]string, len(cols)+extra)
-		nulls := make([]bool, len(cols)+extra)
-
-		for i, c := range cols {
-			v, ok := lower[strings.ToLower(c.Name)]
-			nulls[i] = !ok || v == nil
-
-			if !nulls[i] {
-				rec[i] = avroCell(v, types[i])
-			}
-		}
-
-		if opts.rowIDs {
-			rec[len(cols)], rec[len(cols)+1] = opts.path, strconv.FormatInt(ord, 10)
-		}
+		rec, nulls := avroRow(obj, cols, types, opts, ord)
 
 		if err = l.insertJSON(ctx, sink, rec, nulls); err != nil {
 			return err
@@ -706,3 +722,31 @@ func (l *tableLoader) decodeAvro(
 	return nil
 }
 
+// avroRow maps a decoded record onto the table columns (case-insensitive names).
+func avroRow(obj map[string]any, cols []Column, types []*hiveType, opts avroOpts, ord int64) ([]string, []bool) {
+	lower := make(map[string]any, len(obj))
+	for k, v := range obj {
+		lower[strings.ToLower(k)] = v
+	}
+
+	extra := 0
+	if opts.rowIDs {
+		extra = argsTwo
+	}
+
+	rec := make([]string, len(cols)+extra)
+	nulls := make([]bool, len(cols)+extra)
+
+	for i, c := range cols {
+		v, ok := lower[strings.ToLower(c.Name)]
+		if nulls[i] = !ok || v == nil; !nulls[i] {
+			rec[i] = avroCell(v, types[i])
+		}
+	}
+
+	if opts.rowIDs {
+		rec[len(cols)], rec[len(cols)+1] = opts.path, strconv.FormatInt(ord, 10)
+	}
+
+	return rec, nulls
+}

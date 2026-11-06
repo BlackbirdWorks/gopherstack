@@ -1,6 +1,7 @@
 package athena
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -33,7 +34,8 @@ type mergeClause struct {
 	matched bool
 }
 
-// dmlSpec is a parsed DELETE, UPDATE, MERGE or OPTIMIZE; the SELECT that feeds it is built once the table's columns are known.
+// dmlSpec is a parsed DELETE, UPDATE, MERGE or OPTIMIZE. The SELECT that feeds it
+// is built once the table's columns are known.
 type dmlSpec struct {
 	targetText  string
 	targetAlias string
@@ -62,10 +64,8 @@ func topIndex(toks []token, from int, words ...string) int {
 		case t.isWord("end") && cases > 0:
 			cases--
 		case depth == 0 && cases == 0 && t.kind == tkWord:
-			for _, w := range words {
-				if t.isWord(w) {
-					return i
-				}
+			if slices.ContainsFunc(words, t.isWord) {
+				return i
 			}
 		}
 	}
@@ -108,7 +108,7 @@ func (c *stmtCursor) splitAssigns(from, to int) ([]dmlAssign, bool) {
 			return nil, false
 		}
 
-		out = append(out, dmlAssign{col: c.toks[start].ident(), expr: c.text(start+2, comma)})
+		out = append(out, dmlAssign{col: c.toks[start].ident(), expr: c.text(start+argsTwo, comma)})
 		start = comma + 1
 	}
 
@@ -122,10 +122,8 @@ func (c *stmtCursor) optionalAlias(stop ...string) string {
 		return ""
 	}
 
-	for _, w := range stop {
-		if c.toks[c.pos].isWord(w) {
-			return ""
-		}
+	if slices.ContainsFunc(stop, c.toks[c.pos].isWord) {
+		return ""
 	}
 
 	a := c.toks[c.pos].ident()
@@ -300,7 +298,6 @@ func (c *stmtCursor) parseMergeInsert(mc mergeClause, end int) (mergeClause, boo
 	if !c.acceptWords("values") || c.done() {
 		return mc, false
 	}
-
 
 	inner, ok := c.group()
 	if !ok {

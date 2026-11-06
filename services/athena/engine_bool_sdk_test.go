@@ -41,7 +41,12 @@ func TestSDK_BooleanResults(t *testing.T) {
 		{"logical", "SELECT true AND false AS a, true OR false AS o, NOT true AS n",
 			[]string{"boolean", "boolean", "boolean"}, [][]string{{"false", "true", "false"}}},
 		{"boolean column", "SELECT ok FROM flags ORDER BY id", []string{"boolean"}, [][]string{{"true"}, {"false"}}},
-		{"column comparison", "SELECT n > 3 AS big FROM flags ORDER BY id", []string{"boolean"}, [][]string{{"true"}, {""}}},
+		{
+			"column comparison",
+			"SELECT n > 3 AS big FROM flags ORDER BY id",
+			[]string{"boolean"},
+			[][]string{{"true"}, {""}},
+		},
 		{"is null", "SELECT n IS NULL AS missing, id IN (1, 3) AS hit FROM flags ORDER BY id",
 			[]string{"boolean", "boolean"}, [][]string{{"false", "true"}, {"true", "false"}}},
 		{"between like", "SELECT id BETWEEN 1 AND 1 AS b, name LIKE 'a%' AS l FROM flags ORDER BY id",

@@ -365,7 +365,7 @@ func (p *writePlan) publishPlan(
 
 func avroCodecFor(v string) string {
 	switch c := strings.ToUpper(v); c {
-	case "SNAPPY", "DEFLATE":
+	case codecSnappy, codecDeflate:
 		return c
 	default:
 		return ""

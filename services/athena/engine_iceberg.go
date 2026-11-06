@@ -251,7 +251,7 @@ func (l *tableLoader) positionDeletes(ctx context.Context, files []fileEntry) (m
 
 		perFile := map[string]map[int64]bool{}
 
-		err = pf.ForEach([]string{"file_path", "pos"}, func(vals []any) error {
+		err = pf.ForEach([]string{colFilePath, colPosName}, func(vals []any) error {
 			p, _ := vals[0].(string)
 			n, _ := vals[1].(int64)
 
@@ -393,7 +393,7 @@ func (l *tableLoader) loadIcebergDataFile(
 	}
 
 	spec, _ := tbl.meta.SpecByID(f.spec)
-	fcs := make([]fileCol, len(cols))
+	fcs := make([]fileCol, len(cols), len(cols)+dmlHidden)
 
 	for i, c := range cols {
 		fcs[i] = fileCol{name: c.Name, hive: c.Type, fileName: c.Name, id: schema.Fields[i].ID}

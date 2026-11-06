@@ -1,23 +1,75 @@
 package athena
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // SQLite has no boolean type, so a comparison or logical expression comes
 // back as 0/1 with no declared type. boolOutputs classifies the outermost
 // SELECT list statically so those columns render true/false.
 
-var boolFuncs = map[string]bool{
-	"regexp_like": true, "starts_with": true, "contains": true, "is_nan": true, "is_finite": true,
-	"is_infinite": true, "any_match": true, "all_match": true, "none_match": true,
-	"json_array_contains": true, "bool_and": true, "bool_or": true, "every": true,
-	"arrays_overlap": true,
+const (
+	kwNull    = "null"
+	kwCase    = "case"
+	kwEnd     = "end"
+	kwAnd     = "and"
+	kwOr      = "or"
+	kwOrder   = "order"
+	kwUnion   = "union"
+	kwWindow  = "window"
+	kwBetween = "between"
+	kwIs      = "is"
+	kwIn      = "in"
+	kwLike    = "like"
+	kwNot     = "not"
+	kwThen    = "then"
+	kwElse    = "else"
+	kwWhen    = "when"
+	kwSelect  = "select"
+	kwAs      = "as"
+)
+
+func isBoolFunc(n string) bool {
+	switch n {
+	case "regexp_like", "starts_with", "contains", "is_nan", "is_finite", "is_infinite", "any_match", "all_match",
+		"none_match", "json_array_contains", "bool_and", "bool_or", "every", "arrays_overlap":
+		return true
+	}
+
+	return false
 }
 
-var boolPassFuncs = map[string]bool{"coalesce": true, "try": true, "nullif": true, "greatest": true, "least": true}
+func isBoolPassFunc(n string) bool {
+	switch n {
+	case "coalesce", "try", "nullif", "greatest", "least":
+		return true
+	}
 
-var selectEnders = map[string]bool{
-	kwFrom: true, kwWhere: true, kwGroup: true, kwHaving: true, "order": true, kwLimit: true, kwOffset: true,
-	"union": true, kwIntersect: true, kwExcept: true, kwFetch: true, "window": true,
+	return false
+}
+
+func isSelectEnder(lw string) bool {
+	switch lw {
+	case kwFrom, kwWhere, kwGroup, kwHaving, kwOrder, kwLimit, kwOffset, kwUnion, kwIntersect, kwExcept, kwFetch,
+		kwWindow:
+		return true
+	}
+
+	return false
+}
+
+func isBoolWord(lw string) bool {
+	switch lw {
+	case kwAnd, kwOr, kwNot, kwIs, kwIn, kwBetween, kwLike, "exists", "ilike":
+		return true
+	}
+
+	return false
+}
+
+func isCmpPunct(t token) bool {
+	return t.isPunct("=") || t.isPunct("<") || t.isPunct(">") || t.isPunct("!")
 }
 
 type boolScope struct {
@@ -40,7 +92,7 @@ func boolOutputs(query string) []bool {
 
 	for range passes {
 		for i, t := range sig {
-			if t.isWord("select") && !prevIsDotTok(sig, i) {
+			if t.isWord(kwSelect) && !prevIsDotTok(sig, i) {
 				sc.scanSelect(sig, i, true)
 			}
 		}
@@ -62,7 +114,7 @@ func outermostSelect(sig []token) int {
 			depth++
 		case t.isPunct(")"):
 			depth--
-		case t.isWord("select"):
+		case t.isWord(kwSelect):
 			if depth == 0 {
 				return i
 			}
@@ -76,6 +128,56 @@ func outermostSelect(sig []token) int {
 	return first
 }
 
+// selectItems splits the select list starting after the SELECT at sel.
+func selectItems(sig []token, sel int) [][]token {
+	i := sel + 1
+	if i < len(sig) && (sig[i].isWord("distinct") || sig[i].isWord("all")) {
+		i++
+	}
+
+	items := make([][]token, 0, 1)
+	cur := make([]token, 0, len(sig)-i)
+	depth, cases := 0, 0
+
+	for ; i < len(sig); i++ {
+		t := sig[i]
+
+		if t.isPunct(")") && depth == 0 {
+			break
+		}
+
+		if depth == 0 && cases == 0 && t.kind == tkWord && isSelectEnder(strings.ToLower(t.text)) {
+			break
+		}
+
+		if depth == 0 && cases == 0 && t.isPunct(",") {
+			items, cur = append(items, cur), nil
+
+			continue
+		}
+
+		depth, cases = trackNesting(t, depth, cases)
+		cur = append(cur, t)
+	}
+
+	return append(items, cur)
+}
+
+func trackNesting(t token, depth, cases int) (int, int) {
+	switch {
+	case t.isPunct("("):
+		depth++
+	case t.isPunct(")"):
+		depth--
+	case t.isWord(kwCase):
+		cases++
+	case t.isWord(kwEnd) && cases > 0:
+		cases--
+	}
+
+	return depth, cases
+}
+
 // scanSelect classifies the select items starting at sel. With learn set it
 // records alias classifications instead of returning the output vector.
 func (sc *boolScope) scanSelect(sig []token, sel int, learn bool) []bool {
@@ -83,47 +185,7 @@ func (sc *boolScope) scanSelect(sig []token, sel int, learn bool) []bool {
 		return nil
 	}
 
-	i := sel + 1
-	if i < len(sig) && (sig[i].isWord("distinct") || sig[i].isWord("all")) {
-		i++
-	}
-
-	var (
-		items [][]token
-		cur   []token
-		depth int
-		cases int
-	)
-
-loop:
-	for ; i < len(sig); i++ {
-		t := sig[i]
-
-		switch {
-		case t.isPunct("("):
-			depth++
-		case t.isPunct(")"):
-			depth--
-			if depth < 0 {
-				break loop
-			}
-		case t.isWord("case"):
-			cases++
-		case t.isWord("end") && cases > 0:
-			cases--
-		case depth == 0 && cases == 0 && t.kind == tkWord && selectEnders[strings.ToLower(t.text)]:
-			break loop
-		case depth == 0 && cases == 0 && t.isPunct(","):
-			items = append(items, cur)
-			cur = nil
-
-			continue
-		}
-
-		cur = append(cur, t)
-	}
-
-	items = append(items, cur)
+	items := selectItems(sig, sel)
 	out := make([]bool, len(items))
 
 	for k, item := range items {
@@ -155,28 +217,27 @@ func (sc *boolScope) record(expr []token, alias string, isB bool) {
 		}
 	}
 
-	if name == "" {
-		return
-	}
-
-	if isB {
+	switch {
+	case name == "":
+	case isB:
 		sc.yes[name] = true
-	} else if alias != "" || len(expr) != 1 {
+	case alias != "" || len(expr) != 1:
 		sc.no[name] = true
 	}
 }
 
+func isNameTok(t token) bool { return t.kind == tkWord || t.kind == tkQuoted }
+
 // splitAliasSig splits `expr [AS] alias` on already-significant tokens.
 func splitAliasSig(item []token) ([]token, string) {
 	n := len(item)
-	if n >= argsThree && item[n-2].isWord("as") {
+	if n >= argsThree && item[n-2].isWord(kwAs) {
 		return item[:n-2], item[n-1].ident()
 	}
 
-	if n >= argsTwo && (item[n-1].kind == tkWord || item[n-1].kind == tkQuoted) &&
-		!isOperandKeyword(strings.ToLower(item[n-1].text)) && !isClauseWord(item[n-1]) &&
-		(item[n-2].kind == tkWord || item[n-2].kind == tkQuoted || item[n-2].isPunct(")") ||
-			item[n-2].kind == tkNumber || item[n-2].kind == tkString) && !item[n-2].isPunct(".") {
+	if n >= argsTwo && isNameTok(item[n-1]) && !isOperandKeyword(strings.ToLower(item[n-1].text)) &&
+		!isClauseWord(item[n-1]) && !item[n-2].isPunct(".") &&
+		(isNameTok(item[n-2]) || item[n-2].isPunct(")") || item[n-2].kind == tkNumber || item[n-2].kind == tkString) {
 		return item[:n-1], item[n-1].ident()
 	}
 
@@ -185,35 +246,36 @@ func splitAliasSig(item []token) ([]token, string) {
 
 func isClauseWord(t token) bool {
 	switch strings.ToLower(t.text) {
-	case "end", "null", "true", "false", "and", "or", "not", "is", "in", "like", "between":
+	case kwEnd, kwNull, strTrue, strFalse, kwAnd, kwOr, kwNot, kwIs, kwIn, kwLike, kwBetween:
 		return true
 	}
 
 	return false
 }
 
-func (sc *boolScope) isBool(expr []token) bool {
+func stripParens(expr []token) []token {
 	for len(expr) >= argsTwo && expr[0].isPunct("(") && matchParen(expr, 0) == len(expr)-1 {
-		if len(expr) > argsTwo && expr[1].isWord("select") {
-			return false
+		if len(expr) > argsTwo && expr[1].isWord(kwSelect) {
+			return nil
 		}
 
 		expr = expr[1 : len(expr)-1]
 	}
 
-	if len(expr) == 0 {
+	return expr
+}
+
+func (sc *boolScope) isBool(expr []token) bool {
+	expr = stripParens(expr)
+
+	switch {
+	case len(expr) == 0:
 		return false
-	}
-
-	if len(expr) == 1 {
+	case len(expr) == 1:
 		return sc.isBoolAtom(expr[0])
-	}
-
-	if sc.hasBoolOperator(expr) {
+	case hasBoolOperator(expr):
 		return true
-	}
-
-	if expr[0].isWord("case") && expr[len(expr)-1].isWord("end") && matchCaseEnd(expr) {
+	case expr[0].isWord(kwCase) && expr[len(expr)-1].isWord(kwEnd) && matchCaseEnd(expr):
 		return sc.caseIsBool(expr)
 	}
 
@@ -221,10 +283,11 @@ func (sc *boolScope) isBool(expr []token) bool {
 }
 
 func (sc *boolScope) isBoolAtom(t token) bool {
-	switch {
-	case t.isWord(strTrue), t.isWord(strFalse):
+	if t.isWord(strTrue) || t.isWord(strFalse) {
 		return true
-	case t.kind == tkWord || t.kind == tkQuoted:
+	}
+
+	if isNameTok(t) {
 		n := t.ident()
 
 		return sc.yes[n] && !sc.no[n]
@@ -234,44 +297,33 @@ func (sc *boolScope) isBoolAtom(t token) bool {
 }
 
 func (sc *boolScope) isBoolRef(expr []token) bool {
-	if len(expr) == argsThree && expr[1].isPunct(".") {
-		return sc.isBoolAtom(expr[2])
-	}
-
-	return false
+	return len(expr) == argsThree && expr[1].isPunct(".") && sc.isBoolAtom(expr[2])
 }
 
-func (sc *boolScope) hasBoolOperator(expr []token) bool {
+func hasBoolOperator(expr []token) bool {
 	depth, cases := 0, 0
 
 	for i, t := range expr {
-		switch {
-		case t.isPunct("("):
-			depth++
-		case t.isPunct(")"):
-			depth--
-		case t.isWord("case"):
-			cases++
-		case t.isWord("end") && cases > 0:
-			cases--
-		case depth == 0 && cases == 0 && t.kind == tkPunct && strings.Contains("=<>!", t.text) && !arrowAt(expr, i):
-			return true
-		case depth == 0 && cases == 0 && t.kind == tkWord && isBoolWord(strings.ToLower(t.text)) && !prevIsDotTok(expr, i):
+		if depth == 0 && cases == 0 && isBoolOperatorAt(expr, i) {
 			return true
 		}
+
+		depth, cases = trackNesting(t, depth, cases)
 	}
 
 	return false
 }
 
-func arrowAt(expr []token, i int) bool {
-	return expr[i].isPunct(">") && i > 0 && expr[i-1].isPunct("-")
-}
+func isBoolOperatorAt(expr []token, i int) bool {
+	t := expr[i]
 
-func isBoolWord(lw string) bool {
-	switch lw {
-	case "and", "or", "not", "is", "in", "between", "like", "exists", "ilike":
-		return true
+	switch {
+	case isCmpPunct(t):
+		isArrow := t.isPunct(">") && i > 0 && expr[i-1].isPunct("-")
+
+		return !isArrow
+	case t.kind == tkWord:
+		return isBoolWord(strings.ToLower(t.text)) && !prevIsDotTok(expr, i)
 	}
 
 	return false
@@ -282,9 +334,9 @@ func matchCaseEnd(expr []token) bool {
 
 	for i, t := range expr {
 		switch {
-		case t.isWord("case"):
+		case t.isWord(kwCase):
 			cases++
-		case t.isWord("end"):
+		case t.isWord(kwEnd):
 			cases--
 			if cases == 0 {
 				return i == len(expr)-1
@@ -295,46 +347,51 @@ func matchCaseEnd(expr []token) bool {
 	return false
 }
 
-func (sc *boolScope) caseIsBool(expr []token) bool {
-	depth, cases := 0, 0
-	start := -1
+// caseBranches returns the result expressions (THEN and ELSE) of a CASE block.
+func caseBranches(expr []token) [][]token {
+	var (
+		out          [][]token
+		depth, cases int
+		start        = -1
+	)
 
-	flush := func(end int) bool {
-		return start >= 0 && !(end-start == 1 && expr[start].isWord("null")) && sc.isBool(expr[start:end])
+	flush := func(end int) {
+		if start >= 0 && (end-start != 1 || !expr[start].isWord(kwNull)) {
+			out = append(out, expr[start:end])
+		}
+
+		start = -1
 	}
 
 	for i, t := range expr {
-		switch {
-		case t.isPunct("("):
-			depth++
-		case t.isPunct(")"):
-			depth--
-		case t.isWord("case"):
-			cases++
-		case t.isWord("end"):
-			cases--
-			if cases == 0 && flush(i) {
-				return true
-			}
-		case depth == 0 && cases == 1 && (t.isWord("when") || t.isWord("else")):
-			if flush(i) {
-				return true
-			}
+		top := depth == 0 && cases == 1
 
-			start = -1
-			if t.isWord("else") {
+		switch {
+		case top && (t.isWord(kwWhen) || t.isWord(kwElse)):
+			flush(i)
+
+			if t.isWord(kwElse) {
 				start = i + 1
 			}
-		case depth == 0 && cases == 1 && t.isWord("then"):
+		case top && t.isWord(kwThen):
 			start = i + 1
+		case t.isWord(kwEnd) && cases == 1 && depth == 0:
+			flush(i)
 		}
+
+		depth, cases = trackNesting(t, depth, cases)
 	}
 
-	return false
+	return out
+}
+
+func (sc *boolScope) caseIsBool(expr []token) bool {
+	return slices.ContainsFunc(caseBranches(expr), sc.isBool)
 }
 
 func (sc *boolScope) isBoolCall(expr []token) bool {
-	if len(expr) < argsThree || expr[0].kind != tkWord || !expr[1].isPunct("(") || matchParen(expr, 1) != len(expr)-1 {
+	if len(expr) < argsThree || expr[0].kind != tkWord || !expr[1].isPunct("(") ||
+		matchParen(expr, 1) != len(expr)-1 {
 		return false
 	}
 
@@ -342,18 +399,14 @@ func (sc *boolScope) isBoolCall(expr []token) bool {
 	args := splitCommasSig(expr[2 : len(expr)-1])
 
 	switch {
-	case boolFuncs[name]:
+	case isBoolFunc(name):
 		return true
 	case name == "cast" || name == "try_cast":
 		return len(args) == 1 && endsAsBoolean(args[0])
 	case name == "if":
 		return len(args) >= argsTwo && (sc.isBool(args[1]) || len(args) > argsTwo && sc.isBool(args[2]))
-	case boolPassFuncs[name]:
-		for _, a := range args {
-			if sc.isBool(a) {
-				return true
-			}
-		}
+	case isBoolPassFunc(name):
+		return slices.ContainsFunc(args, sc.isBool)
 	}
 
 	return false
@@ -362,13 +415,13 @@ func (sc *boolScope) isBoolCall(expr []token) bool {
 func endsAsBoolean(toks []token) bool {
 	n := len(toks)
 
-	return n >= argsTwo && toks[n-1].isWord(typeBoolean) && toks[n-2].isWord("as")
+	return n >= argsTwo && toks[n-1].isWord(typeBoolean) && toks[n-2].isWord(kwAs)
 }
 
 func splitCommasSig(toks []token) [][]token {
 	var (
 		parts [][]token
-		cur   []token
+		cur   = make([]token, 0, len(toks))
 		depth int
 	)
 
@@ -379,8 +432,7 @@ func splitCommasSig(toks []token) [][]token {
 		case t.isPunct(")"):
 			depth--
 		case depth == 0 && t.isPunct(","):
-			parts = append(parts, cur)
-			cur = nil
+			parts, cur = append(parts, cur), nil
 
 			continue
 		}

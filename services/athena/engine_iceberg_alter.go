@@ -3,6 +3,7 @@ package athena
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/iceberg"
@@ -25,66 +26,11 @@ func alterFail(err error) statementOutcome {
 func parseAlterOp(c *stmtCursor) (alterOp, bool) {
 	switch {
 	case c.acceptWords("add", "columns"):
-		inner, ok := c.group()
-		if !ok || !c.done() {
-			return nil, false
-		}
-
-		cols := parseColumnTokens(inner)
-
-		return func(m, next *iceberg.TableMetadata) error {
-			s := m.CurrentSchema()
-
-			for _, col := range cols {
-				var err error
-				if s, _, err = next.WithColumn(s, col.Name, col.Type, col.Comment); err != nil {
-					return err
-				}
-
-				next.LastColumnID++
-			}
-
-			next.SetSchema(s)
-
-			return nil
-		}, len(cols) > 0
+		return parseAddColumns(c)
 	case c.acceptWords("drop", "column"), c.acceptWords("drop"):
-		name := c.qualifiedName()
-		if len(name) != 1 || !c.done() {
-			return nil, false
-		}
-
-		return func(m, next *iceberg.TableMetadata) error {
-			s, err := next.WithoutColumn(m.CurrentSchema(), name[0])
-			if err != nil {
-				return err
-			}
-
-			next.SetSchema(s)
-
-			return nil
-		}, true
+		return parseDropColumn(c)
 	case c.acceptWords("rename", "column"):
-		from := c.qualifiedName()
-		if len(from) != 1 || !c.acceptWords("to") {
-			return nil, false
-		}
-
-		to := c.qualifiedName()
-		if len(to) != 1 || !c.done() {
-			return nil, false
-		}
-
-		return func(m, next *iceberg.TableMetadata) error {
-			s, err := next.WithRenamedColumn(m.CurrentSchema(), from[0], to[0], "")
-			if err != nil {
-				return err
-			}
-
-			next.SetSchema(s)
-
-			return nil
-		}, true
+		return parseRenameColumn(c)
 	case c.acceptWords("change"):
 		return parseChangeColumn(c)
 	case c.acceptWords("set", "tblproperties"):
@@ -94,64 +40,128 @@ func parseAlterOp(c *stmtCursor) (alterOp, bool) {
 	}
 }
 
-func parseChangeColumn(c *stmtCursor) (alterOp, bool) {
-	c.acceptWords("column")
-
-	oldN, newN := c.qualifiedName(), c.qualifiedName()
-	if len(oldN) != 1 || len(newN) != 1 {
+func parseAddColumns(c *stmtCursor) (alterOp, bool) {
+	inner, ok := c.group()
+	if !ok || !c.done() {
 		return nil, false
 	}
 
-	end := topIndex(c.toks, c.pos, "comment", "first", "after")
-	typ := typeText(c.toks[c.pos:end])
-	c.pos = end
+	cols := parseColumnTokens(inner)
 
-	if typ == "" {
-		return nil, false
-	}
+	return func(m, next *iceberg.TableMetadata) error {
+		s := m.CurrentSchema()
 
-	var (
-		comment string
-		first   bool
-		after   string
-	)
+		for _, col := range cols {
+			var err error
+			if s, _, err = next.WithColumn(s, col.Name, col.Type, col.Comment); err != nil {
+				return err
+			}
 
-	if c.acceptWords("comment") {
-		comment = c.stringLit()
-	}
-
-	switch {
-	case c.acceptWords("first"):
-		first = true
-	case c.acceptWords("after"):
-		a := c.qualifiedName()
-		if len(a) != 1 {
-			return nil, false
+			next.LastColumnID++
 		}
 
-		after = a[0]
-	}
+		next.SetSchema(s)
 
-	if !c.done() {
+		return nil
+	}, len(cols) > 0
+}
+
+func parseDropColumn(c *stmtCursor) (alterOp, bool) {
+	name := c.qualifiedName()
+	if len(name) != 1 || !c.done() {
 		return nil, false
 	}
 
 	return func(m, next *iceberg.TableMetadata) error {
-		s, err := next.WithRenamedColumn(m.CurrentSchema(), oldN[0], newN[0], typ)
+		s, err := next.WithoutColumn(m.CurrentSchema(), name[0])
 		if err != nil {
 			return err
 		}
 
-		if comment != "" {
-			for i := range s.Fields {
-				if strings.EqualFold(s.Fields[i].Name, newN[0]) {
-					s.Fields[i].Doc = comment
-				}
+		next.SetSchema(s)
+
+		return nil
+	}, true
+}
+
+func parseRenameColumn(c *stmtCursor) (alterOp, bool) {
+	from := c.qualifiedName()
+	if len(from) != 1 || !c.acceptWords("to") {
+		return nil, false
+	}
+
+	to := c.qualifiedName()
+	if len(to) != 1 || !c.done() {
+		return nil, false
+	}
+
+	return func(m, next *iceberg.TableMetadata) error {
+		s, err := next.WithRenamedColumn(m.CurrentSchema(), from[0], to[0], "")
+		if err != nil {
+			return err
+		}
+
+		next.SetSchema(s)
+
+		return nil
+	}, true
+}
+
+type changeSpec struct {
+	oldName, newName, typ, comment, after string
+	first                                 bool
+}
+
+func parseChangeSpec(c *stmtCursor) (changeSpec, bool) {
+	c.acceptWords("column")
+
+	oldN, newN := c.qualifiedName(), c.qualifiedName()
+	if len(oldN) != 1 || len(newN) != 1 {
+		return changeSpec{}, false
+	}
+
+	end := topIndex(c.toks, c.pos, "comment", "first", "after")
+	cs := changeSpec{oldName: oldN[0], newName: newN[0], typ: typeText(c.toks[c.pos:end])}
+	c.pos = end
+
+	if c.acceptWords("comment") {
+		cs.comment = c.stringLit()
+	}
+
+	if c.acceptWords("after") {
+		a := c.qualifiedName()
+		if len(a) != 1 {
+			return cs, false
+		}
+
+		cs.after = a[0]
+	} else {
+		cs.first = c.acceptWords("first")
+	}
+
+	return cs, cs.typ != "" && c.done()
+}
+
+func parseChangeColumn(c *stmtCursor) (alterOp, bool) {
+	cs, ok := parseChangeSpec(c)
+	if !ok {
+		return nil, false
+	}
+
+	return func(m, next *iceberg.TableMetadata) error {
+		s, err := next.WithRenamedColumn(m.CurrentSchema(), cs.oldName, cs.newName, cs.typ)
+		if err != nil {
+			return err
+		}
+
+		for i := range s.Fields {
+			if cs.comment != "" && strings.EqualFold(s.Fields[i].Name, cs.newName) {
+				s.Fields[i].Doc = cs.comment
 			}
 		}
 
-		if first || after != "" {
-			if s, err = next.WithMovedColumn(s, newN[0], first, after); err != nil {
+		if cs.first || cs.after != "" {
+			if s, err = next.WithMovedColumn(s, cs.newName, cs.first, cs.after); err != nil {
 				return err
 			}
 		}
@@ -186,9 +196,7 @@ func parseSetProps(c *stmtCursor) (alterOp, bool) {
 			return err
 		}
 
-		for k, v := range props {
-			next.Properties[k] = v
-		}
+		maps.Copy(next.Properties, props)
 
 		return nil
 	}, ok
@@ -232,13 +240,11 @@ func (tg *icebergTarget) alter(ctx context.Context, op alterOp) statementOutcome
 		return op(tg.tbl.meta, next)
 	}, p.now().UTC())
 	if err != nil {
-		var ie *icebergError
-		if errors.As(err, &ie) {
+		if _, ok := errors.AsType[*icebergError](err); ok {
 			return engineFailure(err)
 		}
 
-		var se *syntaxError
-		if errors.As(err, &se) {
+		if se, ok := errors.AsType[*syntaxError](err); ok {
 			return stmtFail(athenaErrTypeSyntax, "%s", se.msg)
 		}
 

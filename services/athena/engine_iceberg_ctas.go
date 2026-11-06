@@ -20,9 +20,9 @@ func isIcebergCTASProp(k string) bool {
 	}
 
 	switch k {
-	case propTableType, propLocation, "is_external", propPartitioning,
+	case propTableType, propLocation, propIsExternal, propPartitioning,
 		"optimize_rewrite_min_data_file_size_bytes", "optimize_rewrite_max_data_file_size_bytes",
-		"parquet_compression", "compression":
+		propParquetComp, propCompression:
 		return true
 	default:
 		return false
@@ -38,8 +38,10 @@ func (p *writePlan) validateIcebergCTAS() statementOutcome {
 
 	for k := range props {
 		if k == "external_location" {
-			return stmtFail(athenaErrTypeSyntax,
-				"INVALID_TABLE_PROPERTY: line 1:1: external_location is not supported for table type ICEBERG; use location")
+			return stmtFail(
+				athenaErrTypeSyntax,
+				"INVALID_TABLE_PROPERTY: line 1:1: external_location is not supported for table type ICEBERG; use location",
+			)
 		}
 
 		if !isIcebergCTASProp(k) {
@@ -48,13 +50,19 @@ func (p *writePlan) validateIcebergCTAS() statementOutcome {
 		}
 	}
 
-	if strings.EqualFold(firstProp(props, "is_external"), strTrue) {
-		return stmtFail(athenaErrTypeSyntax, "INVALID_TABLE_PROPERTY: line 1:1: is_external must be false for ICEBERG tables")
+	if strings.EqualFold(firstProp(props, propIsExternal), strTrue) {
+		return stmtFail(
+			athenaErrTypeSyntax,
+			"INVALID_TABLE_PROPERTY: line 1:1: is_external must be false for ICEBERG tables",
+		)
 	}
 
 	if f := strings.ToUpper(firstProp(props, propFormat)); f != "" && f != fmtNameParquet && f != fmtNameAvro {
-		return stmtFail(athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format %s is not supported for Iceberg tables by the embedded SQL engine; use PARQUET or AVRO", f)
+		return stmtFail(
+			athenaErrTypeSyntax,
+			"NOT_SUPPORTED: format %s is not supported for Iceberg tables by the embedded SQL engine; use PARQUET or AVRO",
+			f,
+		)
 	}
 
 	p.iceCTAS = true
@@ -96,45 +104,56 @@ func normalizeTransform(sig []token) []token {
 	}
 
 	fn := strings.ToLower(sig[0].text)
-	if (fn == "bucket" || fn == fnTruncate) && sig[2].kind != tkNumber && sig[4].kind == tkNumber {
+	if (fn == fnBucket || fn == fnTruncate) && sig[2].kind != tkNumber && sig[4].kind == tkNumber {
 		return []token{sig[0], sig[1], sig[4], sig[3], sig[2], sig[5]}
 	}
 
 	return sig
 }
 
-func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
-	props := p.stmt.props
-
+func (p *writePlan) icebergCTASProps() (map[string]string, error) {
 	raw := map[string]string{}
 
-	for k, v := range props {
+	for k, v := range p.stmt.props {
 		switch k {
-		case propTableType, propLocation, "is_external", propPartitioning,
+		case propTableType, propLocation, propIsExternal, propPartitioning,
 			"optimize_rewrite_min_data_file_size_bytes", "optimize_rewrite_max_data_file_size_bytes":
-		case "parquet_compression", "compression":
+		case propParquetComp, propCompression:
 			raw[propWriteCompression] = v[0]
 		default:
 			raw[k] = v[0]
 		}
 	}
 
-	icProps, err := icebergProps(raw)
-	if err != nil {
-		return engineFailure(err)
-	}
+	return icebergProps(raw)
+}
 
+func ctasColumnSpecs(res *sqlResult) ([]iceberg.ColumnSpec, statementOutcome) {
 	specs := make([]iceberg.ColumnSpec, len(res.columns))
 	seen := map[string]bool{}
 
 	for i, c := range res.columns {
 		name := strings.ToLower(c.name)
 		if seen[name] {
-			return stmtFail(athenaErrTypeSyntax, "line 1:1: Duplicate column name '%s'", name)
+			return nil, stmtFail(athenaErrTypeSyntax, "line 1:1: Duplicate column name '%s'", name)
 		}
 
 		seen[name] = true
 		specs[i] = iceberg.ColumnSpec{Name: name, Type: c.glue}
+	}
+
+	return specs, stmtOK()
+}
+
+func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	icProps, err := p.icebergCTASProps()
+	if err != nil {
+		return engineFailure(err)
+	}
+
+	specs, out := ctasColumnSpecs(res)
+	if out.failed {
+		return out
 	}
 
 	schema, err := iceberg.SchemaFromColumns(specs)
@@ -142,7 +161,7 @@ func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits
 		return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: %s", err.Error())
 	}
 
-	pspec, err := partitioningSpec(schema, props[propPartitioning])
+	pspec, err := partitioningSpec(schema, p.stmt.props[propPartitioning])
 	if err != nil {
 		return engineFailure(err)
 	}
@@ -152,42 +171,9 @@ func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits
 		Properties: icProps, Now: p.now(),
 	})
 
-	body, err := iceberg.EncodeMetadata(meta)
-	if err != nil {
-		return engineFailure(err)
-	}
-
-	loc := iceberg.InitialMetadataLocation(meta.Location)
-	if out := p.putObjectAt(ctx, loc, body); out.failed {
+	current, out := p.writeCTASMetadata(ctx, meta, res, limits)
+	if out.failed {
 		return out
-	}
-
-	p.ice = &icebergTable{meta: meta, location: loc, display: p.db + "." + p.table}
-	current := loc
-
-	if !p.stmt.noData && len(res.rows) > 0 {
-		src := make([]int, len(specs))
-		for i := range src {
-			src[i] = i
-		}
-
-		files, out := p.writeIcebergFiles(ctx, res, src, limits)
-		if out.failed {
-			return out
-		}
-
-		plan, perr := meta.PlanAppend(loc, nil, files, p.now().UTC())
-		if perr != nil {
-			return engineFailure(perr)
-		}
-
-		for _, o := range plan.Objects {
-			if out = p.putObjectAt(ctx, o.Location, o.Body); out.failed {
-				return out
-			}
-		}
-
-		current = plan.MetadataLocation
 	}
 
 	cols := make([]Column, len(specs))
@@ -202,11 +188,56 @@ func (p *writePlan) applyIcebergCTAS(ctx context.Context, res *sqlResult, limits
 
 	if err = p.cat.CreateTableDef(p.db, def); err != nil {
 		if errors.Is(err, ErrCatalogEntityExists) {
-			return stmtFail(athenaErrTypeEntityFound, "TABLE_ALREADY_EXISTS: line 1:1: Table '%s' already exists", p.display())
+			return stmtFail(athenaErrTypeEntityFound,
+				"TABLE_ALREADY_EXISTS: line 1:1: Table '%s' already exists", p.display())
 		}
 
 		return stmtFail(athenaErrTypeSyntax, "line 1:1: Unable to create table: %s", err.Error())
 	}
 
 	return stmtOK()
+}
+
+// writeCTASMetadata stores the empty table's metadata, then the first snapshot when the query returned rows.
+func (p *writePlan) writeCTASMetadata(
+	ctx context.Context, meta *iceberg.TableMetadata, res *sqlResult, limits EngineLimits,
+) (string, statementOutcome) {
+	body, err := iceberg.EncodeMetadata(meta)
+	if err != nil {
+		return "", engineFailure(err)
+	}
+
+	loc := iceberg.InitialMetadataLocation(meta.Location)
+	if out := p.putObjectAt(ctx, loc, body); out.failed {
+		return "", out
+	}
+
+	p.ice = &icebergTable{meta: meta, location: loc, display: p.db + "." + p.table}
+
+	if p.stmt.noData || len(res.rows) == 0 {
+		return loc, stmtOK()
+	}
+
+	src := make([]int, len(res.columns))
+	for i := range src {
+		src[i] = i
+	}
+
+	files, out := p.writeIcebergFiles(ctx, res, src, limits)
+	if out.failed {
+		return "", out
+	}
+
+	plan, err := meta.PlanAppend(loc, nil, files, p.now().UTC())
+	if err != nil {
+		return "", engineFailure(err)
+	}
+
+	for _, o := range plan.Objects {
+		if out = p.putObjectAt(ctx, o.Location, o.Body); out.failed {
+			return "", out
+		}
+	}
+
+	return plan.MetadataLocation, stmtOK()
 }
