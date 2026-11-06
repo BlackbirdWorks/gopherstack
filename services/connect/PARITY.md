@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 351 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 51 are unrouted and listed in items_still_open.
+overall: B            # 357 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 45 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -55,6 +55,12 @@ ops:
   DeleteTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "removes both versions"}
   ListTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "sorted by name; Status is the published status when published; MaxResults 1-1000"}
   SearchTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "StringCondition on name and description, StatusCondition, tag filter, And/Or conditions"}
+  StartContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must exist in the instance (ContactNotFoundException) and the form must have an ACTIVE version, which the draft evaluation pins (InvalidRequestException otherwise, code unverified); AutoEvaluationConfiguration.Enabled is recorded but no automatic evaluation runs; ClientToken replays; tags join the tag model. Shape: schemas.go StartContactEvaluation; docs API_StartContactEvaluation"}
+  UpdateContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "DRAFT evaluations only (submitted ones answer InvalidRequestException); answers merge by question RefId and are type-checked against the pinned form (SINGLESELECT option RefId in StringValue, MULTISELECT RefIds in StringValues, NUMERIC within the question range, DATETIME DateTimeValue, TEXT StringValue; NotApplicable always accepted), notes must belong to questions; UpdatedBy sets EvaluatorArn"}
+  SubmitContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same answer handling as update, then scores and locks the evaluation as SUBMITTED. Score (emulator approximation, unverified): with an ENABLED ScoringStrategy, EarnedPoints/MaxBasePoint sum the chosen and best option scores of answered scored questions (SINGLESELECT and NUMERIC options), NotApplicable answers are skipped, Percentage = earned/max, an AutomaticFail option zeroes the percentage; section scores use the same rule per enclosing section; question and section weights, PerformanceCategory, required-answer checks and review flows are not applied"}
+  DescribeContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns the evaluation and the pinned form version content; ContactAgentId is the contact's current agent"}
+  ListContactEvaluations: {wire: ok, errors: ok, state: ok, persist: ok, note: "evaluations of the contact newest first; NextToken is always empty, as the SDK docs say"}
+  DeleteContactEvaluation: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
@@ -376,8 +382,8 @@ ops:
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations is not routed"
-  - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
+  - "Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)"
+  - "EvaluationForms: ListEvaluationFormAIVersions is not routed; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation"
   - "TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated"
   - "Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated"
   - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"

@@ -61,6 +61,10 @@ func (b *Backend) registerViewTables() {
 		func(v *testCaseRec) string { return v.InstanceID }, func(v *testCaseRec) string { return v.ID })
 	b.testCases.taggable(
 		func(v *testCaseRec) string { return v.Arn }, func(v *testCaseRec) *map[string]string { return &v.Tags })
+	b.evaluations = newFamily(r, "contactEvaluations", labelEvaluation,
+		func(v *evaluationRec) string { return v.InstanceID }, func(v *evaluationRec) string { return v.ID })
+	b.evaluations.taggable(
+		func(v *evaluationRec) string { return v.Arn }, func(v *evaluationRec) *map[string]string { return &v.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -140,6 +144,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.attachedFiles.findARN,
 		b.notifications.findARN,
 		b.testCases.findARN,
+		b.evaluations.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -168,5 +173,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.pushRegistrations.dropInstance(inst)
 	b.authSessions.dropInstance(inst)
 	b.testCases.dropInstance(inst)
+	b.evaluations.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

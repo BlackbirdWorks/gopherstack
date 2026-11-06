@@ -1028,7 +1028,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | A | 6 | 2 structural gaps |
 | [Cloudhsmv2](services/cloudhsmv2/README.md) | B | 18 | 7 gaps; 3 structural gaps |
 | [Codegurureviewer](services/codegurureviewer/README.md) | B | 14 | 5 gaps; 2 structural gaps |
-| [Connect](services/connect/README.md) | B | 368 | 20 gaps; 2 structural gaps |
+| [Connect](services/connect/README.md) | B | 374 | 20 gaps; 2 structural gaps |
 | [Cur](services/cur/README.md) | B | 7 | 6 gaps |
 | [Directconnect](services/directconnect/README.md) | A | 73 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Dsql](services/dsql/README.md) | A | 16 | 8 gaps; 2 structural gaps |

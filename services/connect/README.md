@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 368 (368 ok) |
+| PARITY entries audited | 374 (374 ok) |
 | Known gaps | 20 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
@@ -15,8 +15,8 @@
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations is not routed
-- EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed
+- Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)
+- EvaluationForms: ListEvaluationFormAIVersions is not routed; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
 - TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated
 - Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
 - Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)

@@ -178,6 +178,7 @@ type extras struct {
 	pushRegistrations family[pushRegistrationRec]
 	authSessions      family[authSessionRec]
 	testCases         family[testCaseRec]
+	evaluations       family[evaluationRec]
 }
 
 func (b *Backend) registerTables() {

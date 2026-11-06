@@ -15,5 +15,11 @@ func testCaseRoutes() []restroute.Route {
 		{Method: http.MethodPost, Path: one, Op: "UpdateTestCase"},
 		{Method: http.MethodDelete, Path: one, Op: "DeleteTestCase"},
 		{Method: http.MethodGet, Path: "/test-cases-summary/{InstanceId}", Op: "ListTestCases"},
+		{Method: http.MethodPut, Path: "/contact-evaluations/{InstanceId}", Op: "StartContactEvaluation"},
+		{Method: http.MethodGet, Path: "/contact-evaluations/{InstanceId}", Op: "ListContactEvaluations"},
+		{Method: http.MethodGet, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "DescribeContactEvaluation"},
+		{Method: http.MethodPost, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "UpdateContactEvaluation"},
+		{Method: http.MethodDelete, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "DeleteContactEvaluation"},
+		{Method: http.MethodPost, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}/submit", Op: "SubmitContactEvaluation"},
 	}
 }
