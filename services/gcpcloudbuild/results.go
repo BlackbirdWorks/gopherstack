@@ -94,7 +94,7 @@ func (r *runner) outputDir(i int) (string, error) {
 func (r *runner) collectOutput(i int) {
 	f, err := os.Open(
 		filepath.Join(r.auxDir(), "outputs", "step-"+strconv.Itoa(i), outputFile),
-	) //nolint:gosec // build-owned dir
+	)
 	if err != nil {
 		return
 	}

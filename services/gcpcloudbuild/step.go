@@ -237,7 +237,8 @@ func (r *runner) drain(done <-chan struct{}) {
 // stepSpec builds the container specification for step i.
 func (r *runner) stepSpec(i int, step *cloudbuildpb.BuildStep) (container.Spec, error) {
 	spec := container.Spec{
-		Image: step.GetName(), Cmd: step.GetArgs(), Env: append(r.stepEnv(step), "BUILDER_OUTPUT="+builderOutput), WorkingDir: r.workingDir(step.GetDir()),
+		Image: step.GetName(), Cmd: step.GetArgs(), WorkingDir: r.workingDir(step.GetDir()),
+		Env: append(r.stepEnv(step), "BUILDER_OUTPUT="+builderOutput),
 	}
 
 	if step.GetEntrypoint() != "" {

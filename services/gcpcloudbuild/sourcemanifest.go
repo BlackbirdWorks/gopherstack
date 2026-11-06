@@ -1,8 +1,7 @@
 package gcpcloudbuild
 
 import (
-	"context" //nolint:gosec // MD5 is a documented Hash_HashType, not used for security
-	//nolint:gosec // gcs-fetcher manifests carry SHA-1 digests
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"

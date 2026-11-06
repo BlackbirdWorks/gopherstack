@@ -1,7 +1,7 @@
 package gcpcloudbuild_test
 
 import (
-	"context" //nolint:gosec // gcs-fetcher manifests carry SHA-1
+	"context"
 	"crypto/sha256"
 	"errors"
 	"io"
