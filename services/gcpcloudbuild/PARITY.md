@@ -52,7 +52,6 @@ items_still_open:
   - "Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host."
   - "Locations are path parameters only: the v1 API has no ListLocations, and any location id is accepted."
   - "Authentication is not checked, IAM is not enforced and service_account is ignored."
-  - "No dashboard page."
 leaks: {status: ok, note: "Shutdown cancels running builds, removes their containers and workspaces, and waits for the build goroutines."}
 ---
 

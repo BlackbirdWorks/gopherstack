@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
 | Feature families | 14 (12 ok, 2 partial) |
-| Known gaps | 10 |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
@@ -24,7 +24,6 @@
 - Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host.
 - Locations are path parameters only: the v1 API has no ListLocations, and any location id is accepted.
 - Authentication is not checked, IAM is not enforced and service_account is ignored.
-- No dashboard page.
 
 ## More
 

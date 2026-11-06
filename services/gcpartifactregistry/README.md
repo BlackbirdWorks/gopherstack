@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 45 (45 ok) |
 | Feature families | 10 (10 ok) |
-| Known gaps | 16 |
+| Known gaps | 15 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
@@ -30,7 +30,6 @@
 - Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled).
 - Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served.
 - The embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
-- No dashboard page.
 
 ## More
 
