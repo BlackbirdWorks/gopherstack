@@ -126,8 +126,8 @@ func methodAllowed(r corsRule, method string) bool {
 
 func headerAllowed(r corsRule, name string) bool {
 	for _, a := range splitCSV(r.AllowedHeaders) {
-		if strings.HasSuffix(a, "*") {
-			if strings.HasPrefix(strs.Fold(name), strs.Fold(strings.TrimSuffix(a, "*"))) {
+		if prefix, ok := strings.CutSuffix(a, "*"); ok {
+			if strings.HasPrefix(strs.Fold(name), strs.Fold(prefix)) {
 				return true
 			}
 		} else if strs.Equal(a, name) {
@@ -197,7 +197,7 @@ func (h *Handler) applyCORS(rc *reqCtx, hdr http.Header) {
 	readOnly := method == http.MethodGet || method == http.MethodHead
 
 	if origin == "" {
-		if rule, _, ok := wildcardRule(rules, method); ok {
+		if rule, ok := wildcardRule(rules, method); ok {
 			hdr.Set("Access-Control-Allow-Origin", "*")
 			setExpose(hdr, rule)
 		} else if readOnly {
@@ -225,14 +225,14 @@ func (h *Handler) applyCORS(rc *reqCtx, hdr http.Header) {
 	setExpose(hdr, rule)
 }
 
-func wildcardRule(rules []corsRule, method string) (corsRule, bool, bool) {
+func wildcardRule(rules []corsRule, method string) (corsRule, bool) {
 	for _, r := range rules {
 		if methodAllowed(r, method) && slices.Contains(splitCSV(r.AllowedOrigins), "*") {
-			return r, false, true
+			return r, true
 		}
 	}
 
-	return corsRule{}, false, false
+	return corsRule{}, false
 }
 
 func setExpose(hdr http.Header, r corsRule) {

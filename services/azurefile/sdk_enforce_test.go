@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func fileViaSAS(t *testing.T, e *env, sc *share.Client, name string, p sas.FilePermissions) *file.Client {
+func fileViaSAS(t *testing.T, sc *share.Client, name string, p sas.FilePermissions) *file.Client {
 	t.Helper()
 
 	fc := sc.NewRootDirectoryClient().NewFileClient(name)
@@ -34,8 +34,8 @@ func TestSDK_SASPermissions(t *testing.T) {
 	tests := []struct {
 		run  func(t *testing.T, fc *file.Client) error
 		name string
-		perm sas.FilePermissions
 		want fileerror.Code
+		perm sas.FilePermissions
 	}{
 		{
 			name: "read cannot write", perm: sas.FilePermissions{Read: true}, want: "AuthorizationPermissionMismatch",
@@ -94,7 +94,7 @@ func TestSDK_SASPermissions(t *testing.T) {
 			require.NoError(t, err)
 			newFile(t, sc, "f.txt", 2)
 
-			err = tt.run(t, fileViaSAS(t, e, sc, "f.txt", tt.perm))
+			err = tt.run(t, fileViaSAS(t, sc, "f.txt", tt.perm))
 			if tt.want == "" {
 				require.NoError(t, err)
 
@@ -110,10 +110,10 @@ func TestSDK_StoredAccessPolicy(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		policy  *share.AccessPolicy
-		remove  bool
+		name    string
 		wantErr fileerror.Code
+		remove  bool
 		write   bool
 	}{
 		{name: "policy grants read", policy: &share.AccessPolicy{Permission: new("r")}},
@@ -162,7 +162,10 @@ func TestSDK_StoredAccessPolicy(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			fc, err := file.NewClientWithNoCredential(sc.NewRootDirectoryClient().NewFileClient("f.txt").URL()+"?"+qp.Encode(), nil)
+			fc, err := file.NewClientWithNoCredential(
+				sc.NewRootDirectoryClient().NewFileClient("f.txt").URL()+"?"+qp.Encode(),
+				nil,
+			)
 			require.NoError(t, err)
 
 			if tt.write {
@@ -187,13 +190,17 @@ func TestSDK_SASOriginRestrictions(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		ip      sas.IPRange
 		proto   sas.Protocol
 		wantErr fileerror.Code
+		ip      sas.IPRange
 	}{
 		{name: "ip matches", ip: sas.IPRange{Start: net.ParseIP("127.0.0.1")}},
 		{name: "ip range matches", ip: sas.IPRange{Start: net.ParseIP("127.0.0.0"), End: net.ParseIP("127.0.0.9")}},
-		{name: "ip mismatch", ip: sas.IPRange{Start: net.ParseIP("10.1.1.1")}, wantErr: "AuthorizationSourceIPMismatch"},
+		{
+			name:    "ip mismatch",
+			ip:      sas.IPRange{Start: net.ParseIP("10.1.1.1")},
+			wantErr: "AuthorizationSourceIPMismatch",
+		},
 		{name: "https only over http", proto: sas.ProtocolHTTPS, wantErr: "AuthorizationProtocolMismatch"},
 		{name: "https and http", proto: sas.ProtocolHTTPSandHTTP},
 	}
@@ -216,7 +223,10 @@ func TestSDK_SASOriginRestrictions(t *testing.T) {
 			}.SignWithSharedKey(e.cred)
 			require.NoError(t, err)
 
-			fc, err := file.NewClientWithNoCredential(sc.NewRootDirectoryClient().NewFileClient("f.txt").URL()+"?"+qp.Encode(), nil)
+			fc, err := file.NewClientWithNoCredential(
+				sc.NewRootDirectoryClient().NewFileClient("f.txt").URL()+"?"+qp.Encode(),
+				nil,
+			)
 			require.NoError(t, err)
 
 			_, err = fc.GetProperties(ctx(t), nil)
@@ -236,9 +246,9 @@ func TestSDK_AccountSASScope(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		types   sas.AccountResourceTypes
-		perms   sas.AccountPermissions
 		wantErr fileerror.Code
+		perms   sas.AccountPermissions
+		types   sas.AccountResourceTypes
 	}{
 		{
 			name: "container only cannot create files", wantErr: "AuthorizationResourceTypeMismatch",
@@ -335,10 +345,17 @@ func TestSDK_CORS(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t)
-	_, err := e.svc.SetProperties(ctx(t), &service.SetPropertiesOptions{CORS: []*service.CORSRule{{
-		AllowedOrigins: new("https://app.example.com,http://*.contoso.com"), AllowedMethods: new("GET,PUT"),
-		AllowedHeaders: new("x-ms-meta-*,x-ms-version"), ExposedHeaders: new("x-ms-*"), MaxAgeInSeconds: new(int32(200)),
-	}}})
+	_, err := e.svc.SetProperties(ctx(t), &service.SetPropertiesOptions{CORS: []*service.CORSRule{
+		{
+			AllowedOrigins: new("https://app.example.com,http://*.contoso.com"),
+			AllowedMethods: new("GET,PUT"),
+			AllowedHeaders: new(
+				"x-ms-meta-*,x-ms-version",
+			),
+			ExposedHeaders:  new("x-ms-*"),
+			MaxAgeInSeconds: new(int32(200)),
+		},
+	}})
 	require.NoError(t, err)
 
 	base := e.url + "/devstoreaccount1/cors?restype=share"
@@ -421,7 +438,13 @@ func TestSDK_CORSDisabled(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 
-	resp = rawDo(t, http.MethodGet, e.url+"/devstoreaccount1?comp=list", "", map[string]string{"Origin": "https://a.example.com"})
+	resp = rawDo(
+		t,
+		http.MethodGet,
+		e.url+"/devstoreaccount1?comp=list",
+		"",
+		map[string]string{"Origin": "https://a.example.com"},
+	)
 	assert.Empty(t, resp.Header.Get("Access-Control-Allow-Origin"))
 	assert.Empty(t, resp.Header.Get("Vary"))
 }

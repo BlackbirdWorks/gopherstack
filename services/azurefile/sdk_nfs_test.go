@@ -67,7 +67,11 @@ func TestSDK_NFSProperties(t *testing.T) {
 			t.Helper()
 
 			fc := sc.NewRootDirectoryClient().NewFileClient("f")
-			_, err := fc.Create(ctx(t), 4, &file.CreateOptions{NFSProperties: &file.NFSProperties{FileMode: new("0999")}})
+			_, err := fc.Create(
+				ctx(t),
+				4,
+				&file.CreateOptions{NFSProperties: &file.NFSProperties{FileMode: new("0999")}},
+			)
 			requireCode(t, err, fileerror.InvalidHeaderValue)
 
 			_, err = fc.Create(ctx(t), 4, &file.CreateOptions{NFSProperties: &file.NFSProperties{Owner: new("root")}})

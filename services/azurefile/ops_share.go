@@ -653,12 +653,12 @@ func (n *node) usage() int64 {
 }
 
 // checkQuota refuses a write that grows the share's usage past its quota.
-func (sh *share) checkQuota(delta int64) *apiError {
-	if delta <= 0 || sh.Quota <= 0 {
+func (s *share) checkQuota(delta int64) *apiError {
+	if delta <= 0 || s.Quota <= 0 {
 		return nil
 	}
 
-	if sh.Root.usage()+delta > int64(sh.Quota)<<gibShift {
+	if s.Root.usage()+delta > int64(s.Quota)<<gibShift {
 		return errShareFull()
 	}
 

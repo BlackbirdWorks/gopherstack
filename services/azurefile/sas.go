@@ -192,8 +192,10 @@ func checkSASWindow(now time.Time, st, se string) *apiError {
 	}
 
 	if now.Before(start) || !now.Before(end) {
-		return authFailed("Server failed to authenticate the request. Signature not valid in the specified time frame: " +
-			"Start [" + st + "] - Expiry [" + se + "] - Current [" + fmtSASTime(now) + "]")
+		return authFailed(
+			"Server failed to authenticate the request. Signature not valid in the specified time frame: " +
+				"Start [" + st + "] - Expiry [" + se + "] - Current [" + fmtSASTime(now) + "]",
+		)
 	}
 
 	return nil

@@ -23,6 +23,7 @@ const (
 	octalBase        = 8
 	maxModeBits      = 0o7777
 	symbolicModeLen  = 9
+	modeDigits       = 4
 )
 
 // nfsProps are the POSIX properties of a node on an NFS share.
@@ -55,7 +56,7 @@ func normalizeMode(raw string) (string, bool) {
 		for i, c := range raw {
 			bits <<= 1
 
-			if byte(c) == "rwxrwxrwx"[i] {
+			if c == rune("rwxrwxrwx"[i]) {
 				bits |= 1
 			} else if c != '-' {
 				return "", false
@@ -76,7 +77,7 @@ func normalizeMode(raw string) (string, bool) {
 func fmtMode(bits int) string {
 	s := strconv.FormatInt(int64(bits), octalBase)
 
-	return strings.Repeat("0", 4-len(s)) + s
+	return strings.Repeat("0", modeDigits-len(s)) + s
 }
 
 func validNFSID(v string) bool {
@@ -290,8 +291,12 @@ func (h *Handler) createSymLink(rc *reqCtx) (*resp, *apiError) {
 	n := b.newNode(parent, leaf, false, rc.now)
 	n.Metadata, n.Size = md, int64(len(text))
 
-	if aerr = sh.applySMB(n, smbIn{Creation: rc.hdr("x-ms-file-creation-time"), LastWrite: rc.hdr("x-ms-file-last-write-time")},
-		true, rc.now); aerr != nil {
+	if aerr = sh.applySMB(
+		n,
+		smbIn{Creation: rc.hdr("x-ms-file-creation-time"), LastWrite: rc.hdr("x-ms-file-last-write-time")},
+		true,
+		rc.now,
+	); aerr != nil {
 		return nil, aerr
 	}
 
