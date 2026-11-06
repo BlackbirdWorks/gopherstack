@@ -276,6 +276,8 @@ describe("new GCP console pages", () => {
     expect(azureServiceById("vm")?.portLabel).toBe("azurearm");
     expect(azureServiceById("network")?.portLabel).toBe("azurearm");
     expect(azureServiceById("logic")?.portLabel).toBe("azurearm");
+    expect(azureServiceById("search")?.portLabel).toBe("azuresearch");
+    expect(availableAzureServices(["AzureSearch"]).map((x) => x.id)).toEqual(["search"]);
     expect(gcpServiceById("container")?.portLabel).toBe("gcpcontainer");
     expect(ociServiceById("queue")?.portLabel).toBe("ociqueue");
     expect(ociServiceById("notifications")?.portLabel).toBe("ocinotifications");

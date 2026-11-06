@@ -207,6 +207,15 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     defaultPort: 10006,
   },
   {
+    id: "search",
+    label: "AI Search",
+    description:
+      "Azure AI Search services, keys, indexes, a search explorer and indexers (service management is served by Resource Manager)",
+    healthName: "AzureSearch",
+    portLabel: "azuresearch",
+    defaultPort: 10015,
+  },
+  {
     id: "entra",
     label: "Entra ID & access",
     description:

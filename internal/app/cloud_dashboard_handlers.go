@@ -17,6 +17,16 @@ func (c *CLI) GetAzureEventGridHandler() service.Registerable { return c.azureEv
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAzureAppConfigHandler() service.Registerable { return c.azureAppConfigHandler }
 
+// GetAzureSearchHandler returns the Azure AI Search handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAzureSearchHandler() service.Registerable { return c.azureSearchHandler }
+
+// GetLambdaWebHandler returns the Lambda Web Functions handler for the dashboard proxy.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLambdaWebHandler() service.Registerable { return c.lambdaWebHandler }
+
 // GetGCPSQLHandler returns the Cloud SQL handler for the dashboard proxy.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -53,6 +63,8 @@ func storeConsoleHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.gcpRedisHandler = byName["GCPRedis"]
 	cli.gcpMonitoringHandler = byName["GCPMonitoring"]
 	cli.azureGraphHandler = byName["AzureGraph"]
+	cli.azureSearchHandler = byName["AzureSearch"]
+	cli.lambdaWebHandler = byName["LambdaWeb"]
 }
 
 // GetGCPWorkflowsHandler returns the GCPWorkflows handler for the dashboard proxy.

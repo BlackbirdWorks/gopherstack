@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 19 (10 ok, 9 partial) |
 | Feature families | 4 (2 ok, 2 partial) |
-| Known gaps | 9 |
+| Known gaps | 8 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -23,7 +23,6 @@
 - Language analyzers are approximations (light stemmer, short stop lists), the pattern analyzer ignores its configuration, custom tokenizers/filters are a subset, and character filters, normalizers and the Microsoft language tokenizers are rejected.
 - Scoring-function boost arithmetic and BM25 multi-field combination (sum of per-field scores) follow the documented parameters but are not verified against the service.
 - ARM: private endpoint connections, shared private link resources, network security perimeter configurations, the upgrade action, customer-managed encryption, semanticSearch and IP rule enforcement are not implemented; usage quotas per SKU are the documented defaults (unverified for raised quotas); the operations list endpoint is not served.
-- No dashboard page.
 
 ## More
 

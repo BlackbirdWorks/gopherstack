@@ -394,4 +394,5 @@ func ociFSSnapshotBody(c *echo.Context) ([]byte, bool) {
 func (h *DashboardHandler) registerStorageAndWorkflowRoutes() {
 	h.registerOCIFileStorageRoutes()
 	h.registerAzureLogicRoutes()
+	h.registerSearchAndWebRoutes()
 }
