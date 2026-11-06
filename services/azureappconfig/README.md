@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (14 ok) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 13 |
+| Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -27,7 +27,6 @@
 - Replicas are metadata only and do not replicate or serve a separate data set.
 - Soft-deleted stores lose their key-values; recovery restores an empty store.
 - Customer-managed key encryption, private endpoint connections, SKU request quotas and ARM store updates through PATCH are not modelled.
-- No dashboard page.
 
 ## More
 

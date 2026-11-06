@@ -39,7 +39,6 @@ items_still_open:
   - "Replicas are metadata only and do not replicate or serve a separate data set."
   - "Soft-deleted stores lose their key-values; recovery restores an empty store."
   - "Customer-managed key encryption, private endpoint connections, SKU request quotas and ARM store updates through PATCH are not modelled."
-  - "No dashboard page."
 leaks: {status: clean, note: "Shutdown closes the HTTPS server and waits for the serve goroutine; there are no background workers."}
 ---
 

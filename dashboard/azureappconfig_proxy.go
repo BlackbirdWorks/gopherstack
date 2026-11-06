@@ -47,6 +47,7 @@ func (h *DashboardHandler) registerAzureAppConfigRoutes() {
 	r.Add(http.MethodGet, azureAppConfigProxyPrefix+"/stores/:store/labels", api.guard(api.labels))
 	r.Add(http.MethodPut, azureAppConfigProxyPrefix+"/stores/:store/kv", api.guard(api.put))
 	r.Add(http.MethodDelete, azureAppConfigProxyPrefix+"/stores/:store/kv", api.guard(api.remove))
+	api.registerExtra(r)
 }
 
 type azureAppConfigAPI struct {
@@ -65,7 +66,8 @@ func (a *azureAppConfigAPI) guard(next echo.HandlerFunc) echo.HandlerFunc {
 
 func (a *azureAppConfigAPI) fail(c *echo.Context, err error) error {
 	switch {
-	case errors.Is(err, appconfigbackend.ErrStoreNotFound), errors.Is(err, appconfigbackend.ErrKeyNotFound):
+	case errors.Is(err, appconfigbackend.ErrStoreNotFound), errors.Is(err, appconfigbackend.ErrKeyNotFound),
+		errors.Is(err, appconfigbackend.ErrSnapshotNotFound), errors.Is(err, appconfigbackend.ErrKeyIDNotFound):
 		return cloudJSONFail(c, http.StatusNotFound, cloudStatusNotFnd, err.Error())
 	case errors.Is(err, appconfigbackend.ErrLocked):
 		return cloudJSONFail(c, http.StatusConflict, "FAILED_PRECONDITION", err.Error())

@@ -224,6 +224,31 @@ export const AZURE_SERVICES: readonly AzureService[] = [
     portLabel: "azuregraph",
     defaultPort: 10014,
   },
+  {
+    id: "sql",
+    label: "SQL Database",
+    description:
+      "Azure SQL logical servers, databases, firewall rules and a read-only query runner (served by Resource Manager)",
+    healthName: "AzureSQL",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "redis",
+    label: "Cache for Redis",
+    description: "Azure Cache for Redis caches, a read-only key browser and access keys",
+    healthName: "AzureRedis",
+    portLabel: "azurearm",
+    defaultPort: 10006,
+  },
+  {
+    id: "acr",
+    label: "Container Registry",
+    description: "Azure Container Registry repositories, tags, manifests and admin credentials",
+    healthName: "AzureContainerRegistry",
+    portLabel: "azurecontainerregistry",
+    defaultPort: 10011,
+  },
 ];
 
 export type GcpService = {

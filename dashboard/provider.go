@@ -19,6 +19,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
@@ -27,8 +28,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azureredis"
 	"github.com/blackbirdworks/gopherstack/services/azuresearch"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	"github.com/blackbirdworks/gopherstack/services/azuresql"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -339,6 +342,18 @@ func linkCloudExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {
 		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureRedisHandler() service.Registerable }); ok {
+		conf.AzureRedisOps, _ = getHandler[*azureredis.Handler](p.GetAzureRedisHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureSQLHandler() service.Registerable }); ok {
+		conf.AzureSQLOps, _ = getHandler[*azuresql.Handler](p.GetAzureSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureACRHandler() service.Registerable }); ok {
+		conf.AzureACROps, _ = getHandler[*azurecontainerregistry.Handler](p.GetAzureACRHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetAzureSearchHandler() service.Registerable }); ok {

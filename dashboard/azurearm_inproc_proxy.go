@@ -30,7 +30,7 @@ const (
 
 var armPxSecretKeys = []string{ //nolint:gochecknoglobals // immutable allowlist
 	"adminpassword", "customdata", "sharedkey", "daprainstrumentationkey", "dapraiconnectionstring",
-	"primarykey", "secondarykey", "protectedsettings", "secret",
+	"primarykey", "secondarykey", "protectedsettings", "secret", "administratorloginpassword",
 }
 
 // armProxy describes one in-process dispatch to the ARM handler: which resource types and operations the page may
