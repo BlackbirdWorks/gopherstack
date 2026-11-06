@@ -12,6 +12,9 @@
 	import ContainerInstancesDashboard from '#lib/components/azure/ContainerInstancesDashboard.svelte';
 	import EventHubsDashboard from '#lib/components/azure/EventHubsDashboard.svelte';
 	import EventGridDashboard from '#lib/components/azure/EventGridDashboard.svelte';
+	import SqlDashboard from '#lib/components/azure/SqlDashboard.svelte';
+	import RedisDashboard from '#lib/components/azure/RedisDashboard.svelte';
+	import AcrDashboard from '#lib/components/azure/AcrDashboard.svelte';
 	import AppConfigDashboard from '#lib/components/azure/AppConfigDashboard.svelte';
 	import CosmosHub from '#lib/components/azure/CosmosHub.svelte';
 	import BlobDashboard from '#lib/components/azure/BlobDashboard.svelte';
@@ -86,6 +89,12 @@
 	<SearchDashboard />
 {:else if service?.id === 'entra'}
 	<EntraDashboard />
+{:else if service?.id === 'sql'}
+	<SqlDashboard />
+{:else if service?.id === 'redis'}
+	<RedisDashboard />
+{:else if service?.id === 'acr'}
+	<AcrDashboard />
 {:else}
 <div class="space-y-4 pb-20" data-testid="azure-service-placeholder">
 	{#if !service}

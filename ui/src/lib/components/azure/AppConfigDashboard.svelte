@@ -4,6 +4,7 @@
 	import { SlidersHorizontal, Plus, Trash2, Inbox, Lock } from 'lucide-svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Modal from '#lib/components/Modal.svelte';
+	import AppConfigPanel from '#lib/components/azure/AppConfigPanel.svelte';
 	import { confirmDestructive } from '#lib/confirm-dialog.ts';
 	import { attempt, GCP_INPUT, GCP_MINI, GCP_PRIMARY, GCP_GHOST } from '#lib/gcp-action.ts';
 	import { describeGcpError } from '#lib/gcprest.ts';
@@ -26,6 +27,14 @@
 	let keyFilter = $state('');
 	let labelFilter = $state('');
 	let loading = $state(true);
+	let tab = $state<'kv' | 'features' | 'snapshots' | 'revisions' | 'keys'>('kv');
+	const TABS = [
+		['kv', 'Key-values'],
+		['features', 'Feature flags'],
+		['snapshots', 'Snapshots'],
+		['revisions', 'Revisions'],
+		['keys', 'Access keys']
+	] as const;
 	let loadError = $state('');
 
 	let modal = $state<Modal | null>(null);
@@ -128,12 +137,20 @@
 			<p>No configuration stores. Create one with the Azure CLI, Terraform or ARM.</p>
 		</div>
 	{:else}
+		<label class="block text-sm">Store
+			<select class="{GCP_INPUT} !w-64" value={store} onchange={(e) => pickStore(e.currentTarget.value)} data-testid="appconfig-store">
+				{#each stores as s (s)}<option value={s}>{s}</option>{/each}
+			</select>
+		</label>
+
+		<div class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700" role="tablist">
+			{#each TABS as [id, label] (id)}
+				<button role="tab" aria-selected={tab === id} class="px-3 py-2 text-sm {tab === id ? 'border-b-2 border-blue-600 font-medium text-blue-600' : 'text-gray-500'}" onclick={() => (tab = id)} data-testid="appconfig-tab-{id}">{label}</button>
+			{/each}
+		</div>
+
+		{#if tab === 'kv'}
 		<form class="flex flex-wrap items-end gap-4" onsubmit={(e) => { e.preventDefault(); void refilter(); }}>
-			<label class="text-sm">Store
-				<select class={GCP_INPUT} value={store} onchange={(e) => pickStore(e.currentTarget.value)} data-testid="appconfig-store">
-					{#each stores as s (s)}<option value={s}>{s}</option>{/each}
-				</select>
-			</label>
 			<label class="text-sm">Key filter<input class={GCP_INPUT} bind:value={keyFilter} placeholder="e.g. app/*" data-testid="appconfig-key-filter" /></label>
 			<label class="text-sm">Label filter
 				<select class={GCP_INPUT} bind:value={labelFilter} onchange={refilter} data-testid="appconfig-label-filter">
@@ -166,6 +183,9 @@
 				</tbody>
 			</table>
 		</div>
+		{:else}
+			{#key store + tab}<AppConfigPanel {store} {tab} />{/key}
+		{/if}
 	{/if}
 
 	<Modal title={fEditing ? 'Edit key-value' : 'New key-value'} bind:this={modal}>

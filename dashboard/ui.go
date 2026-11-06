@@ -47,6 +47,7 @@ import (
 	azureappconfigbackend "github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	azurearmbackend "github.com/blackbirdworks/gopherstack/services/azurearm"
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
+	azureacrbackend "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	azureeventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	azureeventhubsbackend "github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	azurefilebackend "github.com/blackbirdworks/gopherstack/services/azurefile"
@@ -55,8 +56,10 @@ import (
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azureredisbackend "github.com/blackbirdworks/gopherstack/services/azureredis"
 	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	azuresqlbackend "github.com/blackbirdworks/gopherstack/services/azuresql"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -664,6 +667,12 @@ type Config struct {
 	AzureEventGridOps *azureeventgridbackend.Handler
 	// AzureAppConfigOps is called in-process by the /dashboard/api/v1/azure/appconfig proxy.
 	AzureAppConfigOps *azureappconfigbackend.Handler
+	// AzureRedisOps is called in-process by the /dashboard/api/v1/azure/redis proxy.
+	AzureRedisOps *azureredisbackend.Handler
+	// AzureSQLOps is called in-process by the /dashboard/api/v1/azure/sqlquery proxy.
+	AzureSQLOps *azuresqlbackend.Handler
+	// AzureACROps is called in-process by the /dashboard/api/v1/azure/acr proxy.
+	AzureACROps *azureacrbackend.Handler
 	// AzureSearchOps is dispatched in-process by the /dashboard/api/v1/azure/search* proxies.
 	AzureSearchOps *azuresearchbackend.Handler
 	// LambdaWebOps is dispatched in-process by the /dashboard/api/v1/lambdaweb proxy.
@@ -931,6 +940,9 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.registerAzureEventHubsRoutes()
 	h.registerAzureEventGridRoutes()
 	h.registerAzureAppConfigRoutes()
+	h.registerAzureRedisRoutes()
+	h.registerAzureSQLRoutes()
+	h.registerAzureACRRoutes()
 	h.registerGCPSQLRoutes()
 	h.registerGCPLoggingRoutes()
 	h.registerSTSMetricsRoute()

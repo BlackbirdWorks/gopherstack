@@ -935,10 +935,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
 | [Azure AI Search](services/azuresearch/README.md) | B | 19 | 8 gaps |
-| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
+| [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 12 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
-| [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |
-| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 10 gaps |
+| [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 12 gaps |
+| [Azure Container Registry](services/azurecontainerregistry/README.md) | B | 24 | 9 gaps |
 | [Azure Cosmos DB](services/cosmosdb/README.md) | A | 35 | clean |
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 14 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 8 gaps |
@@ -947,7 +947,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 4 gaps |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
-| [Azure SQL Database](services/azuresql/README.md) | B | 14 | 11 gaps |
+| [Azure SQL Database](services/azuresql/README.md) | B | 14 | 10 gaps |
 | [Azure Service Bus](services/azureservicebus/README.md) | B | 25 | 3 gaps; 4 deferred |
 | [Azure Table Storage](services/azuretable/README.md) | C | 14 | 4 gaps; 3 deferred |
 | [Microsoft Graph](services/azuregraph/README.md) | B | 33 | 10 gaps |

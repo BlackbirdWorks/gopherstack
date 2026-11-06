@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 24 (24 ok) |
 | Feature families | 5 (5 ok) |
-| Known gaps | 10 |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
@@ -24,7 +24,6 @@
 - Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered.
 - Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false.
 - Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
-- No dashboard page.
 
 ## More
 

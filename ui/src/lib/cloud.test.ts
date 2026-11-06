@@ -412,3 +412,14 @@ describe("new GCP console pages", () => {
     });
   });
 });
+
+describe("Azure data services", () => {
+  it.each([
+    ["sql", "AzureSQL", "azurearm"],
+    ["redis", "AzureRedis", "azurearm"],
+    ["acr", "AzureContainerRegistry", "azurecontainerregistry"],
+  ])("registers %s", (id, health, port) => {
+    expect(azureServiceById(id)).toMatchObject({ healthName: health, portLabel: port });
+    expect(availableAzureServices([health]).map((s) => s.id)).toContain(id);
+  });
+});

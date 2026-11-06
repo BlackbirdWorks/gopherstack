@@ -35,7 +35,6 @@ items_still_open:
   - "redisConfiguration settings are stored but not enforced (no CONFIG in miniredis)."
   - "Entra ID authentication, disableAccessKeyAuthentication and access policies are not implemented."
   - "Reboots do not drop connections and firewall rules do not filter them."
-  - "No dashboard page."
 leaks: {status: clean, note: "Reset and Shutdown close every cache's relays and Redis server and release their ports; the package runs under testleak."}
 ---
 

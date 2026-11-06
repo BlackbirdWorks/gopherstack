@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 14 (10 ok, 4 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 11 |
+| Known gaps | 10 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -25,7 +25,6 @@
 - Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented.
 - Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced.
 - Engine data does not survive a snapshot restore.
-- No dashboard page.
 
 ## More
 
