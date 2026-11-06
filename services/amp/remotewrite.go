@@ -20,6 +20,8 @@ const (
 	fieldLabelValue      = 2
 	fieldSampleValue     = 1
 	fieldSampleTimestamp = 2
+	fieldSeriesExemplars = 3
+	fieldSeriesHistogram = 4
 
 	maxDecodedWrite = 32 << 20
 )
@@ -27,8 +29,16 @@ const (
 var errBadWrite = errors.New("invalid remote write payload")
 
 type writeSeries struct {
-	Labels  promql.Labels
-	Samples []promql.Sample
+	Labels    promql.Labels
+	Samples   []promql.Sample
+	Exemplars []Exemplar
+}
+
+// Exemplar is a remote-write exemplar: a trace-style label set attached to one observation.
+type Exemplar struct {
+	Labels promql.Labels `json:"labels"`
+	T      int64         `json:"t"`
+	V      float64       `json:"v"`
 }
 
 // decodeWriteRequest unpacks a snappy-compressed remote-write body.
@@ -92,7 +102,8 @@ func decodeTimeSeries(msg []byte) (writeSeries, error) {
 
 		msg = msg[n:]
 
-		if typ == protowire.BytesType && (num == fieldSeriesLabels || num == fieldSeriesSamples) {
+		if typ == protowire.BytesType && (num == fieldSeriesLabels || num == fieldSeriesSamples ||
+			num == fieldSeriesExemplars || num == fieldSeriesHistogram) {
 			sub, m := protowire.ConsumeBytes(msg)
 			if m < 0 {
 				return ws, fmt.Errorf("%w: bad series field", errBadWrite)
@@ -128,6 +139,28 @@ func (ws *writeSeries) add(num protowire.Number, sub []byte) error {
 		ws.Labels[name] = value
 
 		return nil
+	}
+
+	switch num {
+	case fieldSeriesExemplars:
+		ex, err := decodeExemplar(sub)
+		if err != nil {
+			return err
+		}
+
+		ws.Exemplars = append(ws.Exemplars, ex)
+
+		return nil
+	case fieldSeriesHistogram:
+		s, err := decodeHistogram(sub)
+		if err != nil {
+			return err
+		}
+
+		ws.Samples = append(ws.Samples, s)
+
+		return nil
+	default:
 	}
 
 	s, err := decodeSample(sub)

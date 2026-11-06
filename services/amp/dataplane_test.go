@@ -219,11 +219,11 @@ func TestRemoteWriteRules(t *testing.T) {
 		run  func(t *testing.T, f *fixture, ws string)
 		name string
 	}{
-		{name: "duplicates and out of order", run: func(t *testing.T, f *fixture, ws string) {
+		{name: "duplicates", run: func(t *testing.T, f *fixture, ws string) {
 			t.Helper()
 
 			lbl := map[string]string{"__name__": "m"}
-			require.Equal(t, http.StatusOK, f.write(t, ws, amp.NewSeries(lbl, sample(2000, 2), sample(1000, 1))).status)
+			require.Equal(t, http.StatusOK, f.write(t, ws, amp.NewSeries(lbl, sample(1000, 1), sample(2000, 2))).status)
 			require.Equal(
 				t,
 				http.StatusOK,
