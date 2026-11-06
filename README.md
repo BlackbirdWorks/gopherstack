@@ -943,7 +943,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Azure Event Grid](services/azureeventgrid/README.md) | B | 9 | 14 gaps |
 | [Azure Event Hubs](services/azureeventhubs/README.md) | B | 15 | 8 gaps |
 | [Azure Files](services/azurefile/README.md) | B | 41 | 10 gaps |
-| [Azure Functions](services/azurefunctions/README.md) | B | 10 | 13 gaps |
+| [Azure Functions](services/azurefunctions/README.md) | B | 10 | 12 gaps |
 | [Azure Key Vault](services/azurekeyvault/README.md) | B | 15 | 4 gaps |
 | [Azure Monitor Logs](services/azuremonitor/README.md) | B | 20 | 5 gaps |
 | [Azure Queue Storage](services/azurequeue/README.md) | C | 13 | 6 gaps; 1 deferred |
@@ -956,7 +956,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [API Gateway](services/gcpapigateway/README.md) | B | 25 | 7 gaps |
+| [API Gateway](services/gcpapigateway/README.md) | B | 25 | 6 gaps |
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 45 | 15 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 8 gaps |

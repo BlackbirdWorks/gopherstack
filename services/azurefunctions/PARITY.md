@@ -39,7 +39,6 @@ items_still_open:
   - "Web apps: no remote build (Oryx), so Node and Python dependencies must be inside the zip; Python apps need appCommandLine or an app.py/main.py entry (no gunicorn auto-detection); Tomcat, JBoss, Ruby and Go stacks, Windows web apps, multi-container (sitecontainers) and docker-compose apps are rejected with 400."
   - "Web apps: alwaysOn does not keep a container warm (hosts are never reaped anyway) and is not validated against the plan tier; an unhealthy running instance is not evicted or restarted after startup."
   - "Hosts are never reaped while idle; a stopped, redeployed or deleted app, or an emulator shutdown, removes them."
-  - "No dashboard page."
 leaks: {status: ok, note: "Shutdown closes the listener and removes every host container and scratch directory; verified with the leak check."}
 ---
 
