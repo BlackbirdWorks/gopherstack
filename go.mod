@@ -210,6 +210,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/mq v1.45.3
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.48.3
 	github.com/aws/aws-sdk-go-v2/service/neptune v1.53.3
+	github.com/aws/aws-sdk-go-v2/service/neptunedata v1.27.3
 	github.com/aws/aws-sdk-go-v2/service/networkfirewall v1.76.1
 	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.50.3
 	github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.21.3
@@ -391,7 +392,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/neptunedata v1.27.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bitfield/gotestdox v0.2.2 // indirect
 	github.com/cavaliergopher/cpio v1.0.1 // indirect
