@@ -47,6 +47,7 @@ type backendSnapshot struct {
 	Uptime      map[string]uptimeSnap      `json:"uptime"`
 	Series      []seriesSnap               `json:"series"`
 	Incidents   []Incident                 `json:"incidents"`
+	Explicit    []string                   `json:"explicit_descriptors,omitempty"`
 	Version     int                        `json:"version"`
 }
 
@@ -104,6 +105,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	snap := backendSnapshot{
 		Version:     snapshotVersion,
 		Descriptors: snapMap(b.descriptors),
+		Explicit:    sortedKeys(b.explicit),
 		Policies:    snapMap(b.policies),
 		Groups:      snapMap(b.groups),
 		Snoozes:     snapMap(b.snoozes),
@@ -164,6 +166,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 func (b *InMemoryBackend) load(snap *backendSnapshot) error {
 	var err error
+
+	for _, n := range snap.Explicit {
+		b.explicit[n] = struct{}{}
+	}
 
 	if b.descriptors, err = restoreMap(
 		snap.Descriptors,

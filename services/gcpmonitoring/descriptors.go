@@ -242,6 +242,7 @@ func (b *InMemoryBackend) CreateMetricDescriptor(
 	}
 
 	b.descriptors[d.GetName()] = d
+	b.explicit[d.GetName()] = struct{}{}
 
 	return cloneDescriptor(d), nil
 }
@@ -285,6 +286,7 @@ func (b *InMemoryBackend) DeleteMetricDescriptor(name string) error {
 	}
 
 	delete(b.descriptors, descriptorName(project, typ))
+	delete(b.explicit, descriptorName(project, typ))
 
 	for key, s := range b.series {
 		if s.project == project && s.metric.GetType() == typ {

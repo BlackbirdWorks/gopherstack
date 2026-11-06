@@ -1,6 +1,7 @@
 package gcpmonitoring_test
 
 import (
+	"math"
 	"fmt"
 	"testing"
 	"time"
@@ -231,6 +232,16 @@ func TestDistributionAggregation(t *testing.T) {
 				t.Helper()
 				require.Len(t, got, 1)
 				assert.InDelta(t, (10.0*4+30.0*8)/12, values(got[0])[0], 1e-9)
+			},
+		},
+		{
+			name: "reduce stddev is the sample deviation of the merged distribution",
+			agg:  agg(time.Minute, monitoringpb.Aggregation_ALIGN_SUM, monitoringpb.Aggregation_REDUCE_STDDEV),
+			check: func(t *testing.T, got []*monitoringpb.TimeSeries) {
+				t.Helper()
+				require.Len(t, got, 1)
+				assert.Equal(t, metricpb.MetricDescriptor_DOUBLE, got[0].GetValueType())
+				assert.InDelta(t, math.Sqrt(400.0*4*8/12/11), values(got[0])[0], 1e-9)
 			},
 		},
 		{

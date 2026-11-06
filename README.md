@@ -966,7 +966,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |
 | [Cloud IAM](services/gcpiam/README.md) | B | 31 | 5 gaps |
 | [Cloud Logging](services/gcplogging/README.md) | B | 40 | 7 gaps |
-| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 53 | 11 gaps |
+| [Cloud Monitoring](services/gcpmonitoring/README.md) | B | 53 | 8 gaps |
 | [Cloud Run](services/gcprun/README.md) | B | 20 | 5 gaps |
 | [Cloud SQL](services/gcpsql/README.md) | B | 42 | 7 gaps |
 | [Cloud Scheduler](services/gcpscheduler/README.md) | B | 10 | 4 gaps |

@@ -34,7 +34,7 @@ func newMonitoringFixture(t *testing.T) *monitoringFixture {
 		monitoring: gcpmonitoringbackend.NewHandler(gcpmonitoringbackend.NewInMemoryBackend()),
 		logging:    gcploggingbackend.NewHandler(gcploggingbackend.NewInMemoryBackend()),
 		pubsub:     gcppubsubbackend.NewHandler(gcppubsubbackend.NewInMemoryBackend()),
-		now:        time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC),
+		now:        time.Now().UTC().Truncate(time.Second).Add(2 * time.Minute),
 	}
 	f.monitoring.Backend.SetClock(func() time.Time { return f.now })
 

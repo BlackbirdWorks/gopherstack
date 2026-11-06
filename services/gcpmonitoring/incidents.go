@@ -1,6 +1,7 @@
 package gcpmonitoring
 
 import (
+	"maps"
 	"sort"
 	"time"
 
@@ -20,6 +21,7 @@ type Incident struct {
 	StartedAt            time.Time         `json:"startedAt"`
 	EndedAt              time.Time         `json:"endedAt"`
 	LastSeen             time.Time         `json:"lastSeen"`
+	Notified             map[string]time.Time `json:"notified,omitempty"`
 	MetricLabels         map[string]string `json:"metricLabels,omitempty"`
 	ResourceLabels       map[string]string `json:"resourceLabels,omitempty"`
 	ID                   string            `json:"id"`
@@ -40,6 +42,7 @@ func newIncidentID() string { return "0." + awsid.NewN("", incidentSuffixLen) }
 
 func cloneIncident(i *Incident) Incident {
 	out := *i
+	out.Notified = maps.Clone(i.Notified)
 
 	return out
 }

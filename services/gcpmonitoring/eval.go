@@ -27,6 +27,7 @@ type observation struct {
 	value          float64
 	threshold      float64
 	met            bool
+	noData         bool
 }
 
 type notification struct {
@@ -35,6 +36,7 @@ type notification struct {
 	targets  []target
 	incident Incident
 	opened   bool
+	reminder bool
 }
 
 func resourceKeyOf(r *monitoredres.MonitoredResource) string {
@@ -155,6 +157,7 @@ func forecastValue(pts []*monitoringpb.Point, t time.Time, horizon time.Duration
 }
 
 func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricThreshold, now time.Time) observation {
+	mode := t.GetEvaluationMissingData()
 	period := periodOf(t.GetAggregations())
 	hold := max(period, staleness)
 	steps := max(1, int((t.GetDuration().AsDuration()+period-1)/period))
@@ -165,11 +168,17 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 	}
 
 	horizon := t.GetForecastOptions().GetForecastHorizon().AsDuration()
+	missing := false
 
 	for k := range steps {
 		at := now.Add(-time.Duration(k) * period)
 		v, ok := held(s.pts, at, hold)
 		violates := ok && compare(t.GetComparison(), v, t.GetThresholdValue())
+
+		if !ok {
+			missing = missing || k == 0
+			violates = mode == monitoringpb.AlertPolicy_Condition_EVALUATION_MISSING_DATA_ACTIVE
+		}
 
 		if horizon > 0 {
 			pred, has := forecastValue(s.pts, at, horizon)
@@ -178,7 +187,7 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 			}
 		}
 
-		if !ok || !violates {
+		if !violates {
 			o.met = false
 		}
 
@@ -186,6 +195,8 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 			o.value = v
 		}
 	}
+
+	o.noData = missing && !o.met && !missingDataDecides(mode)
 
 	return o
 }
@@ -289,9 +300,17 @@ func (b *InMemoryBackend) thresholdObservationsLocked(
 
 	series := b.thresholdSeriesLocked(project, t, win, extra, period, now)
 	out := make([]observation, 0, len(series))
+	seen := map[string]struct{}{}
+
 	for _, s := range series {
-		out = append(out, observeThreshold(s, t, now))
+		seen[seriesID(s)] = struct{}{}
+
+		if o := observeThreshold(s, t, now); !o.noData {
+			out = append(out, o)
+		}
 	}
+
+	out = append(out, b.vanishedObservationsLocked(project, t, now, extra, seen, period)...)
 
 	return applyTrigger(out, t.GetTrigger())
 }
@@ -490,12 +509,14 @@ func (b *InMemoryBackend) reconcileLocked(
 
 		inc := b.newIncidentLocked(project, p, v.conds[key], full, o, now)
 		if opens {
-			out = append(out, b.notificationLocked(p, inc, true))
+			n := b.notificationLocked(p, inc, true)
+			b.markNotifiedLocked(inc.ID, n.targets, now)
+			out = append(out, n)
 		}
 	}
 
 	for _, inc := range b.incidents {
-		if inc.State != stateOpen || inc.Policy != p.GetName() {
+		if inc.State != stateOpen || inc.Policy != p.GetName() || isLogIncident(p, inc) {
 			continue
 		}
 
@@ -503,7 +524,21 @@ func (b *InMemoryBackend) reconcileLocked(
 		_, still := v.met[key]
 		_, fresh := v.evidence[key]
 
-		if still || !fresh {
+		if fresh {
+			inc.LastSeen = now
+		}
+
+		if still {
+			out = append(out, b.renotifyLocked(p, inc, now)...)
+
+			continue
+		}
+
+		if !fresh {
+			if autoCloseDue(p, inc, now) {
+				inc.State, inc.EndedAt = stateClosed, now
+			}
+
 			continue
 		}
 
@@ -529,6 +564,7 @@ func (b *InMemoryBackend) newIncidentLocked(
 		MetricType: o.metricType, MetricLabels: o.metricLabels, ResourceType: o.resourceType,
 		ResourceLabels: o.resourceLabels, Observed: o.value, Threshold: o.threshold,
 	}
+	inc.LastSeen = now
 	b.incidents[inc.ID] = inc
 	b.pruneIncidentsLocked()
 

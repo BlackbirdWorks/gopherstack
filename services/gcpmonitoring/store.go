@@ -69,6 +69,7 @@ type InMemoryBackend struct {
 	services     map[string]*monitoringpb.Service
 	slos         map[string]*monitoringpb.ServiceLevelObjective
 	incidents    map[string]*Incident
+	explicit     map[string]struct{}
 	deliveries   []Delivery
 	insecureOnce sync.Once
 }
@@ -96,6 +97,7 @@ func (b *InMemoryBackend) resetMaps() {
 	b.services = make(map[string]*monitoringpb.Service)
 	b.slos = make(map[string]*monitoringpb.ServiceLevelObjective)
 	b.incidents = make(map[string]*Incident)
+	b.explicit = make(map[string]struct{})
 	b.condRT = make(map[string]*condRuntime)
 	b.deliveries = nil
 }

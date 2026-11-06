@@ -460,6 +460,12 @@ func reduceDists(r reducer, vals []*monitoringpb.TypedValue) (*monitoringpb.Type
 		}
 
 		return doubleValue(merged.GetMean()), true
+	case reduceStddev:
+		if merged.GetCount() < minStddevSamples {
+			return doubleValue(0), true
+		}
+
+		return doubleValue(math.Sqrt(merged.GetSumOfSquaredDeviation() / float64(merged.GetCount()-1))), true
 	case reduceCount:
 		return intValue(int64(len(vals))), true
 	default:

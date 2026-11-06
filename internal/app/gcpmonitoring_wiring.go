@@ -61,11 +61,22 @@ func (s logMetricSource) metric(parent string, m *loggingpb.LogMetric) gcpmonito
 	for _, p := range pts {
 		lm.Series = append(lm.Series, gcpmonitoringbackend.LogMetricSeries{
 			Labels: p.Labels, BucketOptions: m.GetBucketOptions(), BucketCounts: p.BucketCounts,
-			Count: p.Count, Sum: p.Sum, SumSqDev: p.SumSqDev,
+			Count: p.Count, Sum: p.Sum, SumSqDev: p.SumSqDev, Windows: logWindows(p.Windows),
 		})
 	}
 
 	return lm
+}
+
+func logWindows(in []gcploggingbackend.MetricWindow) []gcpmonitoringbackend.LogMetricWindow {
+	out := make([]gcpmonitoringbackend.LogMetricWindow, len(in))
+	for i, w := range in {
+		out[i] = gcpmonitoringbackend.LogMetricWindow{
+			Start: w.Start, BucketCounts: w.BucketCounts, Count: w.Count, Sum: w.Sum, SumSqDev: w.SumSqDev,
+		}
+	}
+
+	return out
 }
 
 // logEntrySource lets Cloud Monitoring log-match conditions read entries from Cloud Logging.

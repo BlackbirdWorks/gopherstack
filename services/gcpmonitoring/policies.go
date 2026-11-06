@@ -167,7 +167,7 @@ func (b *InMemoryBackend) validatePolicyLocked(project string, p *monitoringpb.A
 		}
 	}
 
-	return nil
+	return validateChannelStrategies(p)
 }
 
 func nameConditions(policyName string, p *monitoringpb.AlertPolicy, existing map[string]string) {

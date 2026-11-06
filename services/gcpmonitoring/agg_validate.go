@@ -153,9 +153,9 @@ func reducerApplies(r reducer, vt metricpb.MetricDescriptor_ValueType) bool {
 	switch r {
 	case reduceNone, reduceCount:
 		return true
-	case reduceMean, reduceSum, reducePct99, reducePct95, reducePct50, reducePct05:
+	case reduceMean, reduceSum, reduceStddev, reducePct99, reducePct95, reducePct50, reducePct05:
 		return isNumeric(vt) || vt == vtDist
-	case reduceMin, reduceMax, reduceStddev:
+	case reduceMin, reduceMax:
 		return isNumeric(vt)
 	case reduceCountTrue, reduceCountFalse, reduceFracTrue:
 		return vt == vtBool

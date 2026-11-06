@@ -141,10 +141,6 @@ func TestChannelDeliveryFailuresAreRecorded(t *testing.T) {
 		status int
 	}{
 		{name: "webhook 500", typ: "webhook_tokenauth", status: http.StatusInternalServerError, want: "failed"},
-		{
-			name: "slack unsupported", typ: "slack", labels: map[string]string{"channel_name": "#ops"},
-			want: "failed",
-		},
 	}
 
 	for _, tt := range tests {
@@ -405,4 +401,47 @@ func TestNotificationChannelDescriptors(t *testing.T) {
 		Name: proj + "/notificationChannelDescriptors/nope",
 	})
 	assert.Equal(t, "NotFound", codeOf(err).String())
+}
+
+func TestNoEgressChannelsRecordToOutbox(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, typ string
+		labels    map[string]string
+		recipient string
+	}{
+		{"slack", "slack", map[string]string{"channel_name": "#ops"}, "#ops"},
+		{"email", "email", map[string]string{"email_address": "a@example.com"}, "a@example.com"},
+		{"sms", "sms", map[string]string{"number": "+15551234567"}, "+15551234567"},
+		{"pagerduty", "pagerduty", map[string]string{"service_key": "s3cret"}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t)
+			ch, err := e.channels(t).
+				CreateNotificationChannel(t.Context(), &monitoringpb.CreateNotificationChannelRequest{
+					Name:                proj,
+					NotificationChannel: &monitoringpb.NotificationChannel{Type: tt.typ, Labels: tt.labels},
+				})
+			require.NoError(t, err)
+			e.createPolicy(t, queuePolicy([]string{ch.GetName()}, monitoringpb.ComparisonType_COMPARISON_GT, 3))
+
+			for m := 1; m <= 2; m++ {
+				e.writeAt(t, epoch().Add(time.Duration(m)*time.Minute), "gold", map[string]float64{"inst-1": 9})
+			}
+
+			e.handler.Backend.Tick(t.Context())
+
+			box := e.handler.Backend.Outbox()
+			require.Len(t, box, 1)
+			assert.Equal(t, tt.recipient, box[0].Recipient)
+			assert.Equal(t, "recorded", box[0].Result)
+			assert.Contains(t, box[0].Payload, `"state":"open"`)
+			assert.NotContains(t, box[0].Payload, "s3cret")
+		})
+	}
 }

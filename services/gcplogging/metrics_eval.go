@@ -2,6 +2,7 @@ package gcplogging
 
 import (
 	"math"
+	"time"
 	"regexp"
 	"sort"
 	"strconv"
@@ -32,12 +33,15 @@ type metricCompiled struct {
 // seriesRec is one label combination of a metric: a count, or distribution statistics.
 type seriesRec struct {
 	labels  map[string]string
+	minutes map[int64]*seriesRec
 	buckets []int64
 	count   int64
 	sum     float64
 	mean    float64
 	ssd     float64
 }
+
+const maxMinuteWindows = 2880
 
 type metricRec struct {
 	pb       *loggingpb.LogMetric
@@ -48,6 +52,16 @@ type metricRec struct {
 // MetricPoint is the accumulated value of one label combination of a log-based metric.
 type MetricPoint struct {
 	Labels       map[string]string
+	BucketCounts []int64
+	Windows      []MetricWindow
+	Count        int64
+	Sum          float64
+	SumSqDev     float64
+}
+
+// MetricWindow is what one series accumulated during the minute starting at Start (by receive time).
+type MetricWindow struct {
+	Start        time.Time
 	BucketCounts []int64
 	Count        int64
 	Sum          float64
@@ -216,11 +230,74 @@ func (r *metricRec) record(doc *entryDoc) {
 	}
 
 	s := r.seriesFor(labels)
-	s.count++
+	m := s.minuteFor(receivedAt(doc.e))
 
-	if hit {
-		s.observe(val, r.compiled.bounds)
+	for _, t := range []*seriesRec{s, m} {
+		t.count++
+
+		if hit {
+			t.observe(val, r.compiled.bounds)
+		}
 	}
+}
+
+func receivedAt(e *loggingpb.LogEntry) time.Time {
+	if e.GetReceiveTimestamp() != nil {
+		return e.GetReceiveTimestamp().AsTime()
+	}
+
+	return e.GetTimestamp().AsTime()
+}
+
+// minuteFor returns the accumulator of the minute containing at, dropping the oldest minutes beyond the cap.
+func (s *seriesRec) minuteFor(at time.Time) *seriesRec {
+	if s.minutes == nil {
+		s.minutes = map[int64]*seriesRec{}
+	}
+
+	key := at.Truncate(time.Minute).UnixNano()
+
+	m, ok := s.minutes[key]
+	if !ok {
+		m = &seriesRec{}
+		if s.buckets != nil {
+			m.buckets = make([]int64, len(s.buckets))
+		}
+
+		s.minutes[key] = m
+
+		for len(s.minutes) > maxMinuteWindows {
+			oldest := key
+			for k := range s.minutes {
+				oldest = min(oldest, k)
+			}
+
+			delete(s.minutes, oldest)
+		}
+	}
+
+	return m
+}
+
+func (s *seriesRec) windows() []MetricWindow {
+	keys := make([]int64, 0, len(s.minutes))
+	for k := range s.minutes {
+		keys = append(keys, k)
+	}
+
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+
+	out := make([]MetricWindow, 0, len(keys))
+
+	for _, k := range keys {
+		m := s.minutes[k]
+		out = append(out, MetricWindow{
+			Start: time.Unix(0, k).UTC(), Count: m.count, Sum: m.sum, SumSqDev: m.ssd,
+			BucketCounts: append([]int64(nil), m.buckets...),
+		})
+	}
+
+	return out
 }
 
 func (r *metricRec) seriesFor(labels map[string]string) *seriesRec {
@@ -278,7 +355,7 @@ func (b *InMemoryBackend) MetricPoints(name string) ([]MetricPoint, error) {
 		out = append(
 			out,
 			MetricPoint{
-				Labels: s.labels, Count: s.count, Sum: s.sum, SumSqDev: s.ssd,
+				Labels: s.labels, Count: s.count, Sum: s.sum, SumSqDev: s.ssd, Windows: s.windows(),
 				BucketCounts: append([]int64(nil), s.buckets...),
 			},
 		)
