@@ -1,13 +1,12 @@
 package backup_test
 
 import (
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/testsnap"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
@@ -24,25 +23,7 @@ func TestBackupAccessPointCopy_NotAliasedToJanitor(t *testing.T) {
 	held, err := b.DescribeBackupAccessPoint(created.AccessPointArn)
 	require.NoError(t, err)
 
-	stop := make(chan struct{})
-
-	var wg sync.WaitGroup
-
-	wg.Go(func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				for range held.AccessPointMetadata {
-				}
-			}
-		}
+	testsnap.Unchanged(t, held, func() {
+		backup.NewJanitor(b, time.Hour, time.Hour).SweepOnce(t.Context())
 	})
-
-	backup.NewJanitor(b, time.Hour, time.Hour).SweepOnce(t.Context())
-	close(stop)
-	wg.Wait()
-
-	assert.Equal(t, map[string]string{"k": "v"}, held.AccessPointMetadata)
 }

@@ -78,9 +78,19 @@ type keyWire struct {
 	IsAutoRotationEnabled  bool                      `json:"isAutoRotationEnabled"`
 }
 
+func rotationCopy(r *RotationDetails) *RotationDetails {
+	if r == nil {
+		return nil
+	}
+
+	c := *r
+
+	return &c
+}
+
 func keyView(k *Key) keyWire {
 	return keyWire{
-		TimeCreated: k.TimeCreated, TimeOfDeletion: k.TimeOfDeletion, AutoKeyRotationDetails: k.Rotation,
+		TimeCreated: k.TimeCreated, TimeOfDeletion: k.TimeOfDeletion, AutoKeyRotationDetails: rotationCopy(k.Rotation),
 		FreeformTags: k.FreeformTags, DefinedTags: k.DefinedTags, CompartmentID: k.CompartmentID,
 		CurrentKeyVersion: k.CurrentVersion, DisplayName: k.DisplayName, ID: k.ID, LifecycleState: k.State,
 		ProtectionMode: k.ProtectionMode, VaultID: k.VaultID, KeyShape: k.Shape, IsPrimary: true,

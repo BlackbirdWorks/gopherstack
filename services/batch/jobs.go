@@ -299,8 +299,7 @@ func (b *InMemoryBackend) SubmitJob(
 
 	b.kickDispatchLocked()
 
-	cp := *j
-	cp.Tags = tagsCloneOrEmpty(j.Tags)
+	cp := j.snapshot()
 
 	return &cp, nil
 }
@@ -531,8 +530,7 @@ func (b *InMemoryBackend) ListJobs(
 	out := make([]*Job, 0, len(pageKeys))
 	for _, k := range pageKeys {
 		j, _ := b.jobs.Get(regionKey(region, k))
-		cp := *j
-		cp.Tags = tagsCloneOrEmpty(cp.Tags)
+		cp := j.snapshot()
 		b.withArrayDetailLocked(&cp)
 		out = append(out, &cp)
 	}
@@ -559,9 +557,7 @@ func (b *InMemoryBackend) DescribeJobs(ctx context.Context, jobIDs []string) []*
 			continue
 		}
 
-		cp := *j
-		cp.Tags = tagsCloneOrEmpty(j.Tags)
-		cp.Attempts = cloneJobAttempts(j.Attempts)
+		cp := j.snapshot()
 		cp.Container = b.buildJobContainerDetail(region, j)
 		cp.NodeProperties = b.effectiveNodePropertiesLocked(j)
 		cp.EksProperties = b.effectiveEksPropertiesLocked(j)
@@ -591,6 +587,15 @@ func (b *InMemoryBackend) lookupNodeJobLocked(region, id string) (*Job, bool) {
 	}
 
 	return nodeJobFrom(parent, np, index), true
+}
+
+// snapshot copies j with the tags and attempts that async execution mutates in place.
+func (j *Job) snapshot() Job {
+	cp := *j
+	cp.Tags = tagsCloneOrEmpty(j.Tags)
+	cp.Attempts = cloneJobAttempts(j.Attempts)
+
+	return cp
 }
 
 // cloneJobAttempts deep-copies attempts so callers never alias stored state.
