@@ -3858,6 +3858,7 @@ func wireCrossServiceDependencies(
 	wireRDSAutoPauseMetrics(appCtx.JanitorCtx, byName)
 	wireStorageAndSecretsIntegrations(byName)
 	wireAppSyncAndStreamsIntegrations(byName, sigV4SecretOf(appCtx))
+	wireAMPDataPlaneAuth(appCtx, byName)
 	wireSchedulerAndPipesIntegrations(byName)
 	wireGovernanceIntegrations(byName, services)
 	wireOCIStreamingVault(byName)

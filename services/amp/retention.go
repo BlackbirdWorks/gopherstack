@@ -36,6 +36,8 @@ func (b *InMemoryBackend) pruneExpiredLocked(now time.Time) {
 		for _, rec := range slices.Clone(b.seriesByWS.Get(w.ID)) {
 			rec.Samples = slices.DeleteFunc(rec.Samples, func(s promql.Sample) bool { return s.T < cutoff })
 
+			rec.Exemplars = slices.DeleteFunc(rec.Exemplars, func(e Exemplar) bool { return e.T < cutoff })
+
 			if len(rec.Samples) == 0 {
 				b.series.Delete(rec.Key)
 			}

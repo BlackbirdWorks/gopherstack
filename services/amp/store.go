@@ -41,6 +41,10 @@ type InMemoryBackend struct {
 	clusters      ClusterResolver
 	idem          *idempotency.Memo
 	publisher     SNSPublisher
+	keys          KeyChecker
+	logs          LogSink
+	auth          *DataPlaneAuth
+	logQueue      []logEvent
 	groups        map[string]*groupRuntime
 	parsed        map[string]*parsedNamespace
 	ams           map[string]*alertManager

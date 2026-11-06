@@ -218,6 +218,10 @@ func (b *InMemoryBackend) evalRuleLocked(g *groupRuntime, r *ruleRuntime, now, q
 
 	if err != nil {
 		r.health, r.lastErr = healthErr, err.Error()
+		b.queueLogLocked(logEvent{
+			at: now, wsID: g.wsID, component: logComponentR, stream: logStreamR, level: logLevelError,
+			msg: "rule evaluation failed", fields: map[string]string{"namespace": g.ns, "error": err.Error()},
+		})
 	}
 
 	return alerts

@@ -21,6 +21,11 @@ type IngestResult struct {
 	Dropped   int
 	// Expired counts samples older than the workspace retention period.
 	Expired int
+	// OutOfOrder counts samples older than the series' newest sample by more than the out-of-order window.
+	OutOfOrder int
+	// Exemplars counts stored exemplars; ExemplarsDropped those that were oversized or expired.
+	Exemplars        int
+	ExemplarsDropped int
 	// LimitExceeded counts series refused by a limitsPerLabelSet entry.
 	LimitExceeded int
 }
@@ -98,18 +103,61 @@ func (b *InMemoryBackend) ingestSeriesLocked(w *Workspace, cutoff int64, ws writ
 		b.series.Put(rec)
 	}
 
+	window := int64(w.Config.OutOfOrderTimeWindowInSeconds) * msPerSecondInt
+
 	for _, s := range ws.Samples {
 		switch {
-		case math.IsNaN(s.V) || math.IsInf(s.V, 0):
+		case s.H == nil && (math.IsNaN(s.V) || math.IsInf(s.V, 0)):
 			res.Dropped++
 		case s.T < cutoff:
 			res.Expired++
+		case tooOld(rec, s.T, window):
+			res.OutOfOrder++
 		case insertSample(rec, s):
 			res.Samples++
 		default:
 			res.Duplicate++
 		}
 	}
+
+	for _, ex := range ws.Exemplars {
+		if ex.T < cutoff || exemplarRunes(ex) > maxExemplarRunes {
+			res.ExemplarsDropped++
+
+			continue
+		}
+
+		if addExemplar(rec, ex) {
+			res.Exemplars++
+		}
+	}
+}
+
+const (
+	msPerSecondInt    = 1000
+	maxSeriesExemplar = 100
+)
+
+// tooOld reports a sample behind the series' newest one by more than the out-of-order window.
+func tooOld(rec *SeriesRecord, t, windowMs int64) bool {
+	n := len(rec.Samples)
+
+	return n > 0 && t < rec.Samples[n-1].T && rec.Samples[n-1].T-t > windowMs
+}
+
+// addExemplar keeps the newest maxSeriesExemplar exemplars per series, ordered by time.
+func addExemplar(rec *SeriesRecord, ex Exemplar) bool {
+	i, found := slices.BinarySearchFunc(rec.Exemplars, ex, func(a, b Exemplar) int { return cmp.Compare(a.T, b.T) })
+	if found && rec.Exemplars[i].V == ex.V && promql.Fingerprint(rec.Exemplars[i].Labels) == promql.Fingerprint(ex.Labels) {
+		return false
+	}
+
+	rec.Exemplars = slices.Insert(rec.Exemplars, i, ex)
+	if len(rec.Exemplars) > maxSeriesExemplar {
+		rec.Exemplars = rec.Exemplars[len(rec.Exemplars)-maxSeriesExemplar:]
+	}
+
+	return true
 }
 
 // insertSample keeps rec.Samples ordered by time; a repeated timestamp is a duplicate.
