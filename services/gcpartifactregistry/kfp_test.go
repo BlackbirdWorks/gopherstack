@@ -3,6 +3,7 @@ package gcpartifactregistry_test
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -26,10 +27,10 @@ func pipelineSpec(name string) []byte {
 }
 
 type kfpUpload struct {
-	content     []byte
-	tags        string
-	description string
 	host        string
+	description string
+	tags        string
+	content     []byte
 	noContent   bool
 }
 
@@ -59,7 +60,7 @@ func kfpPost(t *testing.T, e *env, repo string, u kfpUpload) (int, string) {
 	req.Header.Set("Authorization", "Bearer anything")
 
 	if u.description != "" {
-		req.Header.Set("description", u.description)
+		req.Header.Set("Description", u.description)
 	}
 
 	if u.host != "" {
@@ -155,7 +156,7 @@ func TestKFPUploadAndDownload(t *testing.T) {
 
 			for {
 				tag, nerr := tags.Next()
-				if nerr == iterator.Done {
+				if errors.Is(nerr, iterator.Done) {
 					break
 				}
 
@@ -185,16 +186,15 @@ func TestKFPUploadAndDownload(t *testing.T) {
 			status, _ := getBody(t, base+"nope")
 			assert.Equal(t, http.StatusNotFound, status)
 		})
-
 	})
 
 	t.Run("tag moves to new version", func(t *testing.T) {
 		t.Parallel()
 
 		next := append(pipelineSpec("hello-world"), []byte("# v2\n")...)
-		code, body := kfpPost(t, e, "kfp", kfpUpload{content: next, tags: "latest"})
-		require.Equal(t, http.StatusOK, code)
-		assert.Equal(t, "hello-world/sha256:"+hexSum(next), body)
+		st, resp := kfpPost(t, e, "kfp", kfpUpload{content: next, tags: "latest"})
+		require.Equal(t, http.StatusOK, st)
+		assert.Equal(t, "hello-world/sha256:"+hexSum(next), resp)
 
 		tag, err := e.client.GetTag(ctx, &artifactregistrypb.GetTagRequest{Name: pkgName + "/tags/latest"})
 		require.NoError(t, err)
@@ -213,16 +213,10 @@ func TestKFPDeleteVersionDropsItsTags(t *testing.T) {
 	e.createRepo(t, "kfp-del", kfpRepo())
 
 	first, second := pipelineSpec("deleted-pipe"), append(pipelineSpec("deleted-pipe"), []byte("# 2\n")...)
-	require.Equal(
-		t,
-		http.StatusOK,
-		func() int { c, _ := kfpPost(t, e, "kfp-del", kfpUpload{content: first, tags: "v1"}); return c }(),
-	)
-	require.Equal(
-		t,
-		http.StatusOK,
-		func() int { c, _ := kfpPost(t, e, "kfp-del", kfpUpload{content: second, tags: "latest"}); return c }(),
-	)
+	for _, up := range []kfpUpload{{content: first, tags: "v1"}, {content: second, tags: "latest"}} {
+		st, body := kfpPost(t, e, "kfp-del", up)
+		require.Equal(t, http.StatusOK, st, body)
+	}
 
 	pkg := repoName("kfp-del") + "/packages/deleted-pipe"
 	op, err := e.client.DeleteVersion(t.Context(), &artifactregistrypb.DeleteVersionRequest{

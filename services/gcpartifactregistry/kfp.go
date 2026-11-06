@@ -120,9 +120,8 @@ func parseKFPTags(raw string) ([]string, bool) {
 func (b *InMemoryBackend) uploadKFP(w http.ResponseWriter, r *http.Request, rc repoCtx) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxGenericBytes+1<<20)
 
-	if err := r.ParseMultipartForm(
-		kfpFormMemory,
-	); err != nil { //nolint:gosec // r.Body is wrapped in MaxBytesReader above
+	err := r.ParseMultipartForm(kfpFormMemory) //nolint:gosec // r.Body is wrapped in MaxBytesReader above
+	if err != nil {
 		writePlain(w, http.StatusBadRequest, "Upload must be multipart/form-data with a content file.")
 
 		return

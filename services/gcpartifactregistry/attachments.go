@@ -20,13 +20,13 @@ var (
 
 func (r repoRef) attachmentName(id string) string { return r.full() + "/attachments/" + id }
 
-func parseAttachment(name string) (repoRef, string, error) {
+func parseAttachment(name string) (repoRef, error) {
 	p, err := splitName(name, childLen, "attachment")
 	if err != nil || len(p) != childLen || p[segChild] != "attachments" || p[7] == "" {
-		return repoRef{}, "", errInvalid("Invalid attachment name %q.", name)
+		return repoRef{}, errInvalid("Invalid attachment name %q.", name)
 	}
 
-	return refOf(p), p[7], nil
+	return refOf(p), nil
 }
 
 func cloneAttachment(a *artifactregistrypb.Attachment) *artifactregistrypb.Attachment {
@@ -159,7 +159,7 @@ func (b *InMemoryBackend) attachmentExists(name string) bool {
 
 // GetAttachment returns one attachment.
 func (b *InMemoryBackend) GetAttachment(name string) (*artifactregistrypb.Attachment, error) {
-	ref, _, err := parseAttachment(name)
+	ref, err := parseAttachment(name)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (b *InMemoryBackend) ListAttachments(
 
 // DeleteAttachment removes an attachment when the returned operation finishes.
 func (b *InMemoryBackend) DeleteAttachment(name string) (*longrunningpb.Operation, error) {
-	ref, _, err := parseAttachment(name)
+	ref, err := parseAttachment(name)
 	if err != nil {
 		return nil, err
 	}

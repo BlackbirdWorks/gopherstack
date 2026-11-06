@@ -77,14 +77,7 @@ func TestRemoteUpstreamCredentialsFromSecretManager(t *testing.T) {
 			})
 
 			cfg := npmUpstream(up.URL)
-			cfg.UpstreamCredentials = &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials{
-				Credentials: &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials_UsernamePasswordCredentials_{
-					UsernamePasswordCredentials: &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials_UsernamePasswordCredentials{
-						Username:              "robot",
-						PasswordSecretVersion: tt.version,
-					},
-				},
-			}
+			cfg.UpstreamCredentials = upstreamCreds("robot", tt.version)
 			e.createRepo(t, "npm-auth", remoteRepo(artifactregistrypb.Repository_NPM, cfg))
 
 			code, body := getBody(t, "http://127.0.0.1:"+e.port+"/npm/"+project+"/npm-auth/left-pad")
@@ -98,5 +91,15 @@ func TestRemoteUpstreamCredentialsFromSecretManager(t *testing.T) {
 			require.NoError(t, err)
 			assert.NotContains(t, repo.String(), "s3cret-pass")
 		})
+	}
+}
+
+func upstreamCreds(user, secretVersion string) *artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials {
+	type pw = artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials_UsernamePasswordCredentials
+
+	return &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials{
+		Credentials: &artifactregistrypb.RemoteRepositoryConfig_UpstreamCredentials_UsernamePasswordCredentials_{
+			UsernamePasswordCredentials: &pw{Username: user, PasswordSecretVersion: secretVersion},
+		},
 	}
 }

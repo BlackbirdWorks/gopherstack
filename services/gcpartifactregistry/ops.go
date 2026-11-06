@@ -191,17 +191,17 @@ func (s opsServer) DeleteOperation(
 }
 
 // settleNow finishes one pending operation regardless of the clock, so deleting its record keeps its effect.
-func (s *InMemoryBackend) settleNow(name string) {
-	s.settleMu.Lock("settleNow")
-	defer s.settleMu.Unlock()
+func (b *InMemoryBackend) settleNow(name string) {
+	b.settleMu.Lock("settleNow")
+	defer b.settleMu.Unlock()
 
-	s.mu.Lock("settleNow")
-	p, ok := s.pending[name]
-	delete(s.pending, name)
-	s.mu.Unlock()
+	b.mu.Lock("settleNow")
+	p, ok := b.pending[name]
+	delete(b.pending, name)
+	b.mu.Unlock()
 
 	if ok {
-		s.finishPending(name, p)
+		b.finishPending(name, p)
 	}
 }
 

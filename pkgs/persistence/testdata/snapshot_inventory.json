@@ -16419,6 +16419,7 @@
   },
   "gcpartifactregistry": {
     "fields": [
+      "backendSnapshot.Attachments map[string]json.RawMessage `json:\"attachments,omitempty\"`",
       "backendSnapshot.GenericFiles map[string]*genFile `json:\"genericFiles,omitempty\"`",
       "backendSnapshot.GenericPkgs map[string]*resMeta `json:\"genericPackages,omitempty\"`",
       "backendSnapshot.GenericVers map[string]*resMeta `json:\"genericVersions,omitempty\"`",
@@ -16429,6 +16430,7 @@
       "backendSnapshot.Repositories map[string]repoSnap `json:\"repositories\"`",
       "backendSnapshot.Rules map[string]json.RawMessage `json:\"rules,omitempty\"`",
       "backendSnapshot.Settings map[string]json.RawMessage `json:\"projectSettings,omitempty\"`",
+      "backendSnapshot.SigningKeys map[string][]byte `json:\"signingKeys,omitempty\"`",
       "backendSnapshot.VPCSC map[string]json.RawMessage `json:\"vpcscConfigs,omitempty\"`",
       "genFile.Annotations map[string]string `json:\"annotations,omitempty\"`",
       "genFile.Created time.Time `json:\"created\"`",

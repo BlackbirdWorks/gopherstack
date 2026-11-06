@@ -52,7 +52,6 @@ type InMemoryBackend struct {
 	secrets  SecretResolver
 	attach   map[string]*artifactregistrypb.Attachment
 	settleMu *lockmetrics.RWMutex
-	opDelay  time.Duration
 	objects  ObjectStore
 	remote   remoteOptions
 	ticker   TickerFunc
@@ -61,6 +60,7 @@ type InMemoryBackend struct {
 	dataDir  string
 	host     string
 	hostPort string
+	opDelay  time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend that keeps images in memory.

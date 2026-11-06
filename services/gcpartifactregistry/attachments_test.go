@@ -1,6 +1,7 @@
 package gcpartifactregistry_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -71,120 +72,133 @@ func TestAttachmentLifecycle(t *testing.T) {
 	_, err = create("other", &artifactregistrypb.Attachment{Target: parent, Type: "text/plain", Files: []string{file}})
 	require.NoError(t, err)
 
-	t.Run("reads", func(t *testing.T) {
-		t.Run("get", func(t *testing.T) {
-			t.Parallel()
+	t.Run("get", func(t *testing.T) {
+		t.Parallel()
 
-			a, getErr := e.client.GetAttachment(ctx, &artifactregistrypb.GetAttachmentRequest{Name: got.GetName()})
-			require.NoError(t, getErr)
-			assert.Equal(t, version, a.GetTarget())
-		})
-
-		tests := []struct {
-			name   string
-			filter string
-			want   []string
-		}{
-			{name: "all", want: []string{"other", "sbom"}},
-			{name: "by target", filter: `target="` + version + `"`, want: []string{"sbom"}},
-			{name: "by type case insensitive", filter: `type="TEXT/PLAIN"`, want: []string{"other"}},
-			{
-				name:   "and",
-				filter: `attachment_namespace="example.com" AND type="application/vnd.cyclonedx+json"`,
-				want:   []string{"sbom"},
-			},
-			{name: "none", filter: `type="nope"`},
-		}
-
-		for _, tt := range tests {
-			t.Run("list "+tt.name, func(t *testing.T) {
-				t.Parallel()
-
-				it := e.client.ListAttachments(
-					ctx,
-					&artifactregistrypb.ListAttachmentsRequest{Parent: parent, Filter: tt.filter},
-				)
-
-				var ids []string
-
-				for {
-					a, nerr := it.Next()
-					if nerr == iterator.Done {
-						break
-					}
-
-					require.NoError(t, nerr)
-
-					ids = append(ids, a.GetName()[len(parent+"/attachments/"):])
-				}
-
-				assert.Equal(t, tt.want, ids)
-			})
-		}
-
-		errTests := []struct {
-			att  *artifactregistrypb.Attachment
-			name string
-			id   string
-			want codes.Code
-		}{
-			{
-				name: "duplicate",
-				id:   "sbom",
-				att:  &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
-				want: codes.AlreadyExists,
-			},
-			{
-				name: "bad id",
-				id:   "-bad",
-				att:  &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
-				want: codes.InvalidArgument,
-			},
-			{
-				name: "no files",
-				id:   "nf",
-				att:  &artifactregistrypb.Attachment{Target: version},
-				want: codes.InvalidArgument,
-			},
-			{
-				name: "missing file",
-				id:   "mf",
-				att:  &artifactregistrypb.Attachment{Target: version, Files: []string{fileName("gen", "x:y:z")}},
-				want: codes.NotFound,
-			},
-			{
-				name: "missing target",
-				id:   "mt",
-				att: &artifactregistrypb.Attachment{
-					Target: pkgName("gen", "tool") + "/versions/9",
-					Files:  []string{file},
-				},
-				want: codes.NotFound,
-			},
-			{
-				name: "foreign target",
-				id:   "ft",
-				att:  &artifactregistrypb.Attachment{Target: repoName("other"), Files: []string{file}},
-				want: codes.InvalidArgument,
-			},
-		}
-
-		for _, tt := range errTests {
-			t.Run("create "+tt.name, func(t *testing.T) {
-				t.Parallel()
-
-				_, cerr := e.client.CreateAttachment(ctx, &artifactregistrypb.CreateAttachmentRequest{
-					Parent: parent, AttachmentId: tt.id, Attachment: tt.att,
-				})
-				assert.Equal(t, tt.want, status.Code(cerr), "%v", cerr)
-			})
-		}
-
+		a, getErr := e.client.GetAttachment(ctx, &artifactregistrypb.GetAttachmentRequest{Name: got.GetName()})
+		require.NoError(t, getErr)
+		assert.Equal(t, version, a.GetTarget())
 	})
 
-	op, err := e.client.DeleteAttachment(ctx, &artifactregistrypb.DeleteAttachmentRequest{Name: got.GetName()})
+	tests := []struct {
+		name   string
+		filter string
+		want   []string
+	}{
+		{name: "all", want: []string{"other", "sbom"}},
+		{name: "by target", filter: `target="` + version + `"`, want: []string{"sbom"}},
+		{name: "by type case insensitive", filter: `type="TEXT/PLAIN"`, want: []string{"other"}},
+		{
+			name:   "and",
+			filter: `attachment_namespace="example.com" AND type="application/vnd.cyclonedx+json"`,
+			want:   []string{"sbom"},
+		},
+		{name: "none", filter: `type="nope"`},
+	}
+
+	for _, tt := range tests {
+		t.Run("list "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			it := e.client.ListAttachments(
+				ctx,
+				&artifactregistrypb.ListAttachmentsRequest{Parent: parent, Filter: tt.filter},
+			)
+
+			var ids []string
+
+			for {
+				a, nerr := it.Next()
+				if errors.Is(nerr, iterator.Done) {
+					break
+				}
+
+				require.NoError(t, nerr)
+
+				ids = append(ids, a.GetName()[len(parent+"/attachments/"):])
+			}
+
+			assert.Equal(t, tt.want, ids)
+		})
+	}
+
+	errTests := []struct {
+		att  *artifactregistrypb.Attachment
+		name string
+		id   string
+		want codes.Code
+	}{
+		{
+			name: "duplicate",
+			id:   "sbom",
+			att:  &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
+			want: codes.AlreadyExists,
+		},
+		{
+			name: "bad id",
+			id:   "-bad",
+			att:  &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
+			want: codes.InvalidArgument,
+		},
+		{
+			name: "no files",
+			id:   "nf",
+			att:  &artifactregistrypb.Attachment{Target: version},
+			want: codes.InvalidArgument,
+		},
+		{
+			name: "missing file",
+			id:   "mf",
+			att:  &artifactregistrypb.Attachment{Target: version, Files: []string{fileName("gen", "x:y:z")}},
+			want: codes.NotFound,
+		},
+		{
+			name: "missing target",
+			id:   "mt",
+			att: &artifactregistrypb.Attachment{
+				Target: pkgName("gen", "tool") + "/versions/9",
+				Files:  []string{file},
+			},
+			want: codes.NotFound,
+		},
+		{
+			name: "foreign target",
+			id:   "ft",
+			att:  &artifactregistrypb.Attachment{Target: repoName("other"), Files: []string{file}},
+			want: codes.InvalidArgument,
+		},
+	}
+
+	for _, tt := range errTests {
+		t.Run("create "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, cerr := e.client.CreateAttachment(ctx, &artifactregistrypb.CreateAttachmentRequest{
+				Parent: parent, AttachmentId: tt.id, Attachment: tt.att,
+			})
+			assert.Equal(t, tt.want, status.Code(cerr), "%v", cerr)
+		})
+	}
+}
+
+func TestAttachmentDelete(t *testing.T) {
+	t.Parallel()
+
+	e, version, file := attachEnv(t, nil)
+	ctx := t.Context()
+
+	op, err := e.client.CreateAttachment(ctx, &artifactregistrypb.CreateAttachmentRequest{
+		Parent: repoName("gen"), AttachmentId: "gone",
+		Attachment: &artifactregistrypb.Attachment{Target: version, Files: []string{file}},
+	})
 	require.NoError(t, err)
-	require.NoError(t, op.Wait(ctx))
+
+	got, err := op.Wait(ctx)
+	require.NoError(t, err)
+
+	del, err := e.client.DeleteAttachment(ctx, &artifactregistrypb.DeleteAttachmentRequest{Name: got.GetName()})
+	require.NoError(t, err)
+	require.NoError(t, del.Wait(ctx))
 
 	_, err = e.client.GetAttachment(ctx, &artifactregistrypb.GetAttachmentRequest{Name: got.GetName()})
 	assert.Equal(t, codes.NotFound, status.Code(err))
