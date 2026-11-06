@@ -61,9 +61,9 @@ func icebergProps(raw map[string]string) (map[string]string, error) {
 
 		switch lk {
 		case propFormat:
-			if !strings.EqualFold(v, "parquet") {
+			if !strings.EqualFold(v, "parquet") && !strings.EqualFold(v, "avro") {
 				return nil, fmt.Errorf(
-					"%w: Iceberg format %s; the embedded engine writes PARQUET",
+					"%w: Iceberg format %s; the embedded engine writes PARQUET and AVRO",
 					errUnsupportedFormat,
 					v,
 				)

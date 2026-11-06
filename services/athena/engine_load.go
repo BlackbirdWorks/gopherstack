@@ -402,7 +402,7 @@ func (l *tableLoader) loadAvro(
 		return fmt.Errorf("%w: more than %d bytes", errScanLimit, l.limits.MaxScanBytes)
 	}
 
-	return l.decodeAvro(ctx, bytes.NewReader(data), cols, sink)
+	return l.decodeAvro(ctx, bytes.NewReader(data), cols, sink, avroOpts{})
 }
 
 func (l *tableLoader) decode(ctx context.Context, rd io.Reader, f tableFormat, cols []Column, sink *rowSink) error {

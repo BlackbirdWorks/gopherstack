@@ -1,6 +1,7 @@
 package athena
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -15,6 +16,8 @@ import (
 
 const (
 	secondsPerDayInt = 86400
+	colRowPath       = "$path"
+	colRowPos        = "$pos"
 	travelTimestamp  = "ts"
 	travelVersion    = "ver"
 	tsMillisLayout   = "2006-01-02 15:04:05.000"
@@ -318,10 +321,16 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 	}
 
 	schema := tbl.schemaFor(snap, hasSnap)
+	t.loadedAt = tbl.location
 
 	cols, err := icebergColumns(schema, t.display)
 	if err != nil {
 		return err
+	}
+
+	nreal := len(cols)
+	if t.rowIDs {
+		cols = append(cols, Column{Name: colRowPath, Type: columnTypeString}, Column{Name: colRowPos, Type: typeBigint})
 	}
 
 	return fillTable(ctx, conn, t.schema, t.name, cols, func(stmt *sql.Stmt, kinds []colKind) error {
@@ -340,9 +349,10 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 		}
 
 		sink := &rowSink{stmt: stmt, kinds: kinds, nargs: len(cols)}
+		cols = cols[:nreal]
 
 		for _, f := range files.data {
-			if lerr := l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink); lerr != nil {
+			if lerr := l.loadIcebergDataFile(ctx, tbl, schema, cols, f, dels, sink, t.rowIDs); lerr != nil {
 				return lerr
 			}
 		}
@@ -353,11 +363,24 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 
 func (l *tableLoader) loadIcebergDataFile(
 	ctx context.Context, tbl *icebergTable, schema iceberg.Schema, cols []Column, f fileEntry,
-	dels map[string][]deleteSet, sink *rowSink,
+	dels map[string][]deleteSet, sink *rowSink, rowIDs bool,
 ) error {
 	df := f.entry.DataFile
-	if !strings.EqualFold(df.Format, "PARQUET") {
+	isAvro := strings.EqualFold(df.Format, "AVRO")
+
+	if !strings.EqualFold(df.Format, "PARQUET") && !isAvro {
 		return fmt.Errorf("%w: Iceberg data file format %s (%s)", errUnsupportedFormat, df.Format, df.Path)
+	}
+
+	if isAvro {
+		data, rerr := l.readURI(ctx, df.Path)
+		if rerr != nil {
+			return icebergFailf("ICEBERG_CANNOT_OPEN_SPLIT", "Cannot open data file %s", df.Path)
+		}
+
+		opts := avroOpts{skip: skipRows(dels[df.Path], f.seq), rowIDs: rowIDs, path: df.Path}
+
+		return l.decodeAvro(ctx, bytes.NewReader(data), cols, sink, opts)
 	}
 
 	bucket, key, ok := splitS3URI(df.Path)
@@ -381,6 +404,11 @@ func (l *tableLoader) loadIcebergDataFile(
 				fcs[i].constant = &s
 			}
 		}
+	}
+
+	if rowIDs {
+		p := df.Path
+		fcs = append(fcs, fileCol{name: colRowPath, constant: &p}, fileCol{name: colRowPos, rowPos: true})
 	}
 
 	return l.loadColumnarFile(ctx, bucket, key, fcs, skipRows(dels[df.Path], f.seq), sink)

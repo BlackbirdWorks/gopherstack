@@ -17,6 +17,7 @@ import (
 const (
 	maxCommitAttempts = 4
 	propParquetCodec  = "write.parquet.compression-codec"
+	propDefaultFormat = "write.format.default"
 	nullPartition     = "null"
 )
 
@@ -46,10 +47,7 @@ func writeHiveType(t string) string {
 }
 
 func (p *writePlan) applyIcebergInsert(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
-	meta := p.ice.meta
-	schema := meta.CurrentSchema()
-
-	dest, err := icebergColumns(schema, p.display())
+	dest, err := icebergColumns(p.ice.meta.CurrentSchema(), p.display())
 	if err != nil {
 		return engineFailure(err)
 	}
@@ -59,11 +57,32 @@ func (p *writePlan) applyIcebergInsert(ctx context.Context, res *sqlResult, limi
 		return out
 	}
 
+	files, out := p.writeIcebergFiles(ctx, res, src, limits)
+	if out.failed || len(files) == 0 {
+		return out
+	}
+
+	return p.commitIcebergChange(ctx, iceberg.Change{Operation: iceberg.OpAppend, AddData: files}, true)
+}
+
+// writeIcebergFiles writes res as partitioned data files of the table's default
+// spec; src maps each schema column to a result column.
+func (p *writePlan) writeIcebergFiles(
+	ctx context.Context, res *sqlResult, src []int, limits EngineLimits,
+) ([]iceberg.DataFile, statementOutcome) {
+	meta := p.ice.meta
+	schema := meta.CurrentSchema()
+
+	dest, err := icebergColumns(schema, p.display())
+	if err != nil {
+		return nil, engineFailure(err)
+	}
+
 	cols := make([]outCol, len(dest))
 
 	for i, c := range dest {
 		if iceberg.PrimitiveName(schema.Fields[i].Type) == "" {
-			return stmtFail(athenaErrTypeSyntax,
+			return nil, stmtFail(athenaErrTypeSyntax,
 				"NOT_SUPPORTED: writing nested column '%s' to an Iceberg table is not supported", c.Name)
 		}
 
@@ -72,7 +91,7 @@ func (p *writePlan) applyIcebergInsert(ctx context.Context, res *sqlResult, limi
 
 	groups, err := p.icebergGroups(res, schema, cols)
 	if err != nil {
-		return stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: %s", err.Error())
+		return nil, stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: %s", err.Error())
 	}
 
 	var (
@@ -80,39 +99,46 @@ func (p *writePlan) applyIcebergInsert(ctx context.Context, res *sqlResult, limi
 		total int64
 	)
 
+	ext, avroFmt := ".parquet", strings.EqualFold(meta.Properties[propDefaultFormat], "avro")
+	if avroFmt {
+		ext = ".avro"
+	}
+
 	for seq, g := range groups {
 		if err = ctx.Err(); err != nil {
-			return engineFailure(err)
+			return nil, engineFailure(err)
 		}
 
-		body, eerr := encodeParquetRows(res, g.rows, cols, meta.Properties[propParquetCodec])
-		if eerr != nil {
-			return engineFailure(eerr)
+		var body []byte
+		if avroFmt {
+			body, err = encodeAvroRows(res, g.rows, cols, avroCodecFor(meta.Properties[propParquetCodec]))
+		} else {
+			body, err = encodeParquetRows(res, g.rows, cols, meta.Properties[propParquetCodec])
+		}
+
+		if err != nil {
+			return nil, engineFailure(err)
 		}
 
 		if total += int64(len(body)); total > limits.MaxResultBytes {
-			return engineFailure(fmt.Errorf("%w: more than %d bytes", errResultBytes, limits.MaxResultBytes))
+			return nil, engineFailure(fmt.Errorf("%w: more than %d bytes", errResultBytes, limits.MaxResultBytes))
 		}
 
-		path := fmt.Sprintf("%s/data/%s%s_%0*d.parquet", strings.TrimSuffix(meta.Location, "/"),
-			icebergPartDir(meta.DefaultSpec(), g.partition), p.queryID, fileSeqWidth, seq)
+		path := fmt.Sprintf("%s/data/%s%s_%0*d%s", strings.TrimSuffix(meta.Location, "/"),
+			icebergPartDir(meta.DefaultSpec(), g.partition), p.queryID, fileSeqWidth, seq, ext)
 
-		if out = p.putObjectAt(ctx, path, body); out.failed {
-			return out
+		if out := p.putObjectAt(ctx, path, body); out.failed {
+			return nil, out
 		}
 
 		files = append(files, iceberg.DataFile{
-			Path: path, Format: "PARQUET", Partition: g.partition, RecordCount: int64(len(g.rows)),
+			Path: path, Format: strings.ToUpper(ext[1:]), Partition: g.partition, RecordCount: int64(len(g.rows)),
 			FileSize: int64(len(body)), ValueCounts: countsFor(res, g.rows, cols, false),
 			NullCounts: countsFor(res, g.rows, cols, true),
 		})
 	}
 
-	if len(files) == 0 {
-		return stmtOK()
-	}
-
-	return p.commitIcebergAppend(ctx, files)
+	return files, stmtOK()
 }
 
 type icebergGroup struct {
@@ -250,16 +276,21 @@ func (l *tableLoader) currentManifests(ctx context.Context, tbl *icebergTable) (
 	return list, nil
 }
 
-// commitIcebergAppend writes the manifest, manifest list and metadata, then
-// swaps the catalog pointer; a lost race re-plans the append on the new head.
-func (p *writePlan) commitIcebergAppend(ctx context.Context, files []iceberg.DataFile) statementOutcome {
+// commitIcebergChange writes the manifests, manifest list and metadata of ch,
+// then swaps the catalog pointer. With retry a lost race re-plans on the new
+// head (safe for appends); otherwise it fails.
+func (p *writePlan) commitIcebergChange(ctx context.Context, ch iceberg.Change, retry bool) statementOutcome {
 	l := &tableLoader{get: p.get, list: p.list, limits: defaultEngineLimits()}
 	tbl := p.ice
 
 	for range maxCommitAttempts {
-		conflict, out := p.tryCommit(ctx, l, tbl, files)
+		conflict, out := p.tryCommit(ctx, l, tbl, ch)
 		if !conflict {
 			return out
+		}
+
+		if !retry {
+			break
 		}
 
 		def, err := p.cat.GetTableDef(p.db, p.table)
@@ -282,27 +313,46 @@ func (p *writePlan) commitIcebergAppend(ctx context.Context, files []iceberg.Dat
 
 // tryCommit makes one commit attempt; conflict=true means the catalog pointer moved.
 func (p *writePlan) tryCommit(
-	ctx context.Context, l *tableLoader, tbl *icebergTable, files []iceberg.DataFile,
+	ctx context.Context, l *tableLoader, tbl *icebergTable, ch iceberg.Change,
 ) (bool, statementOutcome) {
 	prev, err := l.currentManifests(ctx, tbl)
 	if err != nil {
 		return false, engineFailure(err)
 	}
 
-	plan, err := tbl.meta.PlanAppend(tbl.location, prev, files, p.now().UTC())
+	read := func(path string) ([]iceberg.ManifestEntry, error) {
+		body, rerr := l.readURI(ctx, path)
+		if rerr != nil {
+			return nil, icebergFailf("ICEBERG_MISSING_METADATA", "Manifest not found: %s", path)
+		}
+
+		return iceberg.ReadManifest(body)
+	}
+
+	plan, err := tbl.meta.PlanCommit(tbl.location, prev, read, ch, p.now().UTC())
 	if err != nil {
 		return false, engineFailure(icebergFailf("ICEBERG_COMMIT_ERROR", "Cannot plan Iceberg update: %v", err))
 	}
 
+	return p.publishPlan(ctx, tbl, plan)
+}
+
+// publishPlan stores the plan's objects and swaps the catalog's metadata pointer.
+func (p *writePlan) publishPlan(
+	ctx context.Context, tbl *icebergTable, plan *iceberg.AppendPlan,
+) (bool, statementOutcome) {
 	for _, o := range plan.Objects {
 		if out := p.putObjectAt(ctx, o.Location, o.Body); out.failed {
 			return false, out
 		}
 	}
 
-	committer, _ := p.cat.(tableCommitter)
+	committer, ok := p.cat.(tableCommitter)
+	if !ok {
+		return false, stmtFail(athenaErrTypeSyntax, "NOT_SUPPORTED: the catalog cannot commit Iceberg metadata")
+	}
 
-	switch err = committer.CommitTableMetadata(p.db, p.table, tbl.location, plan.MetadataLocation); {
+	switch err := committer.CommitTableMetadata(p.db, p.table, tbl.location, plan.MetadataLocation); {
 	case err == nil:
 		return false, stmtOK()
 	case errors.Is(err, ErrCatalogCommitConflict):
@@ -310,5 +360,14 @@ func (p *writePlan) tryCommit(
 	default:
 		return false, stmtFail(athenaErrTypeSyntax,
 			"ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: %s: %s", p.display(), err)
+	}
+}
+
+func avroCodecFor(v string) string {
+	switch c := strings.ToUpper(v); c {
+	case "SNAPPY", "DEFLATE":
+		return c
+	default:
+		return ""
 	}
 }

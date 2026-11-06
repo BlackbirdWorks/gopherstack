@@ -26,6 +26,8 @@ type planTable struct {
 	metaTable string
 	travel    travelSpec
 	parts     []GluePartitionDef
+	rowIDs    bool
+	loadedAt  string
 }
 
 type enginePlan struct {
@@ -87,7 +89,9 @@ func (b *InMemoryBackend) planEngineQuery(
 	upper := strings.ToUpper(strings.TrimSpace(query))
 	isRead := hasKeyword(upper, "SELECT") || hasKeyword(upper, "WITH")
 
-	if !isRead && !hasKeyword(upper, "CREATE") && !hasKeyword(upper, "INSERT") && !hasKeyword(upper, "UNLOAD") {
+	if !isRead && !hasKeyword(upper, "CREATE") && !hasKeyword(upper, "INSERT") && !hasKeyword(upper, "UNLOAD") &&
+		!hasKeyword(upper, "DELETE") && !hasKeyword(upper, "UPDATE") && !hasKeyword(upper, "MERGE") &&
+		!hasKeyword(upper, "OPTIMIZE") {
 		return nil, stmtOK(), false
 	}
 

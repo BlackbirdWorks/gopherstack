@@ -19,6 +19,7 @@ type writeStmt struct {
 	body        string
 	target      []string
 	insertCols  []string
+	dml         *dmlSpec
 	kind        writeKind
 	ifNotExists bool
 	noData      bool
@@ -77,6 +78,14 @@ func parseWriteStmt(sql string) (*writeStmt, bool) {
 		return c.parseInsert()
 	case c.acceptWords("unload"):
 		return c.parseUnload()
+	case c.acceptWords("delete", "from"):
+		return c.parseDelete()
+	case c.acceptWords("update"):
+		return c.parseUpdate()
+	case c.acceptWords("merge", "into"):
+		return c.parseMerge()
+	case c.acceptWords("optimize"):
+		return c.parseOptimize()
 	case c.acceptWords("create"):
 		c.acceptWords("external")
 

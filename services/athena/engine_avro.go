@@ -634,7 +634,15 @@ func avroIntCell(n int64, t *hiveType) string {
 	return strconv.FormatInt(n, 10)
 }
 
-func (l *tableLoader) decodeAvro(ctx context.Context, rd io.Reader, cols []Column, sink *rowSink) error {
+type avroOpts struct {
+	skip   map[int64]bool
+	path   string
+	rowIDs bool
+}
+
+func (l *tableLoader) decodeAvro(
+	ctx context.Context, rd io.Reader, cols []Column, sink *rowSink, opts avroOpts,
+) error {
 	dec, err := ocf.NewDecoder(rd)
 	if err != nil {
 		return fmt.Errorf("HIVE_CURSOR_ERROR: invalid Avro file: %w", err)
@@ -648,10 +656,14 @@ func (l *tableLoader) decodeAvro(ctx context.Context, rd io.Reader, cols []Colum
 		}
 	}
 
-	for dec.HasNext() {
+	for ord := int64(0); dec.HasNext(); ord++ {
 		var obj map[string]any
 		if err = dec.Decode(&obj); err != nil {
 			return fmt.Errorf("HIVE_CURSOR_ERROR: Failed to read Avro record: %w", err)
+		}
+
+		if opts.skip[ord] {
+			continue
 		}
 
 		obj, _ = avroUnwrap(obj, dec.Schema()).(map[string]any)
@@ -661,8 +673,13 @@ func (l *tableLoader) decodeAvro(ctx context.Context, rd io.Reader, cols []Colum
 			lower[strings.ToLower(k)] = v
 		}
 
-		rec := make([]string, len(cols))
-		nulls := make([]bool, len(cols))
+		extra := 0
+		if opts.rowIDs {
+			extra = argsTwo
+		}
+
+		rec := make([]string, len(cols)+extra)
+		nulls := make([]bool, len(cols)+extra)
 
 		for i, c := range cols {
 			v, ok := lower[strings.ToLower(c.Name)]
@@ -671,6 +688,10 @@ func (l *tableLoader) decodeAvro(ctx context.Context, rd io.Reader, cols []Colum
 			if !nulls[i] {
 				rec[i] = avroCell(v, types[i])
 			}
+		}
+
+		if opts.rowIDs {
+			rec[len(cols)], rec[len(cols)+1] = opts.path, strconv.FormatInt(ord, 10)
 		}
 
 		if err = l.insertJSON(ctx, sink, rec, nulls); err != nil {

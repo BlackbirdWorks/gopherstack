@@ -71,6 +71,7 @@ type writePlan struct {
 	db             string
 	table          string
 	ice            *icebergTable
+	target         *planTable
 	queryID        string
 	outputLocation string
 	location       string
@@ -118,9 +119,19 @@ func (b *InMemoryBackend) planWrite(
 		wp.catalog, wp.db, wp.table = catalog, db, table
 	}
 
+	if isDMLKind(w.kind) {
+		if out := wp.prepareDML(get); out.failed {
+			return nil, out, true
+		}
+	}
+
 	plan, unresolved, err := b.buildPlan(w.body, qctx, get, list)
 	if err != nil {
 		return nil, planFailure(err), true
+	}
+
+	if isDMLKind(w.kind) {
+		wp.bindTarget(plan)
 	}
 
 	if len(plan.tables) == 0 && len(unresolved) > 0 {
@@ -143,7 +154,7 @@ func (b *InMemoryBackend) planWrite(
 
 func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 	switch p.stmt.kind {
-	case writeInsert:
+	case writeInsert, writeDelete, writeUpdate, writeMerge, writeOptimize:
 		return stmtOK()
 	case writeCTAS:
 		if p.s3tables {
@@ -286,6 +297,8 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 	switch p.stmt.kind {
 	case writeInsert:
 		return p.precheckInsert(ctx), false
+	case writeDelete, writeUpdate, writeMerge, writeOptimize:
+		return stmtOK(), false
 	case writeUnload:
 		p.location = withSlash(p.stmt.location)
 	default:
@@ -383,6 +396,8 @@ func (p *writePlan) apply(ctx context.Context, res *sqlResult, limits EngineLimi
 		return p.applyInsert(ctx, res, limits)
 	case writeUnload:
 		return p.applyUnload(ctx, res, limits)
+	case writeDelete, writeUpdate, writeMerge, writeOptimize:
+		return p.applyIcebergDML(ctx, res, limits)
 	default:
 		return p.applyCTAS(ctx, res, limits)
 	}
