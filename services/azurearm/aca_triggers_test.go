@@ -1,6 +1,7 @@
 package azurearm_test
 
 import (
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -22,7 +23,11 @@ type trigTimer struct {
 
 func (t *trigTimer) C() <-chan time.Time { return nil }
 
-func (t *trigTimer) Stop() bool { t.stop = true; return true }
+func (t *trigTimer) Stop() bool {
+	t.stop = true
+
+	return true
+}
 
 // trigClock is a settable clock whose timers fire only when the test says so.
 type trigClock struct {
@@ -84,13 +89,12 @@ func (m *trigMeters) StorageQueueMessages(queue string) (int, error) {
 	return m.q[queue], nil
 }
 
-func (m *trigMeters) set(sb, q map[string]int) {
-	m.mu.Lock()
-	m.sb, m.q = sb, q
-	m.mu.Unlock()
-}
-
-func trigJob(envID, image string, trigger armappcontainers.TriggerType, retry, timeout int32, cfgFn func(*armappcontainers.JobConfiguration)) armappcontainers.Job {
+func trigJob(
+	envID, image string,
+	trigger armappcontainers.TriggerType,
+	retry, timeout int32,
+	cfgFn func(*armappcontainers.JobConfiguration),
+) armappcontainers.Job {
 	cfg := &armappcontainers.JobConfiguration{
 		TriggerType: &trigger, ReplicaTimeout: &timeout, ReplicaRetryLimit: &retry,
 	}
@@ -124,8 +128,10 @@ func (s *acaStack) putJobModel(t *testing.T, name string, j armappcontainers.Job
 func (s *acaStack) execStatuses(t *testing.T, job string) []armappcontainers.JobExecutionRunningState {
 	t.Helper()
 
-	var out []armappcontainers.JobExecutionRunningState
-	for _, e := range s.executions(t, job) {
+	execs := s.executions(t, job)
+	out := make([]armappcontainers.JobExecutionRunningState, 0, len(execs))
+
+	for _, e := range execs {
 		out = append(out, *e.Properties.Status)
 	}
 
@@ -138,15 +144,42 @@ func TestACA_ScheduleTrigger(t *testing.T) {
 	tests := []struct {
 		name        string
 		cron        string
-		parallelism int32
 		steps       []time.Duration
 		wantExecs   int
 		wantStarted int
+		parallelism int32
 	}{
-		{name: "every-five-minutes", cron: "*/5 * * * *", parallelism: 1, steps: []time.Duration{4 * time.Minute}, wantExecs: 0},
-		{name: "fires-once", cron: "*/5 * * * *", parallelism: 1, steps: []time.Duration{5 * time.Minute}, wantExecs: 1, wantStarted: 1},
-		{name: "fires-twice", cron: "*/5 * * * *", parallelism: 1, steps: []time.Duration{5 * time.Minute, 5 * time.Minute}, wantExecs: 2, wantStarted: 2},
-		{name: "parallelism", cron: "0 * * * *", parallelism: 3, steps: []time.Duration{time.Hour}, wantExecs: 1, wantStarted: 3},
+		{
+			name:        "every-five-minutes",
+			cron:        "*/5 * * * *",
+			parallelism: 1,
+			steps:       []time.Duration{4 * time.Minute},
+			wantExecs:   0,
+		},
+		{
+			name:        "fires-once",
+			cron:        "*/5 * * * *",
+			parallelism: 1,
+			steps:       []time.Duration{5 * time.Minute},
+			wantExecs:   1,
+			wantStarted: 1,
+		},
+		{
+			name:        "fires-twice",
+			cron:        "*/5 * * * *",
+			parallelism: 1,
+			steps:       []time.Duration{5 * time.Minute, 5 * time.Minute},
+			wantExecs:   2,
+			wantStarted: 2,
+		},
+		{
+			name:        "parallelism",
+			cron:        "0 * * * *",
+			parallelism: 3,
+			steps:       []time.Duration{time.Hour},
+			wantExecs:   1,
+			wantStarted: 3,
+		},
 	}
 
 	for _, tc := range tests {
@@ -159,12 +192,13 @@ func TestACA_ScheduleTrigger(t *testing.T) {
 			s.rt.scripts["job-long"] = nil
 			envID := *s.mustEnv(t, "rg", "env1").ID
 
-			require.NoError(t, s.putJobModel(t, "cron", trigJob(envID, "job-long", armappcontainers.TriggerTypeSchedule, 0, 600,
+			job := trigJob(envID, "job-long", armappcontainers.TriggerTypeSchedule, 0, 600,
 				func(c *armappcontainers.JobConfiguration) {
 					c.ScheduleTriggerConfig = &armappcontainers.JobConfigurationScheduleTriggerConfig{
 						CronExpression: &tc.cron, Parallelism: &tc.parallelism, ReplicaCompletionCount: new(int32(1)),
 					}
-				})))
+				})
+			require.NoError(t, s.putJobModel(t, "cron", job))
 
 			for _, step := range tc.steps {
 				clock.advance(step, noSkip)
@@ -199,7 +233,9 @@ func TestACA_ScheduleCronValidation(t *testing.T) {
 
 			err := s.putJobModel(t, "cron", trigJob(envID, "img", armappcontainers.TriggerTypeSchedule, 0, 60,
 				func(c *armappcontainers.JobConfiguration) {
-					c.ScheduleTriggerConfig = &armappcontainers.JobConfigurationScheduleTriggerConfig{CronExpression: &tc.cron}
+					c.ScheduleTriggerConfig = &armappcontainers.JobConfigurationScheduleTriggerConfig{
+						CronExpression: &tc.cron,
+					}
 				}))
 			if tc.ok {
 				require.NoError(t, err)
@@ -216,28 +252,35 @@ func TestACA_EventTriggerQueues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		metadata  map[string]any
+		sb        map[string]int
+		q         map[string]int
 		name      string
 		scaler    string
-		metadata  map[string]any
-		sb, q     map[string]int
-		maxExecs  int32
 		wantExecs int
+		maxExecs  int32
 	}{
 		{
-			name: "servicebus-ceil", scaler: "azure-servicebus", metadata: map[string]any{"queueName": "jobs", "messageCount": "5"},
+			name: "servicebus-ceil", scaler: "azure-servicebus", metadata: map[string]any{
+				"queueName": "jobs", "messageCount": "5",
+			},
 			sb: map[string]int{"jobs": 12}, maxExecs: 10, wantExecs: 3,
 		},
 		{
-			name: "servicebus-capped", scaler: "azure-servicebus", metadata: map[string]any{"queueName": "jobs", "messageCount": "1"},
+			name: "servicebus-capped", scaler: "azure-servicebus", metadata: map[string]any{
+				"queueName": "jobs", "messageCount": "1",
+			},
 			sb: map[string]int{"jobs": 12}, maxExecs: 2, wantExecs: 2,
 		},
 		{
-			name: "storage-queue", scaler: "azure-queue", metadata: map[string]any{"queueName": "work", "queueLength": 2},
-			q: map[string]int{"work": 5}, maxExecs: 10, wantExecs: 3,
+			name: "storage-queue", scaler: "azure-queue",
+			metadata: map[string]any{"queueName": "work", "queueLength": 2},
+			q:        map[string]int{"work": 5}, maxExecs: 10, wantExecs: 3,
 		},
 		{
-			name: "empty-queue", scaler: "azure-queue", metadata: map[string]any{"queueName": "work", "queueLength": 1},
-			q: map[string]int{}, maxExecs: 10, wantExecs: 0,
+			name: "empty-queue", scaler: "azure-queue",
+			metadata: map[string]any{"queueName": "work", "queueLength": 1},
+			q:        map[string]int{}, maxExecs: 10, wantExecs: 0,
 		},
 	}
 
@@ -254,15 +297,20 @@ func TestACA_EventTriggerQueues(t *testing.T) {
 
 			envID := *s.mustEnv(t, "rg", "env1").ID
 
-			require.NoError(t, s.putJobModel(t, "ev", trigJob(envID, "job-long", armappcontainers.TriggerTypeEvent, 0, 600,
-				func(c *armappcontainers.JobConfiguration) {
-					c.EventTriggerConfig = &armappcontainers.JobConfigurationEventTriggerConfig{
-						Scale: &armappcontainers.JobScale{
-							MaxExecutions: &tc.maxExecs, PollingInterval: new(int32(15)),
-							Rules: []*armappcontainers.JobScaleRule{{Name: new("q"), Type: &tc.scaler, Metadata: tc.metadata}},
-						},
-					}
-				})))
+			require.NoError(
+				t,
+				s.putJobModel(t, "ev", trigJob(envID, "job-long", armappcontainers.TriggerTypeEvent, 0, 600,
+					func(c *armappcontainers.JobConfiguration) {
+						c.EventTriggerConfig = &armappcontainers.JobConfigurationEventTriggerConfig{
+							Scale: &armappcontainers.JobScale{
+								MaxExecutions: &tc.maxExecs, PollingInterval: new(int32(15)),
+								Rules: []*armappcontainers.JobScaleRule{
+									{Name: new("q"), Type: &tc.scaler, Metadata: tc.metadata},
+								},
+							},
+						}
+					})),
+			)
 
 			clock.advance(15*time.Second, noSkip)
 			assert.Len(t, s.executions(t, "ev"), tc.wantExecs)
@@ -278,12 +326,12 @@ func TestACA_JobRetryTimeoutCompletion(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		want        armappcontainers.JobExecutionRunningState
 		exits       []int
+		advance     time.Duration
 		retry       int32
 		timeout     int32
 		parallelism int32
-		advance     time.Duration
-		want        armappcontainers.JobExecutionRunningState
 		stopsRest   bool
 	}{
 		{
@@ -314,14 +362,21 @@ func TestACA_JobRetryTimeoutCompletion(t *testing.T) {
 			s.rt.scripts["job-x"] = tc.exits
 			envID := *s.mustEnv(t, "rg", "env1").ID
 
-			require.NoError(t, s.putJobModel(t, "jobx", trigJob(envID, "job-x", armappcontainers.TriggerTypeManual, tc.retry, tc.timeout,
-				func(c *armappcontainers.JobConfiguration) {
-					c.ManualTriggerConfig = &armappcontainers.JobConfigurationManualTriggerConfig{
-						Parallelism: &tc.parallelism, ReplicaCompletionCount: new(int32(1)),
-					}
-				})))
+			require.NoError(
+				t,
+				s.putJobModel(
+					t,
+					"jobx",
+					trigJob(envID, "job-x", armappcontainers.TriggerTypeManual, tc.retry, tc.timeout,
+						func(c *armappcontainers.JobConfiguration) {
+							c.ManualTriggerConfig = &armappcontainers.JobConfigurationManualTriggerConfig{
+								Parallelism: &tc.parallelism, ReplicaCompletionCount: new(int32(1)),
+							}
+						}),
+				),
+			)
 
-			s.startJob(t, "rg", "jobx")
+			s.startJob(t, "jobx")
 
 			require.Eventually(t, func() bool {
 				clock.advance(tc.advance, noSkip)
@@ -349,7 +404,9 @@ func TestACA_ExecutionHistoryCap(t *testing.T) {
 
 	require.NoError(t, s.putJobModel(t, "hist", trigJob(envID, "job-done", armappcontainers.TriggerTypeSchedule, 0, 600,
 		func(c *armappcontainers.JobConfiguration) {
-			c.ScheduleTriggerConfig = &armappcontainers.JobConfigurationScheduleTriggerConfig{CronExpression: new("* * * * *")}
+			c.ScheduleTriggerConfig = &armappcontainers.JobConfigurationScheduleTriggerConfig{
+				CronExpression: new("* * * * *"),
+			}
 		})))
 
 	for range 103 {
@@ -357,13 +414,7 @@ func TestACA_ExecutionHistoryCap(t *testing.T) {
 		require.Eventually(t, func() bool {
 			clock.advance(0, noSkip)
 
-			for _, st := range s.execStatuses(t, "hist") {
-				if st == armappcontainers.JobExecutionRunningStateRunning {
-					return false
-				}
-			}
-
-			return true
+			return !slices.Contains(s.execStatuses(t, "hist"), armappcontainers.JobExecutionRunningStateRunning)
 		}, 10*time.Second, time.Millisecond)
 	}
 
@@ -377,22 +428,33 @@ func TestACA_QueueScaleRules(t *testing.T) {
 	sbRule := func(q string) *armappcontainers.ScaleRule {
 		return &armappcontainers.ScaleRule{
 			Name: new("sb"), Custom: &armappcontainers.CustomScaleRule{
-				Type: new("azure-servicebus"), Metadata: map[string]*string{"queueName": new(q), "messageCount": new("5")},
+				Type: new(
+					"azure-servicebus",
+				), Metadata: map[string]*string{"queueName": new(q), "messageCount": new("5")},
 			},
 		}
 	}
 	stRule := &armappcontainers.ScaleRule{
-		Name: new("st"), AzureQueue: &armappcontainers.QueueScaleRule{QueueName: new("work"), QueueLength: new(int32(10))},
+		Name: new(
+			"st",
+		), AzureQueue: &armappcontainers.QueueScaleRule{QueueName: new("work"), QueueLength: new(int32(10))},
 	}
 
 	tests := []struct {
-		name  string
-		rule  *armappcontainers.ScaleRule
-		max   int32
-		sb, q map[string]int
-		want  []int
+		rule *armappcontainers.ScaleRule
+		sb   map[string]int
+		q    map[string]int
+		name string
+		want []int
+		max  int32
 	}{
-		{name: "servicebus-steps", rule: sbRule("jobs"), max: 20, sb: map[string]int{"jobs": 100}, want: []int{1, 4, 8, 16}},
+		{
+			name: "servicebus-steps",
+			rule: sbRule("jobs"),
+			max:  20,
+			sb:   map[string]int{"jobs": 100},
+			want: []int{1, 4, 8, 16},
+		},
 		{name: "max-honoured", rule: sbRule("jobs"), max: 3, sb: map[string]int{"jobs": 100}, want: []int{1, 3, 3}},
 		{name: "azure-queue", rule: stRule, max: 10, q: map[string]int{"work": 25}, want: []int{1, 3, 3}},
 		{name: "empty-queue-stays", rule: sbRule("jobs"), max: 10, sb: map[string]int{}, want: []int{1, 1}},

@@ -75,40 +75,9 @@ func acaCronField(spec string, lo, hi int, names []string, base int) (uint64, er
 	var mask uint64
 
 	for part := range strings.SplitSeq(spec, ",") {
-		rng, stepText, hasStep := strings.Cut(part, "/")
-		step := 1
-
-		if hasStep {
-			n, err := strconv.Atoi(stepText)
-			if err != nil || n < 1 {
-				return 0, fmt.Errorf("%w: bad step %q", errACACron, part)
-			}
-
-			step = n
-		}
-
-		from, to := lo, hi
-
-		if rng != "*" {
-			a, b, isRange := strings.Cut(rng, "-")
-
-			var err error
-			if from, err = acaCronValue(a, names, base); err != nil {
-				return 0, err
-			}
-
-			to = from
-			if isRange {
-				if to, err = acaCronValue(b, names, base); err != nil {
-					return 0, err
-				}
-			} else if hasStep {
-				to = hi
-			}
-		}
-
-		if from < lo || to > hi || from > to {
-			return 0, fmt.Errorf("%w: %q out of range %d-%d", errACACron, part, lo, hi)
+		from, to, step, err := acaCronRange(part, lo, hi, names, base)
+		if err != nil {
+			return 0, err
 		}
 
 		for v := from; v <= to; v += step {
@@ -117,6 +86,51 @@ func acaCronField(spec string, lo, hi int, names []string, base int) (uint64, er
 	}
 
 	return mask, nil
+}
+
+// acaCronRange resolves one comma-separated part (*, a, a-b, optionally /step) to its bounds.
+func acaCronRange(part string, lo, hi int, names []string, base int) (int, int, int, error) {
+	rng, stepText, hasStep := strings.Cut(part, "/")
+	step := 1
+
+	if hasStep {
+		n, err := strconv.Atoi(stepText)
+		if err != nil || n < 1 {
+			return 0, 0, 0, fmt.Errorf("%w: bad step %q", errACACron, part)
+		}
+
+		step = n
+	}
+
+	from, to := lo, hi
+
+	if rng != "*" {
+		a, b, isRange := strings.Cut(rng, "-")
+
+		var err error
+		if from, err = acaCronValue(a, names, base); err != nil {
+			return 0, 0, 0, err
+		}
+
+		switch {
+		case isRange:
+			to, err = acaCronValue(b, names, base)
+		case hasStep:
+			to = hi
+		default:
+			to = from
+		}
+
+		if err != nil {
+			return 0, 0, 0, err
+		}
+	}
+
+	if from < lo || to > hi || from > to {
+		return 0, 0, 0, fmt.Errorf("%w: %q out of range %d-%d", errACACron, part, lo, hi)
+	}
+
+	return from, to, step, nil
 }
 
 func acaCronValue(s string, names []string, base int) (int, error) {

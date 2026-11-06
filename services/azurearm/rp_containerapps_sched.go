@@ -127,29 +127,7 @@ func (p *ContainerAppsProvider) nextWake(now time.Time) (time.Duration, bool) {
 	}
 
 	for k, j := range p.jobs {
-		switch strOf(j.Config, "triggerType") {
-		case acaJobTriggerSchedule:
-			c, err := parseACACron(strOf(mapOf(j.Config["scheduleTriggerConfig"]), "cronExpression"))
-			if err != nil {
-				continue
-			}
-
-			if n := c.next(j.LastFire); !n.IsZero() {
-				consider(n.Sub(now))
-			}
-		case acaJobTriggerEvent:
-			if p.meters != nil && len(acaJobQueueRules(acaList(mapOf(mapOf(j.Config["eventTriggerConfig"])[fieldScale])["rules"]))) > 0 {
-				consider(acaJobPolling(j) - now.Sub(p.lastPoll[k]))
-			}
-		}
-
-		for _, e := range j.Executions {
-			if !e.Done && !e.Stopped {
-				consider(acaSettleInterval)
-
-				break
-			}
-		}
+		p.jobWake(k, j, now, consider)
 	}
 
 	if p.meters != nil {
@@ -163,6 +141,31 @@ func (p *ContainerAppsProvider) nextWake(now time.Time) (time.Duration, bool) {
 	}
 
 	return best, found
+}
+
+func (p *ContainerAppsProvider) jobWake(key string, j *storedACAJob, now time.Time, consider func(time.Duration)) {
+	switch strOf(j.Config, "triggerType") {
+	case acaJobTriggerSchedule:
+		c, err := parseACACron(strOf(mapOf(j.Config["scheduleTriggerConfig"]), "cronExpression"))
+		if err == nil {
+			if n := c.next(j.LastFire); !n.IsZero() {
+				consider(n.Sub(now))
+			}
+		}
+	case acaJobTriggerEvent:
+		sc := mapOf(mapOf(j.Config["eventTriggerConfig"])[fieldScale])
+		if p.meters != nil && len(acaJobQueueRules(acaList(sc["rules"]))) > 0 {
+			consider(acaJobPolling(j) - now.Sub(p.lastPoll[key]))
+		}
+	}
+
+	for _, e := range j.Executions {
+		if !e.Done && !e.Stopped {
+			consider(acaSettleInterval)
+
+			return
+		}
+	}
 }
 
 // armScheduler (re)arms the clock timer for the next piece of work, or disarms it when there is none.
@@ -226,11 +229,12 @@ func (p *ContainerAppsProvider) fireSchedules(now time.Time) {
 }
 
 type acaEventPoll struct {
+	meters ACAQueueMeters
 	acaJobRef
-	rules    []acaQueueRule
-	min, max int
-	running  int
-	meters   ACAQueueMeters
+	rules   []acaQueueRule
+	min     int
+	max     int
+	running int
 }
 
 func (p *ContainerAppsProvider) pollEventJobs(now time.Time) {

@@ -43,7 +43,7 @@ type storedACAExecution struct {
 type storedACAJob struct {
 	Created         time.Time             `json:"created"`
 	Modified        time.Time             `json:"modified"`
-	LastFire        time.Time             `json:"lastFire,omitempty"`
+	LastFire        time.Time             `json:"lastFire,omitzero"`
 	Tags            map[string]string     `json:"tags,omitempty"`
 	Config          map[string]any        `json:"config"`
 	Template        map[string]any        `json:"template"`
@@ -465,7 +465,11 @@ func (p *ContainerAppsProvider) startJob(id ResourceID, body map[string]any) (ma
 }
 
 // startExecution creates an execution of the job with the given override and deploys its replicas.
-func (p *ContainerAppsProvider) startExecution(rg, jobName string, override map[string]any, source string) (string, error) {
+func (p *ContainerAppsProvider) startExecution(
+	rg, jobName string,
+	override map[string]any,
+	source string,
+) (string, error) {
 	p.opMu.Lock("startExecution")
 	defer p.opMu.Unlock()
 
@@ -635,23 +639,14 @@ type acaVerdict struct {
 	final  bool
 }
 
-// evaluate derives an execution's state from its replicas: failed replicas are retried up to replicaRetryLimit,
-// the execution succeeds once replicaCompletionCount replicas succeed, fails when a replica runs out of retries or
-// replicaTimeout passes, and is Running otherwise.
-func (p *ContainerAppsProvider) evaluate(j *storedACAJob, e *storedACAExecution, now time.Time) acaVerdict {
-	if e.Stopped {
-		return acaVerdict{status: acaExecStopped, end: e.End, final: true}
-	}
+type acaReplicaTally struct {
+	last                       *time.Time
+	retry                      []int
+	seen, running, failed, win int
+}
 
-	if e.Done {
-		return acaVerdict{status: e.Status, end: e.End, final: true}
-	}
-
-	var (
-		v                          acaVerdict
-		seen, running, failed, win int
-		last                       *time.Time
-	)
+func (p *ContainerAppsProvider) tallyReplicas(j *storedACAJob, e *storedACAExecution) acaReplicaTally {
+	var t acaReplicaTally
 
 	for i := range max(e.Replicas, 1) {
 		view, live := p.rt.engine.View(acaExecKey(j, e.Name, i))
@@ -659,55 +654,68 @@ func (p *ContainerAppsProvider) evaluate(j *storedACAJob, e *storedACAExecution,
 			continue
 		}
 
-		seen++
+		t.seen++
 
 		switch view.State {
 		case aciStateFailed:
 			if i < len(e.Attempts) && e.Attempts[i] < e.RetryLimit {
-				v.retry = append(v.retry, i)
-				running++
+				t.retry = append(t.retry, i)
+				t.running++
 			} else {
-				failed++
+				t.failed++
 			}
 		case aciStateSucceeded:
-			win++
+			t.win++
 		default:
-			running++
+			t.running++
 		}
 
 		for _, c := range view.Containers {
-			if c.Cur.FinishTime != nil && (last == nil || c.Cur.FinishTime.After(*last)) {
-				last = c.Cur.FinishTime
+			if f := c.Cur.FinishTime; f != nil && (t.last == nil || f.After(*t.last)) {
+				t.last = f
 			}
 		}
 	}
 
+	return t
+}
+
+// evaluate derives an execution's state from its replicas: failed replicas are retried up to replicaRetryLimit,
+// the execution succeeds once replicaCompletionCount replicas succeed, fails when a replica runs out of retries or
+// replicaTimeout passes, and is Running otherwise.
+func (p *ContainerAppsProvider) evaluate(j *storedACAJob, e *storedACAExecution, now time.Time) acaVerdict {
+	switch {
+	case e.Stopped:
+		return acaVerdict{status: acaExecStopped, end: e.End, final: true}
+	case e.Done:
+		return acaVerdict{status: e.Status, end: e.End, final: true}
+	}
+
+	t := p.tallyReplicas(j, e)
+
 	finish := func(status string) acaVerdict {
-		end := last
-		if end == nil || status == aciStateFailed && running > 0 {
-			t := now
-			end = &t
+		end := t.last
+		if end == nil || status == aciStateFailed && t.running > 0 {
+			end = &now
 		}
 
 		return acaVerdict{status: status, end: end, final: true}
 	}
 
 	switch {
-	case seen == 0 && e.Status != "":
+	case t.seen == 0 && e.Status != "":
 		return acaVerdict{status: e.Status, end: e.End}
-	case seen == 0:
+	case t.seen == 0:
 		return acaVerdict{status: acaExecUnknown}
-	case running > 0 && e.TimeoutSec > 0 && now.Sub(e.Start) >= time.Duration(e.TimeoutSec)*time.Second:
+	case t.running > 0 && e.TimeoutSec > 0 && now.Sub(e.Start) >= time.Duration(e.TimeoutSec)*time.Second:
 		return finish(aciStateFailed)
-	case failed > 0:
+	case t.failed > 0:
 		return finish(aciStateFailed)
-	case win >= max(e.Need, 1) || running == 0:
+	case t.win >= max(e.Need, 1) || t.running == 0:
 		return finish(aciStateSucceeded)
 	}
 
-	v.status = aciStateRunning
-
-	return v
+	return acaVerdict{status: aciStateRunning, retry: t.retry}
 }
 
 // execStatus is the state and end time evaluate reports.

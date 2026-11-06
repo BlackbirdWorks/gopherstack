@@ -50,7 +50,7 @@ func acaMetaTarget(md any, key string) int {
 	return acaDefaultQueueTarget
 }
 
-// acaQueueRuleOf turns a scaler type and its metadata into a rule; ok is false for scalers that read no in-process queue.
+// acaQueueRuleOf turns a scaler type and its metadata into a rule; ok is false for scalers reading no local queue.
 func acaQueueRuleOf(scaler string, md any) (acaQueueRule, bool) {
 	switch strings.ToLower(scaler) {
 	case acaScalerServiceBus:
