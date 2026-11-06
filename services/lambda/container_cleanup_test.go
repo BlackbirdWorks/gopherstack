@@ -19,18 +19,8 @@ import (
 
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
-)
-
-// Port ranges reserved for container cleanup tests: 20600–20699.
-const (
-	containerCleanupTimeoutBase   = 20600 // 20600–20609: invocation timeout cleanup
-	containerCleanupLRUBase       = 20610 // 20610–20619: LRU eviction test case 1
-	containerCleanupStopBase      = 20620 // 20620–20629: container stop on timeout
-	containerCleanupLRU2Base      = 20640 // 20640–20649: LRU eviction test case 2
-	containerCleanupUpdateBase    = 20670 // 20670–20679: UpdateFunction runtime eviction
-	containerCleanupAsyncBase     = 20680 // 20680–20689: async timeout cleanup
-	containerCleanupStartFailBase = 20690 // 20690–20699: startup failure stale entry
 )
 
 // errSimulatedContainerCreate is a sentinel used by tests that need container creation to fail.
@@ -127,7 +117,6 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 
 	tests := []struct {
 		name             string
-		port             int
 		fnTimeout        int // function Timeout in seconds (minimum 1)
 		wantRuntimes     int
 		wantErrIsTimeout bool
@@ -136,7 +125,6 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 			// Timeout=1s: the runtime server never responds, so the invocation times
 			// out after 1s + containerResponseGracePeriod (≈ 1.1s total).
 			name:             "runtime_removed_after_timeout",
-			port:             containerCleanupTimeoutBase,
 			fnTimeout:        1,
 			wantRuntimes:     0,
 			wantErrIsTimeout: true,
@@ -160,7 +148,7 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 			require.NoError(t, b.CreateFunction(fn))
 
 			// Start a runtime server that never returns invocations (simulates a hung container).
-			srv := lambda.NewExportedRuntimeServer(tt.port)
+			srv := lambda.NewExportedRuntimeServer(ephemeralRuntimePort(t))
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
@@ -198,18 +186,15 @@ func TestCleanupTimedOutRuntime_StopsContainer(t *testing.T) {
 	tests := []struct {
 		name        string
 		containerID string
-		port        int
 		wantStopped bool
 	}{
 		{
 			name:        "container_stopped_on_timeout",
-			port:        containerCleanupStopBase,
 			containerID: "test-container-abc",
 			wantStopped: true,
 		},
 		{
 			name:        "no_container_no_stop_call",
-			port:        containerCleanupStopBase + 1,
 			containerID: "",
 			wantStopped: false,
 		},
@@ -234,7 +219,7 @@ func TestCleanupTimedOutRuntime_StopsContainer(t *testing.T) {
 			require.NoError(t, b.CreateFunction(fn))
 
 			// Start a runtime server that never responds.
-			srv := lambda.NewExportedRuntimeServer(tt.port)
+			srv := lambda.NewExportedRuntimeServer(ephemeralRuntimePort(t))
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
@@ -319,8 +304,6 @@ func TestLRUEviction(t *testing.T) {
 		name        string
 		lruName     string
 		wantEvicted string
-		portStart   int
-		portEnd     int
 		maxRuntimes int
 		injectCount int
 		wantRemain  int
@@ -329,8 +312,6 @@ func TestLRUEviction(t *testing.T) {
 			// MaxRuntimes=2; inject fn-0 + fn-old (2 runtimes); invoke fn-new → 3 runtimes,
 			// evict fn-old (oldest) → 2 remain.
 			name:        "evicts_oldest_when_limit_exceeded",
-			portStart:   containerCleanupLRUBase,
-			portEnd:     containerCleanupLRUBase + 9,
 			maxRuntimes: 2,
 			injectCount: 1,
 			lruName:     "fn-old",
@@ -341,8 +322,6 @@ func TestLRUEviction(t *testing.T) {
 			// MaxRuntimes=5; inject fn-0, fn-1 (2 runtimes); invoke fn-new → 3 runtimes,
 			// 3 <= 5 so no eviction → 3 remain.
 			name:        "no_eviction_below_limit",
-			portStart:   containerCleanupLRU2Base,
-			portEnd:     containerCleanupLRU2Base + 9,
 			maxRuntimes: 5,
 			injectCount: 2,
 			lruName:     "",
@@ -355,8 +334,7 @@ func TestLRUEviction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, err := portalloc.New(tt.portStart, tt.portEnd)
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			api := &trackingDockerAPI{}
 			dc := newTrackingDockerClient(api)
@@ -501,8 +479,7 @@ func TestClose_StopsContainer(t *testing.T) {
 func TestLRUEviction_ZeroMaxRuntimes(t *testing.T) {
 	t.Parallel()
 
-	pa, err := portalloc.New(20650, 20659)
-	require.NoError(t, err)
+	pa := portalloctest.New(t, 10)
 
 	api := &trackingDockerAPI{}
 	dc := newTrackingDockerClient(api)
@@ -550,8 +527,6 @@ func TestCleanupTimedOutRuntime_NonExistentFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			port := 20660
-
 			b := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
 			closeBackend(t, b)
 
@@ -563,7 +538,7 @@ func TestCleanupTimedOutRuntime_NonExistentFunction(t *testing.T) {
 			require.NoError(t, b.CreateFunction(fn))
 
 			// Start a runtime server that never responds.
-			srv := lambda.NewExportedRuntimeServer(port)
+			srv := lambda.NewExportedRuntimeServer(ephemeralRuntimePort(t))
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
@@ -717,12 +692,10 @@ func TestAsyncInvocation_TimeoutCleansUpRuntime(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		port      int
 		fnTimeout int // function Timeout in seconds (minimum 1)
 	}{
 		{
 			name:      "runtime_evicted_after_async_timeout",
-			port:      containerCleanupAsyncBase,
 			fnTimeout: 1,
 		},
 	}
@@ -743,7 +716,7 @@ func TestAsyncInvocation_TimeoutCleansUpRuntime(t *testing.T) {
 			require.NoError(t, b.CreateFunction(fn))
 
 			// Start a runtime server that never picks up invocations (simulates a hung container).
-			srv := lambda.NewExportedRuntimeServer(tt.port)
+			srv := lambda.NewExportedRuntimeServer(ephemeralRuntimePort(t))
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
@@ -776,14 +749,10 @@ func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		portStart int
-		portEnd   int
+		name string
 	}{
 		{
-			name:      "stale_entry_removed_after_startup_failure",
-			portStart: containerCleanupStartFailBase,
-			portEnd:   containerCleanupStartFailBase + 9,
+			name: "stale_entry_removed_after_startup_failure",
 		},
 	}
 
@@ -794,8 +763,7 @@ func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
 			api := &trackingDockerAPI{createErr: errSimulatedContainerCreate}
 			dc := newTrackingDockerClient(api)
 
-			pa, err := portalloc.New(tt.portStart, tt.portEnd)
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			b := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
 			closeBackend(t, b)
@@ -914,4 +882,15 @@ func TestReset_LogSemReplacedAndEmpty(t *testing.T) {
 
 	assert.Equal(t, capBefore, lambda.LogSemCap(bk),
 		"logSem capacity preserved after Reset()")
+}
+
+func ephemeralRuntimePort(t *testing.T) int {
+	t.Helper()
+
+	port, err := portalloc.AcquireEphemeral()
+	require.NoError(t, err)
+
+	t.Cleanup(func() { portalloc.ReleaseEphemeral(port) })
+
+	return port
 }
