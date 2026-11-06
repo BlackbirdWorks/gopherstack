@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 )
 
@@ -18,17 +16,14 @@ func TestReserveFixedServicePorts_AzureMonitor(t *testing.T) {
 	tests := []struct {
 		name                string
 		port                int
-		rangeStart          int
-		rangeEnd            int
 		wantBlockedFromPool bool
 	}{
 		{
 			name: "default port collides with default pool range", port: azuremonitorbackend.DefaultPort,
-			rangeStart: 10000, rangeEnd: 10100, wantBlockedFromPool: true,
+			wantBlockedFromPool: true,
 		},
 		{
-			name: "custom port outside a custom pool range", port: 9997,
-			rangeStart: 10000, rangeEnd: 10100, wantBlockedFromPool: false,
+			name: "custom port outside a custom pool range", port: 9997, wantBlockedFromPool: false,
 		},
 	}
 
@@ -36,13 +31,12 @@ func TestReserveFixedServicePorts_AzureMonitor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantBlockedFromPool, tt.port)
 
-			cli := CLI{AzureMonitor: azuremonitorbackend.Settings{Port: tt.port}}
+			cli := CLI{AzureMonitor: azuremonitorbackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(tt.port), tt.name)
+			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(port), tt.name)
 		})
 	}
 }

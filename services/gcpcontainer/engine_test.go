@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/gcpcontainer"
 )
 
@@ -111,8 +112,7 @@ type engineEnv struct {
 func newEngineEnv(t *testing.T, mod func(cfg *gcpcontainer.EngineConfig, rt *fakeRuntime)) *engineEnv {
 	t.Helper()
 
-	ports, err := portalloc.New(41000, 41100)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 100)
 
 	rt, g := &fakeRuntime{}, newGate()
 	cfg := gcpcontainer.EngineConfig{
@@ -181,7 +181,7 @@ func TestEngineClusterLifecycle(t *testing.T) {
 
 	c := e.getCluster(t, zone, "real")
 	assert.Equal(t, containerpb.Cluster_RUNNING, c.GetStatus())
-	assert.Regexp(t, `^127\.0\.0\.1:41\d{3}$`, c.GetEndpoint())
+	assert.Regexp(t, `^127\.0\.0\.1:\d+$`, c.GetEndpoint())
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte(testCA)), c.GetMasterAuth().GetClusterCaCertificate())
 	assert.Equal(t, testToken, e.b.EngineToken())
 

@@ -13,7 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 )
 
@@ -38,8 +38,7 @@ func dockerEngine(t *testing.T) *redisdocker.Engine {
 	ca, err := devtls.NewCA()
 	require.NoError(t, err)
 
-	alloc, err := portalloc.New(42000, 42100)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 100)
 
 	return redisdocker.New(redisdocker.Config{
 		Runtime: rt, Ports: alloc, CA: ca, Label: "redisdocker-test", TempDir: t.TempDir(),

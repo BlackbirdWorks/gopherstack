@@ -24,7 +24,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -60,8 +59,6 @@ func k8sPodLoadImage(ctx context.Context, t *testing.T, nodeID, img string) {
 type k3sPodsConfig struct {
 	prefix string
 	images []string
-	portLo int
-	portHi int
 }
 
 type k3sPods struct {
@@ -80,8 +77,7 @@ func startK3sPods(ctx context.Context, t *testing.T, cfgIn k3sPodsConfig) k3sPod
 
 	t.Cleanup(func() { _ = docker.Close() })
 
-	ports, err := portalloc.New(cfgIn.portLo, cfgIn.portHi)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 100)
 
 	eng, err := k3sengine.New(k3sengine.Config{Runtime: docker, Ports: ports, Prefix: cfgIn.prefix})
 	require.NoError(t, err)
@@ -140,7 +136,7 @@ func TestLambda_KubernetesPodExecutor(t *testing.T) {
 	defer cancel()
 
 	cluster := startK3sPods(ctx, t, k3sPodsConfig{
-		prefix: "k8spodtest", portLo: 41200, portHi: 41300, images: []string{k8sPodPyImage, k8sPodFetchImg},
+		prefix: "k8spodtest", images: []string{k8sPodPyImage, k8sPodFetchImg},
 	})
 	cs, kubeconfig := cluster.cs, cluster.kubeconfig
 

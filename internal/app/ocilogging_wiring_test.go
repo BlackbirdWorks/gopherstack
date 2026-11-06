@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocifunctionsbackend "github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	ociidentitybackend "github.com/blackbirdworks/gopherstack/services/ociidentity"
@@ -24,47 +23,28 @@ func TestReserveFixedServicePorts_OCILoggingMonitoring(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		cli        CLI
-		port       int
-		rangeStart int
-		rangeEnd   int
+		monitoring bool
 		wantTaken  bool
 	}{
-		{
-			"logging inside pool",
-			CLI{OCILogging: ocilogging.Settings{Port: ocilogging.DefaultPort}},
-			ocilogging.DefaultPort,
-			8100,
-			8200,
-			true,
-		},
-		{
-			"logging outside pool",
-			CLI{OCILogging: ocilogging.Settings{Port: ocilogging.DefaultPort}},
-			ocilogging.DefaultPort,
-			10000,
-			10100,
-			false,
-		},
-		{
-			"monitoring inside pool", CLI{OCIMonitoring: ocimonitoring.Settings{Port: ocimonitoring.DefaultPort}},
-			ocimonitoring.DefaultPort, 8100, 8200, true,
-		},
-		{
-			"monitoring outside pool", CLI{OCIMonitoring: ocimonitoring.Settings{Port: ocimonitoring.DefaultPort}},
-			ocimonitoring.DefaultPort, 10000, 10100, false,
-		},
+		{"logging inside pool", false, true},
+		{"logging outside pool", false, false},
+		{"monitoring inside pool", true, true},
+		{"monitoring outside pool", true, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			def, cli := ocilogging.DefaultPort, func(p int) CLI { return CLI{OCILogging: ocilogging.Settings{Port: p}} }
+			if tt.monitoring {
+				def, cli = ocimonitoring.DefaultPort, func(p int) CLI { return CLI{OCIMonitoring: ocimonitoring.Settings{Port: p}} }
+			}
 
-			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, tt.cli)
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(tt.port))
+			alloc, port := fixedPortPool(t, tt.wantTaken, def)
+
+			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli(port))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }

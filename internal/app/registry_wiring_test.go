@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry/ocitest"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	acr "github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
@@ -289,26 +288,23 @@ func TestReserveFixedServicePorts_AzureContainerRegistry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 10000, 10100, true},
-		{"port outside pool range", 20000, 20100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, acr.DefaultPort)
 
-			cli := CLI{AzureACR: acr.Settings{Port: acr.DefaultPort}}
+			cli := CLI{AzureACR: acr.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(acr.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }
@@ -338,26 +334,23 @@ func TestReserveFixedServicePorts_GCPArtifactRegistry(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 8100, 8200, true},
-		{"port outside pool range", 10000, 10100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, gcpartifactregistry.DefaultPort)
 
-			cli := CLI{GCPArtifactRegistry: gcpartifactregistry.Settings{Port: gcpartifactregistry.DefaultPort}}
+			cli := CLI{GCPArtifactRegistry: gcpartifactregistry.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(gcpartifactregistry.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }

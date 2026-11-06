@@ -26,6 +26,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 const token = "unit-test-cluster-token-0123"
@@ -205,8 +206,7 @@ func (r *runtime) StopAndRemove(_ context.Context, id string) error {
 func newEngine(t *testing.T, rt *runtime, mod func(*k3sengine.Config)) (*k3sengine.Engine, *portalloc.Allocator) {
 	t.Helper()
 
-	ports, err := portalloc.New(42000, 42050)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 50)
 
 	cfg := k3sengine.Config{Runtime: rt, Ports: ports, Prefix: "test", Token: token}
 	if mod != nil {

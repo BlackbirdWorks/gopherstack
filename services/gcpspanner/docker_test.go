@@ -14,7 +14,7 @@ import (
 	"google.golang.org/api/iterator"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpserve"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/gcpspanner"
 )
 
@@ -34,8 +34,7 @@ func dockerEnv(t *testing.T) *env {
 		t.Skipf("container runtime unavailable: %v", err)
 	}
 
-	pool, err := portalloc.New(24000, 24100)
-	require.NoError(t, err)
+	pool := portalloctest.New(t, 100)
 
 	return newEnvWith(t, func(b *gcpspanner.InMemoryBackend) {
 		b.SetLauncher(gcpspanner.NewDockerLauncher(slog.Default(), pool, gcpspanner.DefaultImage, dockerWait))
