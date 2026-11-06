@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 360 (360 ok) |
+| PARITY entries audited | 362 (362 ok) |
 | Known gaps | 20 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
@@ -24,7 +24,7 @@
 - Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed
 - UserProficiencies and contacts of users: DismissUserContact are not routed
 - Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)
-- Contact data and participants: CreateAuthCode DeleteContactData DeleteSession GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed
+- Contact data and participants: DeleteContactData GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed
 - Instance extras: GetCrossRegionRouting ReplicateInstance UpdateCrossRegionRouting are not routed
 - Extraction/Push/Auth: CreateExtractionDefinition DeleteExtractionDefinition DescribeAuthenticationProfile DescribeExtractionDefinition ListAuthenticationProfiles ListExtractionDefinitions UpdateAuthenticationProfile UpdateExtractionDefinition are not routed
 - GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated

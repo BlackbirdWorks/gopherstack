@@ -55,6 +55,8 @@ func (b *Backend) registerViewTables() {
 	)
 	b.pushRegistrations = newFamily(r, "pushRegistrations", labelPushRegistration,
 		func(v *pushRegistrationRec) string { return v.InstanceID }, func(v *pushRegistrationRec) string { return v.ID })
+	b.authSessions = newFamily(r, "authSessions", labelSession,
+		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -159,5 +161,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.attachedConfigs.dropInstance(inst)
 	b.notifications.dropInstance(inst)
 	b.pushRegistrations.dropInstance(inst)
+	b.authSessions.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

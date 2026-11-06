@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 343 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 59 are unrouted and listed in items_still_open.
+overall: B            # 345 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 57 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -47,6 +47,8 @@ ops:
   UpdateUserNotificationStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "READ, UNREAD or HIDDEN for a recipient; the x-amz-last-modified-time/region replication headers are not read (the REST framework does not expose request headers)"}
   CreatePushNotificationRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "active chat contact of the instance, ParticipantRole CUSTOMER only, DeviceType GCM|APNS|APNS_SANDBOX, PinpointAppArn shape-checked as a mobiletargeting apps ARN (existence in the Pinpoint emulator is not checked); ClientToken replays"}
   DeletePushNotificationRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contactId query must be the contact the registration was created for, else ResourceNotFoundException"}
+  CreateAuthCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "Scope.EntityType CUSTOMER_PROFILE only (the one SDK enum value), at most 10 security profiles that must exist; SessionInactivityDurationMinutes 1440-20160, MaxSessionDurationMinutes 1440-43200 (default 400 days) and not below the inactivity window; returns a random 256-bit URL-safe code and the id of a recorded session. Nothing consumes the code (no federation endpoint exists), sessions end only through DeleteSession and do not expire. Shape: schemas.go CreateAuthCode; docs API_CreateAuthCode"}
+  DeleteSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "removes a session recorded by CreateAuthCode; unknown ids raise ResourceNotFoundException"}
   DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
@@ -377,7 +379,7 @@ items_still_open:
   - "Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed"
   - "UserProficiencies and contacts of users: DismissUserContact are not routed"
   - "Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)"
-  - "Contact data and participants: CreateAuthCode DeleteContactData DeleteSession GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed"
+  - "Contact data and participants: DeleteContactData GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed"
   - "Instance extras: GetCrossRegionRouting ReplicateInstance UpdateCrossRegionRouting are not routed"
   - "Extraction/Push/Auth: CreateExtractionDefinition DeleteExtractionDefinition DescribeAuthenticationProfile DescribeExtractionDefinition ListAuthenticationProfiles ListExtractionDefinitions UpdateAuthenticationProfile UpdateExtractionDefinition are not routed"
   - "GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated"
