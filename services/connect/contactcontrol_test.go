@@ -76,7 +76,7 @@ func TestCreateContact(t *testing.T) {
 	}{
 		{
 			name: "task api with expiry",
-			in: func(e *contactEnv) *sdk.CreateContactInput {
+			in: func(*contactEnv) *sdk.CreateContactInput {
 				return &sdk.CreateContactInput{
 					Channel: types.ChannelTask, InitiationMethod: types.ContactInitiationMethodApi,
 					Name: aws.String("t"), Attributes: map[string]string{"k_1": "v"},
@@ -120,14 +120,20 @@ func TestCreateContact(t *testing.T) {
 		{
 			name: "chat unsupported",
 			in: func(*contactEnv) *sdk.CreateContactInput {
-				return &sdk.CreateContactInput{Channel: types.ChannelChat, InitiationMethod: types.ContactInitiationMethodApi}
+				return &sdk.CreateContactInput{
+					Channel:          types.ChannelChat,
+					InitiationMethod: types.ContactInitiationMethodApi,
+				}
 			},
 			wantCode: "InvalidParameterException",
 		},
 		{
 			name: "wrong method for channel",
 			in: func(*contactEnv) *sdk.CreateContactInput {
-				return &sdk.CreateContactInput{Channel: types.ChannelTask, InitiationMethod: types.ContactInitiationMethodInbound}
+				return &sdk.CreateContactInput{
+					Channel:          types.ChannelTask,
+					InitiationMethod: types.ContactInitiationMethodInbound,
+				}
 			},
 			wantCode: "InvalidParameterException",
 		},
@@ -215,12 +221,24 @@ func TestBatchPutContact(t *testing.T) {
 	out, err := e.f.client.BatchPutContact(t.Context(), &sdk.BatchPutContactInput{
 		InstanceId: aws.String(e.inst),
 		ContactDataRequestList: []types.ContactDataRequest{
-			{RequestIdentifier: aws.String("ok"), CustomerEndpoint: phone("+442071230000"), QueueId: aws.String(e.queue)},
-			{RequestIdentifier: aws.String("ok"), CustomerEndpoint: phone("+442071230001"), QueueId: aws.String(e.queue)},
+			{
+				RequestIdentifier: aws.String("ok"),
+				CustomerEndpoint:  phone("+442071230000"),
+				QueueId:           aws.String(e.queue),
+			},
+			{
+				RequestIdentifier: aws.String("ok"),
+				CustomerEndpoint:  phone("+442071230001"),
+				QueueId:           aws.String(e.queue),
+			},
 			{RequestIdentifier: aws.String("nocust"), QueueId: aws.String(e.queue)},
 			{RequestIdentifier: aws.String("badcust"), CustomerEndpoint: phone("0207"), QueueId: aws.String(e.queue)},
 			{RequestIdentifier: aws.String("noq"), CustomerEndpoint: phone("+442071230000")},
-			{RequestIdentifier: aws.String("badq"), CustomerEndpoint: phone("+442071230000"), QueueId: aws.String("nope")},
+			{
+				RequestIdentifier: aws.String("badq"),
+				CustomerEndpoint:  phone("+442071230000"),
+				QueueId:           aws.String("nope"),
+			},
 		},
 	})
 	require.NoError(t, err)

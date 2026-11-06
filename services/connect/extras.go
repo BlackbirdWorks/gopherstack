@@ -36,7 +36,9 @@ func (b *Backend) registerViewTables() {
 	b.metricDefs = newFamily(r, "metricDefinitions", labelMetric,
 		func(v *metricRec) string { return v.InstanceID }, func(v *metricRec) string { return v.Metric.ID })
 	b.metricDefs.taggable(
-		func(v *metricRec) string { return v.Metric.Arn }, func(v *metricRec) *map[string]string { return &v.Metric.Tags })
+		func(v *metricRec) string { return v.Metric.Arn },
+		func(v *metricRec) *map[string]string { return &v.Metric.Tags },
+	)
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",

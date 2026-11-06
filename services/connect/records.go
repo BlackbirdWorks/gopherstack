@@ -90,32 +90,32 @@ type promptRec struct {
 }
 
 type contactRec struct {
-	InstanceID       string          `json:"instanceId"`
-	ParticipantID    string          `json:"participantId,omitempty"`
-	ParticipantToken string          `json:"participantToken,omitempty"`
-	FlowID           string          `json:"flowId,omitempty"`
-	TaskTemplateID   string          `json:"taskTemplateId,omitempty"`
-	Contact          Contact         `json:"contact"`
-	References       json.RawMessage `json:"references,omitempty"`
-	PausedAt         *awstime.EpochTime    `json:"pausedAt,omitempty"`
-	Recording        map[string]*recState  `json:"recording,omitempty"`
-	Streams          map[string]string     `json:"streams,omitempty"`
-	MediaProcessor   *mediaProcessor       `json:"mediaProcessor,omitempty"`
-	Participants     []participantRec      `json:"participants,omitempty"`
-	Emails           []emailMessageRec     `json:"emails,omitempty"`
-	MonitorCaps      []string              `json:"monitorCapabilities,omitempty"`
+	InstanceID       string               `json:"instanceId"`
+	ParticipantID    string               `json:"participantId,omitempty"`
+	ParticipantToken string               `json:"participantToken,omitempty"`
+	FlowID           string               `json:"flowId,omitempty"`
+	TaskTemplateID   string               `json:"taskTemplateId,omitempty"`
+	Contact          Contact              `json:"contact"`
+	References       json.RawMessage      `json:"references,omitempty"`
+	PausedAt         *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	Recording        map[string]*recState `json:"recording,omitempty"`
+	Streams          map[string]string    `json:"streams,omitempty"`
+	MediaProcessor   *mediaProcessor      `json:"mediaProcessor,omitempty"`
+	Participants     []participantRec     `json:"participants,omitempty"`
+	Emails           []emailMessageRec    `json:"emails,omitempty"`
+	MonitorCaps      []string             `json:"monitorCapabilities,omitempty"`
 }
 
 type emailMessageRec struct {
-	Sent        awstime.EpochTime `json:"sent"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	From        EmailAddressInfo  `json:"from"`
-	To          EmailAddressInfo  `json:"to"`
-	Direction   string            `json:"direction"`
-	Subject     string            `json:"subject"`
-	ContentType string            `json:"contentType"`
-	Body        string            `json:"body"`
-	Delivery    string            `json:"delivery,omitempty"`
+	Sent        awstime.EpochTime  `json:"sent"`
+	Headers     map[string]string  `json:"headers,omitempty"`
+	From        EmailAddressInfo   `json:"from"`
+	To          EmailAddressInfo   `json:"to"`
+	Direction   string             `json:"direction"`
+	Subject     string             `json:"subject"`
+	ContentType string             `json:"contentType"`
+	Body        string             `json:"body"`
+	Delivery    string             `json:"delivery,omitempty"`
 	Cc          []EmailAddressInfo `json:"cc,omitempty"`
 	Attachments []EmailAttachment  `json:"attachments,omitempty"`
 }

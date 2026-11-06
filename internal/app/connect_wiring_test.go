@@ -11,8 +11,8 @@ import (
 	connectsdk "github.com/aws/aws-sdk-go-v2/service/connect"
 	connecttypes "github.com/aws/aws-sdk-go-v2/service/connect/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -204,10 +204,14 @@ func connectOutboundEmailCase(t *testing.T, e *connectWiringEnv) {
 	})
 	require.NoError(t, err)
 
-	rp, err := e.connect.ListRoutingProfiles(t.Context(), &connectsdk.ListRoutingProfilesInput{InstanceId: e.instance.Id})
+	rp, err := e.connect.ListRoutingProfiles(
+		t.Context(),
+		&connectsdk.ListRoutingProfilesInput{InstanceId: e.instance.Id},
+	)
 	require.NoError(t, err)
 
-	sp, err := e.connect.ListSecurityProfiles(t.Context(), &connectsdk.ListSecurityProfilesInput{InstanceId: e.instance.Id})
+	sp, err := e.connect.ListSecurityProfiles(
+		t.Context(), &connectsdk.ListSecurityProfilesInput{InstanceId: e.instance.Id})
 	require.NoError(t, err)
 
 	agent, err := e.connect.CreateUser(t.Context(), &connectsdk.CreateUserInput{

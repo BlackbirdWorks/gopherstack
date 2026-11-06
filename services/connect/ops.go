@@ -458,7 +458,9 @@ func (h *Handler) routingOps(ops map[string]restroute.OpFunc) {
 			return nil, 0, err
 		}
 
-		return passthrough(b.ListRoutingProfileManualAssignmentQueues(instOf(req), req.Params["RoutingProfileId"], token, m))
+		return passthrough(
+			b.ListRoutingProfileManualAssignmentQueues(instOf(req), req.Params["RoutingProfileId"], token, m),
+		)
 	}
 	ops["ListRoutingProfileQueues"] = listOp(
 		"RoutingProfileQueueConfigSummaryList",

@@ -174,7 +174,11 @@ func TestMetricDefinitionLifecycle(t *testing.T) {
 	found, err := f.client.SearchMetrics(t.Context(), &sdk.SearchMetricsInput{
 		InstanceId: aws.String(inst),
 		SearchCriteria: &types.MetricSearchCriteria{StringCondition: &types.StringCondition{
-			FieldName: aws.String("name"), Value: aws.String("rename"), ComparisonType: types.StringComparisonTypeContains,
+			FieldName: aws.String(
+				"name",
+			),
+			Value:          aws.String("rename"),
+			ComparisonType: types.StringComparisonTypeContains,
 		}},
 	})
 	require.NoError(t, err)
@@ -188,12 +192,14 @@ func TestMetricDefinitionLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed", aws.ToString(back.Metric.Name))
 
-	_, err = f.client.DeleteMetric(t.Context(), &sdk.DeleteMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId})
+	del := &sdk.DeleteMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId}
+	_, err = f.client.DeleteMetric(t.Context(), del)
 	require.NoError(t, err)
 
-	_, err = f.client.DeleteMetric(t.Context(), &sdk.DeleteMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId})
+	_, err = f.client.DeleteMetric(t.Context(), del)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-	_, err = f.client.DescribeMetric(t.Context(), &sdk.DescribeMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId})
+	_, err = f.client.DescribeMetric(
+		t.Context(), &sdk.DescribeMetricInput{InstanceId: aws.String(inst), MetricId: second.MetricId})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }

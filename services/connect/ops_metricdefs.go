@@ -18,4 +18,3 @@ func (h *Handler) metricDefinitionOps(ops map[string]restroute.OpFunc) {
 	ops["UpdateMetricContent"] = typedCtx(b.UpdateMetricContent)
 	ops["UpdateMetricMetadata"] = typedCtx(b.UpdateMetricMetadata)
 }
-

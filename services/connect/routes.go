@@ -390,7 +390,11 @@ func contactsRoutes() []restroute.Route {
 		{Method: http.MethodPut, Path: "/contact/outbound-email", Op: "StartOutboundEmailContact"},
 		{Method: http.MethodPut, Path: "/instance/{InstanceId}/outbound-email", Op: "SendOutboundEmail"},
 		{Method: http.MethodPut, Path: "/contact/batch/{InstanceId}", Op: "BatchPutContact"},
-		{Method: http.MethodPost, Path: "/contacts/{InstanceId}/{ContactId}/associate-user", Op: "AssociateContactWithUser"},
+		{
+			Method: http.MethodPost,
+			Path:   "/contacts/{InstanceId}/{ContactId}/associate-user",
+			Op:     "AssociateContactWithUser",
+		},
 		{Method: http.MethodPost, Path: "/contact/create-participant", Op: "CreateParticipant"},
 		{
 			Method: http.MethodPost,

@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -42,8 +43,8 @@ type RawEmail struct {
 // EmailContent is the message of an email request.
 type EmailContent struct {
 	RawMessage             *RawEmail
-	TemplatedMessageConfig json.RawMessage
 	MessageSourceType      string
+	TemplatedMessageConfig json.RawMessage
 }
 
 // EmailMessage is a message handed to the Mailer.
@@ -82,20 +83,20 @@ type OutboundRecipients struct {
 
 // StartEmailContactInput is the StartEmailContact request.
 type StartEmailContactInput struct {
-	FromEmailAddress     *EmailAddressInfo
-	EmailMessage         *EmailContent
-	AdditionalRecipients *InboundRecipients
-	Attributes           map[string]string
-	References           json.RawMessage
-	SegmentAttributes    json.RawMessage
-	Attachments          []EmailAttachment
+	FromEmailAddress        *EmailAddressInfo
+	EmailMessage            *EmailContent
+	AdditionalRecipients    *InboundRecipients
+	Attributes              map[string]string
+	ClientToken             string
 	DestinationEmailAddress string
-	InstanceID           string `json:"InstanceId"`
-	ClientToken          string
-	ContactFlowID        string `json:"ContactFlowId"`
-	Description          string
-	Name                 string
-	RelatedContactID     string `json:"RelatedContactId"`
+	InstanceID              string `json:"InstanceId"`
+	ContactFlowID           string `json:"ContactFlowId"`
+	Description             string
+	Name                    string
+	RelatedContactID        string `json:"RelatedContactId"`
+	SegmentAttributes       json.RawMessage
+	Attachments             []EmailAttachment
+	References              json.RawMessage
 }
 
 func checkRawEmail(c *EmailContent, allowTemplate bool) error {
@@ -127,9 +128,9 @@ func checkInfo(field string, a *EmailAddressInfo) error {
 	return checkEmailAddress(a.EmailAddress)
 }
 
-func checkInfos(field string, list []EmailAddressInfo) error {
+func checkInfos(list []EmailAddressInfo) error {
 	for i := range list {
-		if err := checkInfo(field, &list[i]); err != nil {
+		if err := checkInfo("AdditionalRecipients", &list[i]); err != nil {
 			return err
 		}
 	}
@@ -178,7 +179,7 @@ func validateStartEmail(in *StartEmailContactInput) error {
 	}
 
 	if r := in.AdditionalRecipients; r != nil {
-		return firstError(checkInfos("AdditionalRecipients", r.CcAddresses), checkInfos("AdditionalRecipients", r.ToAddresses))
+		return firstError(checkInfos(r.CcAddresses), checkInfos(r.ToAddresses))
 	}
 
 	return nil
@@ -226,9 +227,7 @@ func (b *Backend) StartEmailContact(ctx context.Context, in *StartEmailContactIn
 			merged = map[string]string{}
 		}
 
-		for k, v := range in.Attributes {
-			merged[k] = v
-		}
+		maps.Copy(merged, in.Attributes)
 
 		c.Contact.Attributes, c.Contact.RelatedContactID = merged, in.RelatedContactID
 	}
@@ -310,7 +309,7 @@ func (b *Backend) StartOutboundEmailContact(
 	}
 
 	if r := in.AdditionalRecipients; r != nil {
-		if err := checkInfos("AdditionalRecipients", r.CcEmailAddresses); err != nil {
+		if err := checkInfos(r.CcEmailAddresses); err != nil {
 			return nil, err
 		}
 	}
@@ -324,7 +323,7 @@ func (b *Backend) StartOutboundEmailContact(
 	}
 
 	method := c.Contact.InitiationMethod
-	if c.Contact.Channel != channelEmail || (method != "OUTBOUND" && method != "AGENT_REPLY") {
+	if c.Contact.Channel != channelEmail || (method != methodOutbound && method != "AGENT_REPLY") {
 		return nil, invalidRequestErr("contact %q is not an outbound or agent-reply email contact", in.ContactID)
 	}
 
@@ -340,7 +339,7 @@ func (b *Backend) StartOutboundEmailContact(
 	to := *in.DestinationEmailAddress
 	m := in.EmailMessage.RawMessage
 	rec := emailMessageRec{
-		Sent: awstime.NewEpochTime(b.now()), Direction: "OUTBOUND", From: from, To: to,
+		Sent: awstime.NewEpochTime(b.now()), Direction: methodOutbound, From: from, To: to,
 		Subject: m.Subject, ContentType: m.ContentType, Body: m.Body,
 	}
 
@@ -415,7 +414,7 @@ func (b *Backend) SendOutboundEmail(ctx context.Context, in *SendOutboundEmailIn
 	}
 
 	if r := in.AdditionalRecipients; r != nil {
-		if err := checkInfos("AdditionalRecipients", r.CcEmailAddresses); err != nil {
+		if err := checkInfos(r.CcEmailAddresses); err != nil {
 			return nil, err
 		}
 	}
@@ -435,7 +434,7 @@ func (b *Backend) SendOutboundEmail(ctx context.Context, in *SendOutboundEmailIn
 
 	m := in.EmailMessage.RawMessage
 	msg := emailMessageRec{
-		Sent: awstime.NewEpochTime(b.now()), Direction: "OUTBOUND", From: *in.FromEmailAddress,
+		Sent: awstime.NewEpochTime(b.now()), Direction: methodOutbound, From: *in.FromEmailAddress,
 		To: *in.DestinationEmailAddress, Subject: m.Subject, ContentType: m.ContentType, Body: m.Body,
 	}
 

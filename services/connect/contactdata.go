@@ -45,17 +45,17 @@ type CreateContactInput struct {
 	ExpiryDurationInMinutes *int32
 	UserInfo                *UserInfoIn
 	Attributes              map[string]string
-	References              json.RawMessage
-	SegmentAttributes       json.RawMessage
+	ClientToken             string
 	Channel                 string
 	InitiationMethod        string
 	InitiateAs              string
 	InstanceID              string `json:"InstanceId"`
-	ClientToken             string
 	Description             string
 	Name                    string
 	PreviousContactID       string `json:"PreviousContactId"`
 	RelatedContactID        string `json:"RelatedContactId"`
+	SegmentAttributes       json.RawMessage
+	References              json.RawMessage
 }
 
 type createContactOut struct {
@@ -81,17 +81,22 @@ func validAttributeKeys(attrs map[string]string) error {
 	return checkAttributes(attrs)
 }
 
-func validateCreateContact(in *CreateContactInput) error {
+func checkCreateContactMethod(in *CreateContactInput) error {
 	if err := oneOf("Channel", in.Channel, channelVoice, channelEmail, channelTask); err != nil {
 		return err
 	}
 
 	methods := map[string][]string{
 		channelVoice: {"TRANSFER"},
-		channelEmail: {"OUTBOUND", "AGENT_REPLY", "FLOW"},
-		channelTask:  {"API"},
+		channelEmail: {methodOutbound, "AGENT_REPLY", methodFlow},
+		channelTask:  {methodAPI},
 	}[in.Channel]
-	if err := oneOf("InitiationMethod", in.InitiationMethod, methods...); err != nil {
+
+	return oneOf("InitiationMethod", in.InitiationMethod, methods...)
+}
+
+func validateCreateContact(in *CreateContactInput) error {
+	if err := checkCreateContactMethod(in); err != nil {
 		return err
 	}
 
@@ -105,7 +110,7 @@ func validateCreateContact(in *CreateContactInput) error {
 		return invalidRequestErr("only TASK contacts can be initiated as COMPLETED")
 	}
 
-	userRequired := in.Channel == channelEmail && in.InitiationMethod != "FLOW"
+	userRequired := in.Channel == channelEmail && in.InitiationMethod != methodFlow
 	if (userRequired || in.InitiateAs == initiateConnected) && (in.UserInfo == nil || in.UserInfo.UserID == "") {
 		return invalidRequestErr("UserInfo is required")
 	}
@@ -205,9 +210,9 @@ type ContactDataRequest struct {
 	CustomerEndpoint  *EndpointInfo
 	SystemEndpoint    *EndpointInfo
 	Attributes        map[string]string
-	OutboundStrategy  json.RawMessage
 	QueueID           string `json:"QueueId"`
 	RequestIdentifier string
+	OutboundStrategy  json.RawMessage
 }
 
 // BatchPutContactInput is the BatchPutContact request.
@@ -237,9 +242,9 @@ type batchPutContactOut struct {
 
 func validEndpoint(e *EndpointInfo) bool {
 	switch e.Type {
-	case "TELEPHONE_NUMBER":
+	case endpointPhone:
 		return e164Pattern.MatchString(e.Address)
-	case "VOIP", "CONTACT_FLOW", "CONNECT_PHONENUMBER_ARN", "EMAIL_ADDRESS":
+	case "VOIP", endpointFlow, "CONNECT_PHONENUMBER_ARN", "EMAIL_ADDRESS":
 		return e.Address != ""
 	}
 
@@ -272,7 +277,9 @@ func (b *Backend) checkBatchItem(inst string, req *ContactDataRequest) (string, 
 	}
 
 	if len(req.OutboundStrategy) > 0 {
-		var s struct{ Type string }
+		var s struct {
+			Type string `json:"Type"`
+		}
 		if json.Unmarshal(req.OutboundStrategy, &s) != nil || s.Type != "AGENT_FIRST" {
 			return failInvalidOutbnd, "OutboundStrategy.Type must be AGENT_FIRST"
 		}
@@ -312,14 +319,20 @@ func (b *Backend) BatchPutContact(ctx context.Context, in *BatchPutContactInput)
 		}
 
 		if code != "" {
-			out.FailedRequestList = append(out.FailedRequestList,
-				FailedRequest{FailureReasonCode: code, FailureReasonMessage: msg, RequestIdentifier: req.RequestIdentifier})
+			out.FailedRequestList = append(
+				out.FailedRequestList,
+				FailedRequest{
+					FailureReasonCode:    code,
+					FailureReasonMessage: msg,
+					RequestIdentifier:    req.RequestIdentifier,
+				},
+			)
 
 			continue
 		}
 
 		seen[req.RequestIdentifier] = true
-		c := b.newContact(ctx, inst, channelVoice, "OUTBOUND")
+		c := b.newContact(ctx, inst, channelVoice, methodOutbound)
 		c.Contact.Attributes = cloneTags(req.Attributes)
 		c.Contact.CustomerEndpoint, c.Contact.SystemEndpoint = req.CustomerEndpoint, req.SystemEndpoint
 		c.Contact.Campaign, c.Contact.OutboundStrategy = req.Campaign, req.OutboundStrategy
@@ -338,8 +351,8 @@ func (b *Backend) BatchPutContact(ctx context.Context, in *BatchPutContactInput)
 
 // AssociateContactWithUserInput is the AssociateContactWithUser request.
 type AssociateContactWithUserInput struct {
-	ContactID  string `json:"-" path:"ContactId"`
-	InstanceID string `json:"-" path:"InstanceId"`
+	ContactID  string `json:"-"      path:"ContactId"`
+	InstanceID string `json:"-"      path:"InstanceId"`
 	UserID     string `json:"UserId"`
 }
 
@@ -403,9 +416,9 @@ func (b *Backend) resourceContactLocked(instRef, id string) (*contactRec, error)
 
 // ParticipantDetailsToAdd describes the participant CreateParticipant adds.
 type ParticipantDetailsToAdd struct {
-	ParticipantCapabilities json.RawMessage
 	DisplayName             string
 	ParticipantRole         string
+	ParticipantCapabilities json.RawMessage
 }
 
 // CreateParticipantInput is the CreateParticipant request.
@@ -464,8 +477,8 @@ func (b *Backend) CreateParticipant(in *CreateParticipantInput) (*createParticip
 
 // CreatePersistentContactAssociationInput is the CreatePersistentContactAssociation request.
 type CreatePersistentContactAssociationInput struct {
-	InitialContactID string `json:"-" path:"InitialContactId"`
-	InstanceID       string `json:"-" path:"InstanceId"`
+	InitialContactID string `json:"-"               path:"InitialContactId"`
+	InstanceID       string `json:"-"               path:"InstanceId"`
 	RehydrationType  string
 	SourceContactID  string `json:"SourceContactId"`
 	ClientToken      string
@@ -477,7 +490,10 @@ type persistentAssociationOut struct {
 
 func (b *Backend) rehydrationSource(inst string, in *CreatePersistentContactAssociationInput) (*contactRec, error) {
 	if in.RehydrationType == "FROM_SEGMENT" {
-		return b.persistentSource(inst, &PersistentChat{RehydrationType: in.RehydrationType, SourceContactID: in.SourceContactID})
+		return b.persistentSource(
+			inst,
+			&PersistentChat{RehydrationType: in.RehydrationType, SourceContactID: in.SourceContactID},
+		)
 	}
 
 	if err := oneOf("RehydrationType", in.RehydrationType, "ENTIRE_PAST_SESSION", "FROM_SEGMENT"); err != nil {

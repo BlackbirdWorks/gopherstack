@@ -31,9 +31,9 @@ var (
 // CalculationComponent is one metric a custom calculation refers to by alias.
 type CalculationComponent struct {
 	Alias         string          `json:"Alias"`
-	MetricFilters json.RawMessage `json:"MetricFilters,omitempty"`
 	MetricID      string          `json:"MetricId,omitempty"`
 	MetricName    string          `json:"MetricName,omitempty"`
+	MetricFilters json.RawMessage `json:"MetricFilters,omitempty"`
 }
 
 // MetricCalculation is the formula of a custom metric.
@@ -44,23 +44,23 @@ type MetricCalculation struct {
 
 // MetricDefinition is a metric definition.
 type MetricDefinition struct {
+	CreatedTime       *awstime.EpochTime `json:"CreatedTime,omitempty"`
+	MetricCalculation *MetricCalculation `json:"MetricCalculation,omitempty"`
+	Tags              map[string]string  `json:"Tags,omitempty"`
 	Stamp
-	CreatedTime            *awstime.EpochTime `json:"CreatedTime,omitempty"`
-	MetricCalculation      *MetricCalculation `json:"MetricCalculation,omitempty"`
-	Tags                   map[string]string  `json:"Tags,omitempty"`
-	Filters                []any              `json:"Filters"`
-	Groupings              []string           `json:"Groupings"`
-	Arn                    string             `json:"Arn"`
-	Category               string             `json:"Category"`
-	Description            string             `json:"Description,omitempty"`
-	ID                     string             `json:"Id"`
-	Name                   string             `json:"Name"`
-	PositiveTrendIndicator string             `json:"PositiveTrendIndicator,omitempty"`
-	Status                 string             `json:"Status,omitempty"`
-	Type                   string             `json:"Type"`
-	Unit                   string             `json:"Unit"`
-	SupportsCustomCalc     bool               `json:"SupportsCustomCalculation"`
-	SupportsPreaggregate   bool               `json:"SupportsPreaggregateCalculation"`
+	Status                 string   `json:"Status,omitempty"`
+	Arn                    string   `json:"Arn"`
+	Category               string   `json:"Category"`
+	Description            string   `json:"Description,omitempty"`
+	ID                     string   `json:"Id"`
+	Name                   string   `json:"Name"`
+	PositiveTrendIndicator string   `json:"PositiveTrendIndicator,omitempty"`
+	Type                   string   `json:"Type"`
+	Unit                   string   `json:"Unit"`
+	Groupings              []string `json:"Groupings"`
+	Filters                []any    `json:"Filters"`
+	SupportsCustomCalc     bool     `json:"SupportsCustomCalculation"`
+	SupportsPreaggregate   bool     `json:"SupportsPreaggregateCalculation"`
 }
 
 // MetricSummary is the list shape of a metric definition.

@@ -219,7 +219,10 @@ func (b *Backend) StartContactRecording(in *RecordingInput) (*empty, error) {
 	for _, typ := range types {
 		track := in.VoiceRecordingConfiguration.VoiceRecordingTrack
 		info := RecordingInfo{
-			StartTimestamp: &t, MediaStreamType: "AUDIO", ParticipantType: trackParticipant(typ, track), Status: "AVAILABLE",
+			StartTimestamp:  &t,
+			MediaStreamType: "AUDIO",
+			ParticipantType: trackParticipant(typ, track),
+			Status:          "AVAILABLE",
 		}
 
 		if loc != "" {
@@ -255,7 +258,12 @@ func (b *Backend) transitionRecording(op string, in *RecordingInput, from []stri
 
 	st := c.Recording[typ]
 	if st == nil || !slices.Contains(from, st.State) {
-		return nil, invalidRequestErr("the %s recording of contact %q is not in a state that allows %s", typ, in.ContactID, op)
+		return nil, invalidRequestErr(
+			"the %s recording of contact %q is not in a state that allows %s",
+			typ,
+			in.ContactID,
+			op,
+		)
 	}
 
 	st.State = to
@@ -300,7 +308,7 @@ type monitorContactOut struct {
 
 // MonitorContact starts a silent-monitoring contact for a user on a connected voice or chat contact.
 func (b *Backend) MonitorContact(ctx context.Context, in *MonitorContactInput) (*monitorContactOut, error) {
-	if len(in.AllowedMonitorCapabilities) > 2 {
+	if len(in.AllowedMonitorCapabilities) > maxMonitorCaps {
 		return nil, invalidRequestErr("AllowedMonitorCapabilities holds at most 2 items")
 	}
 
@@ -511,7 +519,7 @@ func (b *Backend) finishContactLocked(c *contactRec, t awstime.EpochTime) {
 
 	for _, m := range b.contacts.in(c.InstanceID) {
 		if m.active() && m.Contact.InitiationMethod == "MONITOR" && m.Contact.RelatedContactID == c.Contact.ID {
-			m.Contact.DisconnectTimestamp, m.Contact.DisconnectReason = &t, "API"
+			m.Contact.DisconnectTimestamp, m.Contact.DisconnectReason = &t, reasonAPI
 			b.touch(m)
 		}
 	}

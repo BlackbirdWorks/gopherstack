@@ -248,15 +248,15 @@ func (b *Backend) StartOutboundVoiceContact(
 		return nil, err
 	}
 
-	c := b.newContact(ctx, inst, channelVoice, "OUTBOUND")
+	c := b.newContact(ctx, inst, channelVoice, methodOutbound)
 	c.FlowID, c.References = in.ContactFlowID, in.References
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes = cloneTags(in.Attributes)
 	c.Contact.RelatedContactID = in.RelatedContactID
 	c.Contact.OutboundStrategy = in.OutboundStrategy
 	c.Contact.RingStartTimestamp = c.Contact.InitiationTimestamp
-	c.Contact.CustomerEndpoint = &EndpointInfo{Address: in.DestinationPhoneNumber, Type: "TELEPHONE_NUMBER"}
-	c.Contact.SystemEndpoint = &EndpointInfo{Address: source, Type: "TELEPHONE_NUMBER"}
+	c.Contact.CustomerEndpoint = &EndpointInfo{Address: in.DestinationPhoneNumber, Type: endpointPhone}
+	c.Contact.SystemEndpoint = &EndpointInfo{Address: source, Type: endpointPhone}
 
 	if in.CampaignID != "" {
 		c.Contact.Campaign = &Campaign{CampaignID: in.CampaignID}
@@ -348,7 +348,7 @@ func (b *Backend) StartChatContact(ctx context.Context, in *StartChatContactInpu
 		return nil, err
 	}
 
-	c := b.newContact(ctx, inst, channelChat, "API")
+	c := b.newContact(ctx, inst, channelChat, methodAPI)
 	c.FlowID, c.ParticipantID, c.ParticipantToken = in.ContactFlowID, uuid.NewString(), newToken()
 	c.Contact.Attributes, c.Contact.CustomerID = cloneTags(in.Attributes), in.CustomerID
 	c.Contact.RelatedContactID, c.Contact.SegmentAttributes = in.RelatedContactID, in.SegmentAttributes
@@ -445,7 +445,7 @@ func (b *Backend) StartTaskContact(ctx context.Context, in *StartTaskContactInpu
 		return nil, notFoundErr("QuickConnect", in.QuickConnectID)
 	}
 
-	c := b.newContact(ctx, inst, channelTask, "API")
+	c := b.newContact(ctx, inst, channelTask, methodAPI)
 	c.FlowID, c.References, c.TaskTemplateID = in.ContactFlowID, in.References, in.TaskTemplateID
 	c.Contact.Name, c.Contact.Description = in.Name, in.Description
 	c.Contact.Attributes, c.Contact.SegmentAttributes = cloneTags(in.Attributes), in.SegmentAttributes
@@ -499,7 +499,7 @@ func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
 
 	t := awstime.NewEpochTime(b.now())
 	c.Contact.DisconnectTimestamp = &t
-	c.Contact.DisconnectReason = "API"
+	c.Contact.DisconnectReason = reasonAPI
 
 	if in.DisconnectReason != nil && in.DisconnectReason.Code != "" {
 		c.Contact.DisconnectReason = in.DisconnectReason.Code

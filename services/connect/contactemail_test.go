@@ -15,6 +15,8 @@ import (
 	cn "github.com/blackbirdworks/gopherstack/services/connect"
 )
 
+var errSESDown = errors.New("ses down")
+
 type fakeMailer struct {
 	err  error
 	sent []cn.EmailMessage
@@ -34,11 +36,11 @@ func (m *fakeMailer) SendEmail(_ context.Context, msg cn.EmailMessage) error {
 	return nil
 }
 
-func (e *contactEnv) emailAddress(t *testing.T, address string) {
+func (e *contactEnv) emailAddress(t *testing.T) {
 	t.Helper()
 
 	_, err := e.f.client.CreateEmailAddress(t.Context(), &sdk.CreateEmailAddressInput{
-		InstanceId: aws.String(e.inst), EmailAddress: aws.String(address),
+		InstanceId: aws.String(e.inst), EmailAddress: aws.String("support@example.com"),
 	})
 	require.NoError(t, err)
 }
@@ -70,8 +72,9 @@ func TestStartEmailContact(t *testing.T) {
 			mut: func(in *sdk.StartEmailContactInput) { in.DestinationEmailAddress = aws.String("nope") },
 		},
 		{
-			name: "bad content type", wantCode: "InvalidParameterException",
-			mut: func(in *sdk.StartEmailContactInput) { in.EmailMessage.RawMessage.ContentType = aws.String("image/png") },
+			name:     "bad content type",
+			wantCode: "InvalidParameterException",
+			mut:      func(in *sdk.StartEmailContactInput) { in.EmailMessage.RawMessage.ContentType = aws.String("image/png") },
 		},
 		{
 			name: "unknown flow", wantCode: "ResourceNotFoundException",
@@ -88,7 +91,7 @@ func TestStartEmailContact(t *testing.T) {
 			t.Parallel()
 
 			e := newContactEnv(t)
-			e.emailAddress(t, "support@example.com")
+			e.emailAddress(t)
 
 			in := &sdk.StartEmailContactInput{
 				InstanceId: aws.String(e.inst), DestinationEmailAddress: aws.String("support@example.com"),
@@ -125,7 +128,7 @@ func TestStartEmailContactCopiesRelatedAttributes(t *testing.T) {
 	t.Parallel()
 
 	e := newContactEnv(t)
-	e.emailAddress(t, "support@example.com")
+	e.emailAddress(t)
 	start := func(attrs map[string]string, related *string) string {
 		out, err := e.f.client.StartEmailContact(t.Context(), &sdk.StartEmailContactInput{
 			InstanceId: aws.String(e.inst), DestinationEmailAddress: aws.String("support@example.com"),
@@ -150,7 +153,7 @@ func TestStartOutboundEmailContact(t *testing.T) {
 	e := newContactEnv(t)
 	mailer := &fakeMailer{}
 	e.f.backend.SetMailer(mailer)
-	e.emailAddress(t, "support@example.com")
+	e.emailAddress(t)
 
 	create := func(method types.ContactInitiationMethod) string {
 		out, err := e.f.client.CreateContact(t.Context(), &sdk.CreateContactInput{
@@ -200,7 +203,7 @@ func TestStartOutboundEmailContact(t *testing.T) {
 	assert.Equal(t, "InvalidRequestException", apiCode(send(task, known)))
 	assert.Equal(t, "ResourceNotFoundException", apiCode(send("nope", known)))
 
-	mailer.err = errors.New("ses down")
+	mailer.err = errSESDown
 	failing := create(types.ContactInitiationMethodAgentReply)
 	require.NoError(t, send(failing, known))
 }
@@ -244,7 +247,7 @@ func TestSendOutboundEmail(t *testing.T) {
 			e := newContactEnv(t)
 			mailer := &fakeMailer{}
 			e.f.backend.SetMailer(mailer)
-			e.emailAddress(t, "support@example.com")
+			e.emailAddress(t)
 
 			in := &sdk.SendOutboundEmailInput{
 				InstanceId: aws.String(e.inst), TrafficType: types.TrafficTypeCampaign,
