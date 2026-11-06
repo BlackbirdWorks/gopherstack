@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/sparse"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -47,6 +48,7 @@ type node struct {
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	Children     map[string]*node  `json:"children,omitempty"`
 	Copy         *copyInfo         `json:"copy,omitempty"`
+	NFS          *nfsProps         `json:"nfs,omitempty"`
 	Name         string            `json:"name"`
 	ID           string            `json:"id"`
 	ParentID     string            `json:"parentId"`
@@ -71,6 +73,36 @@ type copyInfo struct {
 	ID        string    `json:"id"`
 	Source    string    `json:"source"`
 	Status    string    `json:"status"`
+}
+
+const (
+	copySuccess = "success"
+	copyPending = "pending"
+	copyAborted = "aborted"
+
+	copyAsyncMinBytes = 4 << 20
+	copyBytesPerSec   = 32 << 20
+	copyBaseDelay     = 2 * time.Second
+)
+
+// copyPendingFor is how long an asynchronous copy of size bytes stays pending.
+func copyPendingFor(size int64) time.Duration {
+	return copyBaseDelay + time.Duration(size/copyBytesPerSec)*time.Second
+}
+
+// async reports whether a copy into dstAcct completes in the background:
+// cross-account sources and large sources do, as on the real service.
+func (s *sourceData) async(dstAcct string) bool {
+	return (s.Acct != "" && !strs.Equal(s.Acct, dstAcct)) || s.size() > copyAsyncMinBytes
+}
+
+// state is the copy status as of now: a pending copy succeeds once its due time passes.
+func (c *copyInfo) state(now time.Time) string {
+	if c.Status == copyPending && !now.Before(c.Completed) {
+		return copySuccess
+	}
+
+	return c.Status
 }
 
 type accessPolicy struct {
@@ -218,6 +250,11 @@ func (n *node) clone() *node {
 	if n.Copy != nil {
 		cp := *n.Copy
 		c.Copy = &cp
+	}
+
+	if n.NFS != nil {
+		np := *n.NFS
+		c.NFS = &np
 	}
 
 	if n.Children != nil {

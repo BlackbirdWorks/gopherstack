@@ -108,10 +108,17 @@ func setFileHeaders(hdr http.Header, n *node, rc *reqCtx) {
 
 	if c := n.Copy; c != nil {
 		hdr.Set("X-Ms-Copy-Id", c.ID)
-		hdr.Set("X-Ms-Copy-Status", c.Status)
+		st := c.state(rc.now)
+		hdr.Set("X-Ms-Copy-Status", st)
 		hdr.Set("X-Ms-Copy-Source", c.Source)
-		hdr.Set("X-Ms-Copy-Progress", fmt.Sprintf("%d/%d", n.Size, n.Size))
-		hdr.Set("X-Ms-Copy-Completion-Time", fmtHTTP(c.Completed))
+
+		switch st {
+		case copySuccess:
+			hdr.Set("X-Ms-Copy-Progress", fmt.Sprintf("%d/%d", n.Size, n.Size))
+			hdr.Set("X-Ms-Copy-Completion-Time", fmtHTTP(c.Completed))
+		case copyPending:
+			hdr.Set("X-Ms-Copy-Progress", fmt.Sprintf("0/%d", n.Size))
+		}
 	}
 }
 
@@ -208,6 +215,8 @@ func (h *Handler) createFile(rc *reqCtx) (*resp, *apiError) {
 
 	n := b.newNode(parent, leaf, false, rc.now)
 
+	var oldSize int64
+
 	if old := parent.child(leaf); old != nil {
 		if old.Dir {
 			return nil, errTypeMismatch()
@@ -222,12 +231,21 @@ func (h *Handler) createFile(rc *reqCtx) (*resp, *apiError) {
 		}
 
 		n.ID, n.Lease = old.ID, old.Lease
+		oldSize = old.Size
+	}
+
+	if aerr = sh.checkQuota(in.size - oldSize); aerr != nil {
+		return nil, aerr
 	}
 
 	n.Size, n.Metadata = in.size, in.md
 	in.cp.applyTo(n)
 
 	if aerr = sh.applySMB(n, smbFromHeaders(rc), true, rc.now); aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = sh.initNFS(n, nfsFromHeaders(rc), true); aerr != nil {
 		return nil, aerr
 	}
 
@@ -365,6 +383,10 @@ func (h *Handler) deleteFile(rc *reqCtx) (*resp, *apiError) {
 
 	delete(parent.Children, strs.Fold(leaf))
 
+	if n.NFS != nil && n.NFS.Links > 1 {
+		sh.setLinkCount(n.ID, n.NFS.Links-1)
+	}
+
 	return newResp(http.StatusAccepted), nil
 }
 
@@ -398,6 +420,12 @@ func (h *Handler) setFileProps(rc *reqCtx) (*resp, *apiError) {
 		return nil, aerr
 	}
 
+	if newSize != nil {
+		if aerr = sh.checkQuota(*newSize - n.Size); aerr != nil {
+			return nil, aerr
+		}
+	}
+
 	if cp.Present {
 		cp.applyTo(n)
 	}
@@ -411,7 +439,12 @@ func (h *Handler) setFileProps(rc *reqCtx) (*resp, *apiError) {
 		return nil, aerr
 	}
 
+	if aerr = sh.initNFS(n, nfsFromHeaders(rc), false); aerr != nil {
+		return nil, aerr
+	}
+
 	n.ETag, n.LastModified = b.etag(), rc.now
+	sh.syncLinks(n)
 
 	return nodeResp(http.StatusOK, n), nil
 }
@@ -426,7 +459,7 @@ func (h *Handler) setFileMetadata(rc *reqCtx) (*resp, *apiError) {
 	b.mu.Lock("SetFileMetadata")
 	defer b.mu.Unlock()
 
-	_, n, aerr := h.lookupFile(rc, true)
+	sh, n, aerr := h.lookupFile(rc, true)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -437,6 +470,7 @@ func (h *Handler) setFileMetadata(rc *reqCtx) (*resp, *apiError) {
 
 	n.Metadata = md
 	n.ETag, n.LastModified = b.etag(), rc.now
+	sh.syncLinks(n)
 
 	rs := newResp(http.StatusOK)
 	rs.hdr.Set("ETag", n.ETag)
@@ -511,7 +545,7 @@ func (h *Handler) writeRange(rc *reqCtx, start, length int64, data []byte, clear
 	b.mu.Lock("PutRange")
 	defer b.mu.Unlock()
 
-	_, n, aerr := h.lookupFile(rc, true)
+	sh, n, aerr := h.lookupFile(rc, true)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -537,6 +571,7 @@ func (h *Handler) writeRange(rc *reqCtx, start, length int64, data []byte, clear
 	}
 
 	n.ETag, n.LastModified = b.etag(), rc.now
+	sh.syncLinks(n)
 
 	rs := newResp(http.StatusCreated)
 	rs.hdr.Set("ETag", n.ETag)
