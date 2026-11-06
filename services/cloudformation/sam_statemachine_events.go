@@ -227,6 +227,7 @@ func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string
 			unescape:   unescape,
 			apiKey:     apiKey,
 			scopes:     scopes,
+			auth:       asMap(props[samAuthKey]),
 		},
 		t.pass,
 	)

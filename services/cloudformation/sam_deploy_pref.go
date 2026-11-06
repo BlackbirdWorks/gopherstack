@@ -77,7 +77,7 @@ func (t *samTranslator) readDeploymentPreference(id string, props map[string]any
 	if _, has := dp[samKeyType]; !has {
 		return nil, false, samErr(id, "'DeploymentPreference' is missing required Property 'Type'")
 	}
-	dp[samKeyType] = t.paramDefault(dp[samKeyType])
+	dp[samKeyType] = t.resolveParamRefs(dp[samKeyType])
 	if hooks, has := dp["Hooks"]; has && hooks != nil {
 		if _, isMap := hooks.(map[string]any); !isMap {
 			return nil, false, samErr(id, "'Hooks' property of 'DeploymentPreference' must be a dictionary")

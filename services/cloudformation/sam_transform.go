@@ -208,7 +208,7 @@ func expandSAMDocument(doc map[string]any, region string) (err error) {
 func (t *samTranslator) readGlobals(g map[string]any) error {
 	for section, v := range g {
 		switch section {
-		case samKeyFunction, "Api", "HttpApi", "SimpleTable":
+		case samKeyFunction, "Api", "HttpApi", "SimpleTable", "StateMachine", "LayerVersion":
 			if err := validateGlobalsSection(section, asMap(v)); err != nil {
 				return err
 			}
@@ -398,6 +398,9 @@ func (t *samTranslator) resolveParamRefs(v any) any {
 		}
 		if _, isSub := val[samKeyFnSub].(string); isSub && len(val) == 1 {
 			return t.resolveStringParam(val)
+		}
+		if args, isFind := val["Fn::FindInMap"].([]any); isFind && len(val) == 1 {
+			return t.resolveFindInMap(args)
 		}
 		out := make(map[string]any, len(val))
 		for k, e := range val {

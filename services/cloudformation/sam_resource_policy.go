@@ -49,9 +49,11 @@ func (a *samAPI) applyResourcePolicy(doc map[string]any) error {
 			return err
 		}
 	}
-	doc[samAPIGWPolicy] = policy
 	if cs := rp[samKeyCustomStmts]; cs != nil {
 		addCustomStatements(policy, cs)
+	}
+	if len(policy) > 0 {
+		doc[samAPIGWPolicy] = policy
 	}
 
 	return nil
@@ -75,7 +77,11 @@ func (a *samAPI) applyEventResourcePolicy(doc map[string]any, rt samRoute, item 
 	if policy == nil {
 		policy = map[string]any{}
 	}
-	if err := a.addPolicyForPath(policy, rp, rt.path, item, a.permSuffix()); err != nil {
+	var stage any = a.permSuffix()
+	if rt.roleID != "" {
+		stage = nil
+	}
+	if err := a.addPolicyForPath(policy, rp, rt.path, item, stage); err != nil {
 		return err
 	}
 	doc[samAPIGWPolicy] = policy

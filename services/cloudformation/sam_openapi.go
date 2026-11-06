@@ -150,6 +150,12 @@ func lambdaInvokeURI(target string) map[string]any {
 		"2015-03-31/functions/${" + target + "}/invocations"}
 }
 
+// lambdaStreamingURI is the apigateway Lambda response-streaming invocation Fn::Sub.
+func lambdaStreamingURI(target string) map[string]any {
+	return map[string]any{samKeyFnSub: "arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/" +
+		"2021-11-15/functions/${" + target + "}/response-streaming-invocations"}
+}
+
 func (e *samOpenAPI) securitySchemes() map[string]any {
 	comps := asMap(e.doc["components"])
 	if comps == nil {

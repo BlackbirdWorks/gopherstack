@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const samFindInMapArgs = 3
+
 func samInvalid(format string, args ...any) error {
 	return fmt.Errorf("%w. Structure of the SAM template is invalid. %s", ErrSAMTransform, fmt.Sprintf(format, args...))
 }
@@ -16,8 +18,7 @@ func samGlobalsApiKeys() []string {
 	return []string{"Auth", "Name", "DefinitionUri", "CacheClusterEnabled", "CacheClusterSize", "MergeDefinitions",
 		"Variables", "EndpointConfiguration", "MethodSettings", "BinaryMediaTypes", "MinimumCompressionSize", "Cors",
 		"GatewayResponses", "AccessLogSetting", "CanarySetting", "TracingEnabled", "OpenApiVersion", "Domain",
-		"AlwaysDeploy", "PropagateTags", "SecurityPolicy", "EndpointAccessMode", "DisableExecuteApiEndpoint",
-		"Tags", "Models"}
+		"AlwaysDeploy", "PropagateTags", "SecurityPolicy", "EndpointAccessMode"}
 }
 
 // validateSAMDocument checks the template-level structure the SAM translator insists on.
@@ -458,4 +459,59 @@ func (t *samTranslator) resolvePassthrough(m map[string]any) (any, bool) {
 	val, found := asMap(asMap(t.mappings[keys[0]])[keys[1]])[keys[2]]
 
 	return val, found
+}
+
+// resolveFindInMap resolves Fn::FindInMap when its arguments are literals or parameter defaults; otherwise the
+// call is returned with the arguments resolved as far as possible.
+func (t *samTranslator) resolveFindInMap(args []any) any {
+	resolved := make([]any, len(args))
+	keys := make([]string, 0, len(args))
+	literal := true
+	for i, a := range args {
+		resolved[i] = t.resolveParamRefs(a)
+		if s, isStr := resolved[i].(string); isStr {
+			keys = append(keys, s)
+		} else {
+			literal = false
+		}
+	}
+	if literal && len(keys) == samFindInMapArgs {
+		if val, found := asMap(asMap(t.mappings[keys[0]])[keys[1]])[keys[2]]; found {
+			return val
+		}
+	}
+
+	return map[string]any{"Fn::FindInMap": resolved}
+}
+
+// overrideRoutes applies the Auth of events marked OverrideApiAuth to the operations of a user-written body.
+func (a *samAPI) overrideRoutes(doc, paths map[string]any) error {
+	for _, rt := range a.routes {
+		if rt.auth[samKeyOverrideAuth] != true {
+			continue
+		}
+		if rt.authorizer == "" && rt.apiKey == nil && rt.auth["ResourcePolicy"] == nil {
+			return samErr(rt.fnID, "Must define one of: Authorizer, ApiKeyRequired or ResourcePolicy when using the "+
+				"OverrideApiAuth property.")
+		}
+		item := asMap(paths[rt.path])
+		op := asMap(item[routeVerb(rt.method)])
+		if op == nil {
+			continue
+		}
+		if sec := a.eventSecurity(rt); len(sec) > 0 {
+			op[samOAPISecurity] = sec
+		}
+		if rt.apiKey != nil && *rt.apiKey {
+			addAPIKeyDefinition(doc)
+		}
+		if rt.authorizer == samSecIAM {
+			addIAMDefinition(doc)
+		}
+		if err := a.applyEventResourcePolicy(doc, rt, item); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

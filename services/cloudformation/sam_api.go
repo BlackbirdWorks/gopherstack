@@ -39,6 +39,7 @@ type samRoute struct {
 	// roleID is set for state machine routes: the API Gateway invoke role.
 	roleID    string
 	condition string
+	streaming bool
 	model     *samRequestModel
 	params    []samReqParam
 	unescape  bool
@@ -107,9 +108,7 @@ func (t *samTranslator) registerAPI(id string, r map[string]any) error {
 	if err := validateAPIProps(id, props); err != nil {
 		return err
 	}
-	if a, has := props[samAuthKey]; has {
-		props[samAuthKey] = t.resolveParamRefs(a)
-	}
+	t.resolveAPIParams(props)
 	api := &samAPI{id: id, stageRaw: stage, props: props, explicit: true, raw: r}
 	api.stageName, _ = stage.(string)
 	if err := api.validateOpenAPIVersion(); err != nil {
@@ -120,6 +119,15 @@ func (t *samTranslator) registerAPI(id string, r map[string]any) error {
 	return nil
 }
 
+// resolveAPIParams replaces template parameter Refs in the Api properties SAM resolves up front.
+func (t *samTranslator) resolveAPIParams(props map[string]any) {
+	for _, k := range []string{samAuthKey, "BinaryMediaTypes"} {
+		if v, has := props[k]; has {
+			props[k] = t.resolveParamRefs(v)
+		}
+	}
+}
+
 func (t *samTranslator) apiFor(fnID string, restAPIID any) (*samAPI, error) {
 	if restAPIID == nil {
 		if t.apis[samImplicitAPI] == nil {
@@ -127,6 +135,7 @@ func (t *samTranslator) apiFor(fnID string, restAPIID any) (*samAPI, error) {
 			if err := rejectUnknown(samImplicitAPI, props, samAPIPassthrough(), samAPIHandled()); err != nil {
 				return nil, err
 			}
+			t.resolveAPIParams(props)
 			t.apis[samImplicitAPI] = &samAPI{id: samImplicitAPI, stageName: samImplicitStage,
 				stageRaw: samImplicitStage, props: props}
 		}
@@ -367,7 +376,6 @@ func (a *samAPI) baseDocument() (map[string]any, error) {
 func (a *samAPI) addDocExtensions(t *samTranslator, doc map[string]any) error {
 	if m := a.props["BinaryMediaTypes"]; m != nil && asList(m) != nil {
 		addBinaryMediaTypes(doc, m)
-		doc[samKeyBinaryMedia] = t.resolveParamRefs(doc[samKeyBinaryMedia])
 	}
 	if err := a.addGatewayResponses(doc); err != nil {
 		return err
@@ -393,7 +401,12 @@ func (a *samAPI) authPerms() map[string]map[string]any {
 func (a *samAPI) addRoutePaths(doc, paths map[string]any) error {
 	merge := a.props["MergeDefinitions"] == true
 	if !a.managed() && !merge {
-		return nil
+		return a.overrideRoutes(doc, paths)
+	}
+	if !a.managed() {
+		if _, hasPaths := doc["paths"].(map[string]any); !hasPaths {
+			return nil
+		}
 	}
 	for _, rt := range a.routes {
 		if err := a.mergeRoute(doc, paths, rt); err != nil {
@@ -415,8 +428,9 @@ func (a *samAPI) mergeRoute(doc, paths map[string]any, rt samRoute) error {
 		if a.managed() {
 			return samErr(rt.fnID, "API method '%s' defined multiple times for path '%s'.", rt.method, rt.path)
 		}
-
-		return nil
+		if a.props["MergeDefinitions"] != true {
+			return nil
+		}
 	}
 	op := routeOperation(rt)
 	rt.model.apply(doc, op)
@@ -478,6 +492,10 @@ func routeOperation(rt samRoute) map[string]any {
 		samKeyHTTPMethod: samHTTPPost,
 		samKeyTypeLower:  "aws_proxy",
 		samKeyURI:        lambdaInvokeURI(rt.invokeRef()),
+	}
+	if rt.streaming {
+		integ[samKeyURI] = lambdaStreamingURI(rt.invokeRef())
+		integ["responseTransferMode"] = "STREAM"
 	}
 	op := map[string]any{samKeyResponses: map[string]any{}, samIntegrationKey: integ}
 	if rt.timeout != nil {

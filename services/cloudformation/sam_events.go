@@ -129,7 +129,7 @@ func lambdaPermission(fnID, principal string, sourceArn any) map[string]any {
 
 func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]any) error {
 	if err := rejectUnknown(ev.id+name, props, keySet("Path", "Method", samKRestAPIID, samAuthKey,
-		"RequestParameters", "TimeoutInMillis", "RequestModel")); err != nil {
+		"RequestParameters", "TimeoutInMillis", "RequestModel", samKeyResponseMode)); err != nil {
 		return err
 	}
 	path, _ := props["Path"].(string)
@@ -157,8 +157,14 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	if err != nil {
 		return err
 	}
+	if v, has := props[samKeyResponseMode]; has && v != nil {
+		if _, isStr := v.(string); !isStr {
+			return samErr(ev.id+name, "Type of property '%s' is invalid.", samKeyResponseMode)
+		}
+	}
 	api.addRoute(
 		samRoute{
+			streaming:  props[samKeyResponseMode] == samResponseStream,
 			fnID:       ev.id,
 			target:     ev.invokeRef(),
 			path:       path,
@@ -183,6 +189,12 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 
 	return t.put(samPermissionID(ev.id+name, suffix), perm)
 }
+
+const (
+	samKeyOverrideAuth = "OverrideApiAuth"
+	samKeyResponseMode = "ResponseTransferMode"
+	samResponseStream  = "RESPONSE_STREAM"
+)
 
 // samPermissionID is SAM's PushEventSource permission id: <prefix>Permission<suffix>; a non-alphanumeric
 // suffix is hashed.
@@ -236,7 +248,7 @@ func eventAuth(fnID, name string, props map[string]any) (string, *bool, any, err
 	if err := rejectUnknown(
 		fnID+name,
 		auth,
-		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy"),
+		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy", samKeyOverrideAuth),
 	); err != nil {
 		return "", nil, nil, err
 	}
