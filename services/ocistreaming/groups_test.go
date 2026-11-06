@@ -2,6 +2,7 @@ package ocistreaming_test
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -285,6 +286,51 @@ func TestGroupErrors(t *testing.T) {
 			se := svcErr(t, tt.call())
 			assert.Equal(t, tt.wantHTTP, se.GetHTTPStatusCode())
 			assert.Equal(t, tt.wantCode, se.GetCode())
+		})
+	}
+}
+
+func TestGroupsPerStreamLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		groups  int
+		wantErr bool
+	}{
+		{name: "fifty groups", groups: 50},
+		{name: "fifty-first group", groups: 51, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			s := e.mkStream(t, "many-groups", 1)
+			c := e.msgs(t, s)
+
+			var err error
+
+			for i := range tt.groups {
+				d := streaming.CreateGroupCursorDetails{
+					Type: streaming.CreateGroupCursorDetailsTypeTrimHorizon, GroupName: new("g" + strconv.Itoa(i)),
+				}
+
+				_, err = c.CreateGroupCursor(
+					t.Context(), streaming.CreateGroupCursorRequest{StreamId: s.Id, CreateGroupCursorDetails: d},
+				)
+				if i < 50 {
+					require.NoError(t, err)
+				}
+			}
+
+			if !tt.wantErr {
+				return
+			}
+
+			require.Error(t, err)
+			assert.Equal(t, http.StatusBadRequest, svcErr(t, err).GetHTTPStatusCode())
 		})
 	}
 }
