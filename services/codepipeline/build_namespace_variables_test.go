@@ -57,12 +57,12 @@ func TestCodeBuildExportedVariablesFlowIntoNamespace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		vars        map[string]string
+		wantOutputs map[string]string
 		name        string
 		namespace   string
 		downstream  string
 		wantProject string
-		vars        map[string]string
-		wantOutputs map[string]string
 	}{
 		{
 			name: "namespaced exported variable resolves downstream", namespace: "BuildVars",
