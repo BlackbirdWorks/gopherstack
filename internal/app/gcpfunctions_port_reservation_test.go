@@ -27,7 +27,9 @@ func TestReserveFixedServicePorts_GCPFunctions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, ports := fixedPortPools(t, tt.wantTaken, gcpfunctionsbackend.DefaultPort, gcpfunctionsbackend.DefaultIngressPort)
+			alloc, ports := fixedPortPools(
+				t, tt.wantTaken, gcpfunctionsbackend.DefaultPort, gcpfunctionsbackend.DefaultIngressPort,
+			)
 
 			cli := CLI{GCPFunctions: gcpfunctionsbackend.Settings{Port: ports[0], IngressPort: ports[1]}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)

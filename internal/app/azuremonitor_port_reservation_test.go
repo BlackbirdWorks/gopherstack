@@ -19,7 +19,8 @@ func TestReserveFixedServicePorts_AzureMonitor(t *testing.T) {
 		wantBlockedFromPool bool
 	}{
 		{
-			name: "default port collides with default pool range", port: azuremonitorbackend.DefaultPort, wantBlockedFromPool: true,
+			name: "default port collides with default pool range", port: azuremonitorbackend.DefaultPort,
+			wantBlockedFromPool: true,
 		},
 		{
 			name: "custom port outside a custom pool range", port: 9997, wantBlockedFromPool: false,

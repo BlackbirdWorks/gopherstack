@@ -14,10 +14,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 )
 
-func newDockerEngine(t *testing.T, rt *fakeRuntime, span int) *timestreaminfluxdb.DockerEngine {
+func newDockerEngine(t *testing.T, rt *fakeRuntime) *timestreaminfluxdb.DockerEngine {
 	t.Helper()
 
-	ports := portalloctest.New(t, span)
+	ports := portalloctest.New(t, 10)
 
 	return &timestreaminfluxdb.DockerEngine{
 		Runtime: rt, Ports: ports, HTTP: &fakeHealth{}, PollInterval: time.Millisecond,
@@ -45,7 +45,7 @@ func TestDockerEngineVolumesAndRestart(t *testing.T) {
 		rt := &fakeRuntime{hasImage: true}
 		spec := volumeSpec(t)
 
-		_, err := newDockerEngine(t, rt, 10).Start(t.Context(), spec)
+		_, err := newDockerEngine(t, rt).Start(t.Context(), spec)
 		require.NoError(t, err)
 
 		require.Len(t, rt.specs, 1)
@@ -61,7 +61,7 @@ func TestDockerEngineVolumesAndRestart(t *testing.T) {
 		t.Parallel()
 
 		rt := &fakeRuntime{hasImage: true}
-		eng := newDockerEngine(t, rt, 10)
+		eng := newDockerEngine(t, rt)
 
 		h, err := eng.Start(t.Context(), volumeSpec(t))
 		require.NoError(t, err)
@@ -78,7 +78,7 @@ func TestDockerEngineVolumesAndRestart(t *testing.T) {
 		t.Parallel()
 
 		rt := &fakeRuntime{hasImage: true}
-		eng := newDockerEngine(t, rt, 10)
+		eng := newDockerEngine(t, rt)
 		spec := volumeSpec(t)
 
 		h, err := eng.Start(t.Context(), spec)
@@ -100,7 +100,7 @@ func TestDockerEngineVolumesAndRestart(t *testing.T) {
 		t.Parallel()
 
 		rt := &fakeRuntime{hasImage: true}
-		eng := newDockerEngine(t, rt, 10)
+		eng := newDockerEngine(t, rt)
 		spec := volumeSpec(t)
 
 		h, err := eng.Start(t.Context(), spec)
@@ -144,7 +144,7 @@ func TestDockerEngineBackup(t *testing.T) {
 			t.Parallel()
 
 			rt := &fakeRuntime{hasImage: true, execExit: tt.exit}
-			eng := newDockerEngine(t, rt, 10)
+			eng := newDockerEngine(t, rt)
 			h := timestreaminfluxdb.EngineHandle{ContainerID: "ctr-x"}
 
 			err := eng.Backup(t.Context(), h, "tok", "bk-9")
