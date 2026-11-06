@@ -85,7 +85,7 @@ func TestECS_KubernetesPodTasks(t *testing.T) {
 	defer cancel()
 
 	cluster := startK3sPods(ctx, t, k3sPodsConfig{
-		prefix: "k8secstest", portLo: 41400, portHi: 41500, images: []string{ecsK8sNginx, ecsK8sBusy},
+		prefix: "k8secstest", images: []string{ecsK8sNginx, ecsK8sBusy},
 	})
 
 	t.Setenv("CONTAINER_RUNTIME", "kubernetes")

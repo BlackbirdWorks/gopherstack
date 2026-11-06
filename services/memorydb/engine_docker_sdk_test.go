@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
@@ -37,8 +37,7 @@ func newRealDockerClient(t *testing.T) (*memorydbsdk.Client, *memorydb.InMemoryB
 		t.Skipf("container runtime unreachable: %v", err)
 	}
 
-	alloc, err := portalloc.New(44000, 44100)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 100)
 
 	b := memorydb.NewInMemoryBackend(testAccountID, testRegion)
 	b.SetEngine(memorydb.EngineDocker, alloc)

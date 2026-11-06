@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/timestreaminfluxdb"
 )
 
@@ -406,8 +406,7 @@ func TestDockerEngine(t *testing.T) {
 	t.Run("start waits for health and publishes the port", func(t *testing.T) {
 		t.Parallel()
 
-		ports, err := portalloc.New(30000, 30010)
-		require.NoError(t, err)
+		ports := portalloctest.New(t, 10)
 
 		rt, hc := &fakeRuntime{}, &fakeHealth{status: []int{503, 503}}
 		eng := &timestreaminfluxdb.DockerEngine{Runtime: rt, Ports: ports, HTTP: hc, PollInterval: time.Millisecond}
@@ -441,13 +440,12 @@ func TestDockerEngine(t *testing.T) {
 	t.Run("an image already present is not pulled", func(t *testing.T) {
 		t.Parallel()
 
-		ports, err := portalloc.New(30020, 30030)
-		require.NoError(t, err)
+		ports := portalloctest.New(t, 10)
 
 		rt := &fakeRuntime{hasImage: true}
 		eng := &timestreaminfluxdb.DockerEngine{Runtime: rt, Ports: ports, HTTP: &fakeHealth{}, Image: "influxdb:2.7"}
 
-		_, err = eng.Start(t.Context(), spec)
+		_, err := eng.Start(t.Context(), spec)
 		require.NoError(t, err)
 		assert.Empty(t, rt.pulled)
 		assert.Equal(t, "influxdb:2.7", rt.specs[0].Image)
@@ -456,8 +454,7 @@ func TestDockerEngine(t *testing.T) {
 	t.Run("create failure frees the port", func(t *testing.T) {
 		t.Parallel()
 
-		ports, err := portalloc.New(30040, 30050)
-		require.NoError(t, err)
+		ports := portalloctest.New(t, 10)
 
 		eng := &timestreaminfluxdb.DockerEngine{
 			Runtime: &fakeRuntime{createErr: errBoom},
@@ -465,7 +462,7 @@ func TestDockerEngine(t *testing.T) {
 			HTTP:    &fakeHealth{},
 		}
 
-		_, err = eng.Start(t.Context(), spec)
+		_, err := eng.Start(t.Context(), spec)
 		require.Error(t, err)
 		assert.Empty(t, ports.Allocated())
 	})
@@ -473,8 +470,7 @@ func TestDockerEngine(t *testing.T) {
 	t.Run("health timeout removes the container", func(t *testing.T) {
 		t.Parallel()
 
-		ports, err := portalloc.New(30060, 30070)
-		require.NoError(t, err)
+		ports := portalloctest.New(t, 10)
 
 		rt := &fakeRuntime{}
 		hc := &fakeHealth{status: repeat(503, 1000)}
@@ -482,7 +478,7 @@ func TestDockerEngine(t *testing.T) {
 			Runtime: rt, Ports: ports, HTTP: hc, PollInterval: time.Millisecond, StartTimeout: 20 * time.Millisecond,
 		}
 
-		_, err = eng.Start(t.Context(), spec)
+		_, err := eng.Start(t.Context(), spec)
 		require.Error(t, err)
 		assert.Equal(t, []string{"ctr-1"}, rt.removed)
 		assert.Empty(t, ports.Allocated())

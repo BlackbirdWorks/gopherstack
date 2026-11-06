@@ -5,9 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	cosmosdbbackend "github.com/blackbirdworks/gopherstack/services/cosmosdb"
 )
 
@@ -35,18 +33,16 @@ func TestReserveFixedServicePorts_CosmosDB(t *testing.T) {
 	tests := []struct {
 		name                string
 		cosmosPort          int
-		rangeStart          int
-		rangeEnd            int
 		wantBlockedFromPool bool
 	}{
 		{
-			name:       "default cosmosdb port falls outside the default pool range",
-			cosmosPort: cosmosdbbackend.DefaultPort, rangeStart: 10000, rangeEnd: 10100,
+			name:                "default cosmosdb port falls outside the default pool range",
+			cosmosPort:          cosmosdbbackend.DefaultPort,
 			wantBlockedFromPool: false,
 		},
 		{
-			name:       "default cosmosdb port falls inside a custom pool range",
-			cosmosPort: cosmosdbbackend.DefaultPort, rangeStart: 8000, rangeEnd: 8100,
+			name:                "default cosmosdb port falls inside a custom pool range",
+			cosmosPort:          cosmosdbbackend.DefaultPort,
 			wantBlockedFromPool: true,
 		},
 	}
@@ -55,13 +51,12 @@ func TestReserveFixedServicePorts_CosmosDB(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantBlockedFromPool, tt.cosmosPort)
 
-			cli := CLI{CosmosDB: cosmosdbbackend.Settings{Port: tt.cosmosPort}}
+			cli := CLI{CosmosDB: cosmosdbbackend.Settings{Port: port}}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(tt.cosmosPort), tt.name)
+			assert.Equal(t, tt.wantBlockedFromPool, alloc.IsAllocated(port), tt.name)
 		})
 	}
 }

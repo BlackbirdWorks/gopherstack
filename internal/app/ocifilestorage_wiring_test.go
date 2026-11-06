@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocifilestorage"
@@ -21,26 +20,25 @@ func TestReserveFixedServicePorts_OCIFileStorage(t *testing.T) {
 	assert.Equal(t, 8171, ocifilestorage.DefaultPort)
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"port inside pool range", 8100, 8200, true},
-		{"port outside pool range", 10000, 10100, false},
+		{"port inside pool range", true},
+		{"port outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, port := fixedPortPool(t, tt.wantTaken, ocifilestorage.DefaultPort)
 
-			cli := CLI{OCIFileStorage: ocifilestorage.DefaultSettings()}
+			settings := ocifilestorage.DefaultSettings()
+			settings.Port = port
+			cli := CLI{OCIFileStorage: settings}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ocifilestorage.DefaultPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(port))
 		})
 	}
 }

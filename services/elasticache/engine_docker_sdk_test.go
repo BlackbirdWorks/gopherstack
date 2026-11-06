@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/redisdocker"
 	"github.com/blackbirdworks/gopherstack/services/elasticache"
 )
@@ -38,8 +38,7 @@ func newRealDockerStack(t *testing.T) (*elasticachesdk.Client, *elasticache.InMe
 		t.Skipf("container runtime unreachable: %v", err)
 	}
 
-	alloc, err := portalloc.New(46000, 46100)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 100)
 
 	b := elasticache.NewInMemoryBackend(elasticache.EngineDocker, "000000000000", "us-east-1", alloc)
 	require.NoError(t, b.EnableDockerEngine(rt, redisdocker.Config{StartTimeout: 5 * time.Minute}))

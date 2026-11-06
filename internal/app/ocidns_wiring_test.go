@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ocicorebackend "github.com/blackbirdworks/gopherstack/services/ocicore"
 	"github.com/blackbirdworks/gopherstack/services/ocidns"
@@ -21,27 +20,26 @@ func TestReserveFixedServicePorts_OCIDNS(t *testing.T) {
 	assert.Equal(t, 8169, ocidns.DefaultDNSPort)
 
 	tests := []struct {
-		name       string
-		rangeStart int
-		rangeEnd   int
-		wantTaken  bool
+		name      string
+		wantTaken bool
 	}{
-		{"ports inside pool range", 8100, 8200, true},
-		{"ports outside pool range", 10000, 10100, false},
+		{"ports inside pool range", true},
+		{"ports outside pool range", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			alloc, err := portalloc.New(tt.rangeStart, tt.rangeEnd)
-			require.NoError(t, err)
+			alloc, ports := fixedPortPools(t, tt.wantTaken, ocidns.DefaultPort, ocidns.DefaultDNSPort)
 
-			cli := CLI{OCIDNS: ocidns.DefaultSettings()}
+			settings := ocidns.DefaultSettings()
+			settings.Port, settings.DNSPort = ports[0], ports[1]
+			cli := CLI{OCIDNS: settings}
 			reserveFixedServicePorts(t.Context(), slog.Default(), alloc, cli)
 
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ocidns.DefaultPort))
-			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ocidns.DefaultDNSPort))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ports[0]))
+			assert.Equal(t, tt.wantTaken, alloc.IsAllocated(ports[1]))
 		})
 	}
 }

@@ -1,6 +1,7 @@
 package helm_test
 
 import (
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 
 	"bytes"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/k3sengine"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 )
 
 const (
@@ -257,8 +257,7 @@ func TestChart_InstallK3s(t *testing.T) {
 	rt, err := container.NewRuntime(container.Config{})
 	require.NoError(t, err)
 
-	ports, err := portalloc.New(41000, 41100)
-	require.NoError(t, err)
+	ports := portalloctest.New(t, 100)
 
 	eng, err := k3sengine.New(k3sengine.Config{Runtime: rt, Ports: ports, Prefix: "helmtest"})
 	require.NoError(t, err)
