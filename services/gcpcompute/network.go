@@ -240,6 +240,18 @@ func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Networ
 		}
 	}
 
+	for _, g := range b.vpnGateways {
+		if g.Network == n.SelfLink {
+			return trimURL(g.SelfLink)
+		}
+	}
+
+	for _, g := range b.targetVPNs {
+		if g.Network == n.SelfLink {
+			return trimURL(g.SelfLink)
+		}
+	}
+
 	return ""
 }
 

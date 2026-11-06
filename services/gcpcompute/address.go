@@ -69,6 +69,12 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 		}
 	}
 
+	for _, g := range b.vpnGateways {
+		for _, vi := range g.VpnInterfaces {
+			used[vi.IpAddress], used[vi.Ipv6Address] = true, true
+		}
+	}
+
 	return used
 }
 

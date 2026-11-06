@@ -128,6 +128,10 @@ type InMemoryBackend struct {
 	targetInstances map[string]*computeapi.TargetInstance
 	httpHealths     map[string]*computeapi.HttpHealthCheck
 	httpsHealths    map[string]*computeapi.HttpsHealthCheck
+	vpnGateways     map[string]*computeapi.VpnGateway
+	targetVPNs      map[string]*computeapi.TargetVpnGateway
+	vpnTunnels      map[string]*computeapi.VpnTunnel
+	externalVPNs    map[string]*computeapi.ExternalVpnGateway
 	fwdRules        map[string]*computeapi.ForwardingRule
 	negs            map[string]*computeapi.NetworkEndpointGroup
 	negEndpoints    map[string][]*computeapi.NetworkEndpoint
@@ -212,6 +216,10 @@ func (b *InMemoryBackend) resetMaps() {
 	b.targetInstances = map[string]*computeapi.TargetInstance{}
 	b.httpHealths = map[string]*computeapi.HttpHealthCheck{}
 	b.httpsHealths = map[string]*computeapi.HttpsHealthCheck{}
+	b.vpnGateways = map[string]*computeapi.VpnGateway{}
+	b.targetVPNs = map[string]*computeapi.TargetVpnGateway{}
+	b.vpnTunnels = map[string]*computeapi.VpnTunnel{}
+	b.externalVPNs = map[string]*computeapi.ExternalVpnGateway{}
 	b.fwdRules = map[string]*computeapi.ForwardingRule{}
 	b.negs = map[string]*computeapi.NetworkEndpointGroup{}
 	b.negEndpoints = map[string][]*computeapi.NetworkEndpoint{}

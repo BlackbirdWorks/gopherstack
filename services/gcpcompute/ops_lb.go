@@ -114,6 +114,7 @@ func (h *Handler) registerLBOps() {
 	h.registerRuleOps()
 	h.registerNEGOps()
 	h.registerPoolOps()
+	h.registerVPNOps()
 }
 
 func (h *Handler) registerBackendOps() {

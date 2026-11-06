@@ -107,9 +107,13 @@ func (b *InMemoryBackend) resolveRuleTargetLocked(c lbCtx, in *computeapi.Forwar
 		return b.resolveClassicTargetLocked(c, in, func() (string, *APIError) {
 			return b.resolveTargetInstanceLocked(c, in.Target)
 		})
+	case collTargetVPNGateways:
+		return b.resolveClassicTargetLocked(c, in, func() (string, *APIError) {
+			return lbResolve(b, targetVPNSpec(), c, "resource.target", in.Target)
+		})
 	default:
 		return "", errField("resource.target", in.Target, "Must be a target HTTP, HTTPS, TCP or SSL proxy, "+
-			"target pool or target instance; service attachments are not supported by this emulator.")
+			"target pool, target instance or target VPN gateway; service attachments are not supported by this emulator.")
 	}
 }
 
@@ -596,7 +600,7 @@ func (b *InMemoryBackend) setRuleLabels(c lbCtx, name string, req labelsRequest)
 func isClassicTarget(target string) bool {
 	k := ruleTargetKind(target)
 
-	return k == collTargetPools || k == collTargetInstances
+	return k == collTargetPools || k == collTargetInstances || k == collTargetVPNGateways
 }
 
 func (b *InMemoryBackend) resolveClassicTargetLocked(
