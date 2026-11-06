@@ -457,3 +457,23 @@ func (b *InMemoryBackend) scopeAccount(region string) string {
 
 	return b.accountID
 }
+
+// QueueOwner names the account owning the queue an ARN refers to. A queue named under the
+// backend's own account is looked up in the caller's account first, as requests resolve there.
+func (b *InMemoryBackend) QueueOwner(arnAccount, callerAccount, region, name string) string {
+	b.mu.RLock("QueueOwner")
+	defer b.mu.RUnlock()
+
+	candidates := []string{arnAccount}
+	if arnAccount == b.accountID && callerAccount != "" {
+		candidates = []string{callerAccount, arnAccount}
+	}
+
+	for _, account := range candidates {
+		if _, ok := b.lookupQueueByName(scopeOf(accountOverride(account, b.accountID), region), name); ok {
+			return account
+		}
+	}
+
+	return candidates[0]
+}

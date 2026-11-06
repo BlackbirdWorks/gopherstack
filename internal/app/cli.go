@@ -13272,6 +13272,8 @@ func setupChaosAndRegistry(
 	wireFISFaultStore(cli.fisHandler, faultStore)
 	wireDynamoDBFaultStore(services, faultStore)
 
+	wireSimulatorSCPs(cli.IAMEnforceSCPs, services)
+
 	registry, err := setupRegistry(
 		e,
 		log,
@@ -13430,6 +13432,7 @@ func setupRegistry(
 				Audit:             iamAudit,
 				SCPs:              scps,
 				ResourceOwners:    resourceOwnersFor(scps != nil, services),
+				RCPExemptions:     rcpExemptionsFor(scps != nil, services),
 			}
 
 			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
@@ -13510,6 +13513,10 @@ func extractStorageResourcePolicyProvider(svc service.Registerable) iambackend.R
 	case *sqsbackend.Handler:
 		if b, ok := h.Backend.(sqsPolicyBackend); ok {
 			return &sqsPolicyAdapter{backend: b}
+		}
+	case *iambackend.Handler:
+		if b, ok := h.Backend.(iambackend.RoleGetter); ok {
+			return iambackend.RoleTrustPolicyProvider{Roles: b}
 		}
 	case *kmsbackend.Handler:
 		if b, ok := h.Backend.(kmsPolicyBackend); ok {
@@ -13739,6 +13746,7 @@ func (a *sqsPolicyAdapter) GetResourcePolicy(
 	out, err := a.backend.GetQueueAttributes(&sqsbackend.GetQueueAttributesInput{
 		QueueURL:       queueURL,
 		AttributeNames: []string{"Policy"},
+		Region:         accountID + "@" + parts[3],
 	})
 	if err != nil {
 		return "", err

@@ -844,6 +844,7 @@ func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 				EvalDecisionDetails:               slices.Clone(perResource.EvalDecisionDetails),
 				MissingContextValues:              slices.Clone(r.MissingContextValues),
 				PermissionsBoundaryDecisionDetail: boundaryDetailXML(r.AllowedByPermissionsBoundary),
+				OrganizationsDecisionDetail:       orgDetailXML(r.AllowedByOrganizations),
 				ResourceSpecificResults:           []ResourceSpecificResultXML{perResource},
 			})
 
@@ -853,6 +854,11 @@ func simResultsToXML(results []SimulationResult) []SimulationEvalResultXML {
 		agg := &xmlResults[idx]
 		agg.ResourceSpecificResults = append(agg.ResourceSpecificResults, perResource)
 		agg.EvalDecision = mostRestrictiveDecision(agg.EvalDecision, r.Decision)
+
+		if agg.OrganizationsDecisionDetail != nil && r.AllowedByOrganizations != nil {
+			agg.OrganizationsDecisionDetail.AllowedByOrganizations =
+				agg.OrganizationsDecisionDetail.AllowedByOrganizations && *r.AllowedByOrganizations
+		}
 		agg.EvalDecisionDetails = mergeDecisionDetails(agg.EvalDecisionDetails, perResource.EvalDecisionDetails)
 		agg.MissingContextValues = slices.Compact(slices.Sorted(slices.Values(
 			slices.Concat(agg.MissingContextValues, r.MissingContextValues),
@@ -889,6 +895,14 @@ func boundaryDetailXML(allowed *bool) *PermBoundaryDecisionXML {
 	}
 
 	return &PermBoundaryDecisionXML{AllowedByPermissionsBoundary: *allowed}
+}
+
+func orgDetailXML(allowed *bool) *OrgDecisionXML {
+	if allowed == nil {
+		return nil
+	}
+
+	return &OrgDecisionXML{AllowedByOrganizations: *allowed}
 }
 
 func decisionRank(d string) int {
