@@ -207,6 +207,9 @@ type receiveCtx struct {
 	noRetention bool
 }
 
+// receiveStampedAttrs is the number of attributes a first receive adds.
+const receiveStampedAttrs = 3
+
 // enqueueReceivedMessage stamps msg with a receipt handle, increments counters, registers it
 // as in-flight on q, and marks its FIFO group as blocked. Caller must hold q.mu.
 func enqueueReceivedMessage(
@@ -217,8 +220,14 @@ func enqueueReceivedMessage(
 	vt int,
 	rc receiveCtx,
 ) *Message {
-	// Copy, don't mutate: a previous receive handed the old object to a handler.
-	msg := stored.withOwnAttributes()
+	// A first receive owns the object; later receives copy because a handler holds the old one.
+	msg := stored
+	if stored.ApproximateReceiveCount > 0 {
+		msg = stored.withOwnAttributes()
+	} else if msg.Attributes == nil {
+		msg.Attributes = make(map[string]string, receiveStampedAttrs)
+	}
+
 	q.receiveGeneration++
 	msg.ApproximateReceiveCount++
 	receipt := rc.codec.issue(q, msg.MessageID, msg.ApproximateReceiveCount)
