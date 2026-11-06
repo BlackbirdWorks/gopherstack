@@ -321,7 +321,7 @@ func TestEngine_Failures(t *testing.T) {
 			name:       "avro",
 			sql:        "SELECT * FROM sales",
 			serde:      "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
-			wantReason: "NOT_SUPPORTED: unsupported data format: Avro",
+			wantReason: "HIVE_CURSOR_ERROR: invalid Avro file",
 		},
 		{
 			name:       "orc",

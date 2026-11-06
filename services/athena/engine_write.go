@@ -175,11 +175,11 @@ func (p *writePlan) validateProps() statementOutcome {
 	}
 
 	switch name {
-	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet:
-	case "ORC", "AVRO":
+	case fmtNameText, fmtNameJSON, fmtNameCSV, fmtNameParquet, fmtNameAvro:
+	case "ORC":
 		return stmtFail(athenaErrTypeSyntax,
-			"NOT_SUPPORTED: format %s is not supported by the embedded SQL engine; use PARQUET, TEXTFILE, CSV or JSON",
-			name)
+			"NOT_SUPPORTED: format ORC is not supported by the embedded SQL engine; "+
+				"use PARQUET, AVRO, TEXTFILE, CSV or JSON")
 	default:
 		return stmtFail(athenaErrTypeSyntax, "INVALID_TABLE_PROPERTY: line 1:1: invalid format '%s'", name)
 	}
@@ -189,6 +189,8 @@ func (p *writePlan) validateProps() statementOutcome {
 		p.format.kind = fmtJSON
 	case fmtNameParquet:
 		p.format.kind = fmtParquet
+	case fmtNameAvro:
+		p.format.kind = fmtAvro
 	case fmtNameCSV:
 		p.format.kind, p.format.delim = fmtCSVSerde, csvDefaultDelim
 	default:
@@ -226,6 +228,18 @@ func (p *writePlan) validateCompression() statementOutcome {
 }
 
 func (p *writePlan) checkCompression(c string) statementOutcome {
+	if p.format.kind == fmtAvro {
+		switch c {
+		case "", compressionNone, "DEFLATE", "SNAPPY":
+			p.format.codec = c
+
+			return stmtOK()
+		default:
+			return stmtFail(athenaErrTypeSyntax,
+				"NOT_SUPPORTED: compression %s is not supported for AVRO; use SNAPPY, DEFLATE or NONE", c)
+		}
+	}
+
 	if p.format.kind == fmtParquet {
 		switch c {
 		case "", "SNAPPY", compressionGzip, "ZSTD", "LZ4", compressionNone:
@@ -450,6 +464,10 @@ func (p *writePlan) ctasDef(data, parts []outCol) GlueTableDef {
 		def.InputFormat = parquetInputFmt
 		def.OutputFormat = parquetOutFmt
 		def.SerdeParameters = map[string]string{serdeParamFmtKey: "1"}
+	case fmtAvro:
+		def.SerdeLibrary = avroSerdeLib
+		def.InputFormat = avroInputFmt
+		def.OutputFormat = avroOutputFmt
 	case fmtJSON:
 		def.SerdeLibrary = jsonSerdeLib
 	case fmtCSVSerde:
@@ -785,6 +803,8 @@ func (p *writePlan) encodeGroup(res *sqlResult, g *rowGroup, data []outCol) ([]b
 	switch p.format.kind {
 	case fmtParquet:
 		return encodeParquetRows(res, g.rows, data, p.format.codec)
+	case fmtAvro:
+		return encodeAvroRows(res, g.rows, data, p.format.codec)
 	case fmtJSON:
 		body = encodeJSONLines(res, g.rows, data)
 	case fmtCSVSerde:
@@ -818,6 +838,8 @@ func (p *writePlan) putObject(ctx context.Context, loc string, seq int, body []b
 	switch {
 	case p.format.kind == fmtParquet:
 		name += ".parquet"
+	case p.format.kind == fmtAvro:
+		name += ".avro"
 	case p.format.gzip:
 		name += ".gz"
 	}

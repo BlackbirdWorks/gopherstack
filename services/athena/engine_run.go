@@ -556,6 +556,10 @@ func formatCell(v any, decl string) string {
 			return strconv.FormatBool(t != 0)
 		}
 
+		if strings.HasPrefix(d, "DECIMAL") {
+			return strconv.FormatFloat(float64(t), 'f', decimalScale(d), 64)
+		}
+
 		return strconv.FormatInt(t, 10)
 	case float64:
 		if strings.HasPrefix(d, "DECIMAL") {

@@ -26,6 +26,7 @@ const (
 	fmtCSVSerde
 	fmtJSON
 	fmtParquet
+	fmtAvro
 )
 
 const (
@@ -123,8 +124,9 @@ func detectFormat(def *GlueTableDef) (tableFormat, error) {
 		return f, fmt.Errorf("%w: ORC (SerDe %q); the embedded SQL engine reads CSV, TSV, JSON lines and Parquet only",
 			errUnsupportedFormat, def.SerdeLibrary)
 	case strings.Contains(lib, "avro") || strings.Contains(in, "avro"):
-		return f, fmt.Errorf("%w: Avro (SerDe %q); the embedded SQL engine reads CSV, TSV, JSON lines and Parquet only",
-			errUnsupportedFormat, def.SerdeLibrary)
+		f.kind = fmtAvro
+
+		return f, nil
 	case strings.Contains(lib, "jsonserde"):
 		f.kind = fmtJSON
 
@@ -357,6 +359,10 @@ func (l *tableLoader) loadObject(
 		return l.loadParquet(ctx, out.Body, bucket, key, cols, sink)
 	}
 
+	if f.kind == fmtAvro {
+		return l.loadAvro(ctx, out.Body, bucket, key, cols, sink)
+	}
+
 	counted := &countingReader{r: out.Body, n: &l.scanned}
 	br := bufio.NewReaderSize(counted, readBufBytes)
 
@@ -382,6 +388,21 @@ func (l *tableLoader) loadObject(
 	}
 
 	return nil
+}
+
+func (l *tableLoader) loadAvro(
+	ctx context.Context, body io.Reader, bucket, key string, cols []Column, sink *rowSink,
+) error {
+	data, err := io.ReadAll(io.LimitReader(body, l.limits.MaxScanBytes+1))
+	if err != nil {
+		return fmt.Errorf("HIVE_CURSOR_ERROR: s3://%s/%s: %w", bucket, key, err)
+	}
+
+	if l.scanned += int64(len(data)); l.scanned > l.limits.MaxScanBytes {
+		return fmt.Errorf("%w: more than %d bytes", errScanLimit, l.limits.MaxScanBytes)
+	}
+
+	return l.decodeAvro(ctx, bytes.NewReader(data), cols, sink)
 }
 
 func (l *tableLoader) decode(ctx context.Context, rd io.Reader, f tableFormat, cols []Column, sink *rowSink) error {
