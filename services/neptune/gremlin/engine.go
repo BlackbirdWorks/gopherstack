@@ -50,7 +50,7 @@ func (e *Engine) Eval(ctx context.Context, g *opencypher.Graph, script string, b
 
 // Bytecode runs a traversal that arrived as bytecode.
 func (e *Engine) Bytecode(ctx context.Context, g *opencypher.Graph, tr *Traversal) ([]any, error) {
-	return e.run(ctx, g, []Stmt{{Tr: tr, Term: "toList"}})
+	return e.run(ctx, g, []Stmt{{Tr: tr, Term: termToList}})
 }
 
 func (e *Engine) runStmts(ctx context.Context, st *opencypher.Store, stmts []Stmt) ([]any, error) {

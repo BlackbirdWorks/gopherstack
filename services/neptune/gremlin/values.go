@@ -122,7 +122,7 @@ func elementID(v any) string {
 
 func vertexLabel(n *opencypher.Node) string {
 	if len(n.Labels) == 0 {
-		return "vertex"
+		return labelVertex
 	}
 
 	return strings.Join(n.Labels, "::")

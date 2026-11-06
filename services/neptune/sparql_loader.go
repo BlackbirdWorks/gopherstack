@@ -73,18 +73,18 @@ type loadJob struct {
 	endTime      time.Time
 	startTime    time.Time
 	cancel       context.CancelFunc
+	cache        map[string][]byte
 	status       string
 	id           string
 	graph        string
 	base         string
 	bucket       string
 	source       string
-	errors       []loadError
-	deps         []string
-	keys         []string
-	feeds        []*loadFeed
-	cache        map[string][]byte
 	pg           string
+	feeds        []*loadFeed
+	keys         []string
+	deps         []string
+	errors       []loadError
 	format       sparql.Format
 	edgeOnly     bool
 	allowEmpty   bool
@@ -110,23 +110,22 @@ func newLoaderState() *loaderState {
 }
 
 type loadRequest struct {
-	Source      string `json:"source"`
-	Format      string `json:"format"`
-	IAMRoleArn  string `json:"iamRoleArn"`
-	Mode        string `json:"mode"`
-	Region      string `json:"region"`
-	FailOnError string `json:"failOnError"`
-	Queue       string `json:"queueRequest"`
-	Parser      struct {
+	Source       string `json:"source"`
+	Format       string `json:"format"`
+	IAMRoleArn   string `json:"iamRoleArn"`
+	Mode         string `json:"mode"`
+	Region       string `json:"region"`
+	FailOnError  string `json:"failOnError"`
+	Queue        string `json:"queueRequest"`
+	EdgeOnly     string `json:"edgeOnlyLoad"`
+	UpdateSingle string `json:"updateSingleCardinalityProperties"`
+	UserEdgeIDs  string `json:"userProvidedEdgeIds"`
+	Parser       struct {
 		NamedGraph string   `json:"namedGraphUri"`
 		BaseURI    string   `json:"baseUri"`
 		AllowEmpty flexFlag `json:"allowEmptyStrings"`
 	} `json:"parserConfiguration"`
 	Deps []string `json:"dependencies"`
-
-	EdgeOnly     string `json:"edgeOnlyLoad"`
-	UpdateSingle string `json:"updateSingleCardinalityProperties"`
-	UserEdgeIDs  string `json:"userProvidedEdgeIds"`
 }
 
 func loaderFormat(s string) (sparql.Format, bool) {
@@ -450,10 +449,10 @@ func (rs *rdfService) runLoad(ctx context.Context, job *loadJob) {
 }
 
 type feedResult struct {
-	datatype int
-	insert   int
 	status   string
 	errs     []loadError
+	datatype int
+	insert   int
 	records  int
 	dups     int
 	parsing  int

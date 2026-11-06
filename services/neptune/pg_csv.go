@@ -59,42 +59,10 @@ var errCSVQuote = errors.New("quote handling")
 
 // readCSVField reads one field at i and returns the index of the delimiter that ended it.
 func readCSVField(s string, i int) (csvField, int, error) {
-	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-		i++
-	}
+	i = skipBlanks(s, i)
 
 	if i < len(s) && s[i] == '"' {
-		var b strings.Builder
-
-		i++
-
-		for ; i < len(s); i++ {
-			if s[i] != '"' {
-				b.WriteByte(s[i])
-
-				continue
-			}
-
-			if i+1 < len(s) && s[i+1] == '"' {
-				b.WriteByte('"')
-				i++
-
-				continue
-			}
-
-			i++
-			for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-				i++
-			}
-
-			if i < len(s) && s[i] != ',' && s[i] != '\n' {
-				return csvField{}, i, fmt.Errorf("%w: unexpected character after closing quote", errCSVQuote)
-			}
-
-			return csvField{val: b.String(), quoted: true}, i, nil
-		}
-
-		return csvField{}, i, fmt.Errorf("%w: unterminated quoted field", errCSVQuote)
+		return readQuotedField(s, i+1)
 	}
 
 	start := i
@@ -107,6 +75,43 @@ func readCSVField(s string, i int) (csvField, int, error) {
 	}
 
 	return csvField{val: strings.TrimSpace(s[start:i])}, i, nil
+}
+
+func skipBlanks(s string, i int) int {
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+
+	return i
+}
+
+// readQuotedField reads a quoted field whose opening quote precedes i.
+func readQuotedField(s string, i int) (csvField, int, error) {
+	var b strings.Builder
+
+	for ; i < len(s); i++ {
+		if s[i] != '"' {
+			b.WriteByte(s[i])
+
+			continue
+		}
+
+		if i+1 < len(s) && s[i+1] == '"' {
+			b.WriteByte('"')
+			i++
+
+			continue
+		}
+
+		i = skipBlanks(s, i+1)
+		if i < len(s) && s[i] != ',' && s[i] != '\n' {
+			return csvField{}, i, fmt.Errorf("%w: unexpected character after closing quote", errCSVQuote)
+		}
+
+		return csvField{val: b.String(), quoted: true}, i, nil
+	}
+
+	return csvField{}, i, fmt.Errorf("%w: unterminated quoted field", errCSVQuote)
 }
 
 // splitUnescaped splits s on sep, honouring a backslash escape of sep, and unescapes it.

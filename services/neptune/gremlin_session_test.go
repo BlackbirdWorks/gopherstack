@@ -25,13 +25,22 @@ func TestGremlinGoTransactions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
 		finish func(t *testing.T, tx *gremlingo.Transaction)
+		name   string
 		want   int64
 	}{
-		{"commit", func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Commit()) }, 2},
-		{"rollback", func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Rollback()) }, 0},
-		{"close_without_commit", func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Close()) }, 0},
+		{
+			name: "commit", want: 2,
+			finish: func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Commit()) },
+		},
+		{
+			name:   "rollback",
+			finish: func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Rollback()) },
+		},
+		{
+			name:   "close_without_commit",
+			finish: func(t *testing.T, tx *gremlingo.Transaction) { t.Helper(); require.NoError(t, tx.Close()) },
+		},
 	}
 
 	for _, tt := range tests {
@@ -57,12 +66,12 @@ func TestGremlinGoScriptSession(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		script []string
 		name   string
+		script []string
 		want   int64
 	}{
-		{[]string{"g.addV('a').next()", "g.addV('b').next()"}, "close_commits_all_requests", 2},
-		{[]string{"g.addV('a').next()", "g.V().fail('rollback')", "g.addV('b').next()"}, "failure_discards_open_tx", 1},
+		{"close_commits_all_requests", []string{"g.addV('a').next()", "g.addV('b').next()"}, 2},
+		{"failure_discards_open_tx", []string{"g.addV('a').next()", "g.V().fail('rollback')", "g.addV('b').next()"}, 1},
 	}
 
 	for _, tt := range tests {

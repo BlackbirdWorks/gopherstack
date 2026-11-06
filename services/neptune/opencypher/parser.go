@@ -18,8 +18,13 @@ func parse(src string) (*query, error) {
 	}
 
 	p := &parser{src: src, toks: toks}
-	q := &query{}
-	head, prevAll := q, false
+
+	return p.parseParts()
+}
+
+func (p *parser) parseParts() (*query, error) {
+	head := &query{}
+	cur, prevAll := head, false
 
 	for {
 		for p.accept(";") {
@@ -30,46 +35,60 @@ func parse(src string) (*query, error) {
 		}
 
 		if p.peek().is("UNION") {
-			next, all, uerr := p.unionBoundary(head, q, prevAll)
-			if uerr != nil {
-				return nil, uerr
+			next, all, err := p.unionBoundary(head, cur, prevAll)
+			if err != nil {
+				return nil, err
 			}
 
-			q.union, q.unionAll, q, prevAll = next, all, next, all
+			cur.union, cur.unionAll, cur, prevAll = next, all, next, all
 
 			continue
 		}
 
-		c, werr := p.parseClause()
-		if werr != nil {
-			return nil, werr
+		if err := p.parseInto(cur); err != nil {
+			return nil, err
 		}
-
-		switch c.(type) {
-		case createClause, mergeClause, setClause, removeClause, deleteClause:
-			q.write = true
-		}
-
-		q.clauses = append(q.clauses, c)
 	}
 
-	if len(q.clauses) == 0 {
+	if len(cur.clauses) == 0 {
 		return nil, malformed("Query is empty")
 	}
 
-	if err = p.validate(q); err != nil {
+	if err := p.validate(cur); err != nil {
 		return nil, err
 	}
 
-	if head.union != nil {
-		for part := head; part != nil; part = part.union {
-			if part.write {
-				return nil, unsupported("UNION with an updating clause is not supported; only read-only queries can be combined")
-			}
+	return head, rejectUnionWrites(head)
+}
+
+func (p *parser) parseInto(q *query) error {
+	c, err := p.parseClause()
+	if err != nil {
+		return err
+	}
+
+	switch c.(type) {
+	case createClause, mergeClause, setClause, removeClause, deleteClause:
+		q.write = true
+	}
+
+	q.clauses = append(q.clauses, c)
+
+	return nil
+}
+
+func rejectUnionWrites(head *query) error {
+	if head.union == nil {
+		return nil
+	}
+
+	for part := head; part != nil; part = part.union {
+		if part.write {
+			return unsupported("UNION with an updating clause is not supported; only read-only queries can be combined")
 		}
 	}
 
-	return head, nil
+	return nil
 }
 
 // unionBoundary consumes UNION [ALL] after a finished RETURN-terminated part and starts the next part.

@@ -101,27 +101,46 @@ func (mm *mergeMap) add(k, v any, edge bool) error {
 }
 
 func (mm *mergeMap) addToken(key Token, v any, edge bool) error {
-	switch {
-	case key.Kind == kindT && key.Name == tokID:
+	if key.Kind == kindT {
+		return mm.addT(key.Name, v)
+	}
+
+	if edge && mm.addEnd(key, v) {
+		return nil
+	}
+
+	return malformed("Unsupported merge map key: %s.%s", key.Kind, key.Name)
+}
+
+func (mm *mergeMap) addT(name string, v any) error {
+	switch name {
+	case tokID:
 		mm.id, mm.hasID = idString(v), true
-	case key.Kind == kindT && key.Name == tokLabel:
+	case tokLabel:
 		s, ok := v.(string)
 		if !ok {
 			return malformed("The label of a merge map must be a string")
 		}
 
 		mm.label, mm.hasLbl = s, true
-	case edge && key.Kind == kindDirection && key.Name == dirOut,
-		edge && key.Kind == kindMerge && key.Name == mergeOutV:
-		mm.out, mm.hasOut = v, true
-	case edge && key.Kind == kindDirection && key.Name == dirIn,
-		edge && key.Kind == kindMerge && key.Name == mergeInV:
-		mm.in, mm.hasIn = v, true
 	default:
-		return malformed("Unsupported merge map key: %s.%s", key.Kind, key.Name)
+		return malformed("Unsupported merge map key: T.%s", name)
 	}
 
 	return nil
+}
+
+func (mm *mergeMap) addEnd(key Token, v any) bool {
+	switch {
+	case key.Kind == kindDirection && key.Name == dirOut, key.Kind == kindMerge && key.Name == mergeOutV:
+		mm.out, mm.hasOut = v, true
+	case key.Kind == kindDirection && key.Name == dirIn, key.Kind == kindMerge && key.Name == mergeInV:
+		mm.in, mm.hasIn = v, true
+	default:
+		return false
+	}
+
+	return true
 }
 
 // mergeOptions evaluates option(Merge.x, map) modulators into parsed maps.
@@ -282,19 +301,7 @@ func stepMergeV(x *exec, s *Step, t *trav) ([]*trav, error) {
 	}
 
 	if matched := x.matchNodes(search); len(matched) > 0 {
-		out := make([]*trav, 0, len(matched))
-
-		for _, n := range matched {
-			if om := opts[mergeOnMatch]; om != nil {
-				if err = onMatchUpdate(n, om); err != nil {
-					return nil, err
-				}
-			}
-
-			out = append(out, t.next(n))
-		}
-
-		return out, nil
+		return emitMatches(t, matched, opts[mergeOnMatch])
 	}
 
 	cm, err := combinedCreate(search, opts[mergeOnCreate])
@@ -302,7 +309,7 @@ func stepMergeV(x *exec, s *Step, t *trav) ([]*trav, error) {
 		return nil, err
 	}
 
-	label := "vertex"
+	label := labelVertex
 	if cm.hasLbl {
 		label = cm.label
 	}
@@ -317,6 +324,22 @@ func stepMergeV(x *exec, s *Step, t *trav) ([]*trav, error) {
 	}
 
 	return []*trav{t.next(n)}, nil
+}
+
+func emitMatches[T any](t *trav, matched []T, onMatch *mergeMap) ([]*trav, error) {
+	out := make([]*trav, 0, len(matched))
+
+	for _, el := range matched {
+		if onMatch != nil {
+			if err := onMatchUpdate(el, onMatch); err != nil {
+				return nil, err
+			}
+		}
+
+		out = append(out, t.next(el))
+	}
+
+	return out, nil
 }
 
 func onMatchUpdate(el any, om *mergeMap) error {
@@ -351,9 +374,10 @@ func (x *exec) mergeEnd(v any) (*opencypher.Node, error) {
 }
 
 func (x *exec) matchRels(mm *mergeMap, from, to *opencypher.Node) []*opencypher.Rel {
-	var out []*opencypher.Rel
+	rels := x.st.Rels()
+	out := make([]*opencypher.Rel, 0, len(rels))
 
-	for _, r := range x.st.Rels() {
+	for _, r := range rels {
 		switch {
 		case mm.hasID && r.ID != mm.id,
 			mm.hasLbl && r.Type != mm.label,
@@ -390,9 +414,7 @@ func stepMergeE(x *exec, s *Step, t *trav) ([]*trav, error) {
 		return nil, err
 	}
 
-	if search, err = combinedEnds(search, opts); err != nil {
-		return nil, err
-	}
+	search = combinedEnds(search, opts)
 
 	from, to, err := x.searchEnds(search)
 	if err != nil {
@@ -404,26 +426,14 @@ func stepMergeE(x *exec, s *Step, t *trav) ([]*trav, error) {
 	}
 
 	if matched := x.matchRels(search, from, to); len(matched) > 0 {
-		out := make([]*trav, 0, len(matched))
-
-		for _, r := range matched {
-			if om := opts[mergeOnMatch]; om != nil {
-				if err = onMatchUpdate(r, om); err != nil {
-					return nil, err
-				}
-			}
-
-			out = append(out, t.next(r))
-		}
-
-		return out, nil
+		return emitMatches(t, matched, opts[mergeOnMatch])
 	}
 
 	return x.createEdge(t, search, opts, from, to)
 }
 
 // combinedEnds folds option(Merge.outV/inV, map) into the search map.
-func combinedEnds(search *mergeMap, opts map[string]*mergeMap) (*mergeMap, error) {
+func combinedEnds(search *mergeMap, opts map[string]*mergeMap) *mergeMap {
 	out := *search
 
 	for name, dir := range map[string]*bool{mergeOutV: &out.hasOut, mergeInV: &out.hasIn} {
@@ -454,7 +464,7 @@ func combinedEnds(search *mergeMap, opts map[string]*mergeMap) (*mergeMap, error
 		}
 	}
 
-	return &out, nil
+	return &out
 }
 
 func (x *exec) searchEnds(mm *mergeMap) (*opencypher.Node, *opencypher.Node, error) {

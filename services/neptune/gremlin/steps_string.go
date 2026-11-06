@@ -19,10 +19,10 @@ func regString(m map[string]stepFn) {
 		m[name] = perTrav(stringMap(name, func(_ *exec, _ *Step, _ *trav, s string) (any, error) { return f(s), nil }))
 	}
 
-	m["asString"] = perTrav(func(_ *exec, s *Step, t *trav) ([]*trav, error) {
+	m["asString"] = perTrav(func(_ *exec, _ *Step, t *trav) ([]*trav, error) {
 		return mapElements(t, func(v any) (any, error) {
 			if v == nil {
-				return nil, nil //nolint:nilnil // null stays null
+				return nil, nil
 			}
 
 			return asStringValue(v), nil
@@ -81,7 +81,7 @@ func stringMap(
 	return func(x *exec, s *Step, t *trav) ([]*trav, error) {
 		return mapElements(t, func(v any) (any, error) {
 			if v == nil {
-				return nil, nil //nolint:nilnil // null stays null
+				return nil, nil
 			}
 
 			str, ok := v.(string)

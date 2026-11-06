@@ -128,7 +128,7 @@ func (p *parser) parseStmt() (Stmt, error) {
 
 func isTerminal(name string) bool {
 	switch name {
-	case "toList", "next", "iterate", "hasNext", "toSet", "tryNext", "getRawTraversal", "fill":
+	case termToList, "next", "iterate", "hasNext", "toSet", "tryNext", "getRawTraversal", "fill":
 		return true
 	}
 

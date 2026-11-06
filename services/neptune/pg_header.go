@@ -24,6 +24,21 @@ const (
 	cardSingle = "single"
 	cardSet    = "set"
 	typString  = "string"
+	typBool    = "bool"
+	typBoolean = "boolean"
+	typByte    = "byte"
+	typShort   = "short"
+	typInt     = "int"
+	typLong    = "long"
+	typFloat   = "float"
+	typDouble  = "double"
+	typDate    = "date"
+	typDateTm  = "datetime"
+
+	bitsByte  = 8
+	bitsShort = 16
+	bitsInt   = 32
+	bitsLong  = 64
 )
 
 var (
@@ -45,15 +60,23 @@ type pgHeader struct {
 	isEdge bool
 }
 
-var gremlinTypes = map[string]bool{
-	"bool": true, "boolean": true, "byte": true, "short": true, "int": true, "long": true, "float": true,
-	"double": true, "string": true, "date": true, "datetime": true,
+func isGremlinType(t string) bool {
+	switch t {
+	case typBool, typBoolean, typByte, typShort, typInt, typLong, typFloat, typDouble, typString, typDate, typDateTm:
+		return true
+	}
+
+	return false
 }
 
-var cypherTypes = map[string]bool{
-	"bool": true, "boolean": true, "byte": true, "short": true, "int": true, "long": true, "float": true,
-	"double": true, "string": true, "datetime": true, "char": true, "date": true, "localdate": true,
-	"localdatetime": true, "duration": true, "point": true,
+func isCypherType(t string) bool {
+	switch t {
+	case typBool, typBoolean, typByte, typShort, typInt, typLong, typFloat, typDouble, typString, typDateTm,
+		"char", typDate, "localdate", "localdatetime", "duration", "point":
+		return true
+	}
+
+	return false
 }
 
 func pgHeaderErr(format string, a ...any) error {
@@ -62,7 +85,7 @@ func pgHeaderErr(format string, a ...any) error {
 
 func parsePGHeader(fields []csvField, cypher, userEdgeIDs bool) (*pgHeader, error) {
 	h := &pgHeader{}
-	seen := map[pgKind]bool{}
+	seen := make(map[pgKind]bool)
 
 	for _, f := range fields {
 		var (
@@ -97,48 +120,79 @@ func parsePGHeader(fields []csvField, cypher, userEdgeIDs bool) (*pgHeader, erro
 }
 
 func (h *pgHeader) validate(seen map[pgKind]bool, cypher, userEdgeIDs bool) error {
-	switch {
-	case !h.isEdge && !seen[colID]:
-		return pgHeaderErr("vertex file requires an ID column")
-	case h.isEdge && !(seen[colFrom] && seen[colTo]):
-		return pgHeaderErr("edge file requires both from and to columns")
-	case h.isEdge && !cypher && !seen[colID]:
-		return pgHeaderErr("edge file requires a ~id column")
-	case h.isEdge && cypher && userEdgeIDs && !seen[colID]:
-		return pgHeaderErr("relationship file requires an :ID column when userProvidedEdgeIds is true")
-	case h.isEdge && cypher && !userEdgeIDs && seen[colID]:
-		return pgHeaderErr("relationship file must not have an :ID column when userProvidedEdgeIds is false")
-	case !h.isEdge && (seen[colType]):
-		return pgHeaderErr("vertex file cannot have a relationship type column")
-	case h.isEdge && cypher && seen[colLabel]:
-		return pgHeaderErr("edge file cannot have a node label column")
+	if !h.isEdge {
+		return validateNodeFile(seen)
 	}
 
-	if h.isEdge {
-		for _, c := range h.cols {
-			if c.kind == colProp && (c.array || c.card == cardSet) {
-				return pgHeaderErr("edge property %q must be single-valued", c.name)
-			}
+	if !seen[colFrom] || !seen[colTo] {
+		return pgHeaderErr("edge file requires both from and to columns")
+	}
+
+	if err := validateEdgeIDs(seen, cypher, userEdgeIDs); err != nil {
+		return err
+	}
+
+	for _, c := range h.cols {
+		if c.kind == colProp && (c.array || c.card == cardSet) {
+			return pgHeaderErr("edge property %q must be single-valued", c.name)
 		}
 	}
 
 	return nil
 }
 
+func validateNodeFile(seen map[pgKind]bool) error {
+	if !seen[colID] {
+		return pgHeaderErr("vertex file requires an ID column")
+	}
+
+	if seen[colType] {
+		return pgHeaderErr("vertex file cannot have a relationship type column")
+	}
+
+	return nil
+}
+
+func validateEdgeIDs(seen map[pgKind]bool, cypher, userEdgeIDs bool) error {
+	switch {
+	case !cypher && !seen[colID]:
+		return pgHeaderErr("edge file requires a ~id column")
+	case !cypher:
+		return nil
+	case seen[colLabel]:
+		return pgHeaderErr("edge file cannot have a node label column")
+	case userEdgeIDs && !seen[colID]:
+		return pgHeaderErr("relationship file requires an :ID column when userProvidedEdgeIds is true")
+	case !userEdgeIDs && seen[colID]:
+		return pgHeaderErr("relationship file must not have an :ID column when userProvidedEdgeIds is false")
+	}
+
+	return nil
+}
+
+func gremlinSystemColumn(s string) (pgKind, bool) {
+	switch s {
+	case "~id":
+		return colID, true
+	case "~label":
+		return colLabel, true
+	case "~from":
+		return colFrom, true
+	case "~to":
+		return colTo, true
+	}
+
+	return colProp, false
+}
+
 func parseGremlinColumn(s string) (pgColumn, error) {
 	if strings.HasPrefix(s, "~") {
-		switch s {
-		case "~id":
-			return pgColumn{kind: colID}, nil
-		case "~label":
-			return pgColumn{kind: colLabel}, nil
-		case "~from":
-			return pgColumn{kind: colFrom}, nil
-		case "~to":
-			return pgColumn{kind: colTo}, nil
+		kind, ok := gremlinSystemColumn(s)
+		if !ok {
+			return pgColumn{}, pgHeaderErr("unknown system column %q", s)
 		}
 
-		return pgColumn{}, pgHeaderErr("unknown system column %q", s)
+		return pgColumn{kind: kind}, nil
 	}
 
 	name, rest := s, ""
@@ -157,34 +211,37 @@ func parseGremlinColumn(s string) (pgColumn, error) {
 		return c, nil
 	}
 
-	if strings.HasSuffix(rest, "[]") {
-		c.array, rest = true, strings.TrimSuffix(rest, "[]")
-	}
+	return c, c.parseGremlinType(rest, s)
+}
+
+// parseGremlinType reads Type, Type[], Type(card) or Type(card)[] into c.
+func (c *pgColumn) parseGremlinType(rest, header string) error {
+	rest, c.array = strings.CutSuffix(rest, "[]")
 
 	if strings.HasSuffix(rest, ")") {
 		i := strings.LastIndex(rest, "(")
 		if i < 0 {
-			return pgColumn{}, pgHeaderErr("malformed cardinality in %q", s)
+			return pgHeaderErr("malformed cardinality in %q", header)
 		}
 
 		c.card = strings.ToLower(rest[i+1 : len(rest)-1])
 		rest = rest[:i]
 
 		if c.card != cardSingle && c.card != cardSet {
-			return pgColumn{}, pgHeaderErr("cardinality of %q must be single or set", s)
+			return pgHeaderErr("cardinality of %q must be single or set", header)
 		}
 
 		if c.card == cardSingle && c.array {
-			return pgColumn{}, pgHeaderErr("single cardinality with an array type in %q", s)
+			return pgHeaderErr("single cardinality with an array type in %q", header)
 		}
 	}
 
 	c.typ = strings.ToLower(rest)
-	if !gremlinTypes[c.typ] {
-		return pgColumn{}, pgHeaderErr("unsupported data type %q in %q", rest, s)
+	if !isGremlinType(c.typ) {
+		return pgHeaderErr("unsupported data type %q in %q", rest, header)
 	}
 
-	return c, nil
+	return nil
 }
 
 func parseCypherColumn(s string) (pgColumn, error) {
@@ -223,39 +280,41 @@ func parseCypherColumn(s string) (pgColumn, error) {
 	}
 
 	typ := strings.ToLower(rest)
-	if !cypherTypes[typ] {
+	if !isCypherType(typ) {
 		return pgColumn{}, pgHeaderErr("unsupported data type %q in %q", rest, s)
 	}
 
 	return pgColumn{name: name, typ: typ}, nil
 }
 
-var dateLayouts = []string{"2006-01-02", "2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02T15:04:05Z07:00"}
+func dateLayouts() []string {
+	return []string{"2006-01-02", "2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02T15:04:05Z07:00"}
+}
 
 // convertPGValue parses s as the Neptune CSV type typ. Dates are kept as UTC ISO-8601 strings because the
 // property store has no temporal value; the auto-cast openCypher types are stored verbatim.
 func convertPGValue(typ, s string, cypher bool) (any, error) {
 	switch typ {
-	case "bool", "boolean":
+	case typBool, typBoolean:
 		return strings.EqualFold(s, "true"), nil
-	case "byte":
-		return parsePGInt(s, 8)
-	case "short":
-		return parsePGInt(s, 16)
-	case "int":
-		return parsePGInt(s, 32)
-	case "long":
-		return parsePGInt(s, 64)
-	case "float":
-		return parsePGFloat(s, 32)
-	case "double":
-		return parsePGFloat(s, 64)
-	case "date", "datetime":
-		if cypher && typ == "date" {
+	case typByte:
+		return parsePGInt(s, bitsByte)
+	case typShort:
+		return parsePGInt(s, bitsShort)
+	case typInt:
+		return parsePGInt(s, bitsInt)
+	case typLong:
+		return parsePGInt(s, bitsLong)
+	case typFloat:
+		return parsePGFloat(s, bitsInt)
+	case typDouble:
+		return parsePGFloat(s, bitsLong)
+	case typDate, typDateTm:
+		if cypher && typ == typDate {
 			return s, nil
 		}
 
-		for _, l := range dateLayouts {
+		for _, l := range dateLayouts() {
 			if t, err := time.Parse(l, s); err == nil {
 				return t.UTC().Format("2006-01-02T15:04:05Z"), nil
 			}

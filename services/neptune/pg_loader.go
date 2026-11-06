@@ -20,6 +20,7 @@ const (
 	defaultEdgeLbl    = "edge"
 	pgCSV             = "csv"
 	pgOpenCypher      = "opencypher"
+	firstDataRecord   = 2
 )
 
 var errNoGraph = errors.New("the property graph is not available for this cluster")
@@ -62,7 +63,7 @@ func (l *pgLoader) fail(kind pgErrKind, code, msg string, rec int) {
 
 // pgFeedIsEdge reports whether a CSV feed holds edges (header names from/to columns); ok is false when the
 // header cannot be read.
-func pgFeedIsEdge(data []byte, cypher bool) (isEdge, ok bool) {
+func pgFeedIsEdge(data []byte, cypher bool) (bool, bool) {
 	recs, _ := parseCSV(data)
 	if len(recs) == 0 {
 		return false, false
@@ -193,7 +194,7 @@ func (l *pgLoader) run(data []byte) {
 			continue
 		}
 
-		l.row(rec, i+2)
+		l.row(rec, i+firstDataRecord)
 	}
 
 	if perr != nil {
@@ -204,8 +205,8 @@ func (l *pgLoader) run(data []byte) {
 
 type pgProp struct {
 	key  string
-	vals []any
 	card string
+	vals []any
 }
 
 type pgRow struct {
@@ -230,7 +231,7 @@ func (l *pgLoader) convertRow(rec []csvField, recNum int) (*pgRow, bool) {
 
 	for i, c := range l.hdr.cols {
 		f := rec[i]
-		if f.val == "" && !(f.quoted && c.kind == colProp && c.typ == typString && l.job.allowEmpty) {
+		if f.val == "" && !l.keepEmpty(c, f) {
 			if c.kind != colProp && c.kind != colLabel && c.kind != colType {
 				l.fail(pgErrParse, errCodeParsing, "Blank value in required column", recNum)
 
@@ -246,6 +247,10 @@ func (l *pgLoader) convertRow(rec []csvField, recNum int) (*pgRow, bool) {
 	}
 
 	return row, true
+}
+
+func (l *pgLoader) keepEmpty(c pgColumn, f csvField) bool {
+	return f.quoted && c.kind == colProp && c.typ == typString && l.job.allowEmpty
 }
 
 func (l *pgLoader) setColumn(row *pgRow, c pgColumn, f csvField, recNum int) bool {
@@ -264,46 +269,58 @@ func (l *pgLoader) setColumn(row *pgRow, c pgColumn, f csvField, recNum int) boo
 	case colLabel:
 		if l.hdr.isEdge {
 			row.typ = f.val
-
-			break
-		}
-
-		for _, lbl := range splitUnescaped(f.val, ';') {
-			if lbl = strings.TrimSpace(lbl); lbl != "" {
-				row.labels = append(row.labels, lbl)
-			}
+		} else {
+			row.labels = splitLabels(f.val)
 		}
 	case colProp:
-		raw := []string{f.val}
-		if c.array {
-			raw = splitUnescaped(f.val, ';')
-		}
-
-		p := pgProp{key: c.name, card: c.card}
-		if p.card == "" {
-			p.card = cardSet
-			if l.cypher || l.hdr.isEdge {
-				p.card = cardSingle
-			}
-		}
-
-		for _, r := range raw {
-			if c.array {
-				r = strings.TrimSpace(r)
-			}
-
-			v, err := convertPGValue(c.typ, r, l.cypher)
-			if err != nil {
-				l.fail(pgErrDatatype, errCodeParsing, fmt.Sprintf("Column %q: %s", c.name, err.Error()), recNum)
-
-				return false
-			}
-
-			p.vals = append(p.vals, v)
-		}
-
-		row.props = append(row.props, p)
+		return l.propColumn(row, c, f, recNum)
 	}
+
+	return true
+}
+
+func splitLabels(s string) []string {
+	var out []string
+
+	for _, lbl := range splitUnescaped(s, ';') {
+		if lbl = strings.TrimSpace(lbl); lbl != "" {
+			out = append(out, lbl)
+		}
+	}
+
+	return out
+}
+
+func (l *pgLoader) propColumn(row *pgRow, c pgColumn, f csvField, recNum int) bool {
+	raw := []string{f.val}
+	if c.array {
+		raw = splitUnescaped(f.val, ';')
+	}
+
+	p := pgProp{key: c.name, card: c.card}
+	if p.card == "" {
+		p.card = cardSet
+		if l.cypher || l.hdr.isEdge {
+			p.card = cardSingle
+		}
+	}
+
+	for _, r := range raw {
+		if c.array {
+			r = strings.TrimSpace(r)
+		}
+
+		v, err := convertPGValue(c.typ, r, l.cypher)
+		if err != nil {
+			l.fail(pgErrDatatype, errCodeParsing, fmt.Sprintf("Column %q: %s", c.name, err.Error()), recNum)
+
+			return false
+		}
+
+		p.vals = append(p.vals, v)
+	}
+
+	row.props = append(row.props, p)
 
 	return true
 }
@@ -340,23 +357,26 @@ func (l *pgLoader) nodeRow(row *pgRow, recNum int) {
 		l.res.records += max(len(labels), 1)
 	} else {
 		l.res.records += max(len(labels), 1)
-
-		if len(labels) == 0 {
-			l.res.dups++
-		}
-
-		for _, lbl := range labels {
-			if slices.Contains(n.Labels, lbl) {
-				l.res.dups++
-
-				continue
-			}
-
-			n.Labels = append(n.Labels, lbl)
-		}
+		l.mergeLabels(n, labels)
 	}
 
 	l.applyProps(n.Props, row.props, recNum)
+}
+
+func (l *pgLoader) mergeLabels(n *opencypher.Node, labels []string) {
+	if len(labels) == 0 {
+		l.res.dups++
+	}
+
+	for _, lbl := range labels {
+		if slices.Contains(n.Labels, lbl) {
+			l.res.dups++
+
+			continue
+		}
+
+		n.Labels = append(n.Labels, lbl)
+	}
 }
 
 func (l *pgLoader) edgeRow(row *pgRow, recNum int) {

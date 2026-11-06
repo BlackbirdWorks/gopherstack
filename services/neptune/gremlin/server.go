@@ -40,11 +40,11 @@ type Options struct {
 
 // Server serves Gremlin over WebSocket and HTTP against one graph.
 type Server struct {
-	ctx   context.Context //nolint:containedctx // lifetime of the owning listener
+	ctx   context.Context
 	eng   *Engine
 	graph *opencypher.Graph
-	opt   Options
 	sess  *sessionTable
+	opt   Options
 }
 
 // NewServer returns a server whose WebSocket connections close when ctx is done.
@@ -264,7 +264,7 @@ func (s *Server) evalMessage(reqCtx context.Context, msg *message) ([]any, error
 	ctx, finish := s.queryContext(msg, script)
 	defer finish()
 
-	if sid, ok := msg.args["session"].(string); ok && sid != "" {
+	if sid, isSession := msg.args["session"].(string); isSession && sid != "" {
 		stmts, err := ParseScript(script, bindingsOf(msg.args["bindings"]))
 		if err != nil {
 			return nil, err
@@ -291,7 +291,7 @@ func (s *Server) bytecodeMessage(reqCtx context.Context, msg *message) ([]any, e
 	ctx, finish := s.queryContext(msg, "bytecode: "+describe(tr))
 	defer finish()
 
-	if sid, ok := msg.args["session"].(string); ok && sid != "" {
+	if sid, isSession := msg.args["session"].(string); isSession && sid != "" {
 		return s.bytecodeInSession(ctx, sid, tr)
 	}
 
@@ -334,7 +334,7 @@ func (s *Server) bytecodeInSession(ctx context.Context, id string, tr *Traversal
 		return nil, nil
 	}
 
-	stmts := []Stmt{{Tr: tr, Term: "toList"}}
+	stmts := []Stmt{{Tr: tr, Term: termToList}}
 
 	return s.inSession(ctx, id, true, func(st *opencypher.Store) ([]any, error) {
 		return s.eng.runStmts(ctx, st, stmts)

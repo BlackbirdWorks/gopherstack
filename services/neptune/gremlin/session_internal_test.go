@@ -12,8 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
-func sessionMsg(op, script, sid string) *message {
-	args := map[string]any{"session": sid}
+func sessionMsg(op, script string) *message {
+	args := map[string]any{"session": "s1"}
 	if script != "" {
 		args["gremlin"] = script
 	}
@@ -25,27 +25,27 @@ func TestSessionLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		finish    func(t *testing.T, s *Server)
+		name      string
 		wantNodes int
 	}{
-		{"close_commits_script_session", func(t *testing.T, s *Server) {
+		{name: "close_commits_script_session", wantNodes: 2, finish: func(t *testing.T, s *Server) {
 			t.Helper()
 
-			_, err := s.execute(t.Context(), sessionMsg("close", "", "s1"))
+			_, err := s.execute(t.Context(), sessionMsg("close", ""))
 			require.NoError(t, err)
-		}, 2},
-		{"lifetime_expiry_rolls_back", func(*testing.T, *Server) { time.Sleep(2 * time.Minute) }, 0},
-		{"failed_request_rolls_back_session", func(t *testing.T, s *Server) {
+		}},
+		{name: "lifetime_expiry_rolls_back", finish: func(*testing.T, *Server) { time.Sleep(2 * time.Minute) }},
+		{name: "failed_request_rolls_back_session", wantNodes: 1, finish: func(t *testing.T, s *Server) {
 			t.Helper()
 
-			_, err := s.execute(t.Context(), sessionMsg(opEval, "g.V('missing').fail('boom')", "s1"))
+			_, err := s.execute(t.Context(), sessionMsg(opEval, "g.V('missing').fail('boom')"))
 			require.Error(t, err)
-			_, err = s.execute(t.Context(), sessionMsg(opEval, "g.addV('c').next()", "s1"))
+			_, err = s.execute(t.Context(), sessionMsg(opEval, "g.addV('c').next()"))
 			require.NoError(t, err)
-			_, err = s.execute(t.Context(), sessionMsg("close", "", "s1"))
+			_, err = s.execute(t.Context(), sessionMsg("close", ""))
 			require.NoError(t, err)
-		}, 1},
+		}},
 	}
 
 	for _, tt := range tests {
@@ -60,7 +60,7 @@ func TestSessionLifecycle(t *testing.T) {
 				s := NewServer(ctx, g, Options{SessionLifetime: time.Minute})
 
 				for _, label := range []string{"a", "b"} {
-					_, err := s.execute(ctx, sessionMsg(opEval, "g.addV('"+label+"').next()", "s1"))
+					_, err := s.execute(ctx, sessionMsg(opEval, "g.addV('"+label+"').next()"))
 					require.NoError(t, err)
 				}
 

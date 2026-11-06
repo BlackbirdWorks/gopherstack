@@ -27,8 +27,8 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 		extra   string
 		query   string
 		status  string
-		want    []any
 		errCode string
+		want    []any
 	}{
 		{
 			name: "gremlin vertices and edges", format: "csv",
@@ -41,8 +41,11 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 			}},
 		},
 		{
-			name: "duplicate rows", format: "csv",
-			files:  map[string]string{"d/v.csv": "~id,~label,name,team\nP-2,Player,Kohli,India\nP-2,Player,Kohli,India\n"},
+			name:   "duplicate rows",
+			format: "csv",
+			files: map[string]string{
+				"d/v.csv": "~id,~label,name,team\nP-2,Player,Kohli,India\nP-2,Player,Kohli,India\n",
+			},
 			status: "LOAD_COMPLETED",
 			counts: map[string]float64{"totalRecords": 6, "totalDuplicates": 3},
 			query:  "MATCH (n:Player) RETURN count(n) AS c",
@@ -90,7 +93,9 @@ func TestPropertyGraphBulkLoader(t *testing.T) {
 			want:  []any{map[string]any{"c": float64(0)}},
 		},
 		{
-			name: "opencypher nodes and rels", format: "opencypher", extra: `"userProvidedEdgeIds":"TRUE"`,
+			name:   "opencypher nodes and rels",
+			format: "opencypher",
+			extra:  `"userProvidedEdgeIds":"TRUE"`,
 			files: map[string]string{
 				"d/n.csv": ":ID,name:String,age:Int,:LABEL\nv1,marko,29,person\nv2,lop,,software;thing\n",
 				"d/r.csv": ":ID,:START_ID,:END_ID,:TYPE,weight:Double\ne1,v1,v2,created,0.4\n",

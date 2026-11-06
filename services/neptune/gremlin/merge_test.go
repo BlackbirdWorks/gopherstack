@@ -40,7 +40,9 @@ func TestMergeSteps(t *testing.T) {
 		{
 			"mergev_on_match_skipped_when_created",
 			`g.mergeV([(T.label):'person', name:'new']).option(Merge.onMatch, [age:30]).option(Merge.onCreate, [age:1])`,
-			`g.V().has('name','new').values('age')`, "", []string{"1"},
+			`g.V().has('name','new').values('age')`,
+			"",
+			[]string{"1"},
 		},
 		{"mergev_emits_matches", `g.mergeV([(T.label):'person']).values('name')`, `g.V().count()`,
 			"", []string{"4"}},
@@ -61,12 +63,16 @@ func TestMergeSteps(t *testing.T) {
 		{
 			"mergee_on_match",
 			`g.mergeE([(T.label):'knows', (Direction.OUT):'marko', (Direction.IN):'josh']).option(Merge.onMatch, [since:2020])`,
-			`g.E().has('since',2020).count()`, "", []string{"1"},
+			`g.E().has('since',2020).count()`,
+			"",
+			[]string{"1"},
 		},
 		{
 			"mergee_on_create",
 			`g.mergeE([(T.label):'knows', (Direction.OUT):'vadas', (Direction.IN):'josh']).option(Merge.onCreate, [weight:0.1])`,
-			`g.E().has('weight',0.1).count()`, "", []string{"1"},
+			`g.E().has('weight',0.1).count()`,
+			"",
+			[]string{"1"},
 		},
 		{
 			"mergee_missing_vertex", `g.mergeE([(T.label):'knows', (Direction.OUT):'nobody', (Direction.IN):'josh'])`,
@@ -80,8 +86,11 @@ func TestMergeSteps(t *testing.T) {
 			`g.E().hasLabel('knows').count()`, "", []string{"3"},
 		},
 		{
-			"mergee_by_edge_id", `g.mergeE([(T.id):'e-new', (T.label):'x', (Direction.OUT):'marko', (Direction.IN):'lop'])`,
-			`g.E('e-new').label()`, "", []string{"x"},
+			"mergee_by_edge_id",
+			`g.mergeE([(T.id):'e-new', (T.label):'x', (Direction.OUT):'marko', (Direction.IN):'lop'])`,
+			`g.E('e-new').label()`,
+			"",
+			[]string{"x"},
 		},
 	}
 

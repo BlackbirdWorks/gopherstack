@@ -16,12 +16,12 @@ func TestNeptunedataSDKPropertyGraphLoad(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		want   any
 		files  map[string]string
+		edge   *bool
 		name   string
 		format types.Format
-		edge   *bool
 		query  string
-		want   any
 	}{
 		{
 			name: "gremlin csv", format: types.FormatCsv,
@@ -65,7 +65,10 @@ func TestNeptunedataSDKPropertyGraphLoad(t *testing.T) {
 			require.NotEmpty(t, id)
 
 			require.Eventually(t, func() bool {
-				st, gerr := cl.GetLoaderJobStatus(t.Context(), &neptunedata.GetLoaderJobStatusInput{LoadId: aws.String(id)})
+				st, gerr := cl.GetLoaderJobStatus(
+					t.Context(),
+					&neptunedata.GetLoaderJobStatusInput{LoadId: aws.String(id)},
+				)
 				if gerr != nil {
 					return false
 				}
