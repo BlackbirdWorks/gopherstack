@@ -18,7 +18,6 @@ import (
 
 const gkeBase = "/dashboard/api/v1/gcp/container/v1/projects/p/locations"
 
-
 func newGKEDashboard(t *testing.T) *dashboard.DashboardHandler {
 	t.Helper()
 

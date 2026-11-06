@@ -101,7 +101,8 @@ func (a *azureFunctionsAPI) fail(c *echo.Context, err error) error {
 func azureFunctionApp(name string, i functionsbackend.AppInfo) azureFunctionAppJSON {
 	out := azureFunctionAppJSON{
 		Name: name, Created: i.Created, HostName: i.HostName, SCMHost: i.SCMHost,
-		Image: i.Image, Worker: i.Worker, Failure: i.Failure, Stopped: i.Stopped, Deployed: i.Deployed, State: "Running",
+		Image: i.Image, Worker: i.Worker, Failure: i.Failure, Stopped: i.Stopped,
+		Deployed: i.Deployed, State: "Running",
 	}
 
 	if i.Stopped {

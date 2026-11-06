@@ -44,7 +44,8 @@ func (a *gcpContainerAPI) kubeconfig(r gcpRESTCall) (proto.Message, error) {
 	sb.WriteString("apiVersion: v1\nkind: Config\ncurrent-context: " + strconv.Quote(name) + "\n")
 	sb.WriteString("clusters:\n- name: " + strconv.Quote(name) + "\n  cluster:\n")
 	sb.WriteString("    server: " + strconv.Quote("https://"+c.GetEndpoint()) + "\n")
-	sb.WriteString("    certificate-authority-data: " + strconv.Quote(c.GetMasterAuth().GetClusterCaCertificate()) + "\n")
+	sb.WriteString("    certificate-authority-data: " +
+		strconv.Quote(c.GetMasterAuth().GetClusterCaCertificate()) + "\n")
 	sb.WriteString("contexts:\n- name: " + strconv.Quote(name) + "\n  context:\n    cluster: " +
 		strconv.Quote(name) + "\n    user: " + strconv.Quote(name) + "\n")
 	sb.WriteString("users:\n- name: " + strconv.Quote(name) + "\n  user:\n" + user)

@@ -18,7 +18,7 @@ import (
 const (
 	azureFunctionsMasterKind  = "masterKey"
 	azureFunctionsMasterName  = "_master"
-	azureFunctionsKeyHeader   = "x-functions-key"
+	azureFunctionsKeyHeader   = "X-Functions-Key"
 	azureFunctionsInvokeLimit = 1 << 20
 	azureFunctionsInvokeTTL   = 60 * time.Second
 	azureFunctionsAPIPrefix   = "/api/"
@@ -50,7 +50,9 @@ func (a *azureFunctionsAPI) hostKeys(c *echo.Context) error {
 		return a.fail(c, err)
 	}
 
-	items := []azureFunctionKeyJSON{{Kind: azureFunctionsMasterKind, Name: azureFunctionsMasterName, Value: azureFunctionsMask}}
+	items := []azureFunctionKeyJSON{{
+		Kind: azureFunctionsMasterKind, Name: azureFunctionsMasterName, Value: azureFunctionsMask,
+	}}
 	items = appendMaskedKeys(items, functionsbackend.KeyTypeFunction, keys.FunctionKeys)
 	items = appendMaskedKeys(items, functionsbackend.KeyTypeSystem, keys.SystemKeys)
 
