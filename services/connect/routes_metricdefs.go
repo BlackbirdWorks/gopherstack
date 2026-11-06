@@ -19,5 +19,7 @@ func metricDefinitionRoutes() []restroute.Route {
 		{Method: http.MethodDelete, Path: one, Op: "DeleteMetric"},
 		{Method: http.MethodPost, Path: one + "/content", Op: "UpdateMetricContent"},
 		{Method: http.MethodPost, Path: one + "/metadata", Op: "UpdateMetricMetadata"},
+		{Method: http.MethodPost, Path: "/metrics/data", Op: "GetMetricDataV2"},
+		{Method: http.MethodPost, Path: "/metrics/contact", Op: "GetContactMetrics"},
 	}
 }

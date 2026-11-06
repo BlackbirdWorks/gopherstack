@@ -39,6 +39,37 @@ func (b *Backend) registerViewTables() {
 		func(v *metricRec) string { return v.Metric.Arn },
 		func(v *metricRec) *map[string]string { return &v.Metric.Tags },
 	)
+	b.attachedFiles = newFamily(r, "attachedFiles", labelAttachedFile,
+		func(v *attachedFileRec) string { return v.InstanceID }, func(v *attachedFileRec) string { return v.FileID })
+	b.attachedFiles.taggable(
+		func(v *attachedFileRec) string { return v.Arn },
+		func(v *attachedFileRec) *map[string]string { return &v.Tags },
+	)
+	b.attachedConfigs = newFamily(r, "attachedFilesConfigurations", labelAttachedConfig,
+		func(v *attachedConfigRec) string { return v.InstanceID }, func(v *attachedConfigRec) string { return v.Scope })
+	b.notifications = newFamily(r, "notifications", labelNotification,
+		func(v *notificationRec) string { return v.InstanceID }, func(v *notificationRec) string { return v.ID })
+	b.notifications.taggable(
+		func(v *notificationRec) string { return v.Arn },
+		func(v *notificationRec) *map[string]string { return &v.Tags },
+	)
+	b.pushRegistrations = newFamily(
+		r,
+		"pushRegistrations",
+		labelPushRegistration,
+		func(v *pushRegistrationRec) string { return v.InstanceID },
+		func(v *pushRegistrationRec) string { return v.ID },
+	)
+	b.authSessions = newFamily(r, "authSessions", labelSession,
+		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
+	b.testCases = newFamily(r, "testCases", labelTestCase,
+		func(v *testCaseRec) string { return v.InstanceID }, func(v *testCaseRec) string { return v.ID })
+	b.testCases.taggable(
+		func(v *testCaseRec) string { return v.Arn }, func(v *testCaseRec) *map[string]string { return &v.Tags })
+	b.evaluations = newFamily(r, "contactEvaluations", labelEvaluation,
+		func(v *evaluationRec) string { return v.InstanceID }, func(v *evaluationRec) string { return v.ID })
+	b.evaluations.taggable(
+		func(v *evaluationRec) string { return v.Arn }, func(v *evaluationRec) *map[string]string { return &v.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -115,6 +146,10 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.emails.findARN,
 		b.workspaces.findARN,
 		b.metricDefs.findARN,
+		b.attachedFiles.findARN,
+		b.notifications.findARN,
+		b.testCases.findARN,
+		b.evaluations.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -137,5 +172,12 @@ func (b *Backend) dropExtras(inst string) {
 	b.emails.dropInstance(inst)
 	b.workspaces.dropInstance(inst)
 	b.metricDefs.dropInstance(inst)
+	b.attachedFiles.dropInstance(inst)
+	b.attachedConfigs.dropInstance(inst)
+	b.notifications.dropInstance(inst)
+	b.pushRegistrations.dropInstance(inst)
+	b.authSessions.dropInstance(inst)
+	b.testCases.dropInstance(inst)
+	b.evaluations.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

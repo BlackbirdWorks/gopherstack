@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 339 (339 ok) |
+| PARITY entries audited | 374 (374 ok) |
 | Known gaps | 20 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
@@ -15,19 +15,19 @@
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed
-- EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed
-- TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed
-- Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed
-- Metrics definitions: GetContactMetrics is not routed; the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
-- AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed
+- Search*: SearchContactEvaluations is not routed (the number, boolean, date-time and decimal condition fields and the ContactEvaluationAttributeFilter are not published)
+- EvaluationForms: ListEvaluationFormAIVersions is not routed; contact evaluations are never auto-evaluated, calibrated, reviewed or acknowledged, and their scoring is an approximation
+- TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated
+- Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
+- Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
+- AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked
 - Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed
 - UserProficiencies and contacts of users: DismissUserContact are not routed
 - Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)
-- Contact data and participants: CreateAuthCode DeleteContactData DeleteSession GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed
+- Contact data and participants: DeleteContactData GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed
 - Instance extras: GetCrossRegionRouting ReplicateInstance UpdateCrossRegionRouting are not routed
 - Extraction/Push/Auth: CreateExtractionDefinition DeleteExtractionDefinition DescribeAuthenticationProfile DescribeExtractionDefinition ListAuthenticationProfiles ListExtractionDefinitions UpdateAuthenticationProfile UpdateExtractionDefinition are not routed
-- Other: GetMetricDataV2 are not routed
+- GetMetricDataV2: only the documented subset of metrics is computed (agent-state, flow, campaign, evaluation, case, AI and Contact Lens metrics are not modeled); existing custom metric formulas are not evaluated
 - PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated
 - Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled
 - Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ContactEvaluations, NextContacts, QueuePriority and the other contact analytics members are never populated; Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated

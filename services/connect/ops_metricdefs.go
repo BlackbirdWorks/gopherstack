@@ -17,4 +17,6 @@ func (h *Handler) metricDefinitionOps(ops map[string]restroute.OpFunc) {
 	ops["DeleteMetric"] = deleteOp("MetricId", b.DeleteMetric)
 	ops["UpdateMetricContent"] = typedCtx(b.UpdateMetricContent)
 	ops["UpdateMetricMetadata"] = typedCtx(b.UpdateMetricMetadata)
+	ops["GetMetricDataV2"] = typed(b.GetMetricDataV2)
+	ops["GetContactMetrics"] = typed(b.GetContactMetrics)
 }

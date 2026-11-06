@@ -22,12 +22,12 @@ const (
 )
 
 func formQuestionTypes() []string {
-	return []string{"TEXT", "SINGLESELECT", "NUMERIC", "MULTISELECT", "DATETIME"}
+	return []string{"TEXT", qtSingle, qtNumeric, qtMulti, "DATETIME"}
 }
 
 // questionProperty maps a question type to the QuestionTypeProperties member it requires.
 var questionProperty = map[string]string{ //nolint:gochecknoglobals // immutable lookup table
-	"NUMERIC": "Numeric", "SINGLESELECT": "SingleSelect", "MULTISELECT": "MultiSelect",
+	qtNumeric: "Numeric", qtSingle: "SingleSelect", qtMulti: "MultiSelect",
 }
 
 // FormFinding is one validation finding.

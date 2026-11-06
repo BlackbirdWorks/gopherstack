@@ -172,6 +172,13 @@ type extras struct {
 	emails            family[emailAddressRec]
 	workspaces        family[workspaceRec]
 	metricDefs        family[metricRec]
+	attachedFiles     family[attachedFileRec]
+	attachedConfigs   family[attachedConfigRec]
+	notifications     family[notificationRec]
+	pushRegistrations family[pushRegistrationRec]
+	authSessions      family[authSessionRec]
+	testCases         family[testCaseRec]
+	evaluations       family[evaluationRec]
 }
 
 func (b *Backend) registerTables() {
