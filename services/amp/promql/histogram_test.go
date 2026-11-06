@@ -1,26 +1,28 @@
-package promql
+package promql_test
 
 import (
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/blackbirdworks/gopherstack/services/amp/promql"
 )
 
 func TestFloatHistogramQuantile(t *testing.T) {
 	t.Parallel()
 
-	zeroPos := &FloatHistogram{
+	zeroPos := &promql.FloatHistogram{
 		ZeroThreshold: 0.5, ZeroCount: 2, Count: 4, Sum: 3,
-		PositiveSpans: []Span{{Offset: 1, Length: 1}}, PositiveBuckets: []float64{2},
+		PositiveSpans: []promql.Span{{Offset: 1, Length: 1}}, PositiveBuckets: []float64{2},
 	}
-	neg := &FloatHistogram{
-		Count: 4, Sum: -6, NegativeSpans: []Span{{Offset: 1, Length: 1}}, NegativeBuckets: []float64{4},
+	neg := &promql.FloatHistogram{
+		Count: 4, Sum: -6, NegativeSpans: []promql.Span{{Offset: 1, Length: 1}}, NegativeBuckets: []float64{4},
 	}
 
 	tests := []struct {
+		h    *promql.FloatHistogram
 		name string
-		h    *FloatHistogram
 		q    float64
 		want float64
 	}{
@@ -30,7 +32,7 @@ func TestFloatHistogramQuantile(t *testing.T) {
 		{name: "negative bucket", h: neg, q: 0.5, want: -math.Sqrt2},
 		{name: "below zero", h: zeroPos, q: -1, want: math.Inf(-1)},
 		{name: "above one", h: zeroPos, q: 2, want: math.Inf(1)},
-		{name: "empty", h: &FloatHistogram{}, q: 0.5, want: math.NaN()},
+		{name: "empty", h: &promql.FloatHistogram{}, q: 0.5, want: math.NaN()},
 	}
 
 	for _, tt := range tests {
@@ -54,13 +56,20 @@ func TestFloatHistogramValid(t *testing.T) {
 
 	tests := []struct {
 		name string
-		h    FloatHistogram
+		h    promql.FloatHistogram
 		want bool
 	}{
-		{name: "ok", h: FloatHistogram{PositiveSpans: []Span{{Length: 2}}, PositiveBuckets: []float64{1, 1}}, want: true},
-		{name: "mismatch", h: FloatHistogram{PositiveSpans: []Span{{Length: 2}}, PositiveBuckets: []float64{1}}},
-		{name: "schema high", h: FloatHistogram{Schema: MaxSchema + 1}},
-		{name: "schema low", h: FloatHistogram{Schema: MinSchema - 1}},
+		{
+			name: "ok",
+			h:    promql.FloatHistogram{PositiveSpans: []promql.Span{{Length: 2}}, PositiveBuckets: []float64{1, 1}},
+			want: true,
+		},
+		{
+			name: "mismatch",
+			h:    promql.FloatHistogram{PositiveSpans: []promql.Span{{Length: 2}}, PositiveBuckets: []float64{1}},
+		},
+		{name: "schema high", h: promql.FloatHistogram{Schema: promql.MaxSchema + 1}},
+		{name: "schema low", h: promql.FloatHistogram{Schema: promql.MinSchema - 1}},
 	}
 
 	for _, tt := range tests {

@@ -141,8 +141,13 @@ func TestRuleFailureLogged(t *testing.T) {
 			ws := f.workspace(t)
 
 			if tt.logging {
-				_, err := f.client.CreateLoggingConfiguration(t.Context(),
-					&ampsdk.CreateLoggingConfigurationInput{WorkspaceId: aws.String(ws), LogGroupArn: aws.String(group)})
+				_, err := f.client.CreateLoggingConfiguration(
+					t.Context(),
+					&ampsdk.CreateLoggingConfigurationInput{
+						WorkspaceId: aws.String(ws),
+						LogGroupArn: aws.String(group),
+					},
+				)
 				require.NoError(t, err)
 				f.settle()
 			}
@@ -200,15 +205,15 @@ func TestDataPlaneAuth(t *testing.T) {
 	allowAll := func(string, string, string, string) (bool, bool) { return true, false }
 
 	tests := []struct {
+		eval   amp.PolicyEvaluator
 		name   string
 		svc    string
 		secret string
-		eval   amp.PolicyEvaluator
-		policy bool
 		key    string
-		sign   bool
-		want   int
 		code   string
+		want   int
+		policy bool
+		sign   bool
 	}{
 		{name: "valid", sign: true, svc: "aps", secret: "s3cret", want: http.StatusOK},
 		{name: "unsigned", want: http.StatusForbidden, code: "Missing Authentication Token"},
@@ -233,8 +238,11 @@ func TestDataPlaneAuth(t *testing.T) {
 
 			if tt.policy {
 				_, err := f.client.PutResourcePolicy(t.Context(), &ampsdk.PutResourcePolicyInput{
-					WorkspaceId:    aws.String(ws),
-					PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"aps:*","Resource":"*"}]}`),
+					WorkspaceId: aws.String(ws),
+					PolicyDocument: aws.String(
+						`{"Version":"2012-10-17","Statement":[` +
+							`{"Effect":"Allow","Principal":"*","Action":"aps:*","Resource":"*"}]}`,
+					),
 				})
 				require.NoError(t, err)
 			}

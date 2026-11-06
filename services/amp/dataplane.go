@@ -148,7 +148,8 @@ func tooOld(rec *SeriesRecord, t, windowMs int64) bool {
 // addExemplar keeps the newest maxSeriesExemplar exemplars per series, ordered by time.
 func addExemplar(rec *SeriesRecord, ex Exemplar) bool {
 	i, found := slices.BinarySearchFunc(rec.Exemplars, ex, func(a, b Exemplar) int { return cmp.Compare(a.T, b.T) })
-	if found && rec.Exemplars[i].V == ex.V && promql.Fingerprint(rec.Exemplars[i].Labels) == promql.Fingerprint(ex.Labels) {
+	if found && rec.Exemplars[i].V == ex.V &&
+		promql.Fingerprint(rec.Exemplars[i].Labels) == promql.Fingerprint(ex.Labels) {
 		return false
 	}
 

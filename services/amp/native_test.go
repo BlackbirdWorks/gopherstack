@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,20 +20,19 @@ import (
 )
 
 type histSpec struct {
-	labels      map[string]string
-	exemplar    *exemplarSpec
-	posSpans    [][2]int64 // offset, length
-	posDeltas   []int64
-	posCounts   []float64
-	zeroCount   uint64
-	count       uint64
-	sum         float64
-	t           int64
-	schema      int32
-	floatHist   bool
-	floatCount  float64
-	staleSum    bool
-	badSpanOnly bool
+	labels     map[string]string
+	exemplar   *exemplarSpec
+	posSpans   [][2]int64
+	posDeltas  []int64
+	posCounts  []float64
+	count      uint64
+	zeroCount  uint64
+	sum        float64
+	t          int64
+	floatCount float64
+	schema     int32
+	floatHist  bool
+	staleSum   bool
 }
 
 type exemplarSpec struct {
@@ -179,8 +179,8 @@ func TestNativeHistogramIngestAndQuery(t *testing.T) {
 	tests := []struct {
 		name  string
 		query string
-		want  float64
 		hist  histSpec
+		want  float64
 	}{
 		{name: "count int", query: "histogram_count(lat)", want: 6, hist: intHist},
 		{name: "count float", query: "histogram_count(lat)", want: 6, hist: floatHist},
@@ -189,7 +189,12 @@ func TestNativeHistogramIngestAndQuery(t *testing.T) {
 		{name: "quantile", query: "histogram_quantile(0.5, lat)", want: math.Pow(2, 1.5), hist: intHist},
 		{name: "fraction", query: "histogram_fraction(0, 4, lat)", want: 4.0 / 6, hist: intHist},
 		{name: "stdvar", query: "histogram_stdvar(lat)", want: stdvar(20.0/6, []float64{2, 8, 32}), hist: intHist},
-		{name: "stddev", query: "histogram_stddev(lat)", want: math.Sqrt(stdvar(20.0/6, []float64{2, 8, 32})), hist: intHist},
+		{
+			name:  "stddev",
+			query: "histogram_stddev(lat)",
+			want:  math.Sqrt(stdvar(20.0/6, []float64{2, 8, 32})),
+			hist:  intHist,
+		},
 	}
 
 	for _, tt := range tests {
@@ -209,9 +214,7 @@ func TestNativeHistogramIngestAndQuery(t *testing.T) {
 	}
 }
 
-func fmtFloat(v float64) string {
-	return strings.TrimSpace(strings.Replace(fmt.Sprintf("%v", v), "+Inf", "+Inf", 1))
-}
+func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 // stdvar of a histogram whose three buckets each hold count/3 observations at squared midpoints sq.
 func stdvar(mean float64, sq []float64) float64 {
@@ -236,9 +239,12 @@ func TestNativeHistogramRendering(t *testing.T) {
 	require.Equal(t, http.StatusOK, f.writeRaw(t, ws, h).status)
 
 	_, pr := f.query(t, ws, "query", url.Values{"query": {"lat"}, "time": {"60"}})
-	assert.JSONEq(t,
-		`[{"metric":{"__name__":"lat"},"histogram":[60,{"count":"3","sum":"7","buckets":[[0,"1","2","1"],[0,"2","4","2"]]}]}]`,
-		string(pr.Data.Result))
+	assert.JSONEq(
+		t,
+		`[{"metric":{"__name__":"lat"},"histogram":[60,{"count":"3","sum":"7",`+
+			`"buckets":[[0,"1","2","1"],[0,"2","4","2"]]}]}]`,
+		string(pr.Data.Result),
+	)
 
 	_, pr = f.query(t, ws, "query_range", url.Values{"query": {"lat"}, "start": {"60"}, "end": {"60"}, "step": {"1"}})
 	assert.Contains(t, string(pr.Data.Result), `"histograms":[[60,{"count":"3"`)
@@ -298,10 +304,10 @@ func TestExemplars(t *testing.T) {
 	long := &exemplarSpec{labels: map[string]string{"trace_id": strings.Repeat("x", 200)}, v: 1, t: 56_000}
 
 	tests := []struct {
-		name  string
-		write []histSpec
 		query url.Values
+		name  string
 		want  string
+		write []histSpec
 	}{
 		{name: "returned", write: []histSpec{{labels: lbl, exemplar: ex}},
 			query: url.Values{"query": {"req_seconds_bucket"}, "start": {"0"}, "end": {"100"}},
@@ -335,17 +341,29 @@ func TestOutOfOrderWindow(t *testing.T) {
 
 	lbl := map[string]string{"__name__": "m"}
 	tests := []struct {
-		name       string
 		window     *int32
+		name       string
 		second     int64
 		wantStatus int
 		wantCount  int
 	}{
 		{name: "default rejects older", second: 59_000, wantStatus: http.StatusBadRequest, wantCount: 1},
-		{name: "zero rejects older", window: aws.Int32(0), second: 59_000, wantStatus: http.StatusBadRequest, wantCount: 1},
+		{
+			name:       "zero rejects older",
+			window:     aws.Int32(0),
+			second:     59_000,
+			wantStatus: http.StatusBadRequest,
+			wantCount:  1,
+		},
 		{name: "inside window", window: aws.Int32(30), second: 40_000, wantStatus: http.StatusOK, wantCount: 2},
 		{name: "on window edge", window: aws.Int32(30), second: 30_000, wantStatus: http.StatusOK, wantCount: 2},
-		{name: "outside window", window: aws.Int32(30), second: 29_999, wantStatus: http.StatusBadRequest, wantCount: 1},
+		{
+			name:       "outside window",
+			window:     aws.Int32(30),
+			second:     29_999,
+			wantStatus: http.StatusBadRequest,
+			wantCount:  1,
+		},
 		{name: "newer always fine", second: 61_000, wantStatus: http.StatusOK, wantCount: 2},
 	}
 

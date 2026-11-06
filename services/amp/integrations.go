@@ -3,6 +3,7 @@ package amp
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"regexp"
 	"strings"
@@ -16,7 +17,8 @@ import (
 )
 
 const (
-	logLevelError = "error"
+	fieldErr      = "error"
+	logLevelError = fieldErr
 	logLevelWarn  = "warn"
 	logComponentR = "ruler"
 	logComponentA = "alertmanager"
@@ -44,18 +46,18 @@ type PolicyEvaluator func(doc, action, resource, callerAccount string) (allowed,
 
 // DataPlaneAuth makes the Prometheus endpoints require a SigV4 signature scoped to aps.
 type DataPlaneAuth struct {
-	Secret   string
 	Evaluate PolicyEvaluator
+	Secret   string
 }
 
 type logEvent struct {
 	at        time.Time
+	fields    map[string]string
 	wsID      string
 	component string
 	stream    string
 	level     string
 	msg       string
-	fields    map[string]string
 }
 
 var logGroupNameRe = regexp.MustCompile(`^arn:aws[a-z-]*:logs:([a-z0-9-]+):\d{12}:log-group:(.+?)(?::\*)?$`)
@@ -115,21 +117,23 @@ func (b *InMemoryBackend) checkLogGroup(ctx context.Context, arn string) error {
 		return nil
 	}
 
-	region, group, ok := splitLogGroupARN(arn)
-	if ok && !logs.LogGroupExists(ctx, region, group) {
-		return notFound("LogGroup", arn, "Log group %s does not exist", group)
+	ref, ok := splitLogGroupARN(arn)
+	if ok && !logs.LogGroupExists(ctx, ref.region, ref.group) {
+		return notFound("LogGroup", arn, "Log group %s does not exist", ref.group)
 	}
 
 	return nil
 }
 
-func splitLogGroupARN(arn string) (region, group string, ok bool) {
+type logGroupRef struct{ region, group string }
+
+func splitLogGroupARN(arn string) (logGroupRef, bool) {
 	m := logGroupNameRe.FindStringSubmatch(arn)
 	if m == nil {
-		return "", "", false
+		return logGroupRef{}, false
 	}
 
-	return m[1], m[2], true
+	return logGroupRef{region: m[1], group: m[2]}, true
 }
 
 // queueLogLocked records a ruler or alert manager warning/error for delivery after the lock drops.
@@ -162,7 +166,7 @@ func (b *InMemoryBackend) flushLogs(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		region, group, ok := splitLogGroupARN(targets[ev.wsID])
+		ref, ok := splitLogGroupARN(targets[ev.wsID])
 		if !ok {
 			continue
 		}
@@ -171,21 +175,19 @@ func (b *InMemoryBackend) flushLogs(ctx context.Context) {
 			"level": ev.level, "component": ev.component, "workspaceId": ev.wsID,
 			"ts": ev.at.UTC().Format(time.RFC3339Nano), "msg": ev.msg,
 		}
-		for k, v := range ev.fields {
-			line[k] = v
-		}
+		maps.Copy(line, ev.fields)
 
 		raw, _ := json.Marshal(line)
 
-		if err := sink.PutLogLine(ctx, region, group, ev.stream, string(raw), ev.at); err != nil {
-			logger.Load(ctx).WarnContext(ctx, "amp: log delivery failed", "logGroup", group, "error", err)
+		if err := sink.PutLogLine(ctx, ref.region, ref.group, ev.stream, string(raw), ev.at); err != nil {
+			logger.Load(ctx).WarnContext(ctx, "amp: log delivery failed", "logGroup", ref.group, "error", err)
 		}
 	}
 }
 
 // authorizeData enforces SigV4 (service aps) and the workspace resource policy when DataPlaneAuth is set;
 // done reports that a rejection was already written.
-func (h *Handler) authorizeData(c *echo.Context, wsID string) (done bool, err error) {
+func (h *Handler) authorizeData(c *echo.Context, wsID string) (bool, error) {
 	_, _, auth := h.Backend.integrations()
 	if auth == nil {
 		return false, nil

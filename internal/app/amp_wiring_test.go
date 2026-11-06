@@ -144,8 +144,10 @@ func TestAMPPolicyEvaluator(t *testing.T) {
 
 	const (
 		arn   = "arn:aws:aps:us-east-1:123456789012:workspace/ws-1"
-		allow = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"aps:RemoteWrite","Resource":"*"}]}`
-		deny  = `{"Version":"2012-10-17","Statement":[{"Effect":"Deny","Principal":"*","Action":"aps:*","Resource":"*"}]}`
+		allow = `{"Version":"2012-10-17","Statement":[` +
+			`{"Effect":"Allow","Principal":"*","Action":"aps:RemoteWrite","Resource":"*"}]}`
+		deny = `{"Version":"2012-10-17","Statement":[` +
+			`{"Effect":"Deny","Principal":"*","Action":"aps:*","Resource":"*"}]}`
 	)
 
 	tests := []struct {

@@ -128,7 +128,7 @@ func (b *InMemoryBackend) Tick(ctx context.Context) {
 			b.mu.Lock("Tick")
 			b.queueLogLocked(logEvent{
 				at: now, wsID: wsID, component: logComponentA, stream: logStreamA, level: logLevelError,
-				msg: "notification delivery failed", fields: map[string]string{"receiver": f.receiver, "error": f.err},
+				msg: "notification delivery failed", fields: map[string]string{"receiver": f.receiver, fieldErr: f.err},
 			})
 			b.mu.Unlock()
 		}

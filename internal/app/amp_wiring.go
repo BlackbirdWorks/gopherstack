@@ -90,7 +90,7 @@ func wireAMPScraperSources(byName map[string]service.Registerable) {
 // ampKeys answers KMS key lookups for CreateWorkspace kmsKeyArn.
 type ampKeys struct{ kms kmsbackend.StorageBackend }
 
-func (k ampKeys) KMSKeyState(ctx context.Context, keyARN string) (exists, enabled bool) {
+func (k ampKeys) KMSKeyState(ctx context.Context, keyARN string) (bool, bool) {
 	out, err := k.kms.DescribeKey(ctx, &kmsbackend.DescribeKeyInput{KeyID: keyARN})
 	if err != nil {
 		return false, false
@@ -145,7 +145,7 @@ func wireAMPKeysAndLogs(ampH *ampbackend.Handler, byName map[string]service.Regi
 }
 
 // ampPolicyEvaluator runs a workspace resource policy through the IAM evaluator for the caller account.
-func ampPolicyEvaluator(doc, action, resource, callerAccount string) (allowed, denied bool) {
+func ampPolicyEvaluator(doc, action, resource, callerAccount string) (bool, bool) {
 	res := iambackend.EvaluatePolicies([]string{doc}, action, resource,
 		iambackend.ConditionContext{PrincipalAccount: callerAccount})
 

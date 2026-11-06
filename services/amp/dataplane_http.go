@@ -115,7 +115,7 @@ type promResponse struct {
 }
 
 func promError(c *echo.Context, status int, errType, msg string) error {
-	return c.JSON(status, promResponse{Status: "error", ErrorType: errType, Error: msg})
+	return c.JSON(status, promResponse{Status: fieldErr, ErrorType: errType, Error: msg})
 }
 
 func formatValue(v float64) string {

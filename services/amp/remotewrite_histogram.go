@@ -34,16 +34,18 @@ const (
 	maxExemplarsPerWrite = 10000
 )
 
-func (e *histDecoder) bad(what string) error {
+func (d *histDecoder) bad(what string) error {
 	return fmt.Errorf("%w: bad histogram %s", errBadWrite, what)
 }
 
 type histDecoder struct {
-	h                    promql.FloatHistogram
-	posDeltas, negDeltas []int64
-	countInt, zeroInt    uint64
-	intCount             bool
-	t                    int64
+	posDeltas []int64
+	negDeltas []int64
+	h         promql.FloatHistogram
+	countInt  uint64
+	zeroInt   uint64
+	t         int64
+	intCount  bool
 }
 
 func (d *histDecoder) field(num protowire.Number, typ protowire.Type, msg []byte) (int, error) {
@@ -73,6 +75,7 @@ func (d *histDecoder) field(num protowire.Number, typ protowire.Type, msg []byte
 		}
 
 		return n, d.bytes(num, b)
+	default:
 	}
 
 	n := protowire.ConsumeFieldValue(num, typ, msg)
@@ -93,6 +96,7 @@ func (d *histDecoder) varint(num protowire.Number, v uint64) {
 		d.h.Schema = int32(protowire.DecodeZigZag(v)) //nolint:gosec // sint32 range
 	case fieldHistTimestamp:
 		d.t = int64(v) //nolint:gosec // protobuf int64 round-trips through uint64
+	default:
 	}
 }
 
@@ -106,6 +110,7 @@ func (d *histDecoder) double(num protowire.Number, v float64) {
 		d.h.ZeroThreshold = v
 	case fieldHistZeroFloat:
 		d.h.ZeroCount = v
+	default:
 	}
 }
 
@@ -125,6 +130,7 @@ func (d *histDecoder) bytes(num protowire.Number, b []byte) error {
 		d.h.NegativeBuckets, err = packedDouble(d.h.NegativeBuckets, b)
 	case fieldHistPosCounts:
 		d.h.PositiveBuckets, err = packedDouble(d.h.PositiveBuckets, b)
+	default:
 	}
 
 	return err
@@ -149,6 +155,7 @@ func appendSpan(out []promql.Span, b []byte) ([]promql.Span, error) {
 			sp.Offset = int32(protowire.DecodeZigZag(v)) //nolint:gosec // sint32 range
 		case fieldSpanLength:
 			sp.Length = uint32(v) //nolint:gosec // uint32 field
+		default:
 		}
 
 		b = b[n+m:]

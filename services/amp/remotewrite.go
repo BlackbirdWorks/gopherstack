@@ -160,6 +160,7 @@ func (ws *writeSeries) add(num protowire.Number, sub []byte) error {
 		ws.Samples = append(ws.Samples, s)
 
 		return nil
+	default:
 	}
 
 	s, err := decodeSample(sub)

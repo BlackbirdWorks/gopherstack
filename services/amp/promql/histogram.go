@@ -2,6 +2,15 @@ package promql
 
 import (
 	"math"
+	"slices"
+)
+
+const (
+	fnHistCount  = "histogram_count"
+	fnHistSum    = "histogram_sum"
+	fnHistAvg    = "histogram_avg"
+	fnHistStddev = "histogram_stddev"
+	fnHistStdvar = "histogram_stdvar"
 )
 
 // Span is a run of consecutive populated buckets starting Offset buckets after the previous span.
@@ -66,7 +75,7 @@ func expand(sp []Span, counts []float64, schema int32, neg bool) []HBucket {
 	for _, s := range sp {
 		idx += s.Offset
 
-		for j := uint32(0); j < s.Length; j++ {
+		for range s.Length {
 			if k >= len(counts) {
 				return out
 			}
@@ -90,8 +99,8 @@ func (h *FloatHistogram) Buckets() []HBucket {
 	neg := expand(h.NegativeSpans, h.NegativeBuckets, h.Schema, true)
 
 	out := make([]HBucket, 0, len(neg)+len(h.PositiveBuckets)+1)
-	for i := len(neg) - 1; i >= 0; i-- {
-		out = append(out, neg[i])
+	for _, b := range slices.Backward(neg) {
+		out = append(out, b)
 	}
 
 	out = append(out, HBucket{Lower: -h.ZeroThreshold, Upper: h.ZeroThreshold, Count: h.ZeroCount, Zero: true})
@@ -101,13 +110,13 @@ func (h *FloatHistogram) Buckets() []HBucket {
 
 func (h *FloatHistogram) accessor(fn string) float64 {
 	switch fn {
-	case "histogram_count":
+	case fnHistCount:
 		return h.Count
-	case "histogram_sum":
+	case fnHistSum:
 		return h.Sum
-	case "histogram_avg":
+	case fnHistAvg:
 		return h.Sum / h.Count
-	case "histogram_stdvar":
+	case fnHistStdvar:
 		return h.variance()
 	default:
 		return math.Sqrt(h.variance())
@@ -276,7 +285,9 @@ func (e *Engine) histArg(arg Expr, t int64, fn string) (Vector, error) {
 	return e.instantArg(arg, t, fn)
 }
 
-func splitNative(v Vector) (native, floats Vector) {
+func splitNative(v Vector) (Vector, Vector) {
+	var native, floats Vector
+
 	for _, s := range v {
 		if s.H != nil {
 			native = append(native, s)
