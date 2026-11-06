@@ -14,14 +14,13 @@ import (
 
 	dockercontainer "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
 	gophercontainer "github.com/blackbirdworks/gopherstack/pkgs/container"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 const (
-	fsConfigPortBase = 20900
-	testAccessPoint  = "arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-0123456789abcdef0"
-	fsVPCBody        = `"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]}`
+	testAccessPoint = "arn:aws:elasticfilesystem:us-east-1:000000000000:access-point/fsap-0123456789abcdef0"
+	fsVPCBody       = `"VpcConfig":{"SubnetIds":["subnet-1"],"SecurityGroupIds":["sg-1"]}`
 )
 
 var errNoMountTarget = errors.New("no mount target")
@@ -195,19 +194,18 @@ func TestFileSystemConfigContainerMount(t *testing.T) {
 		resolver   *fakeEFS
 		wantBinds  []string
 		wantInvoke bool
-		portOffset int
 	}{
 		{
-			name:       "mounted",
-			portOffset: 0,
+			name: "mounted",
+
 			resolver: &fakeEFS{mounts: map[string]lambda.EFSMount{
 				testAccessPoint: {HostDir: "/host/efs/fs-1/app", UID: 1000, GID: 1000},
 			}},
 			wantBinds:  []string{"/host/efs/fs-1/app:/mnt/data"},
 			wantInvoke: true,
 		},
-		{name: "unresolvable", portOffset: 1, resolver: &fakeEFS{}, wantInvoke: false},
-		{name: "no_resolver", portOffset: 2, wantInvoke: false},
+		{name: "unresolvable", resolver: &fakeEFS{}, wantInvoke: false},
+		{name: "no_resolver", wantInvoke: false},
 	}
 
 	for _, tt := range tests {
@@ -215,9 +213,7 @@ func TestFileSystemConfigContainerMount(t *testing.T) {
 			t.Parallel()
 
 			api := &bindCapturingAPI{envCapturingAPI: &envCapturingAPI{}}
-			base := fsConfigPortBase + tt.portOffset*10
-			pa, err := portalloc.New(base, base+9)
-			require.NoError(t, err)
+			pa := portalloctest.New(t, 50)
 
 			rt := gophercontainer.NewDockerRuntimeWithAPI(api,
 				gophercontainer.Config{PoolSize: 3, IdleTimeout: time.Minute})

@@ -7,27 +7,29 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 40 (40 ok) |
-| Feature families | 6 (6 ok) |
-| Known gaps | 13 |
+| PARITY entries audited | 50 (50 ok) |
+| Feature families | 11 (11 ok) |
+| Known gaps | 15 |
 | Deferred items | 0 |
 | Resource leaks | partial |
 
 ### Known gaps
 
-- apt, yum, KFP and Go repositories can be created but hold no artifacts: their artifact RPCs and uploads are not implemented and return FAILED_PRECONDITION.
+- Attachments: oci_version_name is not populated and deleting a target or file does not remove its attachments; ExportArtifact cannot export DOCKER images and its object layout is the emulator's choice.
+- KFP: the .zip package form and the description header are not specified beyond the client example; remote and virtual KFP repositories are rejected; the real KFP SDK client is not exercised.
+- apt and yum signing: the signing key is the emulator's own per-repository key at dists/<repo>/apt-key.asc|gpg (Google documents no key URL for such repositories); yum repomd.xml.asc/.key follow the createrepo layout. apt and yum package names, version strings and file paths, the pool layout and the Go upload operation response shape are the emulator's choice, not verified against the live service; the documented gcloud path with the ar+https transport is not modelled.
+- Remote repositories: upstream_credentials username/password (Secret Manager version) are sent as Basic auth to the upstream host (and a Docker token realm) and never logged or returned, but only the in-process Secret Manager is consulted and other credential types do not exist; the public-repository to URL mapping for apt and yum bases is recalled and unverified, upstream validation at create time is not done, Go and KFP remotes do not exist, and an offline read answers 502 (the live service's error for an unreachable upstream is undocumented).
+- Operations: pending states exist only with --gcp-artifacts-operation-delay > 0 (default finishes immediately); only attachment and export operations are cancellable, WaitOperation does not block, and Google publishes no operation durations.
 - Maven and Python repositories expose no Tag resources (only npm dist-tags are mapped); Maven artifact-level maven-metadata.xml is generated, so a PUT of it is accepted and ignored; Maven HTTP DELETE, the Python JSON simple API (PEP 691) and yank, and npm search/audit/login endpoints are not implemented because Google's documentation does not describe them (deletion is through the API, console and gcloud); file and package names for these formats are the emulator's choice.
-- Attachments, ExportArtifact, ImportAptArtifacts, ImportYumArtifacts and the resumable generic upload (uploadType=resumable) are not implemented.
-- Rule conditions (CEL) are stored but never evaluated, so a rule with a condition never takes effect; download rules are enforced on Docker manifest and blob reads and on file downloads only.
+- Virtual repositories answer from the first upstream that has the artifact: indices (npm packuments, PyPI simple pages, maven-metadata.xml, apt and yum indices) are not merged across upstreams.
+- Cleanup policies: Docker child manifests of an index are deleted like any version (Google keeps them while the parent exists), cleanup writes no audit log entries, and there is no run-now API.
+- Rule condition variables are the emulator's choice (see rule_conditions); download rules are enforced on Docker manifest and blob reads, file downloads, and npm, Python, Maven, apt, yum and Go downloads only.
 - Project settings and the VPC-SC policy are stored; nothing consults them.
-- Remote and virtual repositories are stored but never proxy or merge anything; cleanup policies are stored and never run.
 - A repository id is unique per project across locations, and image data is not separated by location.
-- Operations are recorded already finished; there is no pending state, and CancelOperation changes nothing.
 - Authentication is not checked and IAM is not enforced; every credential is accepted.
 - Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled).
 - Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served.
 - The embedded distribution library leaves one go-events broadcaster goroutine running until process exit.
-- No dashboard page.
 
 ## More
 

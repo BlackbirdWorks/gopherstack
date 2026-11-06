@@ -33,6 +33,7 @@ type Handler struct {
 	Backend *InMemoryBackend
 	srvMu   *lockmetrics.RWMutex
 	srv     *grpc.Server
+	cancel  context.CancelFunc
 	wg      *sync.WaitGroup
 	addr    string
 	Port    int
@@ -64,7 +65,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListFiles", "GetFile", "UpdateFile", "DeleteFile",
 		"CreateRule", "GetRule", "ListRules", "UpdateRule", "DeleteRule",
 		"GetProjectSettings", "UpdateProjectSettings", "GetVPCSCConfig", "UpdateVPCSCConfig",
-		"UploadGenericArtifact", "DownloadFile",
+		"UploadGenericArtifact", "DownloadFile", "ImportAptArtifacts", "ImportYumArtifacts",
 		"ListTags", "GetTag", "CreateTag", "UpdateTag", "DeleteTag",
 		"ListDockerImages", "GetDockerImage",
 		"GetIamPolicy", "SetIamPolicy", "TestIamPermissions",
@@ -121,7 +122,7 @@ func logInterceptor(log debugLogger) grpc.UnaryServerInterceptor {
 
 func (h *Handler) registerServers(srv *grpc.Server) {
 	artifactregistrypb.RegisterArtifactRegistryServer(srv, &server{b: h.Backend})
-	longrunningpb.RegisterOperationsServer(srv, h.Backend.ops)
+	longrunningpb.RegisterOperationsServer(srv, opsServer{Store: h.Backend.ops, b: h.Backend})
 }
 
 // StartWorker binds the dedicated listener synchronously so a port conflict is returned to the caller.
@@ -154,15 +155,27 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		}
 	})
 
+	loopCtx, cancel := context.WithCancel(workerCtx)
+
+	h.srvMu.Lock("StartWorker")
+	h.cancel = cancel
+	h.srvMu.Unlock()
+
+	h.wg.Go(func() { h.Backend.CleanupLoop(loopCtx) })
+
 	return nil
 }
 
 // Shutdown stops the server, forcing a close after a short grace period.
 func (h *Handler) Shutdown(ctx context.Context) {
 	h.srvMu.Lock("Shutdown")
-	srv := h.srv
-	h.srv = nil
+	srv, cancel := h.srv, h.cancel
+	h.srv, h.cancel = nil, nil
 	h.srvMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if srv == nil {
 		return

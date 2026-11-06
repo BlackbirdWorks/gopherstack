@@ -7,22 +7,23 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 28 (27 ok, 1 partial) |
-| Feature families | 8 (6 ok, 2 partial) |
-| Known gaps | 8 |
+| PARITY entries audited | 37 (33 ok, 4 partial) |
+| Feature families | 12 (11 ok, 1 partial) |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - ACLs are stored, never evaluated. Entities are not resolved (no entityId), uploads are attributed to a fixed emulator identity, and project team entities use a project number derived from the project id.
-- No gzip transcoding: an object stored with contentEncoding gzip is always served compressed.
-- No notification configs, HMAC keys, bucket relocation, soft-delete restore, object restore, or the project serviceAccount endpoint.
-- Lifecycle, retention policies, holds and CORS are stored but not enforced.
-- Signed URLs (V2/V4) are not verified and no request is authenticated.
+- No bucket relocation, soft-deleted bucket restore, restoreToken or the project serviceAccount endpoint.
+- Notification error shapes are unverified: the exact 400/403 body for a missing topic or a missing publish grant is recalled, not documented; no publish permission check; notification payloads lack retentionExpirationTime.
+- HMAC error shapes are unverified: the exact status and message for deleting an ACTIVE key, updating a DELETED key and exceeding five keys per service account, and the 61 char access id / 40 char secret lengths, are recalled, not documented; the service account is not checked against Cloud IAM.
+- Signed URL gaps: RequestTimeTooSkewed for a future X-Goog-Date is recalled, not documented; virtual-hosted-style hosts and POST policy documents are not verified; bearer tokens are never validated.
+- Lifecycle gaps: AbortIncompleteMultipartUpload, matchesPattern and Autoclass are not evaluated; a SetStorageClass transition emits no OBJECT_METADATA_UPDATE (unverified); the sweep runs every minute rather than asynchronously over hours; object-level retention (objectRetention) and CORS are stored but not enforced.
 - Virtual-hosted-style URLs (bucket.storage.googleapis.com) and XML bucket listing, multipart XML uploads and x-goog-copy-source are not supported.
 - Customer-supplied and KMS encryption keys are accepted but not applied.
-- softDeleted and includeFoldersAsPrefixes are not supported on ListObjects; matchGlob combined with prefix applies the glob to the full name.
+- includeFoldersAsPrefixes is not supported on ListObjects; matchGlob combined with prefix applies the glob to the full name.
 
 ## More
 

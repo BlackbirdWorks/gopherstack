@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 type objectJSON struct {
@@ -26,6 +27,9 @@ type objectJSON struct {
 	TimeCreated        string            `json:"timeCreated"`
 	Updated            string            `json:"updated"`
 	TimeDeleted        string            `json:"timeDeleted,omitempty"`
+	SoftDeleteTime     string            `json:"softDeleteTime,omitempty"`
+	HardDeleteTime     string            `json:"hardDeleteTime,omitempty"`
+	RetentionExpiry    string            `json:"retentionExpirationTime,omitempty"`
 	TimeStorageClass   string            `json:"timeStorageClassUpdated"`
 	CustomTime         string            `json:"customTime,omitempty"`
 	StorageClass       string            `json:"storageClass"`
@@ -88,7 +92,10 @@ func objectResourceBase(base string, o *Object, gen, esc string) objectJSON {
 		TimeCreated:        fmtTime(o.Created),
 		Updated:            fmtTime(o.Updated),
 		TimeDeleted:        fmtTime(o.Deleted),
-		TimeStorageClass:   fmtTime(o.Created),
+		SoftDeleteTime:     fmtTime(o.SoftDeleteTime),
+		HardDeleteTime:     fmtTime(o.HardDeleteTime),
+		RetentionExpiry:    fmtTime(o.retention),
+		TimeStorageClass:   fmtTime(storageClassTime(o)),
 		CustomTime:         fmtTime(o.CustomTime),
 		StorageClass:       o.StorageClass,
 		Size:               strconv.FormatInt(o.Size(), 10),
@@ -105,7 +112,7 @@ func bucketResource(base string, b *Bucket) map[string]any {
 	res := map[string]any{
 		keyKind:          "storage#bucket",
 		"id":             b.Name,
-		"selfLink":       base + "/storage/v1/b/" + b.Name,
+		keySelfLink:      base + "/storage/v1/b/" + b.Name,
 		"name":           b.Name,
 		"timeCreated":    fmtTime(b.Created),
 		"updated":        fmtTime(b.Updated),
@@ -113,7 +120,7 @@ func bucketResource(base string, b *Bucket) map[string]any {
 		"location":       b.Location,
 		"locationType":   LocationType(b.Location),
 		keyStorageClass:  b.StorageClass,
-		"etag":           base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
+		keyEtag:          base64.StdEncoding.EncodeToString([]byte("CAE=" + strconv.FormatInt(b.Metageneration, 10))),
 		"iamConfiguration": map[string]any{
 			"bucketPolicyOnly":         map[string]bool{keyEnabled: false},
 			"uniformBucketLevelAccess": map[string]bool{keyEnabled: false},
@@ -227,4 +234,12 @@ func decodePatch(body []byte) (Patch, *APIError) {
 	}
 
 	return p, nil
+}
+
+func storageClassTime(o *Object) time.Time {
+	if !o.ClassUpdated.IsZero() {
+		return o.ClassUpdated
+	}
+
+	return o.Created
 }

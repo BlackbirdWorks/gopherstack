@@ -10,6 +10,7 @@ import (
 	"time"
 
 	dockertypes "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/container"
+	dockernetwork "github.com/blackbirdworks/gopherstack/internal/dockercompat/api/types/network"
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -74,10 +75,13 @@ type launch struct {
 	plan      *volumePlan
 	ids       map[string]string
 	secretEnv map[string][]string
+	logSecret map[string]map[string]string
 	fileEnv   map[string][]string
 	needsExit map[string]bool
+	net       *taskNet
 	pidMode   string
 	ipcMode   string
+	netMode   string
 	order     []string
 }
 
@@ -193,6 +197,11 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		return err
 	}
 
+	logSecret, err := r.resolveLogSecrets(ctx, order)
+	if err != nil {
+		return err
+	}
+
 	fileEnv, err := r.resolveFileEnv(ctx, order)
 	if err != nil {
 		return err
@@ -212,10 +221,12 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		plan:      plan,
 		ids:       make(map[string]string, len(order)),
 		secretEnv: secretEnv,
+		logSecret: logSecret,
 		fileEnv:   fileEnv,
 		needsExit: exitDependencies(order),
 		pidMode:   hostOrNone(td.PidMode),
 		ipcMode:   hostOrNone(td.IpcMode),
+		netMode:   taskNetworkMode(td),
 		state:     &launchState{abort: make(chan struct{}), stop: cancel},
 	}
 
@@ -230,12 +241,10 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 		r.mu.Unlock()
 	}()
 
-	for _, cd := range order {
-		if launchErr := r.launchContainer(ctx, l, cd); launchErr != nil {
-			r.abortLaunch(r.svcCtx, l)
+	if startErr := r.startContainers(ctx, l, order); startErr != nil {
+		r.abortLaunch(r.svcCtx, l)
 
-			return launchErr
-		}
+		return startErr
 	}
 
 	select {
@@ -263,8 +272,25 @@ func (r *realDockerRunner) RunTaskContext(parent context.Context, task *Task, td
 	return nil
 }
 
+// startContainers sets up the task network (awsvpc) and launches the containers in dependency order.
+func (r *realDockerRunner) startContainers(ctx context.Context, l *launch, order []ContainerDefinition) error {
+	if l.netMode == networkModeAwsvpc {
+		if err := r.setupTaskNetwork(ctx, l, order); err != nil {
+			return err
+		}
+	}
+
+	for _, cd := range order {
+		if err := r.launchContainer(ctx, l, cd); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func hostOrNone(mode string) string {
-	if mode == "host" || mode == "none" {
+	if mode == networkModeHost || mode == networkModeNone {
 		return mode
 	}
 
@@ -290,11 +316,42 @@ func (r *realDockerRunner) resolveSecretEnv(
 	ctx context.Context,
 	defs []ContainerDefinition,
 ) (map[string][]string, error) {
-	out := make(map[string][]string, len(defs))
-
 	r.mu.Lock()
 	lookup := r.secretLookup
 	r.mu.Unlock()
+
+	return resolveSecretEnv(ctx, lookup, defs)
+}
+
+func (r *realDockerRunner) resolveLogSecrets(
+	ctx context.Context,
+	defs []ContainerDefinition,
+) (map[string]map[string]string, error) {
+	r.mu.Lock()
+	lookup := r.secretLookup
+	r.mu.Unlock()
+
+	return resolveLogSecrets(ctx, lookup, defs)
+}
+
+func (r *realDockerRunner) resolveFileEnv(
+	ctx context.Context,
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
+	r.mu.Lock()
+	lookup := r.envFileLookup
+	r.mu.Unlock()
+
+	return resolveFileEnv(ctx, lookup, defs)
+}
+
+// resolveSecretEnv resolves each container's secrets to KEY=VALUE entries.
+func resolveSecretEnv(
+	ctx context.Context,
+	lookup func(ctx context.Context, valueFrom string) (string, error),
+	defs []ContainerDefinition,
+) (map[string][]string, error) {
+	out := make(map[string][]string, len(defs))
 
 	for _, cd := range defs {
 		for _, sec := range cd.Secrets {
@@ -314,15 +371,13 @@ func (r *realDockerRunner) resolveSecretEnv(
 	return out, nil
 }
 
-func (r *realDockerRunner) resolveFileEnv(
+// resolveFileEnv resolves each container's environmentFiles to KEY=VALUE entries.
+func resolveFileEnv(
 	ctx context.Context,
+	lookup func(ctx context.Context, cd ContainerDefinition) ([]string, error),
 	defs []ContainerDefinition,
 ) (map[string][]string, error) {
 	out := make(map[string][]string, len(defs))
-
-	r.mu.Lock()
-	lookup := r.envFileLookup
-	r.mu.Unlock()
 
 	for _, cd := range defs {
 		if len(cd.EnvironmentFiles) == 0 {
@@ -482,6 +537,7 @@ func (r *realDockerRunner) abortLaunch(ctx context.Context, l *launch) {
 	delete(r.taskVolumes, l.task.TaskArn)
 	r.mu.Unlock()
 
+	r.removeTaskNetwork(ctx, l.task.TaskArn, nil)
 	r.removeVolumes(ctx, vols)
 	r.forgetContainers(l.order)
 }
@@ -532,8 +588,20 @@ func (r *realDockerRunner) removeVolumes(ctx context.Context, names []string) {
 // createContainer maps cd to a Docker container.
 func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd ContainerDefinition) (string, error) {
 	task := l.task
-	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
-	diverted := r.divertPorts(task, cd.PortMappings, portBindings)
+	nw := containerNetwork(l.netMode, l.net)
+
+	var (
+		portBindings dockernetwork.PortMap
+		exposedPorts dockernetwork.PortSet
+		diverted     []pendingFront
+	)
+
+	if nw.mode == "" {
+		mappings := bridgeMappings(task, cd)
+		portBindings, exposedPorts = buildPortMappings(mappings)
+		addDynamicBindings(portBindings, mappings)
+		diverted = r.divertPorts(task, mappings, portBindings)
+	}
 
 	env := append(r.runtimeEnv(task, cd.Name), l.fileEnv[cd.Name]...)
 	env = append(env, buildEnv(cd.Environment)...)
@@ -556,6 +624,8 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 		volumesFrom:  l.volumesFrom(cd),
 		pidMode:      l.pidMode,
 		ipcMode:      l.ipcMode,
+		network:      nw,
+		logSecrets:   l.logSecret[cd.Name],
 	})
 	if err != nil {
 		releasePending(diverted)
@@ -564,7 +634,7 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 	}
 
 	applyVolumeIdentity(cfg, hostCfg, cd, l.plan)
-	maps.Copy(cfg.Labels, managedLabels(l, cd, len(diverted) > 0))
+	maps.Copy(cfg.Labels, managedLabels(l, cd, len(diverted) > 0 || l.net != nil))
 
 	resp, err := r.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, "")
 	if err != nil {
@@ -578,6 +648,10 @@ func (r *realDockerRunner) createContainer(ctx context.Context, l *launch, cd Co
 	r.mu.Lock()
 	r.stopTimeouts[resp.ID] = *cfg.StopTimeout
 	r.mu.Unlock()
+
+	if nw.mode != "" {
+		return resp.ID, nil
+	}
 
 	if attachErr := r.attachContainer(ctx, resp.ID); attachErr != nil {
 		_ = r.cli.ContainerRemove(ctx, resp.ID, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true})
@@ -904,6 +978,7 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 	var (
 		containerIDs []string
 		volumes      []string
+		hasNet       bool
 	)
 
 	func() {
@@ -920,6 +995,7 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		}
 
 		volumes = r.taskVolumes[task.TaskArn]
+		hasNet = r.taskNets[task.TaskArn] != nil
 	}()
 
 	if len(containerIDs) == 0 {
@@ -956,11 +1032,12 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		r.closeFronts(containerID)
 	}
 
-	if len(failed) == 0 && len(volumes) > 0 {
+	if len(failed) == 0 && (len(volumes) > 0 || hasNet) {
 		for _, id := range containerIDs {
 			_ = r.cli.ContainerRemove(ctx, id, dockertypes.RemoveOptions{Force: true, RemoveVolumes: true})
 		}
 
+		r.removeTaskNetwork(ctx, task.TaskArn, containerIDs)
 		r.removeVolumes(ctx, volumes)
 	}
 

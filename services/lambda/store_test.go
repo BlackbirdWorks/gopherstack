@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -254,31 +254,23 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 		handler      string
 		s3Bucket     string
 		s3Key        string
-		portStart    int
-		portEnd      int
 		wantStatus   int
 		setS3Fetcher bool
 		skipErrCheck bool
 	}{
 		{
 			name:       "WithMockDocker",
-			portStart:  19600,
-			portEnd:    19650,
 			runtime:    "python3.12",
 			handler:    "index.handler",
 			wantStatus: http.StatusAccepted,
 		},
 		{
 			name:         "UnknownRuntime",
-			portStart:    19700,
-			portEnd:      19750,
 			runtime:      "cobol99",
 			skipErrCheck: true, // container startup fails immediately for unsupported runtimes
 		},
 		{
 			name:         "S3Fetcher",
-			portStart:    19800,
-			portEnd:      19850,
 			runtime:      "python3.12",
 			handler:      "index.handler",
 			s3Bucket:     "my-bucket",
@@ -288,8 +280,6 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 		},
 		{
 			name:         "S3FetcherNoFetcher",
-			portStart:    19900,
-			portEnd:      19950,
 			runtime:      "python3.12",
 			s3Bucket:     "my-bucket",
 			s3Key:        "my-key.zip",
@@ -301,8 +291,7 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pa, paErr := portalloc.New(tt.portStart, tt.portEnd)
-			require.NoError(t, paErr)
+			pa := portalloctest.New(t, 50)
 
 			dc := newMockDockerClient()
 			backend := lambda.NewInMemoryBackend(
@@ -352,8 +341,7 @@ func TestInMemoryBackend_ZipInvoke(t *testing.T) {
 func TestInMemoryBackend_DeleteZipFunction(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20000, 20050)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 50)
 
 	dc := newMockDockerClient()
 	backend := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
@@ -379,8 +367,7 @@ func TestInMemoryBackend_DeleteZipFunction(t *testing.T) {
 func TestInMemoryBackend_SetDNSRegistrar(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20300, 20350)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 50)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -430,8 +417,7 @@ func TestInMemoryBackend_SetCWLogsBackend(t *testing.T) {
 func TestInMemoryBackend_GetVersion(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(19680, 19700)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 20)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -472,8 +458,7 @@ func TestInMemoryBackend_GetVersion(t *testing.T) {
 func TestInMemoryBackend_ResolveQualifier(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(19700, 19720)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 20)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -687,8 +672,7 @@ func TestWriteFunctionURLResponse(t *testing.T) {
 func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20400, 20450)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 50)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -780,8 +764,7 @@ func TestInMemoryBackend_PublishVersion_WithLayers(t *testing.T) {
 func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20460, 20490)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 30)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -843,8 +826,7 @@ func TestInMemoryBackend_Close_NoServers(t *testing.T) {
 func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20491, 20530)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 39)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
@@ -903,8 +885,7 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 func TestInMemoryBackend_Close_RuntimeCleanup(t *testing.T) {
 	t.Parallel()
 
-	pa, paErr := portalloc.New(20540, 20560)
-	require.NoError(t, paErr)
+	pa := portalloctest.New(t, 20)
 
 	backend := lambda.NewInMemoryBackend(
 		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",

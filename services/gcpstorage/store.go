@@ -8,7 +8,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
+	"sync/atomic"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpiampolicy"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -28,13 +30,19 @@ const (
 // InMemoryBackend holds all buckets, objects and resumable upload sessions
 // under one lock.
 type InMemoryBackend struct {
+	notifier  Notifier
 	mu        *lockmetrics.RWMutex
 	buckets   map[string]*Bucket
 	uploads   map[string]*uploadSession
+	hmac      map[string]*HMACKey
+	clock     atomic.Pointer[clockFn]
+	keys      KeyResolver
 	observers []ObjectObserver
-	pending   []ObjectEvent
-	lastGen   int64
-	iamSeq    uint64
+	// Audit records Cloud Audit Logs entries for bucket and object changes.
+	Audit   gcpaudit.Emitter
+	pending []ObjectEvent
+	lastGen int64
+	iamSeq  uint64
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -43,6 +51,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		mu:      lockmetrics.New("gcpstorage"),
 		buckets: make(map[string]*Bucket),
 		uploads: make(map[string]*uploadSession),
+		hmac:    make(map[string]*HMACKey),
 	}
 }
 
@@ -53,11 +62,12 @@ func (b *InMemoryBackend) Reset() {
 
 	b.buckets = make(map[string]*Bucket)
 	b.uploads = make(map[string]*uploadSession)
+	b.hmac = make(map[string]*HMACKey)
 	b.lastGen = 0
 }
 
 func (b *InMemoryBackend) nextGen() int64 {
-	g := time.Now().UnixMicro()
+	g := b.now().UnixMicro()
 	if g <= b.lastGen {
 		g = b.lastGen + 1
 	}
@@ -143,6 +153,15 @@ func LocationType(loc string) string {
 
 // CreateBucket creates a bucket in project from the request body p.
 func (b *InMemoryBackend) CreateBucket(project string, p Patch) (*Bucket, error) {
+	bk, err := b.createBucket(project, p)
+	if err == nil {
+		b.auditBucket("storage.buckets.create", project, bk)
+	}
+
+	return bk, err
+}
+
+func (b *InMemoryBackend) createBucket(project string, p Patch) (*Bucket, error) {
 	name := p.str("name")
 	if !validBucketName(name) {
 		return nil, errInvalid("Invalid bucket name: '" + name + "'")
@@ -153,7 +172,7 @@ func (b *InMemoryBackend) CreateBucket(project string, p Patch) (*Bucket, error)
 		loc = defaultLocation
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	bk := &Bucket{
 		Name: name, Project: project, Location: loc, StorageClass: defaultStorageClass,
 		Created: now, Updated: now, Metageneration: 1,
@@ -162,6 +181,10 @@ func (b *InMemoryBackend) CreateBucket(project string, p Patch) (*Bucket, error)
 	}
 
 	if apiErr := applyBucket(bk, p, true); apiErr != nil {
+		return nil, apiErr
+	}
+
+	if apiErr := bk.finalizePolicies(retentionState{}, softState{}, now); apiErr != nil {
 		return nil, apiErr
 	}
 
@@ -227,6 +250,15 @@ func (b *InMemoryBackend) ListBuckets(project, prefix, token string, limit int) 
 
 // UpdateBucket applies a PATCH (replace=false) or PUT (replace=true) body.
 func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre Preconds) (*Bucket, error) {
+	bk, err := b.updateBucket(name, p, replace, pre)
+	if err == nil {
+		b.auditBucket("storage.buckets.update", bk.Project, bk)
+	}
+
+	return bk, err
+}
+
+func (b *InMemoryBackend) updateBucket(name string, p Patch, replace bool, pre Preconds) (*Bucket, error) {
 	b.mu.Lock("UpdateBucket")
 	defer b.mu.Unlock()
 
@@ -239,8 +271,9 @@ func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre P
 		return nil, apiErr
 	}
 
+	prevRet, prevSoft := bk.policyState()
 	next := bk.clone()
-	next.Objects = bk.Objects
+	next.Objects, next.SoftDeleted = bk.Objects, bk.SoftDeleted
 
 	if replace {
 		next.resetMutable()
@@ -250,8 +283,12 @@ func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre P
 		return nil, apiErr
 	}
 
+	if apiErr := next.finalizePolicies(prevRet, prevSoft, b.now().UTC()); apiErr != nil {
+		return nil, apiErr
+	}
+
 	next.Metageneration++
-	next.Updated = time.Now().UTC()
+	next.Updated = b.now().UTC()
 	b.buckets[name] = next
 
 	return next.clone(), nil
@@ -259,6 +296,17 @@ func (b *InMemoryBackend) UpdateBucket(name string, p Patch, replace bool, pre P
 
 // DeleteBucket deletes an empty bucket.
 func (b *InMemoryBackend) DeleteBucket(name string, pre Preconds) error {
+	project, loc := b.bucketOwner(name)
+
+	err := b.deleteBucket(name, pre)
+	if err == nil {
+		b.auditBucket("storage.buckets.delete", project, &Bucket{Name: name, Location: loc})
+	}
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteBucket(name string, pre Preconds) error {
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
@@ -316,7 +364,7 @@ func (b *InMemoryBackend) SetIAMPolicy(name string, pol IAMPolicy) (IAMPolicy, e
 	}
 
 	bk.IAM = policyFromPB(next)
-	bk.Updated = time.Now().UTC()
+	bk.Updated = b.now().UTC()
 
 	out := bk.IAM
 	out.Bindings = slices.Clone(out.Bindings)
@@ -339,12 +387,12 @@ func md5Of(data []byte) string {
 }
 
 // newObject builds an object version from data and the request metadata p.
-func newObject(bk *Bucket, name string, data []byte, p Patch, gen int64) (*Object, *APIError) {
+func (b *InMemoryBackend) newObject(bk *Bucket, name string, data []byte, p Patch, gen int64) (*Object, *APIError) {
 	if !validObjectName(name) {
 		return nil, errInvalid("Invalid object name: '" + name + "'")
 	}
 
-	now := time.Now().UTC()
+	now := b.now().UTC()
 	o := &Object{
 		Bucket: bk.Name, Name: name, Data: data, Generation: gen, Metageneration: 1,
 		Created: now, Updated: now, StorageClass: bk.StorageClass,
@@ -382,19 +430,25 @@ func newObject(bk *Bucket, name string, data []byte, p Patch, gen int64) (*Objec
 
 // store makes o the live version of its name. A versioned bucket archives the
 // previous live version; otherwise it is dropped.
-func (bk *Bucket) store(o *Object) {
+func (b *InMemoryBackend) storeLocked(bk *Bucket, o *Object) {
+	var prevGen int64
+
 	if prev := bk.live(o.Name); prev != nil {
+		prevGen = prev.Generation
+		b.replacedLocked(bk, prev, o.Generation)
+
 		if bk.Versioning {
 			prev.Deleted = o.Created
 		} else {
 			bk.Objects[o.Name] = bk.Objects[o.Name][:len(bk.Objects[o.Name])-1]
+			b.softDeleteLocked(bk, prev)
 		}
 	}
 
 	bk.Objects[o.Name] = append(bk.Objects[o.Name], o)
+	b.queueLinkedLocked(ObjectFinalized, o, prevGen, 0)
 }
 
-// PutObject creates or overwrites an object.
 func (b *InMemoryBackend) PutObject(bucket, name string, data []byte, p Patch, pre Preconds) (*Object, error) {
 	defer b.flushEvents()
 
@@ -414,14 +468,16 @@ func (b *InMemoryBackend) putLocked(bucket, name string, data []byte, p Patch, p
 		return nil, apiErr
 	}
 
-	o, apiErr := newObject(bk, name, data, p, b.nextGen())
+	if apiErr := b.guardMutation(bk, bk.live(name)); apiErr != nil {
+		return nil, apiErr
+	}
+
+	o, apiErr := b.newObject(bk, name, data, p, b.nextGen())
 	if apiErr != nil {
 		return nil, apiErr
 	}
 
-	b.replacedLocked(bk, bk.live(name))
-	bk.store(o)
-	b.queueLocked(ObjectFinalized, o)
+	b.storeLocked(bk, o)
 
 	return bk.out(o), nil
 }
@@ -503,8 +559,12 @@ func (b *InMemoryBackend) UpdateObject(
 		}
 	}
 
+	if cur.EventBasedHold && !next.EventBasedHold {
+		next.HoldReleased = b.now().UTC()
+	}
+
 	next.Metageneration++
-	next.Updated = time.Now().UTC()
+	next.Updated = b.now().UTC()
 	*cur = *next
 	b.queueLocked(ObjectMetadataUpdated, cur)
 
@@ -533,18 +593,18 @@ func (b *InMemoryBackend) DeleteObject(bucket, name string, gen int64, pre Preco
 		return apiErr
 	}
 
+	if apiErr := b.guardMutation(bk, cur); apiErr != nil {
+		return apiErr
+	}
+
 	if gen == 0 && bk.Versioning {
-		cur.Deleted = time.Now().UTC()
+		cur.Deleted = b.now().UTC()
 		b.queueLocked(ObjectArchived, cur)
 
 		return nil
 	}
 
-	b.queueLocked(ObjectDeleted, cur)
-	bk.Objects[name] = slices.DeleteFunc(bk.Objects[name], func(o *Object) bool { return o == cur })
-	if len(bk.Objects[name]) == 0 {
-		delete(bk.Objects, name)
-	}
+	b.removeVersionLocked(bk, cur)
 
 	return nil
 }
@@ -559,6 +619,7 @@ type ListOptions struct {
 	MatchGlob                string
 	MaxResults               int
 	Versions                 bool
+	SoftDeleted              bool
 	IncludeTrailingDelimiter bool
 }
 

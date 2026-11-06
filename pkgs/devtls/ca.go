@@ -65,6 +65,9 @@ func NewCA() (*CA, error) {
 // CertPEM returns the CA certificate in PEM form, for clients to trust.
 func (c *CA) CertPEM() []byte { return append([]byte(nil), c.certPEM...) }
 
+// Certificate returns the parsed CA certificate.
+func (c *CA) Certificate() *x509.Certificate { return c.cert }
+
 // Pool returns a cert pool containing only this CA.
 func (c *CA) Pool() *x509.CertPool {
 	p := x509.NewCertPool()
@@ -76,6 +79,21 @@ func (c *CA) Pool() *x509.CertPool {
 // Issue signs a server leaf certificate covering the given DNS names and IPs
 // (each entry is tried as an IP first).
 func (c *CA) Issue(hosts ...string) (*tls.Certificate, error) {
+	return c.issue([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, orgName, hosts)
+}
+
+// IssueServerClient signs a leaf valid for both server and client authentication, for peers that dial each other
+// over mutually verified TLS (a Redis cluster bus).
+func (c *CA) IssueServerClient(hosts ...string) (*tls.Certificate, error) {
+	return c.issue([]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}, orgName, hosts)
+}
+
+// IssueClient signs a client-authentication leaf certificate with the given common name.
+func (c *CA) IssueClient(commonName string) (*tls.Certificate, error) {
+	return c.issue([]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, commonName, nil)
+}
+
+func (c *CA) issue(usage []x509.ExtKeyUsage, commonName string, hosts []string) (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("devtls: generate leaf key: %w", err)
@@ -90,11 +108,11 @@ func (c *CA) Issue(hosts ...string) (*tls.Certificate, error) {
 
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: orgName, Organization: []string{orgName}},
+		Subject:      pkix.Name{CommonName: commonName, Organization: []string{orgName}},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(DefaultValidity),
 		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:  usage,
 		DNSNames:     dnsNames,
 		IPAddresses:  ips,
 	}

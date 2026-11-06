@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -175,12 +176,18 @@ func (b *InMemoryBackend) CreateStackInstances(
 			return "stack set no longer exists"
 		}
 
-		if b.stackInstanceExists(stackSetName, u.account, u.region) {
+		i := b.instanceIndexLocked(stackSetName, u)
+		if i >= 0 && b.stackInstances[stackSetName][i].StackID != "" {
 			return ""
 		}
 
 		inst := b.provisionStackInstance(ctx, cur, u.account, u.region, opID)
 		inst.OrganizationalUnitID = u.ouID
+
+		if i >= 0 {
+			b.stackInstances[stackSetName] = slices.Delete(b.stackInstances[stackSetName], i, i+1)
+		}
+
 		b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], inst)
 
 		if inst.Status == statusOutdated {
@@ -204,18 +211,6 @@ func targetUnits(targets []instanceTarget, regions []string) []stackSetUnit {
 	}
 
 	return units
-}
-
-// stackInstanceExists reports whether a stack instance for the account/region
-// already exists in the stack set. Must be called with b.mu held.
-func (b *InMemoryBackend) stackInstanceExists(stackSetName, acct, region string) bool {
-	for _, existing := range b.stackInstances[stackSetName] {
-		if existing.Account == acct && existing.Region == region {
-			return true
-		}
-	}
-
-	return false
 }
 
 // provisionStackInstance provisions a real child stack for a stack-set instance
@@ -408,18 +403,14 @@ func (b *InMemoryBackend) UpdateStackInstances(
 // ListStackInstancesFilter holds ListStackInstancesInput's optional
 // narrowing members (cloudformation@v1.76.1 api_op_ListStackInstances.go):
 // StackInstanceAccount/StackInstanceRegion match exactly, and Filters
-// entries with Name DRIFT_STATUS/LAST_OPERATION_ID match against the
-// instance's own DriftStatus/LastOperationID. DETAILED_STATUS is accepted on
-// the wire but not enforced here -- this backend has no separate detailed
-// status distinct from Status (see StackInstance in models.go), and
-// DetailedStatus's real values (PENDING/RUNNING/SUCCEEDED/FAILED/...) don't
-// correspond to StackInstanceStatus's (CURRENT/OUTDATED/INOPERABLE), so
-// mapping one onto the other would fabricate data rather than filter it.
+// entries with Name DRIFT_STATUS/LAST_OPERATION_ID/DETAILED_STATUS match against
+// the instance's own DriftStatus/LastOperationID/StackInstanceStatus.DetailedStatus.
 type ListStackInstancesFilter struct {
 	StackInstanceAccount string
 	StackInstanceRegion  string
 	DriftStatus          string
 	LastOperationID      string
+	DetailedStatus       string
 }
 
 func matchesStackInstanceFilter(inst *StackInstance, filter ListStackInstancesFilter) bool {
@@ -433,6 +424,9 @@ func matchesStackInstanceFilter(inst *StackInstance, filter ListStackInstancesFi
 		return false
 	}
 	if filter.LastOperationID != "" && inst.LastOperationID != filter.LastOperationID {
+		return false
+	}
+	if filter.DetailedStatus != "" && effectiveDetailedStatus(inst) != filter.DetailedStatus {
 		return false
 	}
 

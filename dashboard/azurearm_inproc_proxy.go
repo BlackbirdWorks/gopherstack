@@ -30,7 +30,7 @@ const (
 
 var armPxSecretKeys = []string{ //nolint:gochecknoglobals // immutable allowlist
 	"adminpassword", "customdata", "sharedkey", "daprainstrumentationkey", "dapraiconnectionstring",
-	"primarykey", "secondarykey", "protectedsettings", "secret",
+	"primarykey", "secondarykey", "protectedsettings", "secret", "administratorloginpassword",
 }
 
 // armProxy describes one in-process dispatch to the ARM handler: which resource types and operations the page may
@@ -41,8 +41,10 @@ type armProxy struct {
 	view      func(doc any)
 	name      string
 	prefix    string
+	version   string
 	queryKeys []string
 	methods   []string
+	relayOps  bool
 }
 
 func (h *DashboardHandler) registerARMProxy(px armProxy) {
@@ -73,6 +75,10 @@ func (h *DashboardHandler) registerARMProxy(px armProxy) {
 			}
 		}
 
+		if px.version != "" {
+			q.Set(armQueryVersion, px.version)
+		}
+
 		fwd := r.Clone(r.Context())
 		fwd.URL.Path, fwd.URL.RawPath = unescapedPath(armPath), armPath
 		fwd.URL.RawQuery = q.Encode()
@@ -90,6 +96,10 @@ func (h *DashboardHandler) registerARMProxy(px armProxy) {
 
 		rec := httptest.NewRecorder()
 		inner.ServeHTTP(rec, fwd)
+
+		if px.relayOps {
+			netRelayOps(c, rec.Header(), px.prefix)
+		}
 
 		return armProxyRelay(c, rec, px.view)
 	}

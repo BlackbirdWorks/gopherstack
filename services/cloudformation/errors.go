@@ -69,6 +69,12 @@ var (
 	ErrChangeSetTypeUnsupported = errors.New("ChangeSetType IMPORT is not supported")
 )
 
+// ErrStackOptions is a CreateStack/UpdateStack option combination AWS rejects.
+var ErrStackOptions = errors.New("invalid stack options")
+
+// ErrNestedStackFailed is a nested stack that did not reach CREATE_COMPLETE.
+var ErrNestedStackFailed = errors.New("nested stack failed")
+
 // ErrPropertyValidation is a resource-schema property failure.
 var ErrPropertyValidation = errors.New("properties validation failed")
 

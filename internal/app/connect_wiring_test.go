@@ -12,6 +12,7 @@ import (
 	connecttypes "github.com/aws/aws-sdk-go-v2/service/connect/types"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	sessdk "github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,7 @@ type connectWiringEnv struct {
 	integrations *aisdk.Client
 	events       *eventbridge.Client
 	objects      *s3.Client
+	mail         *sessdk.Client
 	instance     *connectsdk.CreateInstanceOutput
 }
 
@@ -42,6 +44,7 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 		integrations: aisdk.NewFromConfig(cfg),
 		events:       eventbridge.NewFromConfig(cfg),
 		objects:      s3.NewFromConfig(cfg, func(o *s3.Options) { o.UsePathStyle = true }),
+		mail:         sessdk.NewFromConfig(cfg),
 	}
 
 	tests := []struct {
@@ -59,6 +62,7 @@ func TestInitializeServices_ConnectWiring(t *testing.T) {
 			assert.Equal(t, "InvalidRequestException", connectErrCode(err))
 		}},
 		{name: "prompts read S3 objects", run: connectPromptCase},
+		{name: "outbound email is delivered through SES", run: connectOutboundEmailCase},
 		{name: "storage config needs its bucket", run: func(t *testing.T, e *connectWiringEnv) {
 			t.Helper()
 
@@ -185,4 +189,62 @@ func connectPromptCase(t *testing.T, e *connectWiringEnv) {
 
 	_, err = e.connect.CreatePrompt(t.Context(), prompt)
 	require.NoError(t, err)
+}
+
+func connectOutboundEmailCase(t *testing.T, e *connectWiringEnv) {
+	t.Helper()
+
+	_, err := e.mail.VerifyEmailIdentity(t.Context(), &sessdk.VerifyEmailIdentityInput{
+		EmailAddress: aws.String("support@wired.example.com"),
+	})
+	require.NoError(t, err)
+
+	_, err = e.connect.CreateEmailAddress(t.Context(), &connectsdk.CreateEmailAddressInput{
+		InstanceId: e.instance.Id, EmailAddress: aws.String("support@wired.example.com"),
+	})
+	require.NoError(t, err)
+
+	rp, err := e.connect.ListRoutingProfiles(
+		t.Context(),
+		&connectsdk.ListRoutingProfilesInput{InstanceId: e.instance.Id},
+	)
+	require.NoError(t, err)
+
+	sp, err := e.connect.ListSecurityProfiles(
+		t.Context(), &connectsdk.ListSecurityProfilesInput{InstanceId: e.instance.Id})
+	require.NoError(t, err)
+
+	agent, err := e.connect.CreateUser(t.Context(), &connectsdk.CreateUserInput{
+		InstanceId: e.instance.Id, Username: aws.String("mailer"), Password: aws.String("Passw0rd!Passw0rd"),
+		RoutingProfileId:   rp.RoutingProfileSummaryList[0].Id,
+		SecurityProfileIds: []string{aws.ToString(sp.SecurityProfileSummaryList[0].Id)},
+		PhoneConfig:        &connecttypes.UserPhoneConfig{PhoneType: connecttypes.PhoneTypeSoftPhone},
+	})
+	require.NoError(t, err)
+
+	userID := agent.UserId
+
+	contact, err := e.connect.CreateContact(t.Context(), &connectsdk.CreateContactInput{
+		InstanceId: e.instance.Id, Channel: connecttypes.ChannelEmail,
+		InitiationMethod: connecttypes.ContactInitiationMethodOutbound,
+		UserInfo:         &connecttypes.UserInfo{UserId: userID},
+	})
+	require.NoError(t, err)
+
+	_, err = e.connect.StartOutboundEmailContact(t.Context(), &connectsdk.StartOutboundEmailContactInput{
+		InstanceId: e.instance.Id, ContactId: contact.ContactId,
+		FromEmailAddress:        &connecttypes.EmailAddressInfo{EmailAddress: aws.String("support@wired.example.com")},
+		DestinationEmailAddress: &connecttypes.EmailAddressInfo{EmailAddress: aws.String("cust@example.org")},
+		EmailMessage: &connecttypes.OutboundEmailContent{
+			MessageSourceType: connecttypes.OutboundMessageSourceTypeRaw,
+			RawMessage: &connecttypes.OutboundRawMessage{
+				Subject: aws.String("hi"), Body: aws.String("body"), ContentType: aws.String("text/plain"),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	quota, err := e.mail.GetSendQuota(t.Context(), &sessdk.GetSendQuotaInput{})
+	require.NoError(t, err)
+	assert.InDelta(t, 1.0, quota.SentLast24Hours, 0.01)
 }

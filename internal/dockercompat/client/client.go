@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -71,6 +72,22 @@ func (c *Client) ImageTag(ctx context.Context, source, target string) error {
 	_, err := c.inner.ImageTag(ctx, mobyclient.ImageTagOptions{Source: source, Target: target})
 
 	return err
+}
+
+// ImageDigest returns the repo digest ("sha256:...") of a local image, or its image ID when it has none.
+func (c *Client) ImageDigest(ctx context.Context, ref string) (string, error) {
+	info, err := c.inner.ImageInspect(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+
+	for _, rd := range info.RepoDigests {
+		if _, d, ok := strings.Cut(rd, "@"); ok {
+			return d, nil
+		}
+	}
+
+	return info.ID, nil
 }
 
 // ImagePush pushes ref to its registry and returns the pushed manifest digest when the daemon reports one.

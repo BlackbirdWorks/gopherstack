@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -11,7 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -26,6 +30,7 @@ var (
 	errECSSecretsUnavailable = errors.New("secrets backend unavailable")
 	errECSSSMUnavailable     = errors.New("ssm backend unavailable")
 	errECSS3Unavailable      = errors.New("s3 backend unavailable")
+	errECSEC2Unavailable     = errors.New("ec2 backend unavailable")
 )
 
 // ecsSecrets adapts Secrets Manager and SSM to ecs.SecretsResolver, resolved at call time.
@@ -187,6 +192,7 @@ func wireECSRuntime(cli *CLI, byName map[string]service.Registerable) {
 	bk.SetRoleCredentialIssuer(&ecsTaskCredentials{byName: byName})
 	bk.SetSecretsResolver(&ecsSecrets{byName: byName})
 	bk.SetEFSResolver(&ecsEFS{byName: byName})
+	bk.SetEBSProvisioner(&ecsEBS{byName: byName})
 	bk.SetEnvFileStore(&ecsEnvFiles{byName: byName})
 	bk.SetExecSessionStarter(&ecsExecSessions{byName: byName})
 
@@ -233,7 +239,7 @@ func (a *ecsExecSessions) StartExecSession(
 			return
 		}
 
-		if shells, err := ssmbackend.NewDockerShellOpener(); err == nil {
+		if shells, err := newECSShellOpener(); err == nil {
 			bk.SetShellOpener(shells)
 		}
 	})
@@ -275,4 +281,94 @@ func (a *ecsEFS) ResolveVolume(
 	return ecsbackend.EFSVolumeMount{
 		HostDir: m.HostDir, UID: m.UID, GID: m.GID, SecondaryGIDs: m.SecondaryGIDs, HasPosixUser: m.HasPosixUser,
 	}, nil
+}
+
+// newECSShellOpener opens ECS Exec sessions through pods/exec on the kubernetes runtime, else the docker daemon.
+func newECSShellOpener() (ssmbackend.ShellOpener, error) {
+	if os.Getenv("CONTAINER_RUNTIME") != string(container.RuntimeKubernetes) {
+		return ssmbackend.NewDockerShellOpener()
+	}
+
+	rt, err := container.NewRuntime(container.Config{Runtime: container.RuntimeKubernetes})
+	if err != nil {
+		return nil, fmt.Errorf("kubernetes runtime for ECS Exec: %w", err)
+	}
+
+	k, ok := rt.(*container.KubernetesRuntime)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T", container.ErrUnknownRuntime, rt)
+	}
+
+	return ssmbackend.NewKubernetesShellOpener(k), nil
+}
+
+// ecsEBS adapts the EC2 backend to ecs.EBSProvisioner, resolved at call time.
+type ecsEBS struct {
+	byName map[string]service.Registerable
+}
+
+func (a *ecsEBS) backend(region string) (*ec2backend.InMemoryBackend, error) {
+	h, ok := a.byName["EC2"].(*ec2backend.Handler)
+	if !ok {
+		return nil, errECSEC2Unavailable
+	}
+
+	bk, ok := h.BackendFor(region).(*ec2backend.InMemoryBackend)
+	if !ok {
+		return nil, errECSEC2Unavailable
+	}
+
+	return bk, nil
+}
+
+func (a *ecsEBS) CreateTaskVolume(spec ecsbackend.EBSVolumeSpec) (string, error) {
+	bk, err := a.backend(spec.Region)
+	if err != nil {
+		return "", err
+	}
+
+	vol, err := bk.CreateVolume("", spec.VolumeType, spec.SizeInGiB, spec.SnapshotID, spec.VolumeInitializationRate)
+	if err != nil {
+		return "", err
+	}
+
+	fail := func(err error) (string, error) {
+		_ = bk.DeleteVolume(vol.ID)
+
+		return "", err
+	}
+
+	if spec.Encrypted != nil && *spec.Encrypted {
+		if err = bk.SetVolumeEncryption(vol.ID, true, spec.KMSKeyID); err != nil {
+			return fail(err)
+		}
+	}
+
+	if spec.Iops > 0 || spec.Throughput > 0 {
+		if err = bk.SetVolumePerformance(vol.ID, spec.Iops, spec.Throughput); err != nil {
+			return fail(err)
+		}
+	}
+
+	if len(spec.Tags) > 0 {
+		tags := make(map[string]string, len(spec.Tags))
+		for _, t := range spec.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		if err = bk.CreateTags([]string{vol.ID}, tags); err != nil {
+			return fail(err)
+		}
+	}
+
+	return vol.ID, nil
+}
+
+func (a *ecsEBS) DeleteTaskVolume(region, volumeID string) error {
+	bk, err := a.backend(region)
+	if err != nil {
+		return err
+	}
+
+	return bk.DeleteVolume(volumeID)
 }

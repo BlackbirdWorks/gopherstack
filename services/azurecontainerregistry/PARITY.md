@@ -47,7 +47,6 @@ items_still_open:
   - "Blobs unreferenced by any manifest are never garbage collected, and registry size is not metered."
   - "Content trust, quarantine and retention policies are not implemented; quarantineState is always Passed and signed is always false."
   - "Each registry's embedded distribution library leaves one go-events broadcaster goroutine running until process exit."
-  - "No dashboard page."
 leaks: {status: partial, note: "Shutdown closes the HTTP server and every registry; the distribution library's event broadcaster goroutine (one per registry built) cannot be stopped and is ignored by the leak check."}
 ---
 

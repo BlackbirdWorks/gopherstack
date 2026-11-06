@@ -36,7 +36,6 @@ items_still_open:
   - "Capture, geo-replication, compaction and application-group features are not implemented."
   - "SAS claims are not scoped to the audience entity."
   - "ARM namespace identity (SystemAssigned/UserAssigned), regenerateKeys and disasterRecoveryConfigs are not implemented."
-  - "No dashboard page."
 leaks: {status: clean, note: "Shutdown closes the AMQP servers and HTTP listener; the sweeper stops with its context; receiver registrations are removed when links close."}
 ---
 

@@ -22,8 +22,10 @@ func wireAzureARMAndEventGrid(byName map[string]service.Registerable) {
 		byName["AzureARM"], byName["AzureServiceBus"], byName["AzureKeyVault"], byName["CosmosDB"],
 		byName["AzureEventHubs"],
 	)
+	wireAzureARMQueueMeters(byName)
 	wireAzureEventGrid(byName)
 	wireAzureAppConfig(byName)
+	wireAzureSearch(byName)
 	wireAzureContainerRegistry(byName)
 	wireAzureFunctions(byName)
 	wireAzureFile(byName)

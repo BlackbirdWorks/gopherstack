@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -214,32 +212,6 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 	return c.JSON(http.StatusOK, api)
 }
 
-// openAPISpec is a minimal representation of an OpenAPI 3 / Swagger 2 document.
-// Only the fields needed to derive an API name, routes, and integrations are
-// modeled; unknown fields are ignored so that minimal specs are tolerated.
-type openAPISpec struct {
-	Paths    map[string]map[string]openAPIOperation `json:"paths"`
-	Info     openAPIInfo                            `json:"info"`
-	BasePath string                                 `json:"basePath"` // Swagger 2
-	Servers  []openAPIServer                        `json:"servers"`  // OpenAPI 3
-}
-
-type openAPIInfo struct {
-	Title string `json:"title"`
-}
-
-// openAPIServer is the OpenAPI 3 servers[] entry; its URL's path component is
-// the OpenAPI-3 equivalent of Swagger 2's top-level basePath.
-type openAPIServer struct {
-	URL string `json:"url"`
-}
-
-const (
-	basepathIgnore  = "ignore"
-	basepathPrepend = "prepend"
-	basepathSplit   = "split"
-)
-
 // validateBasepath returns ErrBadRequest unless basepath is empty (defaults
 // to ignore) or one of the three values ImportApiInput/ReimportApiInput
 // document (api_op_ImportApi.go:37-41, aws-sdk-go-v2/service/apigatewayv2@v1.37.4:
@@ -268,33 +240,6 @@ func failOnWarnings(c *echo.Context) (bool, error) {
 	return v, nil
 }
 
-// importWarnings lists the documented import warnings: HTTP APIs support only Lambda proxy and HTTP proxy
-// integrations (docs: Use OpenAPI definitions for HTTP APIs).
-func importWarnings(spec *openAPISpec) []string {
-	var warnings []string
-
-	for path, methods := range spec.Paths {
-		for method, op := range methods {
-			if op.Integration == nil {
-				continue
-			}
-
-			if t := strings.ToLower(op.Integration.Type); t != "aws_proxy" && t != "http_proxy" {
-				warnings = append(warnings, fmt.Sprintf(
-					"%s %s: integration type %q is not supported for HTTP APIs",
-					strings.ToUpper(method),
-					path,
-					op.Integration.Type,
-				))
-			}
-		}
-	}
-
-	sort.Strings(warnings)
-
-	return warnings
-}
-
 // checkFailOnWarnings rejects the import with BadRequestException when failOnWarnings is set and spec warns.
 func checkFailOnWarnings(c *echo.Context, spec *openAPISpec) error {
 	fail, err := failOnWarnings(c)
@@ -307,147 +252,6 @@ func checkFailOnWarnings(c *echo.Context, spec *openAPISpec) error {
 	}
 
 	return nil
-}
-
-// splitBasePath drops the top-most segment of a base path ("/a/b/c" -> "/b/c"), per the
-// split option in docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-import-api-basePath.html.
-func splitBasePath(basePath string) string {
-	trimmed := strings.Trim(basePath, "/")
-
-	_, rest, found := strings.Cut(trimmed, "/")
-	if !found {
-		return ""
-	}
-
-	return "/" + rest
-}
-
-// specBasePath returns the OpenAPI document's declared base path: Swagger 2's
-// top-level basePath, or the path component of OpenAPI 3's first servers[]
-// entry. Returns "" if neither is present or the server URL doesn't parse.
-func specBasePath(spec *openAPISpec) string {
-	if spec.BasePath != "" {
-		return spec.BasePath
-	}
-
-	if len(spec.Servers) == 0 {
-		return ""
-	}
-
-	u, err := url.Parse(spec.Servers[0].URL)
-	if err != nil {
-		return ""
-	}
-
-	return u.Path
-}
-
-type openAPIOperation struct {
-	Integration *openAPIIntegration `json:"x-amazon-apigateway-integration"`
-}
-
-// openAPIIntegration models the x-amazon-apigateway-integration extension.
-type openAPIIntegration struct {
-	Type                 string `json:"type"`
-	HTTPMethod           string `json:"httpMethod"`
-	URI                  string `json:"uri"`
-	PayloadFormatVersion string `json:"payloadFormatVersion"`
-	ConnectionType       string `json:"connectionType"`
-	TimeoutInMillis      int32  `json:"timeoutInMillis"`
-}
-
-// parseOpenAPISpec decodes an OpenAPI body into an openAPISpec, tolerating
-// minimal/partial documents.
-func parseOpenAPISpec(body string) (*openAPISpec, error) {
-	var spec openAPISpec
-	if strings.TrimSpace(body) == "" {
-		return &spec, nil
-	}
-
-	if err := json.Unmarshal([]byte(body), &spec); err != nil {
-		return nil, err
-	}
-
-	return &spec, nil
-}
-
-// applyOpenAPIToAPI creates a route (and integration, when defined) for each path+method in the
-// spec. Entries that are not valid HTTP route keys are skipped. basepath "prepend" prefixes the
-// document's base path onto every route path; "split" prefixes all but its top-most segment.
-func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec, basepath string) {
-	prefix := ""
-
-	switch basepath {
-	case basepathPrepend:
-		prefix = strings.TrimSuffix(specBasePath(spec), "/")
-	case basepathSplit:
-		prefix = splitBasePath(specBasePath(spec))
-	}
-
-	for path, methods := range spec.Paths {
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
-		}
-
-		if prefix != "" {
-			path = prefix + path
-		}
-
-		for method, op := range methods {
-			h.applyOpenAPIOperation(apiID, path, method, op)
-		}
-	}
-}
-
-// applyOpenAPIOperation creates the route (and integration, when defined) for
-// a single path+method entry from an imported OpenAPI spec. Route keys the
-// backend would reject (e.g. spec-level fields like "parameters" that share
-// the path map) are skipped gracefully.
-func (h *Handler) applyOpenAPIOperation(apiID, path, method string, op openAPIOperation) {
-	routeKey := strings.ToUpper(method) + " " + path
-	if err := validateHTTPRouteKey(routeKey); err != nil {
-		return
-	}
-
-	var target string
-
-	if op.Integration != nil {
-		integ, err := h.Backend.CreateIntegration(apiID, CreateIntegrationInput{
-			IntegrationType:      openAPIIntegrationType(op.Integration.Type),
-			IntegrationMethod:    op.Integration.HTTPMethod,
-			IntegrationURI:       op.Integration.URI,
-			PayloadFormatVersion: op.Integration.PayloadFormatVersion,
-			ConnectionType:       op.Integration.ConnectionType,
-			TimeoutInMillis:      op.Integration.TimeoutInMillis,
-		})
-		if err == nil && integ != nil {
-			target = "integrations/" + integ.IntegrationID
-		}
-	}
-
-	if _, err := h.Backend.CreateRoute(apiID, CreateRouteInput{
-		RouteKey: routeKey,
-		Target:   target,
-	}); err != nil {
-		return
-	}
-}
-
-// openAPIIntegrationType maps an OpenAPI x-amazon-apigateway-integration
-// "type" extension value to the API Gateway v2 IntegrationType wire value.
-func openAPIIntegrationType(t string) string {
-	switch t {
-	case "http", "http_proxy":
-		return integrationTypeHTTPProxy
-	case "aws", "aws_proxy":
-		return IntegrationTypeAWSProxy
-	case "mock":
-		return integrationTypeMock
-	case "":
-		return IntegrationTypeAWSProxy
-	default:
-		return strings.ToUpper(t)
-	}
 }
 
 func (h *Handler) handleImportAPI(c *echo.Context) error {
@@ -492,7 +296,9 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	h.applyOpenAPIToAPI(api.APIID, spec, basepath)
+	if err = applyOpenAPISpec(h.Backend, api.APIID, spec, basepath); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
 
 	return c.JSON(http.StatusCreated, api)
 }
@@ -548,7 +354,9 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	h.applyOpenAPIToAPI(apiID, spec, basepath)
+	if err = applyOpenAPISpec(h.Backend, apiID, spec, basepath); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
 
 	return c.JSON(http.StatusCreated, api)
 }

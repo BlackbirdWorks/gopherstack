@@ -88,8 +88,8 @@ func compileRoute(r *routeDoc, idx int) (*compiledRoute, *APIError) {
 		return nil, err
 	}
 
-	if r.ResponsePolicies != nil && isPresent(r.ResponsePolicies.ResponseCacheStore) {
-		return nil, errUnsupported("route responsePolicies.responseCacheStore")
+	if err := validateCacheStore(r.ResponsePolicies); err != nil {
+		return nil, err
 	}
 
 	return cr, nil

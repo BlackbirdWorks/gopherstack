@@ -323,6 +323,7 @@ func calculateLifecycle(lc *Lifecycle, from time.Time) *CalculatedLifecycle {
 	}
 
 	cl := &CalculatedLifecycle{}
+	from = from.UTC()
 	if lc.MoveToColdStorageAfterDays > 0 {
 		t := from.AddDate(0, 0, int(lc.MoveToColdStorageAfterDays))
 		cl.MoveToColdStorageAt = &t

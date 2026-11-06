@@ -39,3 +39,23 @@ func (r *DockerRuntime) TagAndPush(ctx context.Context, source, target string) (
 
 	return digest, nil
 }
+
+// ImageDigester is implemented by runtimes that can report the content digest ("sha256:...") of a local image.
+type ImageDigester interface {
+	ImageDigest(ctx context.Context, image string) (string, error)
+}
+
+// ImageDigest returns the digest of the local image ref.
+func (r *DockerRuntime) ImageDigest(ctx context.Context, ref string) (string, error) {
+	api, ok := r.docker.(ImageDigester)
+	if !ok {
+		return "", ErrPushUnsupported
+	}
+
+	d, err := api.ImageDigest(ctx, ref)
+	if err != nil {
+		return "", fmt.Errorf("inspect %q: %w", ref, err)
+	}
+
+	return d, nil
+}

@@ -113,6 +113,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.reinitTagsLocked(snap.ResourceTags)
 	b.settleTasksLocked()
+	b.settleReplicationsLocked()
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
@@ -283,6 +284,18 @@ func (b *InMemoryBackend) settleTasksLocked() {
 			rt.Status = statusStopped
 			if rt.StopReason == "" {
 				rt.StopReason = "Stop Reason RECOVERABLE_ERROR"
+			}
+		}
+	}
+}
+
+// settleReplicationsLocked stops Serverless replications an engine run was driving when the snapshot was taken.
+func (b *InMemoryBackend) settleReplicationsLocked() {
+	for _, rc := range b.replicationConfigs.All() {
+		if replicationActive(rc.Status) && !rc.StartDate.IsZero() {
+			rc.Status = statusStopped
+			if rc.StopReason == "" {
+				rc.StopReason = "Stop Reason RECOVERABLE_ERROR"
 			}
 		}
 	}

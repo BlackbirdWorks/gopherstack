@@ -37,6 +37,8 @@ func NewServer(ctx context.Context, host string, opts ...grpc.ServerOption) *grp
 
 // NewServerFor is NewServer with per-method project overrides.
 func NewServerFor(ctx context.Context, t Target, opts ...grpc.ServerOption) *grpc.Server {
+	opts = append(opts, RecoverOptions()...)
+
 	return grpc.NewServer(append(opts, ServerOptions(ctx, t)...)...)
 }
 

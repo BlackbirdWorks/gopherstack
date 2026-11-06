@@ -32,7 +32,7 @@ func (h *Handler) listBuckets(c *echo.Context, _ route) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		keyKind: "storage#buckets", "items": items, "nextPageToken": pg.Next,
+		keyKind: "storage#buckets", keyItems: items, "nextPageToken": pg.Next,
 	})
 }
 

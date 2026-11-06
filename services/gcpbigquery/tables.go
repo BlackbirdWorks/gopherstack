@@ -95,6 +95,17 @@ func tableIDFromBody(project, ds string, body map[string]any) (string, error) {
 
 // CreateTable implements tables.insert.
 func (b *InMemoryBackend) CreateTable(project, ds string, body map[string]any) (map[string]any, error) {
+	out, err := b.createTable(project, ds, body)
+	if err == nil {
+		id, _ := tableIDFromBody(project, ds, body)
+		b.auditCall("google.cloud.bigquery.v2.TableService.InsertTable",
+			"projects/"+project+"/datasets/"+ds+"/tables/"+id, project)
+	}
+
+	return out, err
+}
+
+func (b *InMemoryBackend) createTable(project, ds string, body map[string]any) (map[string]any, error) {
 	id, err := tableIDFromBody(project, ds, body)
 	if err != nil {
 		return nil, err
@@ -258,6 +269,16 @@ func (t *Table) applySchema(next []bqsql.Field) error {
 
 // DeleteTable implements tables.delete.
 func (b *InMemoryBackend) DeleteTable(project, ds, id string) error {
+	err := b.deleteTable(project, ds, id)
+	if err == nil {
+		b.auditCall("google.cloud.bigquery.v2.TableService.DeleteTable",
+			"projects/"+project+"/datasets/"+ds+"/tables/"+id, project)
+	}
+
+	return err
+}
+
+func (b *InMemoryBackend) deleteTable(project, ds, id string) error {
 	b.mu.Lock("DeleteTable")
 	defer b.mu.Unlock()
 

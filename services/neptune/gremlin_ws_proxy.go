@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/neptune/gremlin"
 )
 
@@ -128,6 +129,7 @@ func refuseFrame(ctx context.Context, caller *iamCaller, mt int, data []byte, ou
 
 func relayUpstream(ctx context.Context, cancel context.CancelFunc, up *websocket.Conn, out chan<- wsOut) {
 	defer cancel()
+	defer logger.Recover(ctx, "neptune.gremlin_proxy.relay", nil)
 
 	for {
 		mt, data, err := up.ReadMessage()
@@ -145,6 +147,7 @@ func relayUpstream(ctx context.Context, cancel context.CancelFunc, up *websocket
 
 func writeClient(ctx context.Context, cancel context.CancelFunc, client *websocket.Conn, out <-chan wsOut) {
 	defer cancel()
+	defer logger.Recover(ctx, "neptune.gremlin_proxy.write", nil)
 
 	for {
 		select {

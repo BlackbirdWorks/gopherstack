@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpenforce"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/testclient"
 	gcpcomputebackend "github.com/blackbirdworks/gopherstack/services/gcpcompute"
@@ -56,8 +56,7 @@ func startEnforceEnv(t *testing.T, enf gcpenforce.Settings) *enforceEnv {
 			Domain: "x.test", DeleteRetention: gcprmbackend.DefaultDeleteRetention,
 		},
 	}
-	portAlloc, err := portalloc.New(19700, 19800)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	services, err := initializeServicesT(t, &service.AppContext{
 		Logger: slog.Default(), Config: cli, JanitorCtx: t.Context(), PortAlloc: portAlloc,

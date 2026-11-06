@@ -74,6 +74,12 @@ func (c *conn) closeWithError(e *Error) {
 	_ = c.writePerformative(FrameAMQP, 0, &Close{Error: e})
 }
 
+// internalError closes just this connection after a recovered panic.
+func (c *conn) internalError(any) {
+	c.closeWithError(&Error{Condition: CondInternal, Description: "internal server error"})
+	c.shutdown()
+}
+
 func (c *conn) closeSessions() {
 	c.smu.Lock()
 	all := make([]*session, 0, len(c.sessions))

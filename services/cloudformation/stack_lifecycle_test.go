@@ -821,9 +821,13 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 	err = b.ExecuteChangeSet(t.Context(), "cs-base", "my-cs", false, false)
 	require.NoError(t, err)
 
-	// Delete should fail — already executed.
-	err = b.DeleteChangeSet("cs-base", "my-cs")
-	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound)
+	// The executed change set stays describable until deleted.
+	executed, err := b.DescribeChangeSet("cs-base", "my-cs")
+	require.NoError(t, err)
+	assert.Equal(t, "EXECUTE_COMPLETE", executed.ExecutionStatus)
+
+	require.NoError(t, b.DeleteChangeSet("cs-base", "my-cs"))
+	require.ErrorIs(t, b.DeleteChangeSet("cs-base", "my-cs"), cloudformation.ErrChangeSetNotFound)
 }
 
 func TestChangeSet_Delete(t *testing.T) {

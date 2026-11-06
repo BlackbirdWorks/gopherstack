@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
@@ -29,10 +30,20 @@ type bucketSnap struct {
 type seriesSnap struct {
 	Labels  map[string]string `json:"labels,omitempty"`
 	Buckets []int64           `json:"buckets,omitempty"`
+	Minutes []minuteSnap      `json:"minutes,omitempty"`
 	Count   int64             `json:"count"`
 	Sum     float64           `json:"sum"`
 	Mean    float64           `json:"mean"`
 	SSD     float64           `json:"ssd"`
+}
+
+type minuteSnap struct {
+	Buckets []int64 `json:"buckets,omitempty"`
+	Start   int64   `json:"start"`
+	Count   int64   `json:"count"`
+	Sum     float64 `json:"sum"`
+	Mean    float64 `json:"mean"`
+	SSD     float64 `json:"ssd"`
 }
 
 type metricSnap struct {
@@ -130,10 +141,26 @@ func snapMetric(rec *metricRec) metricSnap {
 	for _, s := range rec.series {
 		ms.Series = append(ms.Series, seriesSnap{
 			Labels: s.labels, Buckets: s.buckets, Count: s.count, Sum: s.sum, Mean: s.mean, SSD: s.ssd,
+			Minutes: snapMinutes(s),
 		})
 	}
 
 	return ms
+}
+
+func snapMinutes(s *seriesRec) []minuteSnap {
+	out := make([]minuteSnap, 0, len(s.minutes))
+
+	for k, m := range s.minutes {
+		out = append(
+			out,
+			minuteSnap{Start: k, Count: m.count, Sum: m.sum, Mean: m.mean, SSD: m.ssd, Buckets: m.buckets},
+		)
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })
+
+	return out
 }
 
 func restoreMap[T proto.Message](raw map[string]json.RawMessage, newT func() T) (map[string]T, error) {
@@ -295,6 +322,15 @@ func (b *InMemoryBackend) loadMetrics(in map[string]metricSnap) error {
 
 			if len(s.Buckets) == len(sr.buckets) {
 				copy(sr.buckets, s.Buckets)
+			}
+
+			for _, m := range s.Minutes {
+				mr := sr.minuteFor(time.Unix(0, m.Start))
+				mr.count, mr.sum, mr.mean, mr.ssd = m.Count, m.Sum, m.Mean, m.SSD
+
+				if len(m.Buckets) == len(mr.buckets) {
+					copy(mr.buckets, m.Buckets)
+				}
 			}
 		}
 

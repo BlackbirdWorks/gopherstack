@@ -32,13 +32,22 @@ RUN CGO_ENABLED=0 go build \
     -ldflags="-w -s -extldflags '-static -fno-PIC'" \
     -o gopherstack
 
-# Final stage
-FROM scratch
+# Writable state dir for the non-root runtime user (65532:65532)
+FROM --platform=$BUILDPLATFORM alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f AS state
+RUN mkdir /data
 
-WORKDIR /root/
+# Final stage: distroless static (nonroot) has a world-searchable / (containerd would unpack a bare
+# scratch / as 0700 root), plus ca-certificates, tzdata and a 1777 /tmp.
+FROM gcr.io/distroless/static:nonroot@sha256:25ac8f0c3b2334a9eb05452266bd4697864a8c8ef0ef71e5e6480d7f92868329
 
-# Copy the Pre-built binary from the previous stage
-COPY --from=builder /app/gopherstack .
+COPY --from=state --chown=65532:65532 /data /data
+
+WORKDIR /usr/local/bin
+
+COPY --from=builder --chown=0:0 --chmod=755 /app/gopherstack .
+
+USER 65532:65532
+
 
 # Expose port 8000 to the outside world
 EXPOSE 8000

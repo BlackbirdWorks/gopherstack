@@ -201,6 +201,7 @@ func (p *tlsProxy) serve(raw net.Conn) {
 	stop := context.AfterFunc(p.ctx, func() { _ = raw.Close() })
 	defer stop()
 	defer func() { _ = raw.Close() }()
+	defer logger.Recover(p.ctx, "docdb.tlsproxy", nil)
 
 	client := raw
 

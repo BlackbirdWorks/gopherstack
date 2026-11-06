@@ -1,6 +1,8 @@
 services:
   gopherstack:
     build: ../..
+    # The image runs as UID 65532; root can open the Docker socket without a group-add.
+    user: "0:0"
     environment:
       # Run the EC2 service with the docker-backed compute provider so that
       # RunInstances actually spawns a container (sshd, ec2-user) instead of

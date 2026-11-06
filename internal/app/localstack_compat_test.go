@@ -224,6 +224,18 @@ func TestLocalstackEnvPlan(t *testing.T) {
 			},
 		},
 		{
+			name: "enable_dms_runs_the_engine", environ: []string{"ENABLE_DMS=1"},
+			want: map[string]string{"DMS_ENGINE": "docker"},
+		},
+		{
+			name: "enable_dms_off", environ: []string{"ENABLE_DMS=0"},
+			want: map[string]string{},
+		},
+		{
+			name: "enable_dms_keeps_explicit_engine", environ: []string{"ENABLE_DMS=1", "DMS_ENGINE=stub"},
+			want: map[string]string{},
+		},
+		{
 			name:    "sqs_toggles_on_noop",
 			environ: []string{"SQS_DELAY_PURGE_RETRY=1", "SQS_ENABLE_MESSAGE_RETENTION_PERIOD=1"},
 			want:    map[string]string{},

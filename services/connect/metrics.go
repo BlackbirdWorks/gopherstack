@@ -609,7 +609,7 @@ type historicalSpec struct {
 
 var historicalMetrics = map[string]historicalSpec{ //nolint:gochecknoglobals // immutable metric catalogue
 	metricQueued: {unitCount, []string{statSum}}, metricHandled: {unitCount, []string{statSum}},
-	"CONTACTS_ABANDONED": {unitCount, []string{statSum}}, "CONTACTS_HANDLED_OUTBOUND": {unitCount, []string{statSum}},
+	metricAbandoned: {unitCount, []string{statSum}}, "CONTACTS_HANDLED_OUTBOUND": {unitCount, []string{statSum}},
 	"API_CONTACTS_HANDLED": {unitCount, []string{statSum}}, "QUEUED_TIME": {unitSeconds, []string{"AVG", "MAX"}},
 }
 
@@ -667,10 +667,10 @@ func historicalSample(name string, c *contactRec, from, to time.Time) (float64, 
 	case metricHandled:
 		return 1, in(conn)
 	case "CONTACTS_HANDLED_OUTBOUND":
-		return 1, in(conn) && c.Contact.InitiationMethod == "OUTBOUND"
+		return 1, in(conn) && c.Contact.InitiationMethod == methodOutbound
 	case "API_CONTACTS_HANDLED":
-		return 1, in(conn) && c.Contact.InitiationMethod == "API"
-	case "CONTACTS_ABANDONED":
+		return 1, in(conn) && c.Contact.InitiationMethod == methodAPI
+	case metricAbandoned:
 		return 1, conn == nil && in(c.Contact.DisconnectTimestamp)
 	case "QUEUED_TIME":
 		if end := firstNonNil(conn, c.Contact.DisconnectTimestamp); in(enq) && end != nil {

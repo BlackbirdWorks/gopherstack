@@ -7,6 +7,8 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/iam/apiv1/iampb"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -34,6 +36,8 @@ type backendSnapshot struct {
 	Rules        map[string]json.RawMessage   `json:"rules,omitempty"`
 	Settings     map[string]json.RawMessage   `json:"projectSettings,omitempty"`
 	VPCSC        map[string]json.RawMessage   `json:"vpcscConfigs,omitempty"`
+	Attachments  map[string]json.RawMessage   `json:"attachments,omitempty"`
+	SigningKeys  map[string][]byte            `json:"signingKeys,omitempty"`
 	Operations   map[string]json.RawMessage   `json:"operations"`
 	Version      int                          `json:"version"`
 }
@@ -70,6 +74,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		Rules:        marshalAll(b.rules),
 		Settings:     marshalAll(b.settings),
 		VPCSC:        marshalAll(b.vpcsc),
+		Attachments:  marshalAll(b.attach),
+		SigningKeys:  b.signKeys,
 	}
 
 	for name, rec := range b.repos {
@@ -127,6 +133,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.ops.AbortPending(grpcstatus.New(codes.Aborted, "The operation did not survive a restart."))
+
 	b.repos, b.ledger = repos, snap.Ledger
 	b.release(false)
 
@@ -183,6 +191,20 @@ func (b *InMemoryBackend) restoreExtras(snap *backendSnapshot) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	attach, err := unmarshalAll(snap.Attachments, func() *artifactregistrypb.Attachment {
+		return &artifactregistrypb.Attachment{}
+	})
+	if err != nil {
+		return err
+	}
+
+	b.attach, b.pending = attach, map[string]*pendingOp{}
+
+	b.signKeys = snap.SigningKeys
+	if b.signKeys == nil {
+		b.signKeys = map[string][]byte{}
 	}
 
 	b.meta, b.genPkgs, b.genVers = orEmpty(snap.Meta), orEmpty(snap.GenericPkgs), orEmpty(snap.GenericVers)

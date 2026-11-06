@@ -2,6 +2,8 @@ package azurefunctions
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -117,6 +119,7 @@ func containerEnv(a *appState, rc runtimeChoice, host string) []string {
 		env[settingWorker] = rc.worker
 	}
 
+	env[authKeySetting] = hex.EncodeToString(adminSigningKey(a))
 	maps.Copy(env, a.Settings)
 
 	env["AzureWebJobsSecretStorageType"] = "files"
@@ -151,6 +154,20 @@ func hostSpec(a *appState, rc runtimeChoice, host, dir, secretsDir string, port 
 	}
 }
 
+func (b *InMemoryBackend) fetchPackage(st *appState) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(b.baseCtx(), b.startupTimeoutValue())
+	defer cancel()
+
+	return b.sitePackage(ctx, st.Settings, st.Zip)
+}
+
+func (b *InMemoryBackend) startupTimeoutValue() time.Duration {
+	b.mu.RLock("startupTimeout")
+	defer b.mu.RUnlock()
+
+	return b.startupTimeout
+}
+
 func mkScratch(pattern string) (string, error) {
 	dir, err := os.MkdirTemp("", pattern)
 	if err != nil {
@@ -171,6 +188,13 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 	if st.isWeb() {
 		return b.launchWeb(st, host)
 	}
+
+	pkg, err := b.fetchPackage(st)
+	if err != nil {
+		return box{}, err
+	}
+
+	st = b.forContainer(st)
 
 	rc, err := chooseRuntime(st.Settings, st.LinuxFx)
 	if err != nil {
@@ -194,7 +218,7 @@ func (b *InMemoryBackend) launch(st *appState, host string) (box, error) {
 	}
 
 	if !rc.custom {
-		if x.dir, err = b.materialize(st.Zip); err != nil {
+		if x.dir, err = b.materialize(pkg); err != nil {
 			b.teardown(x)
 
 			return box{}, err
@@ -371,6 +395,10 @@ func (b *InMemoryBackend) runStart(name string, claim startClaim) (int, error) {
 
 	if !still {
 		return 0, ErrAppNotFound
+	}
+
+	if errors.Is(launchErr, errStale) {
+		b.autoStart(name)
 	}
 
 	return x.port, launchErr

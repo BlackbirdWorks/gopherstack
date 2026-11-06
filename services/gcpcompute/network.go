@@ -69,7 +69,7 @@ func newSubnet(project, region, name, network string, p netip.Prefix, stamp stri
 		Kind: "compute#subnetwork", Id: newID(), CreationTimestamp: stamp, Name: name, Network: network,
 		IpCidrRange: p.String(), GatewayAddress: gateway(p).String(), Region: scopeURL(project, scopeRegion, region),
 		SelfLink: regionLink(project, region, "subnetworks", name), Fingerprint: newFingerprint(),
-		Purpose: "PRIVATE", StackType: "IPV4_ONLY", PrivateIpv6GoogleAccess: "DISABLE_GOOGLE_ACCESS",
+		Purpose: "PRIVATE", StackType: stackIPv4Only, PrivateIpv6GoogleAccess: "DISABLE_GOOGLE_ACCESS",
 	}
 }
 
@@ -150,6 +150,11 @@ func (b *InMemoryBackend) insertNetwork(
 	}
 
 	n.SelfLinkWithId = globalLink(project, "networks", strconv.FormatUint(n.Id, 10))
+
+	if err := b.setupULALocked(n, in); err != nil {
+		return nil, err
+	}
+
 	b.networks[key(project, n.Name)] = n
 
 	if n.AutoCreateSubnetworks {
@@ -216,6 +221,12 @@ func (b *InMemoryBackend) networkUserLocked(project string, n *computeapi.Networ
 }
 
 func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Network) string {
+	for _, a := range b.addresses {
+		if a.Region == "" && a.Network == n.SelfLink {
+			return relPath(project, scopeGlobal, "", "addresses", a.Name)
+		}
+	}
+
 	for _, f := range b.firewalls {
 		if f.Network == n.SelfLink {
 			return relPath(project, scopeGlobal, "", "firewalls", f.Name)
@@ -234,7 +245,7 @@ func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Networ
 		}
 	}
 
-	return ""
+	return b.vpnGatewayUserLocked(n)
 }
 
 func isSystemRoute(r *computeapi.Route) bool {

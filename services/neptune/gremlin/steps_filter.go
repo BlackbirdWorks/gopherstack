@@ -32,7 +32,6 @@ func regFilter(m map[string]stepFn) {
 	m["dedup"] = stepDedup
 	m["none"] = func(_ *exec, _ *Step, _ []*trav) ([]*trav, error) { return nil, nil }
 	m["discard"] = m["none"]
-	m["coin"] = filterStep(func(_ *exec, _ *Step, _ *trav) (bool, error) { return true, nil })
 }
 
 func isSimple(t *trav) bool {

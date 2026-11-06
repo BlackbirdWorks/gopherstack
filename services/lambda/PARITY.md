@@ -20,8 +20,8 @@ families:
 gaps: []
 # 2026-10-08: CreateFunction defaults an omitted PackageType to Zip (was Image).
 items_still_open:
-  - "Extensions API: the Telemetry/Logs API (/2022-07-01/telemetry, /2020-08-15/logs) is not served; extensions that subscribe get 404."
-  - "Extensions API: container-image functions do not start /opt/extensions executables (no image entrypoint inspection; only Zip functions with layers are wrapped by the extension launcher), and internal extensions registering for SHUTDOWN are not rejected (internal vs external is not distinguishable at register time)."
+  - "CONTAINER_RUNTIME=kubernetes (Pod executor, gopherstack-49qct.87): EFS file systems, hot reload, layer extensions, LAMBDA_DOCKER_FLAGS and host DNS/CA injection are not supported on Pods; those functions fail to start or skip the feature. Tracked in gopherstack-49qct.88."
+  - "Telemetry/Logs API (gopherstack-49qct.91): not emitted -- platform.restoreStart/RuntimeDone/Report (SnapStart), platform.fault (Logs API), spans on init events, and runtimeOverhead span; platform.runtimeDone fires when the response is posted, not at the runtime's next call. Function/extension lines come from container stdout/stderr (extension lines are tagged by the launcher), so extensions of image functions without /bin/sh are not started and unclassified internal/external. Error-type strings and status codes for unknown/late subscribers, internal-extension SHUTDOWN rejection (400 Extension.InvalidEventType) and the TCP URI form (tcp://host:port) are unverified: the AWS docs list only status codes."
   - "Extensions API: the error-type strings in register 4xx bodies (Extension.InvalidExtensionName, Extension.TooManyExtensions, Extension.RegistrationClosed, Extension.AlreadyRegistered, Extension.InvalidEventType) are unverified recall; the AWS docs list only the status codes. SHUTDOWN waits until each extension took the event (up to 2s), not until the process exits."
   - "GET /_aws/lambda/runtimes returns {\"Runtimes\": [...]}; LocalStack's docs name the endpoint and filter=deprecated|all but do not document the response shape, so the shape is unverified. LOCALSTACK_INIT_LOG_LEVEL and LOCALSTACK_USER are not applicable (no LocalStack init binary); pass them through LAMBDA_DOCKER_FLAGS -e if an image needs them."
   - "--lambda-isolation=firecracker is rejected at startup: no firecracker binary is installed on the build host, so no microVM runner exists. Design: export the function image with `docker export` into an ext4 rootfs, boot it under firecracker with a configured kernel image (--lambda-firecracker-kernel), and reach the Runtime API over vsock (or a TAP device) instead of the docker bridge. Needs /dev/kvm access and a firecracker binary to build and test (gopherstack-cefu7.7)."
@@ -40,6 +40,41 @@ structural_gaps:
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-11-05 — Telemetry API, Logs API, image extensions, gopherstack-49qct.91)
+
+Authority: AWS Lambda Developer Guide pages telemetry-api-reference (Subscribe), telemetry-schema-reference (event
+schemas), telemetry-api (destinations, buffering), runtimes-logs-api (Logs API 2020-08-15), runtimes-extensions-api
+(Register, internal extensions, shutdown phase), fetched 2026-11-05.
+
+- `PUT /2022-07-01/telemetry` and `PUT /2020-08-15/logs` are served on the per-function Runtime API port
+  (`telemetry_api.go`, `telemetry_wire.go`). Validation follows the documented bounds: schemaVersion
+  2025-01-29|2022-12-13|2022-07-01 (Logs: 2020-08-15 default, 2021-03-18), types platform|function|extension,
+  destination HTTP|TCP, http only, port required, 9001 reserved, host must be sandbox.localdomain (or loopback),
+  maxItems 1000..10000, maxBytes 262144..1048576, timeoutMs 25..30000. Errors are 400 `{"errorType":"ValidationError"
+  | "Logs.ValidationError","errorMessage":"a; b"}`; success is 200 `"OK"`. Subscribing is idempotent per extension;
+  subscribing through the other API errors (docs). Late subscriptions (after Init) are refused.
+- Doc discrepancy: the reference page lists maxItems default 1,000, the user-guide and Logs API pages 10,000; 1,000 is
+  used (reference page is the one with the newest schema).
+- Delivery (`telemetry_hub.go`): per-subscriber buffer flushed on maxItems, maxBytes or timeoutMs, POST of a JSON array
+  (HTTP) or NDJSON (TCP), retry with backoff, `platform.logsDropped` when the subscriber falls behind. The emulator
+  reaches the listener at the subscribing container's address (request remote address) instead of
+  sandbox.localdomain. Buffers are flushed before SHUTDOWN is sent.
+- Events: platform.initStart/initRuntimeDone/initReport (replayed to late subscribers), start, runtimeDone (status
+  success|error|timeout, metrics, responseLatency/responseDuration spans, tracing), report (durationMs,
+  billedDurationMs, memorySizeMB, maxMemoryUsedMB read from the container cgroup, initDurationMs on the cold start),
+  extension, telemetrySubscription, logsDropped, function and extension lines (JSON object records for LogFormat JSON
+  on schema 2022-12-13+). Logs API: platform.start/end/report/extension/logsSubscription/logsDropped and runtimeDone
+  at 2021-03-18. The doc example for platform.report omits `status` although the attribute list requires it; it is emitted.
+- Init phase now ends only after every external extension registered and called Next (docs: Init completes after each
+  extension signals via Next), so the first invocation never races a subscription.
+- Container-image functions: `/opt/extensions` is listed and the executables are started through `docker exec`
+  (`extension_image.go`); names found are the external set, any other registrant is internal and a SHUTDOWN
+  registration is rejected (docs: internal extensions are not permitted to register for Shutdown). Zip functions use the
+  layer listing for the same classification.
+- Tests: `telemetry_internal_test.go` (validation, batching with synctest, doc-example golden JSON, delivery lifecycle
+  over HTTP and TCP, timeout), `extension_image_internal_test.go`, docker-gated
+  `internal/app/lambda_telemetry_docker_test.go` (zip+layer and container-image extension with a real Go binary).
 
 ## Notes (2026-10-25 — KMSKeyArn env encryption, EFS PosixUser)
 

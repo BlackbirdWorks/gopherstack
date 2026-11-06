@@ -5,9 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"strings"
 	"unicode"
@@ -15,14 +12,12 @@ import (
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/gcprest"
 )
 
 const (
 	uploadPrefix   = "/upload/v1/"
-	uploadSuffix   = "/genericArtifacts:create"
 	downloadSuffix = ":download"
 	maxBlobBytes   = 1 << 30
 )
@@ -60,8 +55,9 @@ func writeRESTError(w http.ResponseWriter, err error) {
 func (b *InMemoryBackend) FileExtras() gcprest.Extra {
 	return gcprest.Extra{
 		Match: func(path string) bool {
-			return (strings.HasPrefix(path, uploadPrefix) && strings.HasSuffix(path, uploadSuffix)) ||
-				(strings.HasPrefix(path, "/v1/") && strings.HasSuffix(path, downloadSuffix))
+			_, isUpload := matchUpload(path)
+
+			return isUpload || (strings.HasPrefix(path, "/v1/") && strings.HasSuffix(path, downloadSuffix))
 		},
 		Handler: http.HandlerFunc(b.serveFileMedia),
 	}
@@ -71,8 +67,9 @@ func (b *InMemoryBackend) serveFileMedia(w http.ResponseWriter, r *http.Request)
 	escaped := r.URL.EscapedPath()
 
 	switch {
-	case r.Method == http.MethodPost && strings.HasSuffix(escaped, uploadSuffix):
-		b.serveUpload(w, r, strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, uploadPrefix), uploadSuffix))
+	case isMediaUpload(r):
+		k, _ := matchUpload(r.URL.Path)
+		b.serveMediaUpload(w, r, k)
 	case r.Method == http.MethodGet && strings.HasSuffix(escaped, downloadSuffix):
 		b.serveDownload(w, r, strings.TrimSuffix(strings.TrimPrefix(escaped, "/v1/"), downloadSuffix))
 	default:
@@ -80,72 +77,10 @@ func (b *InMemoryBackend) serveFileMedia(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func readMultipart(r *http.Request) (uploadReq, []byte, error) {
-	mt, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || !strings.HasPrefix(mt, "multipart/") || params["boundary"] == "" {
-		return uploadReq{}, nil, errInvalid("The upload must be a multipart request (uploadType=multipart).")
-	}
+func isMediaUpload(r *http.Request) bool {
+	_, ok := matchUpload(r.URL.Path)
 
-	body := http.MaxBytesReader(nil, r.Body, maxGenericBytes+1<<20)
-	mr := multipart.NewReader(body, params["boundary"])
-
-	meta, err := mr.NextPart()
-	if err != nil {
-		return uploadReq{}, nil, errInvalid("%v", errNoData)
-	}
-
-	var req uploadReq
-	if err = json.NewDecoder(meta).Decode(&req); err != nil {
-		return uploadReq{}, nil, errInvalid("The upload metadata is not valid JSON: %v", err)
-	}
-
-	media, err := mr.NextPart()
-	if err != nil {
-		return uploadReq{}, nil, errInvalid("%v", errNoData)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(media, maxGenericBytes+1))
-	if err != nil {
-		return uploadReq{}, nil, errInvalid("Reading the upload failed: %v", err)
-	}
-
-	if len(data) > maxGenericBytes {
-		return uploadReq{}, nil, status.Error(codes.ResourceExhausted, "The file is larger than the emulator accepts.")
-	}
-
-	return req, data, nil
-}
-
-func (b *InMemoryBackend) serveUpload(w http.ResponseWriter, r *http.Request, parent string) {
-	if t := r.URL.Query().Get("uploadType"); t != "" && t != "multipart" {
-		writeRESTError(w, errInvalid("uploadType %q is not supported: use multipart.", t))
-
-		return
-	}
-
-	req, data, err := readMultipart(r)
-	if err != nil {
-		writeRESTError(w, err)
-
-		return
-	}
-
-	op, err := b.UploadGenericArtifact(r.Context(), parent, req, data)
-	if err != nil {
-		writeRESTError(w, err)
-
-		return
-	}
-
-	raw, err := protojson.Marshal(op)
-	if err != nil {
-		writeRESTError(w, errInternal(err))
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	_, _ = w.Write([]byte(`{"operation":` + string(raw) + `}`)) //nolint:gosec // JSON response
+	return ok && (r.Method == http.MethodPost || r.Method == http.MethodPut)
 }
 
 func (b *InMemoryBackend) serveDownload(w http.ResponseWriter, r *http.Request, name string) {
@@ -186,7 +121,7 @@ func (b *InMemoryBackend) fileContent(ctx context.Context, name string) ([]byte,
 		return nil, errInternal(err)
 	}
 
-	if b.downloadDenied(ctx, fr.repo.project, fr.repo.id, pkg.image) {
+	if b.downloadDenied(ctx, fr.repo.project, fr.repo.id, b.fileResource(pkg.image, f.GetOwner())) {
 		return nil, status.Error(codes.PermissionDenied, "A download rule denies access to this package.")
 	}
 

@@ -14,17 +14,19 @@ func routeTarget(project string, r *computeapi.Route) target {
 }
 
 func (b *InMemoryBackend) resolveNextHopLocked(project string, in, out *computeapi.Route) *APIError {
-	if in.NextHopVpnTunnel != "" || in.NextHopIlb != "" || in.NextHopHub != "" || in.NextHopPeering != "" ||
-		in.NextHopNetwork != "" {
+	if in.NextHopHub != "" || in.NextHopPeering != "" || in.NextHopNetwork != "" {
 		return errInvalid(
-			"Invalid value for field 'resource': next hop type is not supported by this emulator " +
-				"(use nextHopGateway, nextHopIp or nextHopInstance).",
+			"Invalid value for field 'resource': nextHopHub is not supported by this emulator, and " +
+				"nextHopPeering and nextHopNetwork are output only.",
 		)
 	}
 
 	set := 0
 
-	for _, given := range []bool{in.NextHopGateway != "", in.NextHopIp != "", in.NextHopInstance != ""} {
+	for _, given := range []bool{
+		in.NextHopGateway != "", in.NextHopIp != "", in.NextHopInstance != "", in.NextHopVpnTunnel != "",
+		in.NextHopIlb != "",
+	} {
 		if given {
 			set++
 		}
@@ -32,8 +34,8 @@ func (b *InMemoryBackend) resolveNextHopLocked(project string, in, out *computea
 
 	if set != 1 {
 		return errInvalid(
-			"Invalid value for field 'resource': ''. Exactly one next hop " +
-				"(nextHopGateway, nextHopIp, nextHopInstance) must be specified.",
+			"Invalid value for field 'resource': ''. Exactly one next hop (nextHopGateway, nextHopIp, " +
+				"nextHopInstance, nextHopVpnTunnel, nextHopIlb) must be specified.",
 		)
 	}
 
@@ -42,6 +44,10 @@ func (b *InMemoryBackend) resolveNextHopLocked(project string, in, out *computea
 		return resolveGateway(project, in, out)
 	case in.NextHopIp != "":
 		return resolveNextHopIP(in, out)
+	case in.NextHopVpnTunnel != "":
+		return b.resolveNextHopTunnelLocked(project, in, out)
+	case in.NextHopIlb != "":
+		return b.resolveNextHopILBLocked(project, in, out)
 	}
 
 	return b.resolveNextHopInstanceLocked(project, in, out)

@@ -60,13 +60,15 @@ type extensionEvent struct {
 }
 
 type extension struct {
-	events    chan extensionEvent
-	id        string
-	name      string
-	delivered string
-	invoke    bool
-	shutdown  bool
-	exited    bool
+	events     chan extensionEvent
+	id         string
+	name       string
+	delivered  string
+	subscribed []string
+	invoke     bool
+	shutdown   bool
+	exited     bool
+	nexted     bool
 }
 
 // invokeWait tracks the extensions that still owe a Next call for one invocation.
@@ -78,20 +80,25 @@ type invokeWait struct {
 
 // extensionRegistry is the per-function state machine behind the Extensions API.
 type extensionRegistry struct {
-	mu              *lockmetrics.RWMutex
+	holdCh          chan struct{}
 	exts            map[string]*extension
 	names           map[string]struct{}
 	waits           map[string]*invokeWait
 	ready           chan struct{}
 	closing         chan struct{}
+	hub             *telemetryHub
+	externalNames   map[string]struct{}
+	mu              *lockmetrics.RWMutex
 	meta            extensionMeta
-	expected        int
 	shutdownTimeout time.Duration
 	initTimeout     time.Duration
+	expected        int
 	closeOnce       sync.Once
 	initDone        bool
 	shutdownSent    bool
 	initFailed      bool
+	holding         bool
+	externalKnown   bool
 }
 
 func newExtensionRegistry() *extensionRegistry {
@@ -113,19 +120,96 @@ func (r *extensionRegistry) close() {
 	})
 }
 
-// setExpected records how many external extensions the launcher will start; the
-// runtime's first Next waits for that many registrations (Extension init phase).
-func (r *extensionRegistry) setExpected(n int) {
-	if r == nil || n <= 0 {
+// setExternal records the external extension files the launcher will start. Registrations under
+// any other name come from the runtime process (internal extensions). The runtime's first Next
+// waits until every external extension registered and called Next (Extension init phase).
+func (r *extensionRegistry) setExternal(names []string) {
+	r.mu.Lock("setExternal")
+	defer r.mu.Unlock()
+
+	r.externalKnown = true
+	r.externalNames = make(map[string]struct{}, len(names))
+
+	for _, n := range names {
+		r.externalNames[n] = struct{}{}
+	}
+
+	r.endHoldLocked()
+
+	if len(names) == 0 {
+		r.markReadyLocked()
+
 		return
 	}
 
-	r.mu.Lock("setExpected")
-	defer r.mu.Unlock()
+	r.expected = len(names)
 
-	r.expected = n
-	r.ready = make(chan struct{})
+	if r.ready == nil {
+		r.ready = make(chan struct{})
+	}
+
 	r.markReadyLocked()
+}
+
+// holdInit makes the runtime's first Next wait until setExternal or releaseInit runs; used when
+// the external extensions are only discovered after the container started.
+func (r *extensionRegistry) holdInit() {
+	r.mu.Lock("holdInit")
+	r.holding = true
+	r.holdCh = make(chan struct{})
+	r.ready = make(chan struct{})
+	r.mu.Unlock()
+}
+
+func (r *extensionRegistry) endHoldLocked() {
+	if r.holding {
+		close(r.holdCh)
+	}
+
+	r.holding = false
+}
+
+// awaitHold blocks while the external extension set is still being discovered.
+func (r *extensionRegistry) awaitHold(ctx context.Context) {
+	r.mu.RLock("awaitHold")
+	ch, timeout := r.holdCh, r.initTimeout
+	holding := r.holding
+	r.mu.RUnlock()
+
+	if !holding {
+		return
+	}
+
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+
+	select {
+	case <-ch:
+	case <-t.C:
+	case <-ctx.Done():
+	case <-r.closing:
+	}
+}
+
+// releaseInit ends a holdInit without knowing the extension set.
+func (r *extensionRegistry) releaseInit() {
+	r.mu.Lock("releaseInit")
+	r.endHoldLocked()
+	r.markReadyLocked()
+	r.mu.Unlock()
+}
+
+// lookup reports an extension's name and whether registrations/subscriptions are already closed.
+func (r *extensionRegistry) lookup(id string) (string, bool, bool) {
+	r.mu.RLock("lookup")
+	defer r.mu.RUnlock()
+
+	ext, ok := r.exts[id]
+	if !ok || ext.exited {
+		return "", false, false
+	}
+
+	return ext.name, true, r.initDone || r.shutdownSent
 }
 
 func (r *extensionRegistry) setMeta(m extensionMeta) {
@@ -139,13 +223,27 @@ func (r *extensionRegistry) markReadyLocked() {
 		return
 	}
 
-	if len(r.exts) >= r.expected || r.initFailed {
+	if r.holding {
+		return
+	}
+
+	if (len(r.exts) >= r.expected && r.allInitedLocked()) || r.initFailed {
 		select {
 		case <-r.ready:
 		default:
 			close(r.ready)
 		}
 	}
+}
+
+func (r *extensionRegistry) allInitedLocked() bool {
+	for _, e := range r.exts {
+		if !e.nexted && !e.exited {
+			return false
+		}
+	}
+
+	return true
 }
 
 // awaitInit blocks the runtime's first Next until expected extensions registered.
@@ -230,13 +328,23 @@ func (r *extensionRegistry) register(
 			&extensionError{"Extension.TooManyExtensions", "at most 10 extensions can be registered"}
 	}
 
+	if shutdown && r.externalKnown {
+		if _, external := r.externalNames[name]; !external {
+			return registerResponse{}, "", http.StatusBadRequest,
+				&extensionError{
+					"Extension.InvalidEventType",
+					"internal extensions cannot register for the SHUTDOWN event",
+				}
+		}
+	}
+
 	if _, dup := r.names[name]; dup {
 		return registerResponse{}, "", http.StatusForbidden,
 			&extensionError{"Extension.AlreadyRegistered", "extension " + name + " is already registered"}
 	}
 
 	ext := &extension{
-		id: uuid.NewString(), name: name, invoke: invoke, shutdown: shutdown,
+		id: uuid.NewString(), name: name, invoke: invoke, shutdown: shutdown, subscribed: events,
 		events: make(chan extensionEvent, extensionEventBuffer),
 	}
 	r.exts[ext.id] = ext
@@ -374,7 +482,20 @@ func (r *extensionRegistry) next(ctx context.Context, id string) (extensionEvent
 	}
 
 	r.ackLocked(ext)
+
+	first := !ext.nexted
+	ext.nexted = true
 	events := ext.events
+
+	if first {
+		// publish before releasing the init gate: platform.extension must precede platform.start
+		if r.hub != nil {
+			r.hub.extensionReady(ext.name, ext.subscribed)
+		}
+
+		r.markReadyLocked()
+	}
+
 	r.mu.Unlock()
 
 	select {
@@ -475,6 +596,8 @@ func (s *runtimeServer) handleExtensionRegister(w http.ResponseWriter, r *http.R
 
 		return
 	}
+
+	s.exts.awaitHold(r.Context())
 
 	name := r.Header.Get(headerExtensionName)
 	if name == "" || strings.ContainsAny(name, "/\\") {

@@ -25,6 +25,8 @@ const (
 	maxBucketName    = 256
 	anonymousUser    = "ocid1.user.oc1..anonymous"
 	ocidHexLen       = 40
+	// DefaultMinPartSize disables minimum part size enforcement; the OCI docs state no minimum.
+	DefaultMinPartSize = 0
 )
 
 var bucketNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
@@ -36,10 +38,12 @@ type InMemoryBackend struct {
 	buckets      map[string]*Bucket
 	workRequests map[string]*WorkRequest
 	Auth         *ociauth.Registry
-	namespace    string
-	nsMeta       nsMetaWire
 	sink         func(ObjectEvent)
+	keyState     func(string) (string, bool)
+	nsMeta       nsMetaWire
+	namespace    string
 	pending      []ObjectEvent
+	minPartSize  int64
 }
 
 // NewInMemoryBackend creates an empty backend serving the default namespace.
@@ -51,6 +55,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		workRequests: map[string]*WorkRequest{},
 		Auth:         ociauth.NewRegistry(),
 		namespace:    DefaultNamespace,
+		minPartSize:  DefaultMinPartSize,
 	}
 }
 
@@ -58,6 +63,13 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.mu.Lock("SetClock")
 	b.now = now
+	b.mu.Unlock()
+}
+
+// SetMinPartSize overrides the minimum size of every multipart part except the last.
+func (b *InMemoryBackend) SetMinPartSize(n int64) {
+	b.mu.Lock("SetMinPartSize")
+	b.minPartSize = n
 	b.mu.Unlock()
 }
 
@@ -352,6 +364,10 @@ func (b *InMemoryBackend) renameBucket(bk *Bucket, name string) error {
 		return errConflict("BucketAlreadyExists", "The bucket '"+name+"' already exists")
 	}
 
+	if bk.Replication != nil || bk.ReplicationSource != nil {
+		return errConflict("BucketReplicationEnabled", "A bucket that takes part in replication cannot be renamed")
+	}
+
 	delete(b.buckets, bk.Name)
 	bk.Name = name
 	b.buckets[name] = bk
@@ -396,11 +412,22 @@ func (b *InMemoryBackend) DeleteBucket(ns, name string, pre Preconds) error {
 		return err
 	}
 
+	if bk.ReplicationSource != nil {
+		return errReplReadOnly(name)
+	}
+
 	if len(bk.Objects) > 0 || len(bk.Uploads) > 0 {
 		return errConflict(
 			"BucketNotEmpty",
 			"Bucket named '"+name+"' is not empty. Delete all objects, versions and uploads first",
 		)
+	}
+
+	if bk.Replication != nil {
+		if dst, ok := b.buckets[bk.Replication.DestinationBucketName]; ok && dst.ReplicationSource != nil &&
+			dst.ReplicationSource.SourceBucketName == name {
+			dst.ReplicationSource = nil
+		}
 	}
 
 	delete(b.buckets, name)

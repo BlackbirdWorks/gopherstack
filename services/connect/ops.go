@@ -452,6 +452,16 @@ func (h *Handler) routingOps(ops map[string]restroute.OpFunc) {
 		},
 	)
 	ops["DeleteRoutingProfile"] = deleteOp("RoutingProfileId", b.DeleteRoutingProfile)
+	ops["ListRoutingProfileManualAssignmentQueues"] = func(_ context.Context, req *restroute.Request) (any, int, error) {
+		token, m, err := pageArgs(req)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return passthrough(
+			b.ListRoutingProfileManualAssignmentQueues(instOf(req), req.Params["RoutingProfileId"], token, m),
+		)
+	}
 	ops["ListRoutingProfileQueues"] = listOp(
 		"RoutingProfileQueueConfigSummaryList",
 		func(r *restroute.Request, t string, m int32) ([]RoutingProfileQueueConfigSummary, string, error) {
@@ -620,6 +630,7 @@ func (h *Handler) contactOps(ops map[string]restroute.OpFunc) {
 	)
 	ops["DescribeContact"] = describeOp("ContactId", "Contact", b.DescribeContact)
 	ops["StopContact"] = typed(b.StopContact)
+	h.contactControlOps(ops)
 	ops["UpdateContactAttributes"] = typed(b.UpdateContactAttributes)
 	ops["GetContactAttributes"] = describeAttrs(b)
 	ops["UpdateContact"] = typed(b.UpdateContact)

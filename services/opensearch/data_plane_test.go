@@ -85,9 +85,14 @@ func (e *dataPlaneEnv) do(t *testing.T, method, path, body, user, pass string) (
 func (e *dataPlaneEnv) createDomain(t *testing.T, name string, aso *types.AdvancedSecurityOptionsInput) {
 	t.Helper()
 
-	_, err := e.client.CreateDomain(t.Context(), &opensearchsdk.CreateDomainInput{
-		DomainName: aws.String(name), AdvancedSecurityOptions: aso,
-	})
+	in := &opensearchsdk.CreateDomainInput{DomainName: aws.String(name), AdvancedSecurityOptions: aso}
+	if aso != nil {
+		in.EncryptionAtRestOptions = &types.EncryptionAtRestOptions{Enabled: aws.Bool(true)}
+		in.NodeToNodeEncryptionOptions = &types.NodeToNodeEncryptionOptions{Enabled: aws.Bool(true)}
+		in.DomainEndpointOptions = &types.DomainEndpointOptions{EnforceHTTPS: aws.Bool(true)}
+	}
+
+	_, err := e.client.CreateDomain(t.Context(), in)
 	require.NoError(t, err)
 
 	code, _ := e.do(t, http.MethodPost, "/2021-01-01/opensearch/domain/"+name+"/index/idx", "{}", "", "")

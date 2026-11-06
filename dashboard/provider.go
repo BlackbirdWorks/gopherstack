@@ -19,14 +19,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azureappconfig"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 	"github.com/blackbirdworks/gopherstack/services/azureblob"
+	"github.com/blackbirdworks/gopherstack/services/azurecontainerregistry"
 	"github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 	"github.com/blackbirdworks/gopherstack/services/azureeventhubs"
 	"github.com/blackbirdworks/gopherstack/services/azurefile"
 	"github.com/blackbirdworks/gopherstack/services/azurefunctions"
+	"github.com/blackbirdworks/gopherstack/services/azuregraph"
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azureredis"
+	"github.com/blackbirdworks/gopherstack/services/azuresearch"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	"github.com/blackbirdworks/gopherstack/services/azuresql"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -75,12 +80,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerinstances"
 	"github.com/blackbirdworks/gopherstack/services/ocicore"
+	"github.com/blackbirdworks/gopherstack/services/ocidatabase"
+	"github.com/blackbirdworks/gopherstack/services/ocidns"
 	"github.com/blackbirdworks/gopherstack/services/ocievents"
+	"github.com/blackbirdworks/gopherstack/services/ocifilestorage"
 	"github.com/blackbirdworks/gopherstack/services/ocifunctions"
 	"github.com/blackbirdworks/gopherstack/services/ociidentity"
 	"github.com/blackbirdworks/gopherstack/services/ociloadbalancer"
@@ -162,6 +171,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if ap, hasARM := ctx.Config.(interface{ GetAzureARMHandler() service.Registerable }); hasARM {
 		conf.AzureARMOps, _ = getHandler[*azurearm.Handler](ap.GetAzureARMHandler())
+	}
+
+	if gp, hasGraph := ctx.Config.(interface{ GetAzureGraphHandler() service.Registerable }); hasGraph {
+		conf.AzureGraphOps, _ = getHandler[*azuregraph.Handler](gp.GetAzureGraphHandler())
 	}
 
 	if bp, hasBlob := ctx.Config.(interface{ GetAzureBlobHandler() service.Registerable }); hasBlob {
@@ -331,6 +344,26 @@ func linkCloudExtras(conf *Config, cfg any) {
 		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
 	}
 
+	if p, ok := cfg.(interface{ GetAzureRedisHandler() service.Registerable }); ok {
+		conf.AzureRedisOps, _ = getHandler[*azureredis.Handler](p.GetAzureRedisHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureSQLHandler() service.Registerable }); ok {
+		conf.AzureSQLOps, _ = getHandler[*azuresql.Handler](p.GetAzureSQLHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureACRHandler() service.Registerable }); ok {
+		conf.AzureACROps, _ = getHandler[*azurecontainerregistry.Handler](p.GetAzureACRHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureSearchHandler() service.Registerable }); ok {
+		conf.AzureSearchOps, _ = getHandler[*azuresearch.Handler](p.GetAzureSearchHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetLambdaWebHandler() service.Registerable }); ok {
+		conf.LambdaWebOps, _ = getHandler[*lambdaweb.Handler](p.GetLambdaWebHandler())
+	}
+
 	if p, ok := cfg.(interface{ GetGCPSQLHandler() service.Registerable }); ok {
 		conf.GCPSQLOps, _ = getHandler[*gcpsql.Handler](p.GetGCPSQLHandler())
 	}
@@ -482,6 +515,18 @@ func linkOCIObservabilityExtras(conf *Config, cfg any) {
 	if p, ok := cfg.(interface{ GetOCIContainerInstancesHandler() service.Registerable }); ok {
 		conf.OCIContainerInstancesOps, _ = getHandler[*ocicontainerinstances.Handler](
 			p.GetOCIContainerInstancesHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIDNSHandler() service.Registerable }); ok {
+		conf.OCIDNSOps, _ = getHandler[*ocidns.Handler](p.GetOCIDNSHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIDatabaseHandler() service.Registerable }); ok {
+		conf.OCIDatabaseOps, _ = getHandler[*ocidatabase.Handler](p.GetOCIDatabaseHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetOCIFileStorageHandler() service.Registerable }); ok {
+		conf.OCIFileStorageOps, _ = getHandler[*ocifilestorage.Handler](p.GetOCIFileStorageHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetOCIEventsHandler() service.Registerable }); ok {

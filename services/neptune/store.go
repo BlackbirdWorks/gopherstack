@@ -174,6 +174,8 @@ type InMemoryBackend struct {
 	engine                         *dbEngine
 	iamAuth                        IAMAuthResolver
 	graphs                         map[string]*opencypher.Graph
+	rdf                            map[string]*rdfService
+	s3                             S3Reader
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
 	region                         string
@@ -192,6 +194,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		pendingMaintenanceActions: make(map[string]map[string]PendingMaintenanceAction),
 		eventsLog:                 make(map[string][]Event),
 		graphs:                    make(map[string]*opencypher.Graph),
+		rdf:                       make(map[string]*rdfService),
 		accountID:                 accountID,
 		region:                    region,
 		mu:                        lockmetrics.New("neptune"),
@@ -270,6 +273,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 	b.dropAllUnitsLocked()
 	b.graphs = make(map[string]*opencypher.Graph)
+	b.rdf = make(map[string]*rdfService)
 	b.registry.ResetAll()
 	b.clusterRoles = make(map[string]map[string][]string)
 	b.tags = make(map[string]map[string][]Tag)

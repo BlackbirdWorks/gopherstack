@@ -65,7 +65,13 @@ func (t *sqlTarget) ph(n int) string {
 }
 
 func (t *sqlTarget) columnType(tt TargetTable, c TargetColumn) string {
-	typ := TargetType(tt.SourceFamily, t.fam, c.Native)
+	var typ string
+
+	if c.DMS.Name != "" {
+		typ = c.DMS.SQLType(t.fam)
+	} else {
+		typ = TargetType(tt.SourceFamily, t.fam, c.Native)
+	}
 
 	if t.fam == FamilyMySQL && (typ == tLongtext || typ == tText) && slicesContain(tt.PK, c.Name) {
 		return varcharKey
@@ -81,7 +87,7 @@ func (t *sqlTarget) createSQL(tt TargetTable) string {
 
 	for _, c := range tt.Columns {
 		def := t.q(c.Name) + " " + t.columnType(tt, c)
-		if !c.Nullable || slicesContain(tt.PK, c.Name) {
+		if !c.Nullable || (slicesContain(tt.PK, c.Name) && !tt.KeyUnique) {
 			def += " NOT NULL"
 		}
 
@@ -89,10 +95,24 @@ func (t *sqlTarget) createSQL(tt TargetTable) string {
 	}
 
 	if len(tt.PK) > 0 {
-		defs = append(defs, "PRIMARY KEY ("+t.quoteAll(tt.PK)+")")
+		defs = append(defs, t.keyDef(tt))
 	}
 
 	return "CREATE TABLE IF NOT EXISTS " + t.qualified(tt) + " (" + strings.Join(defs, ", ") + ")"
+}
+
+func (t *sqlTarget) keyDef(tt TargetTable) string {
+	kind := "PRIMARY KEY"
+	if tt.KeyUnique {
+		kind = "UNIQUE"
+	}
+
+	def := kind + " (" + t.quoteAll(tt.PK) + ")"
+	if tt.KeyName != "" {
+		def = "CONSTRAINT " + t.q(tt.KeyName) + " " + def
+	}
+
+	return def
 }
 
 func (t *sqlTarget) quoteAll(names []string) string {

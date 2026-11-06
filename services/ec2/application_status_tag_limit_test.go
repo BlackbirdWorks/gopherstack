@@ -56,3 +56,48 @@ func TestAssociateApplicationStatusCheck_TagAssociationLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestAssociateApplicationStatusCheck_TagReassociationIdempotent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		tags int
+	}{
+		{name: "at limit", tags: 50},
+		{name: "few", tags: 3},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, client := newMiscClient(t)
+
+			created, err := client.CreateApplicationStatusCheck(t.Context(), &ec2sdk.CreateApplicationStatusCheckInput{
+				Protocol: types.NetworkProtocolEnumHttp,
+				Port:     aws.Int32(80),
+			})
+			require.NoError(t, err)
+
+			pairs := make([]types.CustomTagKeyValueRequestPair, 0, tc.tags)
+			for i := range tc.tags {
+				pairs = append(pairs, types.CustomTagKeyValueRequestPair{
+					Key: aws.String(fmt.Sprintf("k%d", i)), Value: aws.String("v"),
+				})
+			}
+
+			in := &ec2sdk.AssociateApplicationStatusCheckInput{
+				ApplicationStatusCheckId: created.ApplicationStatusCheck.ApplicationStatusCheckId,
+				TargetTagAssociations:    pairs,
+			}
+
+			for range 2 {
+				out, callErr := client.AssociateApplicationStatusCheck(t.Context(), in)
+				require.NoError(t, callErr)
+				assert.Len(t, out.SuccessfulResults, tc.tags)
+				assert.Empty(t, out.UnsuccessfulResults)
+			}
+		})
+	}
+}

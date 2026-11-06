@@ -70,6 +70,8 @@ type dockerClient interface {
 	) dockertypes.WaitResult
 	ContainerStats(ctx context.Context, containerID string) (io.ReadCloser, error)
 	ContainerInspect(ctx context.Context, containerID string) (dockertypes.InspectResponse, error)
+	NetworkCreate(ctx context.Context, name string) (string, error)
+	NetworkRemove(ctx context.Context, networkID string) error
 	VolumeExists(ctx context.Context, name string) (bool, error)
 	VolumeRemove(ctx context.Context, name string) error
 }
@@ -98,6 +100,7 @@ func newDockerRunnerWithClient(ctx context.Context, cli dockerClient) *realDocke
 		containers:        make(map[string][]string),
 		stopOrder:         make(map[string][]string),
 		taskVolumes:       make(map[string][]string),
+		taskNets:          make(map[string]*taskNet),
 		logCancels:        make(map[string]context.CancelFunc),
 		waitCancels:       make(map[string]context.CancelFunc),
 		healthCancels:     make(map[string]context.CancelFunc),
@@ -117,6 +120,7 @@ type realDockerRunner struct {
 	containers        map[string][]string
 	stopOrder         map[string][]string
 	taskVolumes       map[string][]string
+	taskNets          map[string]*taskNet
 	logCancels        map[string]context.CancelFunc
 	waitCancels       map[string]context.CancelFunc
 	healthCancels     map[string]context.CancelFunc
@@ -448,6 +452,10 @@ func (w *awslogsWriter) flush() {
 func newTaskRunner(ctx context.Context) (TaskRunner, error) {
 	switch os.Getenv("GOPHERSTACK_ECS_RUNTIME") {
 	case "docker":
+		if usesKubernetes() {
+			return NewKubernetesRunner(ctx)
+		}
+
 		return NewDockerRunner(ctx)
 	default:
 		// "none" or unset – no-op

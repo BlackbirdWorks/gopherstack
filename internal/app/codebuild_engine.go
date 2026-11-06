@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -16,6 +17,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 // wireCodeBuildEngine gives docker-engine CodeBuild access to S3, CloudWatch Logs, CodeCommit, SSM and Secrets Manager.
@@ -49,6 +51,54 @@ func wireCodeBuildEngine(byName map[string]service.Registerable) {
 	}
 
 	cbH.SetEngineServices(svc)
+}
+
+// codebuildCredentials issues service-role credentials from STS.
+type codebuildCredentials struct {
+	byName map[string]service.Registerable
+}
+
+func (c *codebuildCredentials) IssueBuildCredentials(
+	_ context.Context, roleArn, sessionName string,
+) (codebuildbackend.BuildCredentials, error) {
+	stsH, ok := c.byName["STS"].(*stsbackend.Handler)
+	if !ok {
+		return codebuildbackend.BuildCredentials{}, errCodeBuildBackendMissing
+	}
+
+	stsBk, ok := stsH.Backend.(*stsbackend.InMemoryBackend)
+	if !ok {
+		return codebuildbackend.BuildCredentials{}, errCodeBuildBackendMissing
+	}
+
+	out, err := stsBk.AssumeRoleForService(codebuildbackend.ServicePrincipal(), roleArn, sessionName)
+	if err != nil {
+		return codebuildbackend.BuildCredentials{}, err
+	}
+
+	creds := out.AssumeRoleResult.Credentials
+
+	exp, err := time.Parse(time.RFC3339, creds.Expiration)
+	if err != nil {
+		return codebuildbackend.BuildCredentials{}, err
+	}
+
+	return codebuildbackend.BuildCredentials{
+		AccessKeyID: creds.AccessKeyID, SecretAccessKey: creds.SecretAccessKey,
+		SessionToken: creds.SessionToken, Expires: exp,
+	}, nil
+}
+
+// wireCodeBuildRuntimeEnv gives docker-engine builds the emulator endpoint and service-role credentials.
+func wireCodeBuildRuntimeEnv(cli *CLI, byName map[string]service.Registerable) {
+	cbH, ok := byName["CodeBuild"].(*codebuildbackend.Handler)
+	if !ok || !cbH.Backend.EngineEnabled() || cli == nil || cli.Port == "" {
+		return
+	}
+
+	cbH.Backend.SetEngineRuntime(
+		lambdaEndpointURL(cli.Lambda.DockerHost, cli.Port), &codebuildCredentials{byName: byName},
+	)
 }
 
 var errCodeBuildBackendMissing = errors.New("backend is not available")

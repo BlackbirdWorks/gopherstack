@@ -1,6 +1,7 @@
 package iot
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -23,6 +24,7 @@ import (
 	"github.com/mochi-mqtt/server/v2/packets"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -201,6 +203,18 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 }
 
 func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	ok := false
+
+	func() {
+		defer logger.Recover(context.Background(), "iot.authenticate", nil)
+
+		ok = h.authenticate(cl, pk)
+	}()
+
+	return ok
+}
+
+func (h *authHook) authenticate(cl *mqtt.Client, pk packets.Packet) bool {
 	var ok bool
 
 	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
@@ -217,6 +231,18 @@ func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) boo
 }
 
 func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {
+	ok := false
+
+	func() {
+		defer logger.Recover(context.Background(), "iot.acl", nil)
+
+		ok = h.aclAllowed(cl, topic, write)
+	}()
+
+	return ok
+}
+
+func (h *authHook) aclAllowed(cl *mqtt.Client, topic string, write bool) bool {
 	switch {
 	case write:
 		return h.allowed(cl, "iot:Publish", "topic/"+topic)

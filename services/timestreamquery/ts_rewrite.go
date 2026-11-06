@@ -16,11 +16,15 @@ var (
 	reSignedDur = regexp.MustCompile(
 		`(?i)([+\-])\s*(\d+)(nanoseconds?|ns|microseconds?|us|milliseconds?|ms|seconds?|s|minutes?|m|hours?|h|days?|d)\b`,
 	)
-	reAgo      = regexp.MustCompile(`(?i)\bago\(`)
-	reBin      = regexp.MustCompile(`(?i)\bbin\(`)
-	reNow      = regexp.MustCompile(`(?i)\bnow\(\s*\)|\bcurrent_timestamp\b(\s*\(\s*\))?|\blocaltimestamp\b`)
-	reDate     = regexp.MustCompile(`(?i)\bcurrent_date\b`)
-	reTimezone = regexp.MustCompile(`(?i)\bcurrent_timezone\(\s*\)`)
+	reIntervalCall = regexp.MustCompile(
+		`(?i)\bto_(milli|nano)seconds\(\s*((?:interval\s+'\d+'\s+[a-z]+)(?:\s*[+-]\s*interval\s+'\d+'\s+[a-z]+)*)\s*\)`)
+	reIntervalTerm = regexp.MustCompile(`(?i)([+-]?)\s*interval\s+'(\d+)'\s+([a-z]+)`)
+	reTypedLiteral = regexp.MustCompile(`(?i)\b(double|bigint|integer|real|varchar|boolean)\s+'([^']*)'`)
+	reAgo          = regexp.MustCompile(`(?i)\bago\(`)
+	reBin          = regexp.MustCompile(`(?i)\bbin\(`)
+	reNow          = regexp.MustCompile(`(?i)\bnow\(\s*\)|\bcurrent_timestamp\b(\s*\(\s*\))?|\blocaltimestamp\b`)
+	reDate         = regexp.MustCompile(`(?i)\bcurrent_date\b`)
+	reTimezone     = regexp.MustCompile(`(?i)\bcurrent_timezone\(\s*\)`)
 )
 
 const hoursPerDayDur = 24
@@ -56,6 +60,27 @@ func durationNanos(n, unit string) string {
 // measure_value::T columns, @scheduled_runtime) into the Trino subset the SQLite
 // engine translates. String literals and quoted identifiers are left untouched.
 func rewriteTimestream(q string, now time.Time, vars map[string]string) string {
+	q = reTypedLiteral.ReplaceAllString(q, "CAST('$2' AS $1)")
+	q = reIntervalCall.ReplaceAllStringFunc(q, func(m string) string {
+		g := reIntervalCall.FindStringSubmatch(m)
+
+		var total int64
+
+		for _, t := range reIntervalTerm.FindAllStringSubmatch(g[2], -1) {
+			ns, _ := strconv.ParseInt(durationNanos(t[2], t[3]), 10, 64)
+			if t[1] == "-" {
+				ns = -ns
+			}
+
+			total += ns
+		}
+
+		if strings.EqualFold(g[1], "milli") {
+			total /= int64(time.Millisecond)
+		}
+
+		return strconv.FormatInt(total, 10)
+	})
 	q = reAgoInterval.ReplaceAllStringFunc(q, func(m string) string {
 		g := reAgoInterval.FindStringSubmatch(m)
 

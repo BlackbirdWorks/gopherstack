@@ -639,6 +639,18 @@ func (b *InMemoryBackend) postCredentialCheckDeviceLocked(
 	return b.finishFirstFactorLocked(pool, clientID, user, cm, false)
 }
 
+// postCredentialCheckMFASatisfiedLocked is postCredentialCheckLocked for a first factor that already
+// satisfies the pool's MFA requirement (a passkey with user verification).
+func (b *InMemoryBackend) postCredentialCheckMFASatisfiedLocked(
+	pool *UserPool, clientID string, user *User, cm map[string]string,
+) (*AuthResult, error) {
+	if user.Status == UserStatusForceChangePassword {
+		return b.postCredentialCheckLocked(pool, clientID, user, cm)
+	}
+
+	return b.finishFirstFactorLocked(pool, clientID, user, cm, true)
+}
+
 // finishFirstFactorLocked applies the pool MFA gate (skipped when a remembered device already
 // authenticated) and issues tokens.
 func (b *InMemoryBackend) finishFirstFactorLocked(

@@ -2,6 +2,8 @@ package gcpcloudbuild
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -31,6 +33,8 @@ func (b *InMemoryBackend) finishLocked(
 		return
 	}
 
+	rec.stopQueueTimer()
+
 	now := b.ts()
 	rec.pb.Status, rec.pb.StatusDetail, rec.pb.FailureInfo, rec.pb.FinishTime = st, detail, fi, now
 
@@ -39,9 +43,8 @@ func (b *InMemoryBackend) finishLocked(
 			rec.pb.Timing = map[string]*cloudbuildpb.TimeSpan{}
 		}
 
-		rec.pb.Timing["BUILD"] = &cloudbuildpb.TimeSpan{
-			StartTime: rec.pb.GetStartTime(),
-			EndTime:   now,
+		if rec.pb.GetTiming()["BUILD"] == nil {
+			rec.pb.Timing["BUILD"] = &cloudbuildpb.TimeSpan{StartTime: rec.pb.GetStartTime(), EndTime: now}
 		}
 	}
 
@@ -80,6 +83,20 @@ func (b *InMemoryBackend) begin(r ref) (*cloudbuildpb.Build, bool) {
 
 		return nil, false
 	}
+
+	if b.queueExpiredLocked(rec) {
+		b.finishLocked(rec, cloudbuildpb.Build_EXPIRED, queueExpiredDetail(rec.pb), nil)
+
+		snap := cloneBuild(rec.pb)
+
+		b.mu.Unlock()
+
+		b.notify(snap)
+
+		return nil, false
+	}
+
+	rec.stopQueueTimer()
 
 	rec.pb.Status, rec.pb.StartTime = cloudbuildpb.Build_WORKING, b.ts()
 	b.putBuildOp(rec)
@@ -155,4 +172,73 @@ func (b *InMemoryBackend) launch(r ref) {
 
 		b.execute(ctx, r)
 	}()
+}
+
+func queueExpiredDetail(pb *cloudbuildpb.Build) string {
+	return fmt.Sprintf("build was not started within its queue_ttl of %s", pb.GetQueueTtl().AsDuration())
+}
+
+// queueRemaining is how long the build may still wait; the TTL starts ticking from create_time.
+func (b *InMemoryBackend) queueRemaining(pb *cloudbuildpb.Build) (time.Duration, bool) {
+	ttl := pb.GetQueueTtl().AsDuration()
+	if ttl <= 0 || pb.GetCreateTime() == nil {
+		return 0, false
+	}
+
+	return pb.GetCreateTime().AsTime().Add(ttl).Sub(b.now()), true
+}
+
+func (b *InMemoryBackend) queueExpiredLocked(rec *buildRec) bool {
+	left, ok := b.queueRemaining(rec.pb)
+
+	return ok && left <= 0
+}
+
+func (rec *buildRec) stopQueueTimer() {
+	if rec.left != nil {
+		close(rec.left)
+		rec.left = nil
+	}
+}
+
+// armQueueExpiry expires a build held in PENDING when its queue_ttl runs out. Callers hold b.mu.
+func (b *InMemoryBackend) armQueueExpiry(rec *buildRec) {
+	left, ok := b.queueRemaining(rec.pb)
+	if !ok {
+		return
+	}
+
+	ch, stop := b.after(max(left, 0))
+	done, ctx, r := make(chan struct{}), b.ctx, rec.ref
+	rec.left = done
+
+	go func() {
+		defer stop()
+
+		select {
+		case <-ch:
+			b.expire(r)
+		case <-done:
+		case <-ctx.Done():
+		}
+	}()
+}
+
+func (b *InMemoryBackend) expire(r ref) {
+	b.mu.Lock("expire")
+
+	rec, ok := b.builds[r.key()]
+	if !ok || terminal(rec.pb.GetStatus()) || rec.pb.GetStatus() == cloudbuildpb.Build_WORKING {
+		b.mu.Unlock()
+
+		return
+	}
+
+	b.finishLocked(rec, cloudbuildpb.Build_EXPIRED, queueExpiredDetail(rec.pb), nil)
+
+	snap := cloneBuild(rec.pb)
+
+	b.mu.Unlock()
+
+	b.notify(snap)
 }

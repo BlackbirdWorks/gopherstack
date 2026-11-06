@@ -63,8 +63,9 @@ const (
 type InMemoryBackend struct {
 	lambdaInvoker                 LambdaTriggerInvoker
 	messageSender                 MessageSender
-	codeEncrypter                 CodeEncrypter
+	dataKeys                      DataKeyGenerator
 	smsRoleAssumer                SMSRoleAssumer
+	clock                         func() time.Time
 	domains                       *store.Table[UserPoolDomain]
 	resourceServers               *store.Table[ResourceServer]
 	poolsByName                   *store.Index[UserPool]

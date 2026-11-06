@@ -425,8 +425,18 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 		view["LastRunSummary"] = summary
 	}
 
-	now := time.Now()
-	view["NextInvocationTime"] = epochSeconds(nextInvocationTime(sq.ScheduleExpression, now))
+	switch {
+	case sq.State != scheduledQueryStateEnabled:
+	case !sq.NextRun.IsZero():
+		view["NextInvocationTime"] = epochSeconds(sq.NextRun)
+	default:
+		view["NextInvocationTime"] = epochSeconds(nextInvocationTime(sq.ScheduleExpression, time.Now()))
+	}
+
+	if failed := buildRecentlyFailedRuns(sq); len(failed) > 0 {
+		view["RecentlyFailedRuns"] = failed
+	}
+
 	if !sq.LastRunTime.IsZero() {
 		view["PreviousInvocationTime"] = epochSeconds(sq.LastRunTime)
 	}

@@ -17,10 +17,15 @@ const (
 	stateSchedulingDelete = "SCHEDULING_DELETION"
 	stateCancellingDelete = "CANCELLING_DELETION"
 	stateDeleted          = "DELETED"
+	stateBackupInProgress = "BACKUP_IN_PROGRESS"
+	stateRestoring        = "RESTORING"
 )
+
+const vaultTypePrivate = "VIRTUAL_PRIVATE"
 
 // Vault is a KMS vault.
 type Vault struct {
+	transition
 	TimeCreated        time.Time                 `json:"timeCreated"`
 	TimeOfDeletion     *time.Time                `json:"timeOfDeletion,omitempty"`
 	WrappingKeyCreated *time.Time                `json:"wrappingKeyCreated,omitempty"`
@@ -33,6 +38,9 @@ type Vault struct {
 	VaultType          string                    `json:"vaultType"`
 	State              string                    `json:"state"`
 	WrappingKeyID      string                    `json:"wrappingKeyId"`
+	RestoredFrom       string                    `json:"restoredFrom,omitempty"`
+	ReplicationID      string                    `json:"replicationId,omitempty"`
+	Replicas           []*VaultReplica           `json:"replicas,omitempty"`
 	Etag               string                    `json:"etag"`
 	WrappingKeyDER     []byte                    `json:"wrappingKeyDer,omitempty"`
 	Seq                int64                     `json:"seq"`
@@ -61,6 +69,7 @@ type KeyVersion struct {
 
 // Key is a master encryption key.
 type Key struct {
+	transition
 	TimeCreated    time.Time                 `json:"timeCreated"`
 	TimeOfDeletion *time.Time                `json:"timeOfDeletion,omitempty"`
 	Rotation       *RotationDetails          `json:"rotation,omitempty"`
@@ -74,6 +83,8 @@ type Key struct {
 	ProtectionMode string                    `json:"protectionMode"`
 	CurrentVersion string                    `json:"currentVersion"`
 	PrevState      string                    `json:"prevState,omitempty"`
+	RestoredFrom   string                    `json:"restoredFrom,omitempty"`
+	ReplicationID  string                    `json:"replicationId,omitempty"`
 	Etag           string                    `json:"etag"`
 	Shape          KeyShape                  `json:"shape"`
 	Versions       []*KeyVersion             `json:"versions"`
@@ -98,18 +109,22 @@ type Secret struct {
 	FreeformTags   map[string]string         `json:"freeformTags,omitempty"`
 	DefinedTags    map[string]map[string]any `json:"definedTags,omitempty"`
 	Metadata       map[string]any            `json:"metadata,omitempty"`
-	ID             string                    `json:"id"`
-	VaultID        string                    `json:"vaultId"`
-	CompartmentID  string                    `json:"compartmentId"`
-	Name           string                    `json:"name"`
-	KeyID          string                    `json:"keyId"`
-	Description    string                    `json:"description,omitempty"`
-	State          string                    `json:"state"`
-	Etag           string                    `json:"etag"`
-	Rules          []json.RawMessage         `json:"rules,omitempty"`
-	Versions       []*SecretVersion          `json:"versions"`
-	Seq            int64                     `json:"seq"`
-	Current        int64                     `json:"current"`
-	Previous       int64                     `json:"previous"`
-	Pending        int64                     `json:"pending"`
+	GenContext     *GenerationContext        `json:"genContext,omitempty"`
+	Rotation       *SecretRotation           `json:"rotation,omitempty"`
+	transition
+	KeyID         string            `json:"keyId"`
+	VaultID       string            `json:"vaultId"`
+	CompartmentID string            `json:"compartmentId"`
+	Description   string            `json:"description,omitempty"`
+	State         string            `json:"state"`
+	Etag          string            `json:"etag"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Versions      []*SecretVersion  `json:"versions"`
+	Rules         []json.RawMessage `json:"rules,omitempty"`
+	Current       int64             `json:"current"`
+	Previous      int64             `json:"previous"`
+	Pending       int64             `json:"pending"`
+	Seq           int64             `json:"seq"`
+	AutoGen       bool              `json:"autoGen,omitempty"`
 }

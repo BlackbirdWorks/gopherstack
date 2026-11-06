@@ -146,7 +146,7 @@ ops:
   SetTokenVaultCMK: {wire: ok, errors: ok, state: ok, persist: ok, note: "CustomerManagedKey needs a KMS key ARN"}
   StartPolicyGeneration: {wire: ok, errors: ok, state: ok, persist: ok, note: "always ends in GENERATE_FAILED: there is no generative model to derive policies from"}
   SubmitRegistryRecordForApproval: {wire: ok, errors: ok, state: ok, persist: ok, note: "DRAFT or REJECTED to PENDING_APPROVAL, or APPROVED when the registry auto-approves"}
-  SynchronizeGatewayTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "stamps lastSynchronizedAt and passes through SYNCHRONIZING; no tool discovery happens"}
+  SynchronizeGatewayTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "rediscovers tools outside the lock (Lambda and OpenAPI schemas inline or from S3, MCP servers over streamable HTTP tools/list); failure ends SYNCHRONIZE_UNSUCCESSFUL with statusReasons; success stamps lastSynchronizedAt and caches MCP server tools; passes through SYNCHRONIZING"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "any resource with an ARN; 50 tags, aws: prefix reserved"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAgentRuntime: {wire: ok, errors: ok, state: ok, persist: ok, note: "every update snapshots a new numeric version and moves the DEFAULT endpoint to it; merges optional members"}
@@ -193,14 +193,15 @@ families:
   Wire: {status: ok, note: "Operation routes, member sets, required members, enums and per-shape timestamp formats (epoch seconds or date-time) are extracted from the pinned SDK serializers, deserializers and validators into ops.json; outputs are projected onto exactly the SDK output members."}
 gaps: []
 items_still_open:
-  - Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
+  - Gateway MCP endpoint: Smithy model, API Gateway and connector targets expose no tools, and the SEMANTIC search tool is not served
+  - Gateway targets: OAuth targets using AUTHORIZATION_CODE never reach a PENDING_AUTH status (their tool calls return an error result), and CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
+  - Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized
+  - Unverified against AgentCore documentation (recalled only): HTTP 401/403 split and WWW-Authenticate challenge text, AND semantics of allowedAudience, allowedClients, allowedScopes and customClaims, tools/list page size of 100, Lambda client-context member names and the text-content wrapping of Lambda results, OpenAPI flattening of parameters and body into one input schema, supported MCP protocol versions
   - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
   - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
   - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
   - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
-  - Gateway targets: SynchronizeGatewayTargets only stamps lastSynchronizedAt; Lambda, OpenAPI and MCP tool discovery never runs and OAuth targets never reach a PENDING_AUTH status
   - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-  - Authorizers: JWT and IAM authorizer configuration is stored, not enforced
   - GetMemory: the view query parameter is accepted and ignored
   - Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
   - Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence
@@ -226,3 +227,7 @@ UpdateGateway exceptionLevel and UpdateGatewayTarget certificateConfigurations a
 Identifier formats: name-based ids are `<name>-<10 hex>`, target, rule and rate-limit ids are 10 uppercase hex characters, registry and record ids are 12 hex characters. Gateway ids are lowercased.
 
 Resources are scoped by account and Region; the two system resources (`aws.browser.v1`, `aws.codeinterpreter.v1`) are visible everywhere.
+
+## Gateway MCP endpoint
+
+The generated `gatewayUrl` (`https://<id>.gateway.bedrock-agentcore.<region>.amazonaws.com/mcp`) is served when the Host header matches it; the emulator also serves `/agentcore/gateways/<id>/mcp` on its own address for clients that cannot rewrite hosts. Evidence: SDK `types.McpTargetConfiguration*`, `ToolSchema*`, `MCPGatewayConfiguration` (supportedVersions, instructions, disableMcpListToolsPagination), `CustomJWTAuthorizerConfiguration`, `AuthorizerType` (serializers.go claim members); MCP specification (initialize, ping, tools/list with cursor, tools/call, JSON-RPC 2.0, streamable HTTP POST with JSON responses, 202 for notifications, 405 for GET). Tools are named `<target>___<tool>`. Lambda targets are invoked in-process with the arguments as the event and a base64 client context carrying `bedrockAgentCore*` members; OpenAPI operations with an operationId become tools and call the first server URL; MCP server targets are reached through the official Go MCP client. Outbound API key and OAuth client-credentials providers are applied. Targets and JWKS fetches dial loopback only unless `--agentcore-allow-external-gateway-targets` is set (checked on the resolved peer, redirects and proxies off, certificates are always verified; `--agentcore-gateway-extra-ca-file` adds trusted CAs). Credentials and tokens are never logged.

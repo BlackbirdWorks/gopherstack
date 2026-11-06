@@ -55,18 +55,18 @@ families:
   janitor/leaks: {status: clean, note: "worker.Group-based ticker with ctx cancellation; sweeps queryExecutions+queryResults, sessions, calculations under RLock-collect/Lock-delete with re-verification to avoid racing a concurrent revival. No goroutine leak risk found."}
 gaps: []
 items_still_open:
-  - "Iceberg: DELETE, UPDATE, MERGE, OPTIMIZE, VACUUM, CTAS with table_type='ICEBERG', ALTER TABLE schema/partition evolution, equality deletes, ORC/Avro data files, writing nested (array/map/struct) columns, the $partitions metadata table, partition pruning from manifest bounds (all data files are read), timestamp precision above milliseconds."
+  - "Iceberg: equality deletes, ORC data files, writing nested (array/map/struct) columns, the $partitions metadata table, partition pruning from manifest bounds (all data files are read), timestamp precision above milliseconds, OPTIMIZE output is one file per partition (no write_target_data_file_size_bytes splitting), VACUUM/OPTIMIZE/MERGE error wording (MERGE_TARGET_ROW_MULTIPLE_MATCHES, the non-transactional Hive DELETE message) is UNVERIFIED against live Athena, DML conflicts fail instead of retrying, and the written manifests/delete files are checked only by this emulator's reader and spec-driven unit tests (no third-party Iceberg reader is available offline)."
   - "S3 Tables catalog: CREATE/DROP TABLE and CTAS through s3tablescatalog/<bucket> are rejected (use the S3 Tables API); ListDatabases/GetTableMetadata/ListTableMetadata do not enumerate s3tablescatalog tables; ROW-column dot access is not resolved on S3 Tables tables at plan time."
   - "Delta Lake: deletion vectors and reader versions above 3 fail NOT_SUPPORTED; id column-mapping and timestampNtz reads are untested against real writers."
-  - "ORC/Avro input and output formats: no pure-Go ORC or Avro library in go.mod (only parquet-go), so these stay NOT_SUPPORTED until a dependency is approved."
-  - "Complex-type results: Boolean expression results render 1/0 rather than true/false (SQLite has no boolean type); ROW(...) constructors, CAST(... AS ROW(...)) and anonymous rows are unsupported; map and row expression results both report ColumnInfo type map; integral doubles inside arrays render without the .0 suffix; col.field dereference works on ROW columns of a referenced table only (not CTE/subquery outputs or lambda parameters)."
+  - "ORC input and output formats: no maintained pure-Go ORC library exists (scritchley/orc was last updated 2021 and is read-only), so ORC SELECT/CTAS/UNLOAD stay NOT_SUPPORTED. Avro tables with avro.schema.literal/url and no Glue columns are not derived."
+  - "Complex-type results: ROW(...) constructors, CAST(... AS ROW(...)) and anonymous rows are unsupported; map and row expression results both report ColumnInfo type map; integral doubles inside arrays render without the .0 suffix; col.field dereference works on ROW columns of a referenced table only (not CTE/subquery outputs or lambda parameters); boolean result typing is inferred syntactically from the outermost SELECT list (comparisons, logical operators, IS/IN/BETWEEN/LIKE, boolean literals and functions, CASE/COALESCE/IF over those, CAST AS boolean, aliases through CTEs and subqueries) so an unlisted boolean-returning function renders 1/0; SELECT * after such an expression disables the inference."
   - "Lambda functions cover transform, filter, reduce, any_match/all_match/none_match, map_filter, transform_values, transform_keys and zip_with; array_sort(arr, comparator), map_zip_with, reduce_agg and zip_with over more than two arrays are not translated."
   - "INTERVAL literals are supported only as the right operand of + or - (INTERVAL n UNIT, YEAR TO MONTH, 'D HH:MM:SS' DAY TO SECOND) via date_add semantics with end-of-month clamping; timestamp - timestamp interval results, standalone INTERVAL values/comparisons and fractional-second intervals are unsupported."
   - "GROUP BY ROLLUP/CUBE/GROUPING SETS are expanded to UNION ALL of plain GROUP BY branches: not combinable with UNION/INTERSECT/EXCEPT in the same query block, and the outer ORDER BY may reference only output columns or ordinals."
   - "Partition projection (enum/integer/date/injected) enumerates partitions from table properties and prunes by simple WHERE conjuncts (=, IN, BETWEEN, comparisons; OR or non-literal predicates disable pruning); the INVALID_TABLE_PROPERTY/EXCEEDED_LIMIT failure wording for a missing injected filter or oversized enumeration is modeled, UNVERIFIED against live Athena; SHOW PARTITIONS does not list projected partitions."
   - "QueryExecution.SubstatementType is not modeled: the pinned SDK documents it only as \"The kind of query statement that was run\" with no enum or value list, so the vocabulary cannot be verified."
 structural_gaps:
-  - "ORC and Avro tables cannot be read or written (go.mod carries only parquet-go; no pure-Go ORC/Avro reader): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC/AVRO fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR."
+  - "ORC tables cannot be read or written (no maintained pure-Go ORC library): SELECT fails NOT_SUPPORTED; CTAS/UNLOAD with format ORC fail NOT_SUPPORTED. SQL is SQLite semantics behind a Presto/Trino translation layer, not Trino; TABLESAMPLE and multi-argument UNNEST fail as SYNTAX_ERROR."
   - "DeleteDataCatalogInput.DeleteCatalogOnly has no effect: a FEDERATED catalog's CFN Stack/Lambda/Glue Connection resources are not simulated."
   - "WorkGroup.IdentityCenterApplicationArn is never set: the IAM Identity Center application AWS provisions for an Identity Center workgroup does not exist here."
   - "WorkGroup on GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata/GetDataCatalog/ListDataCatalogs is accepted and ignored: it only matters for IAM Identity Center-enabled Glue catalogs, which do not exist here."
@@ -78,6 +78,32 @@ leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Don
 ---
 
 ## Notes
+
+### 2026-11-06 booleans, Avro, Iceberg row-level DML
+
+Docs authority (fetched 2026-11-06): Athena user guide pages `optimize-statement`, `vacuum-statement`,
+`querying-iceberg-data-optimization`, `querying-iceberg-creating-tables`, `create-table-as`,
+`querying-iceberg-evolving-table-schema`, `querying-iceberg-alter-table-change-column`.
+
+- Boolean expression results now report ColumnInfo type `boolean` and VarCharValue `true`/`false`
+  (`engine_bool.go`); previously 1/0 with type bigint. Boolean table columns already rendered correctly.
+- Avro: `AvroSerDe`/`AvroContainerInputFormat` tables are read (OCF, null/deflate/snappy codecs, logical
+  date/timestamp-millis/decimal, nested array/map/record; `engine_avro.go`), and `format='AVRO'` works for
+  CTAS, INSERT INTO and UNLOAD with `write_compression` NONE/DEFLATE/SNAPPY. Pure-Go `iskorotkov/avro/v2`
+  was already a direct dependency (Iceberg manifests); no new module. CTAS of ARRAY/MAP/ROW expression values
+  still produces string (JSON) columns because result columns carry no inner type.
+- Iceberg: `DELETE FROM`, `UPDATE ... SET`, `MERGE INTO` write merge-on-read position delete files
+  (field ids 2147483546/2147483545, one file per partition) plus new data files in one `delete`/`overwrite`
+  snapshot; `OPTIMIZE ... REWRITE DATA USING BIN_PACK [WHERE partition-predicate]` replaces data files and drops
+  delete files they covered (`replace` snapshot; thresholds `optimize_rewrite_data_file_threshold` default 5,
+  `optimize_rewrite_delete_file_threshold` default 2, size window 0.75x-1.8x of 512 MiB); `VACUUM` expires snapshots
+  by `vacuum_max_snapshot_age_seconds` (432000) / `vacuum_min_snapshots_to_keep` (1), trims
+  `vacuum_max_metadata_files_to_keep` (100) and deletes unreachable and old orphan files;
+  `CREATE TABLE ... WITH (table_type='ICEBERG', location=..., partitioning=ARRAY[...], format PARQUET|AVRO)` CTAS;
+  `ALTER TABLE ADD COLUMNS / DROP COLUMN / CHANGE COLUMN [FIRST|AFTER] / RENAME COLUMN / SET TBLPROPERTIES`
+  (type promotion int->bigint, float->double, wider decimal) as metadata-only schema commits. Reads of the current
+  snapshot now use the table's current schema (older data files resolve by field id).
+- Iceberg tables may use `format='AVRO'` data files (read and write).
 
 ### 2026-09-26 parity sweep: GetResourceDashboard fabricated a URL for a nonexistent session
 

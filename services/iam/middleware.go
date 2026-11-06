@@ -32,6 +32,9 @@ type iamDeniedError struct {
 	Type    string `xml:"Type"`
 }
 
+// rootAllowAllPolicy stands in for the account root user's unrestricted identity permissions.
+const rootAllowAllPolicy = `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"*","Resource":"*"}]}`
+
 // internalPathPrefixes contains URL path prefixes that always bypass IAM enforcement.
 //
 //nolint:gochecknoglobals // read-only package-level lookup table
@@ -55,6 +58,10 @@ type EnforcementConfig struct {
 	Recorder *iampolicystream.Recorder `json:"-"`
 	// SCPs, when non-nil, gates otherwise-allowed requests on the caller account's service control policies.
 	SCPs SCPProvider `json:"-"`
+	// ResourceOwners resolve the owning account of resources whose ARN has no account ID, for RCP evaluation.
+	ResourceOwners []ResourceOwnerResolver `json:"-"`
+	// RCPExemptions name resources RCPs never apply to.
+	RCPExemptions []RCPExemptionResolver `json:"-"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
@@ -260,10 +267,10 @@ func resolveAssumedRoleIdentityPolicies(
 // it as an unrecognized/dummy key, allowing every request through unchecked
 // (gopherstack-s982).
 //
-// The account root user has no identity policy to evaluate, and AWS grants it
-// access absent an explicit resource-policy/SCP deny that this middleware does
-// not model; root is therefore left for the caller's existing unenforced
-// fallback by returning ok=false here rather than manufacturing a policy set.
+// The account root user has no identity policy; AWS grants it access absent an
+// explicit deny, and SCPs/RCPs restrict member-account root (Organizations User
+// Guide, "SCP effects on permissions"). Root is evaluated against an allow-all
+// identity policy so those org policies and resource-policy denies still apply.
 //
 // A federated-user ARN (GetFederationToken) or any other STS-user ARN this
 // emulator cannot map to a real IAM user has no identity-policy record at all.
@@ -281,11 +288,11 @@ func resolveSTSUserIdentityPolicies(
 		return nil, "", ConditionContext{}, "", false
 	}
 
-	if strings.HasSuffix(principal.Arn, ":root") {
-		return nil, "", ConditionContext{}, "", false
-	}
-
 	condCtx := buildPrincipalConditionContext(ctx, r, principal)
+
+	if strings.HasSuffix(principal.Arn, ":root") {
+		return []string{rootAllowAllPolicy}, "", condCtx, principal.Arn, true
+	}
 
 	if userName := extractUserNameFromArn(principal.Arn); userName != "" {
 		if docs, boundary, enforced, found := policiesForPrincipalArn(backend, principal.Arn); found && enforced {
@@ -447,6 +454,10 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 		region = cfg.Global.GetRegion()
 	}
 
+	if condCtx.PrincipalAccount != "" {
+		accountID = condCtx.PrincipalAccount
+	}
+
 	resourceARN := extractResourceARN(r, accountID, region)
 	resourceARN, action, condCtx = scope.override(resourceARN, action, condCtx)
 
@@ -464,7 +475,10 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 
 	dec := decideScoped(policyDocs, boundaryDocs, resourceDocs, action, matchResource, condCtx, scope)
 
-	dec, scpMsg := cfg.applySCPs(dec, action, matchResource, condCtx)
+	dec, scpMsg := cfg.applyRCPs(ctx, dec, action, resourceARN, matchResource, condCtx)
+	if scpMsg == "" {
+		dec, scpMsg = cfg.applySCPs(dec, action, matchResource, condCtx)
+	}
 
 	if cfg.Recorder != nil {
 		dec = dec.attribute(backend, attribution{

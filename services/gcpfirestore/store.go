@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
+
 	"cloud.google.com/go/firestore/apiv1/firestorepb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -98,6 +100,7 @@ type InMemoryBackend struct {
 	lastCommit time.Time
 	lastSweep  time.Time
 	observers  []DocumentObserver
+	Audit      gcpaudit.Emitter
 	pending    []DocumentEvent
 }
 

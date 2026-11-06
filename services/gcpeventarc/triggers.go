@@ -16,25 +16,24 @@ import (
 )
 
 const (
-	defaultListPage   = 100
-	contentTypeJSON   = "application/json"
-	subscriptionAck   = 60
-	subscriptionKeep  = 24 * 60 * 60
-	defaultRetryMin   = 10 * time.Second
-	defaultRetryMax   = 600 * time.Second
-	suffixLen         = 8
-	pushPath          = "/_eventarc/push/"
-	kindTriggers      = "triggers"
-	kindChannels      = "channels"
-	updateMaskAll     = "*"
-	maskEventFilters  = "event_filters"
-	maskServiceAcct   = "service_account"
-	maskDestination   = "destination"
-	maskLabels        = "labels"
-	maskRetry         = "retry_policy"
-	maskContentType   = "event_data_content_type"
-	maskCryptoKey     = "crypto_key_name"
-	retryAttemptLimit = 1000
+	defaultListPage  = 100
+	contentTypeJSON  = "application/json"
+	subscriptionAck  = 60
+	subscriptionKeep = 24 * 60 * 60
+	defaultRetryMin  = 10 * time.Second
+	defaultRetryMax  = 600 * time.Second
+	suffixLen        = 8
+	pushPath         = "/_eventarc/push/"
+	kindTriggers     = "triggers"
+	kindChannels     = "channels"
+	updateMaskAll    = "*"
+	maskEventFilters = "event_filters"
+	maskServiceAcct  = "service_account"
+	maskDestination  = "destination"
+	maskLabels       = "labels"
+	maskRetry        = "retry_policy"
+	maskContentType  = "event_data_content_type"
+	maskCryptoKey    = "crypto_key_name"
 )
 
 var (
@@ -115,12 +114,18 @@ func validateTrigger(t *eventarcpb.Trigger) error {
 		return errInvalid("service_account %q is not an email address.", sa)
 	}
 
-	if ct := t.GetEventDataContentType(); ct != "" && ct != contentTypeJSON {
-		return errInvalid("event_data_content_type %q is not supported: only %s.", ct, contentTypeJSON)
+	if err := validateContentType(t); err != nil {
+		return err
 	}
 
-	if n := t.GetRetryPolicy().GetMaxAttempts(); n < 0 || n > retryAttemptLimit {
-		return errInvalid("retry_policy.max_attempts must be between 0 and %d.", retryAttemptLimit)
+	if t.GetRetryPolicy() != nil {
+		if n := t.GetRetryPolicy().GetMaxAttempts(); n != 0 && n != 1 {
+			return errInvalid("retry_policy.max_attempts must be 1: it is the only valid value.")
+		}
+
+		if t.GetDestination().GetCloudRun() == nil {
+			return errInvalid("retry_policy can only be set with Cloud Run destinations.")
+		}
 	}
 
 	return validateLabels(t.GetLabels())
@@ -232,7 +237,7 @@ func (b *InMemoryBackend) buildTrigger(
 	t.SatisfiesPzs = false
 
 	if t.GetEventDataContentType() == "" {
-		t.EventDataContentType = contentTypeJSON
+		t.EventDataContentType = defaultContentType(eventType(t.GetEventFilters()))
 	}
 
 	if r := t.GetDestination().GetCloudRun(); r != nil {
@@ -565,4 +570,17 @@ func (b *InMemoryBackend) upsertMissingLocked(
 	}
 
 	return b.finish(project, location, name, "update", clone(t))
+}
+
+func validateContentType(t *eventarcpb.Trigger) error {
+	ct := t.GetEventDataContentType()
+
+	switch {
+	case ct == "" || ct == contentTypeJSON:
+		return nil
+	case ct == contentTypeProto && isFirestoreType(eventType(t.GetEventFilters())):
+		return nil
+	}
+
+	return errInvalid("event_data_content_type %q is not supported for this event type.", ct)
 }

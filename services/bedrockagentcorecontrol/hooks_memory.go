@@ -76,7 +76,7 @@ func (b *InMemoryBackend) newStrategy(m map[string]any) map[string]any {
 
 	s := map[string]any{
 		"strategyId": awsid.NewN(strOf(body, keyName)+"-", idSuffixLen),
-		keyName:      body[keyName], "type": strategyTypes()[key], keyStatus: stateActive,
+		keyName:      body[keyName], keyType: strategyTypes()[key], keyStatus: stateActive,
 		"createdAt": now, "updatedAt": now,
 	}
 

@@ -86,7 +86,7 @@ func hcSpecs(h *computeapi.HealthCheck) []hcSpec {
 
 	if s := h.SslHealthCheck; s != nil {
 		out = append(out, hcSpec{
-			typ: "SSL", field: "sslHealthCheck", defPort: portHTTPS,
+			typ: protoSSL, field: "sslHealthCheck", defPort: portHTTPS,
 			port: &s.Port, portName: &s.PortName, portSpec: &s.PortSpecification, proxy: &s.ProxyHeader,
 		})
 	}

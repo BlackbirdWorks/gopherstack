@@ -23,13 +23,20 @@ func smbFromHeaders(rc *reqCtx) smbIn {
 func setNodeHeaders(hdr http.Header, n *node) {
 	hdr.Set("ETag", n.ETag)
 	hdr.Set("Last-Modified", fmtHTTP(n.LastModified))
-	hdr.Set("X-Ms-File-Permission-Key", n.PermKey)
-	hdr.Set("X-Ms-File-Attributes", n.Attributes)
 	hdr.Set("X-Ms-File-Creation-Time", fmtISO(n.Created))
 	hdr.Set("X-Ms-File-Last-Write-Time", fmtISO(n.LastWrite))
 	hdr.Set("X-Ms-File-Change-Time", fmtISO(n.Changed))
 	hdr.Set("X-Ms-File-Id", n.ID)
 	hdr.Set("X-Ms-File-Parent-Id", n.ParentID)
+
+	if n.NFS != nil {
+		setNFSHeaders(hdr, n)
+
+		return
+	}
+
+	hdr.Set("X-Ms-File-Permission-Key", n.PermKey)
+	hdr.Set("X-Ms-File-Attributes", n.Attributes)
 }
 
 func nodeResp(status int, n *node) *resp {
@@ -70,6 +77,10 @@ func (h *Handler) createDir(rc *reqCtx) (*resp, *apiError) {
 	n.Metadata = md
 
 	if aerr = sh.applySMB(n, smbFromHeaders(rc), true, rc.now); aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = sh.initNFS(n, nfsFromHeaders(rc), true); aerr != nil {
 		return nil, aerr
 	}
 
@@ -157,6 +168,10 @@ func (h *Handler) setDirProps(rc *reqCtx) (*resp, *apiError) {
 	}
 
 	if aerr = sh.applySMB(n, smbFromHeaders(rc), false, rc.now); aerr != nil {
+		return nil, aerr
+	}
+
+	if aerr = sh.initNFS(n, nfsFromHeaders(rc), false); aerr != nil {
 		return nil, aerr
 	}
 

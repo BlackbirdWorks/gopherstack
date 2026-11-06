@@ -535,16 +535,21 @@ type WorkRequestResource struct {
 	EntityURI  string `json:"entityUri"`
 }
 
-func wrWire(w *WorkRequest) WorkRequestWire {
+func wrWire(w *WorkRequest, now time.Time) WorkRequestWire {
+	status, pct := w.statusAt(now), float32(percentDone)
+	if status != wrCompleted {
+		pct = 0
+	}
+
 	return WorkRequestWire{
 		ID:              w.ID,
 		OperationType:   w.OperationType,
-		Status:          w.Status,
+		Status:          status,
 		CompartmentID:   w.CompartmentID,
 		TimeAccepted:    w.TimeAccepted,
 		TimeStarted:     w.TimeAccepted,
 		TimeFinished:    w.TimeFinished,
-		PercentComplete: percentDone,
+		PercentComplete: pct,
 		Resources:       []WorkRequestResource{{EntityType: "object", ActionType: "WRITTEN", EntityURI: w.EntityURI}},
 	}
 }
@@ -563,7 +568,7 @@ func (b *InMemoryBackend) GetWorkRequest(id string) (WorkRequestWire, error) {
 		)
 	}
 
-	return wrWire(w), nil
+	return wrWire(w, b.nowUTC()), nil
 }
 
 // ListWorkRequests lists work requests in a compartment.
@@ -585,9 +590,11 @@ func (b *InMemoryBackend) ListWorkRequests(compartment, token string, limit int)
 
 	sort.Slice(ws, func(i, j int) bool { return ws[i].ID < ws[j].ID })
 
+	now := b.nowUTC()
 	all := make([]WorkRequestWire, len(ws))
+
 	for i, w := range ws {
-		all[i] = wrWire(w)
+		all[i] = wrWire(w, now)
 	}
 
 	return page.New(all, token, limit, defaultListLimit), nil
@@ -598,9 +605,10 @@ func (b *InMemoryBackend) DeleteWorkRequest(id string) error {
 	b.mu.Lock("DeleteWorkRequest")
 	defer b.mu.Unlock()
 
-	if _, ok := b.workRequests[id]; !ok {
+	w, ok := b.workRequests[id]
+	if !ok {
 		return newErr(http.StatusNotFound, "NotAuthorizedOrNotFound", "Work request '"+id+"' was not found")
 	}
 
-	return errConflict("Conflict", "The work request has already finished and cannot be canceled")
+	return b.cancelLocked(w)
 }

@@ -1452,10 +1452,11 @@ func TestAuthorizationSDK_ListForScopeUnencodedFilter(t *testing.T) {
 	h, ok := svc.(*azurearm.Handler)
 	require.True(t, ok)
 
-	port := freeEphemeralPort(t)
-	h.Port = port
+	h.Port = 0
 
 	require.NoError(t, h.StartWorker(t.Context()))
+
+	port := h.Port
 	t.Cleanup(func() { h.Shutdown(context.Background()) })
 
 	opts := &arm.ClientOptions{

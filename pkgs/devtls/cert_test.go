@@ -127,3 +127,41 @@ func TestLoadOrCreateCA_Persists(t *testing.T) {
 	_, err = parsed.Verify(x509.VerifyOptions{Roots: first.Pool(), DNSName: "x.amazonaws.com"})
 	require.NoError(t, err)
 }
+
+func TestCA_IssueClient(t *testing.T) {
+	t.Parallel()
+
+	ca, err := devtls.NewCA()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		usage x509.ExtKeyUsage
+		want  bool
+	}{
+		{name: "client-auth", usage: x509.ExtKeyUsageClientAuth, want: true},
+		{name: "server-auth", usage: x509.ExtKeyUsageServerAuth, want: false},
+	}
+
+	leaf, err := ca.IssueClient("wallet-user")
+	require.NoError(t, err)
+
+	parsed, err := x509.ParseCertificate(leaf.Certificate[0])
+	require.NoError(t, err)
+	assert.Equal(t, "wallet-user", parsed.Subject.CommonName)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, verr := parsed.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{tc.usage}})
+			if tc.want {
+				require.NoError(t, verr)
+			} else {
+				require.Error(t, verr)
+			}
+		})
+	}
+
+	assert.Equal(t, "gopherstack local CA", ca.Certificate().Subject.CommonName)
+}

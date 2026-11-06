@@ -53,8 +53,11 @@ func (b *InMemoryBackend) wireRunnerHooks(runner TaskRunner) {
 		r.SetEFSVolumeResolver(b.resolveEFSVolume)
 	}
 
-	if r, ok := runner.(launchInputRunner); ok {
+	if r, ok := runner.(registryAuthRunner); ok {
 		r.SetRegistryAuthResolver(b.resolveRegistryAuth)
+	}
+
+	if r, ok := runner.(envFileRunner); ok {
 		r.SetEnvFileResolver(b.resolveEnvFiles)
 	}
 }
@@ -129,4 +132,9 @@ func (b *InMemoryBackend) taskHealthLocked(task *Task) string {
 	}
 
 	return healthECSUnknown
+}
+
+// addressRunner is implemented by runners whose tasks have a real network address (a Pod IP).
+type addressRunner interface {
+	TaskAddress(taskArn string) string
 }

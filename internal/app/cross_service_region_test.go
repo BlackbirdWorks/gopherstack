@@ -10,7 +10,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -30,8 +30,7 @@ func crossRegionServices(t *testing.T) map[string]service.Registerable {
 	t.Helper()
 
 	cli := &CLI{AccountID: crossAcct, Region: crossHome}
-	portAlloc, err := portalloc.New(19600, 19700)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	cli.faultStore = chaos.NewFaultStore()
 

@@ -167,6 +167,19 @@ func (r *Registry) SetAppConfig(a AppConfig) {
 	}
 }
 
+// SetSearch gives the registered Microsoft.Search provider (if any) a real data-plane adapter,
+// replacing its no-op default.
+func (r *Registry) SetSearch(s SearchPlane) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftSearch)
+	if !ok {
+		return
+	}
+
+	if sp, spOk := p.(*SearchProvider); spOk {
+		sp.dataPlane = s
+	}
+}
+
 // SetContainerRegistries gives the registered Microsoft.ContainerRegistry provider (if any) a real data-plane
 // adapter, replacing its no-op default.
 func (r *Registry) SetContainerRegistries(c ContainerRegistries) {
@@ -216,6 +229,19 @@ func (r *Registry) SetKeyVaultSecrets(v KeyVaultSecrets) {
 
 	if cp, cpOk := p.(*ContainerAppsProvider); cpOk {
 		cp.SetKeyVaultSecrets(v)
+	}
+}
+
+// SetACAQueueMeters gives the registered Microsoft.App provider (if any) the queue depths that KEDA queue scale rules
+// and event-driven jobs poll.
+func (r *Registry) SetACAQueueMeters(m ACAQueueMeters) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftApp)
+	if !ok {
+		return
+	}
+
+	if cp, cpOk := p.(*ContainerAppsProvider); cpOk {
+		cp.SetQueueMeters(m)
 	}
 }
 

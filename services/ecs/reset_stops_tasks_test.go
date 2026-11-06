@@ -66,7 +66,17 @@ func TestBackendResetStopsRunnerTasks(t *testing.T) {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			assert.ElementsMatch(t, want, r.stopped)
+			// A launch superseded by Reset also stops its own task, so a task may be stopped twice.
+			got := make(map[string]struct{}, len(r.stopped))
+			for _, arn := range r.stopped {
+				got[arn] = struct{}{}
+			}
+
+			assert.Len(t, got, len(want))
+
+			for _, arn := range want {
+				assert.Contains(t, got, arn)
+			}
 		})
 	}
 }

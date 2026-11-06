@@ -38,7 +38,9 @@ type genFile struct {
 func storesFormat(f artifactregistrypb.Repository_Format) bool {
 	switch f {
 	case artifactregistrypb.Repository_GENERIC, artifactregistrypb.Repository_NPM,
-		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN:
+		artifactregistrypb.Repository_PYTHON, artifactregistrypb.Repository_MAVEN,
+		artifactregistrypb.Repository_APT, artifactregistrypb.Repository_YUM, artifactregistrypb.Repository_GO,
+		artifactregistrypb.Repository_KFP:
 		return true
 	default:
 		return false
@@ -391,6 +393,14 @@ func (b *InMemoryBackend) dropRepoDataLocked(ref repoRef) {
 			delete(b.pkgTags, k)
 		}
 	}
+
+	for k := range b.attach {
+		if strings.HasPrefix(k, prefix) {
+			delete(b.attach, k)
+		}
+	}
+
+	delete(b.signKeys, ref.full())
 }
 
 func (b *InMemoryBackend) genBatchDelete(

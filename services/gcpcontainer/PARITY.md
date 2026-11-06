@@ -50,5 +50,5 @@ items_still_open:
   - "Unimplemented RPCs: CancelOperation, GetJSONWebKeys, ListUsableSubnetworks, CheckAutopilotCompatibility, FetchClusterUpgradeInfo, FetchNodePoolUpgradeInfo, CompleteNodePoolUpgrade, CompleteControlPlaneUpgrade."
   - "Version catalog and region/zone lists are a fixed representative set; Autopilot being regional-only, error message texts and the PreconditionFailure/BadRequest/ResourceInfo detail payloads were chosen without a production reference (only the cluster name rules were checked against Google docs)."
   - "createSubnetwork is not honoured (no subnet is created in gcpcompute), pod/service ranges of other clusters are only avoided for auto-allocation, and quotas are not modelled."
-  - "No dashboard page, and the emulator does not enforce IAM or return permission errors."
+  - "The emulator does not enforce IAM or return permission errors."
 ---

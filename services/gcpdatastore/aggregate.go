@@ -133,7 +133,7 @@ func (s aggSpec) compute(rows []*row) *datastorepb.Value {
 
 func numericProp(e *datastorepb.Entity, path string) (*datastorepb.Value, bool) {
 	if v, ok := e.GetProperties()[path]; ok {
-		return v, isNumber(v)
+		return v, isNumber(v) && !v.GetExcludeFromIndexes()
 	}
 
 	vals := propValues(e, path)

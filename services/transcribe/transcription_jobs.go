@@ -19,7 +19,8 @@ const maxAlternativesMin = 2
 // maxAlternativesMax is the maximum number of alternative transcripts.
 const maxAlternativesMax = 10
 
-// syntheticIdentifiedLanguageScore is the confidence score returned when language identification is enabled.
+// syntheticIdentifiedLanguageScore is the fixed score reported when language identification is enabled;
+// the emulator cannot identify languages.
 const syntheticIdentifiedLanguageScore = float32(0.97)
 
 // supportedVocabularyFilterMethods returns the set of vocabulary filter methods.
@@ -31,13 +32,12 @@ func supportedVocabularyFilterMethods() []string {
 func supportedContentRedactionTypes() []string { return []string{"PII"} }
 
 // supportedRedactionOutputs returns the set of redaction output options.
-func supportedRedactionOutputs() []string { return []string{"redacted", "redacted_and_unredacted"} }
+func supportedRedactionOutputs() []string { return []string{roleRedacted, "redacted_and_unredacted"} }
 
 // supportedSubtitleFormats returns the set of subtitle output formats.
 func supportedSubtitleFormats() []string { return []string{"vtt", "srt"} }
 
-// StartTranscriptionJob creates a new transcription job with synthetic results.
-// The input struct carries all supported fields; validation is performed before storage.
+// StartTranscriptionJob creates a transcription job; media is read and output written as the job settles.
 func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*TranscriptionJob, error) {
 	if err := validateTranscriptionJobInput(input); err != nil {
 		return nil, err
@@ -50,101 +50,73 @@ func (b *InMemoryBackend) StartTranscriptionJob(input *TranscriptionJob) (*Trans
 		return nil, fmt.Errorf("%w: job %s already exists", ErrAlreadyExists, input.JobName)
 	}
 
-	job := buildCompletedTranscriptionJob(input)
+	job := *input
+	job.CreationTime = b.now()
+	job.JobStatus = jobStatusInProgress
+	job.StartTime = job.CreationTime
+
 	if input.JobExecutionSettings != nil && input.JobExecutionSettings.AllowDeferredExecution {
-		job = buildQueuedTranscriptionJob(input)
+		job.JobStatus = jobStatusQueued
+		job.StartTime = time.Time{}
 	}
 
-	b.deliverTranscriptionOutputLocked(&job)
 	b.jobs.Put(&job)
 	b.recordResourceTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName), job.Tags)
-	cp := job
-	b.observeTranscriptionJob(&cp)
+	if job.JobStatus != jobStatusQueued {
+		b.settleLocked(viewTranscription(&job))
+	}
 
-	return &cp, nil
+	return b.transcriptionCopyLocked(&job), nil
 }
 
-// buildQueuedTranscriptionJob initialises a deferred job before execution starts.
-func buildQueuedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
-	job := *input
-	job.JobStatus = jobStatusQueued
-	job.CreationTime = time.Now()
+func (b *InMemoryBackend) transcriptionCopyLocked(job *TranscriptionJob) *TranscriptionJob {
+	cp := *job
+	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName))
 
-	return job
+	return &cp
 }
 
-// buildCompletedTranscriptionJob initialises a job as COMPLETED with synthetic results.
-func buildCompletedTranscriptionJob(input *TranscriptionJob) TranscriptionJob {
-	now := time.Now()
-	mediaURI := ""
-	if input.Media.MediaFileURI != "" {
-		mediaURI = input.Media.MediaFileURI
-	}
-	transcriptText := deriveTranscriptText(input.JobName, mediaURI)
-
-	job := *input
-	job.JobStatus = jobStatusCompleted
-	job.CreationTime = now
-	job.StartTime = now
-	job.CompletionTime = now
-	job.TranscriptText = transcriptText
-	job.TranscriptJSON = synthesizeTranscriptJSON(input.JobName, transcriptText)
-
-	// Synthesize subtitle file URIs when subtitles were requested.
-	if input.Subtitles != nil && len(input.Subtitles.Formats) > 0 {
-		uris := make([]string, 0, len(input.Subtitles.Formats))
-		for _, f := range input.Subtitles.Formats {
-			uris = append(uris, "s3://synthetic-transcripts/"+input.JobName+"."+f)
-		}
-
-		job.Subtitles = &SubtitlesOutput{
-			Formats:          input.Subtitles.Formats,
-			SubtitleFileURIs: uris,
-			OutputStartIndex: input.Subtitles.OutputStartIndex,
-		}
+func viewTranscription(j *TranscriptionJob) jobView {
+	identify := j.IdentifyLanguage || j.IdentifyMultipleLanguages
+	spec := jobSpec{
+		Kind: kindTranscription, Name: j.JobName, Language: j.LanguageCode, MediaURI: j.Media.MediaFileURI,
+		MediaFormat: j.MediaFormat, SampleRate: j.MediaSampleRateHertz,
+		OutBucket: j.OutputBucketName, OutKey: j.OutputKey, Redaction: j.ContentRedaction != nil,
+		Deferred: j.JobExecutionSettings != nil && j.JobExecutionSettings.AllowDeferredExecution,
 	}
 
-	// Synthesize identified language score when language identification is enabled.
-	if input.IdentifyLanguage || input.IdentifyMultipleLanguages {
-		job.LanguageCode = resolveEffectiveLanguageCode(input.LanguageCode, input.LanguageOptions)
-		job.IdentifiedLanguageScore = syntheticIdentifiedLanguageScore
+	if identify {
+		spec.Language = resolveEffectiveLanguageCode(j.LanguageCode, j.LanguageOptions)
 	}
 
-	return job
-}
-
-func (b *InMemoryBackend) advanceDeferredTranscriptionJob(job *TranscriptionJob) {
-	switch job.JobStatus {
-	case jobStatusQueued:
-		job.JobStatus = jobStatusInProgress
-		job.StartTime = time.Now()
-	case jobStatusInProgress:
-		job.CompletionTime = time.Now()
-		if job.FailureReason != "" {
-			job.JobStatus = jobStatusFailed
-
-			return
-		}
-
-		completed := buildCompletedTranscriptionJob(job)
-		completed.CreationTime = job.CreationTime
-		completed.StartTime = job.StartTime
-		completed.CompletionTime = time.Now()
-		*job = completed
-		b.deliverTranscriptionOutputLocked(job)
-	}
-}
-
-// deliverTranscriptionOutputLocked writes a completed job's transcript; a failed write fails the job.
-func (b *InMemoryBackend) deliverTranscriptionOutputLocked(job *TranscriptionJob) {
-	if job.JobStatus != jobStatusCompleted {
-		return
+	if j.Settings != nil {
+		spec.ShowSpeakers = j.Settings.ShowSpeakerLabels
+		spec.IdentifyChannels = j.Settings.ChannelIdentification
 	}
 
-	key := outputObjectKey(job.OutputKey, job.JobName)
-	if !b.putOutputLocked(job.OutputBucketName, key, job.TranscriptJSON) {
-		job.JobStatus = jobStatusFailed
-		job.FailureReason = outputWriteFailure
+	if j.Subtitles != nil {
+		spec.SubtitleFormats, spec.SubtitleStart = j.Subtitles.Formats, j.Subtitles.OutputStartIndex
+	}
+
+	return jobView{
+		spec: spec, created: j.CreationTime, status: &j.JobStatus, failure: &j.FailureReason,
+		started: &j.StartTime, completed: &j.CompletionTime,
+		complete: func(d delivered) {
+			if identify {
+				j.LanguageCode = spec.Language
+				j.IdentifiedLanguageScore = syntheticIdentifiedLanguageScore
+			}
+
+			j.TranscriptFileURI, j.RedactedTranscriptURI = d.transcript, d.redacted
+			j.ManagedToken, j.TranscriptJSON, j.ManagedOutputs = d.token, d.main, d.extra
+
+			if j.Subtitles != nil && len(d.subtitles) > 0 {
+				// Replace, don't mutate: copies handed out earlier share this pointer.
+				sub := *j.Subtitles
+				sub.SubtitleFileURIs = d.subtitles
+				j.Subtitles = &sub
+			}
+		},
 	}
 }
 
@@ -158,7 +130,7 @@ func resolveEffectiveLanguageCode(languageCode string, options []string) string 
 		return options[0]
 	}
 
-	return "en-US"
+	return languageEnUS
 }
 
 // subtitlesInputFromOutput converts a SubtitlesOutput back to input for validation.
@@ -180,12 +152,9 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
 	}
 
-	b.advanceDeferredTranscriptionJob(job)
-	cp := *job
-	b.observeTranscriptionJob(&cp)
-	cp.Tags = b.liveTagsLocked(b.resourceARN(resourceTypeTranscriptionJob, job.JobName))
+	b.settleLocked(viewTranscription(job))
 
-	return &cp, nil
+	return b.transcriptionCopyLocked(job), nil
 }
 
 // ListTranscriptionJobs returns transcription jobs, optionally filtered by status and
@@ -193,13 +162,14 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 func (b *InMemoryBackend) ListTranscriptionJobs(
 	statusFilter, nameContains, nextToken string, maxResults int32,
 ) ([]TranscriptionJob, string) {
-	b.mu.RLock("ListTranscriptionJobs")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListTranscriptionJobs")
+	defer b.mu.Unlock()
 
 	all := make([]TranscriptionJob, 0, b.jobs.Len())
 	for _, j := range b.jobs.All() {
+		b.settleListLocked(viewTranscription(j))
+
 		cp := *j
-		b.observeTranscriptionJob(&cp)
 
 		if (statusFilter == "" || cp.JobStatus == statusFilter) && matchesNameContains(j.JobName, nameContains) {
 			all = append(all, cp)

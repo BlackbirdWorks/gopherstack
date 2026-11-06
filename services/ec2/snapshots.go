@@ -439,7 +439,7 @@ func (b *InMemoryBackend) LockSnapshot(
 		LockDurationDays: durationDays,
 	}
 	if durationDays > 0 {
-		lock.LockExpiresOn = now.AddDate(0, 0, durationDays)
+		lock.LockExpiresOn = now.UTC().AddDate(0, 0, durationDays)
 	}
 	b.snapshotLocks.Put(lock)
 

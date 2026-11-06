@@ -745,7 +745,11 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfigurationFull(
 		return nil, planErr
 	}
 
-	engines, err := b.startShardEngines(adds, 0)
+	if b.dockerOn() {
+		return nil, fmt.Errorf("%w: resharding is not supported by the docker engine", ErrInvalidParameterCombination)
+	}
+
+	engines, err := b.startShardEngines(ctx, engineRedis, adds, 0)
 	if err != nil {
 		return nil, err
 	}

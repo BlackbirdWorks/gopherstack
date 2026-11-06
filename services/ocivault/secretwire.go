@@ -7,28 +7,39 @@ import (
 
 type secretWire struct {
 	TimeCreated      time.Time                 `json:"timeCreated"`
+	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
+	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
+	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
+	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	Metadata         map[string]any            `json:"metadata,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
 	CurrentVersion   *int64                    `json:"currentVersionNumber,omitempty"`
 	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
-	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
-	Metadata         map[string]any            `json:"metadata,omitempty"`
+	LifecycleState   string                    `json:"lifecycleState"`
 	CompartmentID    string                    `json:"compartmentId"`
 	ID               string                    `json:"id"`
-	LifecycleState   string                    `json:"lifecycleState"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
 	SecretName       string                    `json:"secretName"`
 	VaultID          string                    `json:"vaultId"`
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
 	SecretRules      []json.RawMessage         `json:"secretRules,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 }
 
 type secretSummaryWire struct {
 	TimeCreated      time.Time                 `json:"timeCreated"`
+	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
+	GenerationCtx    *GenerationContext        `json:"secretGenerationContext,omitempty"`
+	LastRotation     *time.Time                `json:"lastRotationTime,omitempty"`
+	NextRotation     *time.Time                `json:"nextRotationTime,omitempty"`
+	RotationConfig   *RotationConfig           `json:"rotationConfig,omitempty"`
+	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
 	TimeOfDeletion   *time.Time                `json:"timeOfDeletion,omitempty"`
 	TimeOfCurrentExp *time.Time                `json:"timeOfCurrentVersionExpiry,omitempty"`
-	FreeformTags     map[string]string         `json:"freeformTags,omitempty"`
-	DefinedTags      map[string]map[string]any `json:"definedTags,omitempty"`
+	RotationStatus   string                    `json:"rotationStatus,omitempty"`
 	CompartmentID    string                    `json:"compartmentId"`
 	ID               string                    `json:"id"`
 	LifecycleState   string                    `json:"lifecycleState"`
@@ -36,6 +47,7 @@ type secretSummaryWire struct {
 	VaultID          string                    `json:"vaultId"`
 	KeyID            string                    `json:"keyId"`
 	Description      string                    `json:"description,omitempty"`
+	AutoGeneration   bool                      `json:"isAutoGenerationEnabled"`
 }
 
 type secretVersionWire struct {
@@ -166,15 +178,44 @@ func secretView(s *Secret, state string) secretWire {
 		w.CurrentVersion = &cur
 	}
 
+	w.rotationFields(s)
+
 	return w
 }
 
+func (w *secretWire) rotationFields(s *Secret) {
+	w.RotationConfig, w.GenerationCtx, w.AutoGeneration = s.rotationConfig(), s.GenContext, s.AutoGen
+	w.LastRotation, w.NextRotation, w.RotationStatus = s.rotationTimes()
+}
+
+func (s *Secret) rotationConfig() *RotationConfig {
+	if s.Rotation == nil {
+		return nil
+	}
+
+	c := s.Rotation.Config
+
+	return &c
+}
+
+func (s *Secret) rotationTimes() (*time.Time, *time.Time, string) {
+	if s.Rotation == nil {
+		return nil, nil, ""
+	}
+
+	return s.Rotation.LastRotation, s.Rotation.NextRotation, s.Rotation.Status
+}
+
 func secretSummary(s *Secret) secretSummaryWire {
-	return secretSummaryWire{
+	w := secretSummaryWire{
 		TimeCreated: s.TimeCreated, TimeOfDeletion: s.TimeOfDeletion, TimeOfCurrentExp: s.currentExpiry(),
 		FreeformTags: s.FreeformTags, DefinedTags: s.DefinedTags, CompartmentID: s.CompartmentID, ID: s.ID,
 		LifecycleState: s.State, SecretName: s.Name, VaultID: s.VaultID, KeyID: s.KeyID, Description: s.Description,
+		RotationConfig: s.rotationConfig(), GenerationCtx: s.GenContext, AutoGeneration: s.AutoGen,
 	}
+	w.LastRotation, w.NextRotation, w.RotationStatus = s.rotationTimes()
+
+	return w
 }
 
 func secretVersionView(s *Secret, v *SecretVersion) secretVersionWire {

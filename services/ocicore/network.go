@@ -28,15 +28,24 @@ var hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9]
 // CreateVnicIn is createVnicDetails.
 type CreateVnicIn struct {
 	TagsIn
-	AssignPublicIP      *bool    `json:"assignPublicIp"`
-	AssignIpv6IP        *bool    `json:"assignIpv6Ip"`
-	SkipSourceDestCheck *bool    `json:"skipSourceDestCheck"`
-	DisplayName         string   `json:"displayName"`
-	HostnameLabel       string   `json:"hostnameLabel"`
-	PrivateIP           string   `json:"privateIp"`
-	SubnetID            string   `json:"subnetId"`
-	VlanID              string   `json:"vlanId"`
-	NsgIDs              []string `json:"nsgIds"`
+	AssignPublicIP      *bool      `json:"assignPublicIp"`
+	AssignIpv6IP        *bool      `json:"assignIpv6Ip"`
+	SkipSourceDestCheck *bool      `json:"skipSourceDestCheck"`
+	DisplayName         string     `json:"displayName"`
+	HostnameLabel       string     `json:"hostnameLabel"`
+	PrivateIP           string     `json:"privateIp"`
+	SubnetID            string     `json:"subnetId"`
+	VlanID              string     `json:"vlanId"`
+	NsgIDs              []string   `json:"nsgIds"`
+	SubnetCidr          string     `json:"subnetCidr"`
+	Ipv6Pairs           []Ipv6Pair `json:"ipv6AddressIpv6SubnetCidrPairDetails"`
+}
+
+// Ipv6Pair asks for an IPv6 on a new VNIC: an existing reserved one, an address, or any address of a prefix.
+type Ipv6Pair struct {
+	Ipv6ID         string `json:"ipv6Id"`
+	Ipv6SubnetCidr string `json:"ipv6SubnetCidr"`
+	Ipv6Address    string `json:"ipv6Address"`
 }
 
 func (b *InMemoryBackend) ready(r resource) {
@@ -54,41 +63,65 @@ func lastAddr(p netip.Prefix) netip.Addr {
 	return netip.AddrFrom4(a)
 }
 
-// freeIP picks the requested or lowest free address of a subnet; the first two and the last address are reserved.
+// freeIP picks the requested or lowest free address of a subnet; per CIDR block the first two and the last address
+// are reserved.
 func (b *InMemoryBackend) freeIP(s *Subnet, want string) (string, *APIError) {
-	p := netip.MustParsePrefix(s.CidrBlock)
-	first := p.Masked().Addr()
-	last := lastAddr(p)
+	return b.freeIPIn(s, want, "")
+}
+
+// freeIPIn is freeIP restricted to one IPv4 block of the subnet when block is set.
+func (b *InMemoryBackend) freeIPIn(s *Subnet, want, block string) (string, *APIError) {
+	if s.LifecycleState == statUpdating {
+		return "", errState("The subnet " + s.ID + " is " + statUpdating + ": no VNICs or private IPs can be created")
+	}
+
 	used := map[string]bool{}
 
 	for _, ip := range liveOf(b, func(x *PrivateIP) bool { return x.SubnetID == s.ID }) {
 		used[ip.IPAddress] = true
 	}
 
-	if want != "" {
-		a, ok := parseAddr(want)
-		if !ok || !p.Contains(a) {
-			return "", errParam("privateIp " + want + " is not within the subnet CIDR block " + s.CidrBlock)
-		}
-
-		if a == first || a == first.Next() || a == last {
-			return "", errParam("privateIp " + want + " is reserved by the Networking service")
-		}
-
-		if used[want] {
-			return "", errConflict("The IP address " + want + " is already in use")
-		}
-
-		return want, nil
+	blocks := prefixesOf(s.Ipv4CidrBlocks)
+	if block != "" {
+		blocks = prefixesOf([]string{block})
 	}
 
-	for a := first.Next().Next(); p.Contains(a) && a != last; a = a.Next() {
-		if !used[a.String()] {
-			return a.String(), nil
+	if want != "" {
+		return wantedIP(blocks, want, s.CidrBlock, used)
+	}
+
+	for _, p := range blocks {
+		last := lastAddr(p)
+
+		for a := p.Masked().Addr().Next().Next(); p.Contains(a) && a != last; a = a.Next() {
+			if !used[a.String()] {
+				return a.String(), nil
+			}
 		}
 	}
 
 	return "", errLimit("The subnet " + s.ID + " has no free IP addresses")
+}
+
+func wantedIP(blocks []netip.Prefix, want, primary string, used map[string]bool) (string, *APIError) {
+	a, ok := parseAddr(want)
+
+	i := slices.IndexFunc(blocks, func(p netip.Prefix) bool { return ok && p.Contains(a) })
+	if i < 0 {
+		return "", errParam("privateIp " + want + " is not within the subnet CIDR block " + primary)
+	}
+
+	first := blocks[i].Masked().Addr()
+
+	if a == first || a == first.Next() || a == lastAddr(blocks[i]) {
+		return "", errParam("privateIp " + want + " is reserved by the Networking service")
+	}
+
+	if used[want] {
+		return "", errConflict("The IP address " + want + " is already in use")
+	}
+
+	return want, nil
 }
 
 func (b *InMemoryBackend) checkHostname(s *Subnet, label, selfID string) *APIError {
@@ -142,8 +175,8 @@ func (b *InMemoryBackend) vnicSubnet(in CreateVnicIn, ad string) (*Subnet, *APIE
 		return nil, errMissing("createVnicDetails.subnetId is required")
 	}
 
-	if in.VlanID != "" || (in.AssignIpv6IP != nil && *in.AssignIpv6IP) {
-		return nil, errParam("vlanId and IPv6 address assignment are not supported")
+	if in.VlanID != "" {
+		return nil, errParam("vlanId is not supported")
 	}
 
 	s, aerr := getLive[*Subnet](b, in.SubnetID)
@@ -159,7 +192,87 @@ func (b *InMemoryBackend) vnicSubnet(in CreateVnicIn, ad string) (*Subnet, *APIE
 		return nil, errParam("The subnet " + s.ID + " prohibits public IP addresses on VNICs")
 	}
 
-	return s, nil
+	if in.SubnetCidr != "" && (in.PrivateIP != "" || !slices.Contains(s.Ipv4CidrBlocks, in.SubnetCidr)) {
+		return nil, errParam("subnetCidr must be an IPv4 block of the subnet and cannot be combined with privateIp")
+	}
+
+	return s, b.vnicIpv6Checks(s, in)
+}
+
+// vnicIpv6Checks validates the IPv6 requests of a new VNIC before anything is created.
+func (b *InMemoryBackend) vnicIpv6Checks(s *Subnet, in CreateVnicIn) *APIError {
+	if !flag(in.AssignIpv6IP) && len(in.Ipv6Pairs) == 0 {
+		return nil
+	}
+
+	if len(s.Ipv6CidrBlocks) == 0 {
+		return errParam("The subnet " + s.ID + " has no IPv6 prefix")
+	}
+
+	if len(in.Ipv6Pairs) > maxIpv6PerVnic {
+		return errLimit("A VNIC can have at most 32 IPv6 addresses")
+	}
+
+	seen := map[string]bool{}
+
+	for _, pr := range in.Ipv6Pairs {
+		if pr.Ipv6ID != "" {
+			ip, aerr := getLive[*Ipv6](b, pr.Ipv6ID)
+			if aerr != nil {
+				return aerr
+			}
+
+			if ip.SubnetID != s.ID || ip.VnicID != "" || seen[ip.IPAddress] {
+				return errParam("The IPv6 " + ip.ID + " cannot be assigned to this VNIC")
+			}
+
+			seen[ip.IPAddress] = true
+
+			continue
+		}
+
+		addr, aerr := b.pickIpv6(s, pr.Ipv6SubnetCidr, pr.Ipv6Address)
+		if aerr != nil {
+			return aerr
+		}
+
+		if pr.Ipv6Address != "" && seen[addr] {
+			return errParam("The IPv6 address " + addr + " is listed twice")
+		}
+
+		seen[addr] = true
+	}
+
+	return nil
+}
+
+// attachVnicIpv6 creates or assigns the IPv6 addresses requested for a new VNIC.
+func (b *InMemoryBackend) attachVnicIpv6(v *Vnic, s *Subnet, in CreateVnicIn) *APIError {
+	pairs := in.Ipv6Pairs
+	if len(pairs) == 0 && flag(in.AssignIpv6IP) {
+		pairs = []Ipv6Pair{{}}
+	}
+
+	for _, pr := range pairs {
+		if pr.Ipv6ID != "" {
+			ip, _ := get[*Ipv6](b, pr.Ipv6ID)
+			ip.VnicID, ip.IPState = v.ID, ipv6StateAssign
+			b.bump(ip)
+
+			continue
+		}
+
+		if _, aerr := b.newIpv6(CreateIpv6In{
+			VnicID: v.ID, SubnetID: s.ID, Lifetime: lifetimeEphemeral, IPAddress: pr.Ipv6Address,
+			Ipv6SubnetCidr: pr.Ipv6SubnetCidr,
+		}); aerr != nil {
+			return aerr
+		}
+	}
+
+	b.refreshVnic(v.ID)
+
+	return nil
 }
 
 // newVnic validates and then creates a VNIC with its primary private IP and optional ephemeral public IP.
@@ -182,7 +295,7 @@ func (b *InMemoryBackend) newVnic(in CreateVnicIn, compartment, ad string, prima
 		return nil, aerr
 	}
 
-	addr, aerr := b.freeIP(s, in.PrivateIP)
+	addr, aerr := b.freeIPIn(s, in.PrivateIP, in.SubnetCidr)
 	if aerr != nil {
 		return nil, aerr
 	}
@@ -205,6 +318,12 @@ func (b *InMemoryBackend) newVnic(in CreateVnicIn, compartment, ad string, prima
 		b.add(ip)
 		b.assignPublic(ip, p)
 		b.refreshVnic(v.ID)
+	}
+
+	if aerr = b.attachVnicIpv6(v, s, in); aerr != nil {
+		b.endVnic(v)
+
+		return nil, aerr
 	}
 
 	return v, nil
@@ -297,7 +416,7 @@ func (b *InMemoryBackend) refreshVnic(vnicID string) {
 		return
 	}
 
-	v.PublicIP = ""
+	v.PublicIP, v.Ipv6Addresses = "", b.vnicIpv6(vnicID)
 
 	for _, p := range liveOf(b, func(x *PrivateIP) bool { return x.VnicID == vnicID && x.IsPrimary }) {
 		if ip := b.publicOf(p.ID); ip != nil {
@@ -319,6 +438,8 @@ func (b *InMemoryBackend) dropPrivateIP(p *PrivateIP) {
 
 // endVnic terminates a VNIC and settles its private IPs: ephemeral ones are dropped, reserved ones unassigned.
 func (b *InMemoryBackend) endVnic(v *Vnic) {
+	b.endVnicIpv6(v.ID)
+
 	for _, p := range liveOf(b, func(x *PrivateIP) bool { return x.VnicID == v.ID }) {
 		if p.Lifetime == lifetimeReserved && !p.IsPrimary {
 			p.VnicID, p.IPState = "", statAvailable
@@ -730,7 +851,7 @@ func (b *InMemoryBackend) ListPrivateIPs(o PrivateIPListOpts) (page.Page[resourc
 	}
 
 	all := liveOf(b, o.matches)
-	sortRes(all, ListOpts{Order: "ASC"})
+	sortRes(all, ListOpts{Order: orderAsc})
 
 	pg := page.New(all, o.Page, o.Limit, defaultListLimit)
 	out := make([]resource, 0, len(pg.Data))

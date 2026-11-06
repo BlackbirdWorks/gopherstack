@@ -1,6 +1,7 @@
 package bedrockagentcorecontrol
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -13,6 +14,7 @@ import (
 const (
 	authCustomJWT = "CUSTOM_JWT"
 	maxRulePrio   = 1000000
+	syncTimeout   = 60 * time.Second
 )
 
 func (b *InMemoryBackend) validateGatewayInput(sc scope, in map[string]any) error {
@@ -158,6 +160,7 @@ func (b *InMemoryBackend) decorateTarget(r *Resource) {
 func (b *InMemoryBackend) afterTargetOrRuleUpdate(k *kindSpec, r *Resource) {
 	if k.Name == kindGatewayTarget {
 		b.decorateTarget(r)
+		delete(r.Aux2(), keyTools)
 	}
 }
 
@@ -288,9 +291,51 @@ func timesOf(op, key string) map[string]string {
 	return nil
 }
 
-// synchronizeTargets refreshes the named gateway targets.
+// syncOutcome is the result of discovering one target's tools.
+type syncOutcome struct {
+	reason string
+	tools  []any
+}
+
+// synchronizeTargets rediscovers the tools of the named gateway targets; discovery runs outside the lock.
 func (b *InMemoryBackend) synchronizeTargets(sc scope, op string, in args) (*reply, error) {
+	views, gwID, err := b.syncCandidates(sc, in)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
+	defer cancel()
+
+	outcomes := make([]syncOutcome, len(views))
+	for i, v := range views {
+		outcomes[i] = b.discoverTarget(ctx, v)
+	}
+
 	b.mu.Lock("synchronizeTargets")
+	defer b.mu.Unlock()
+
+	b.purgeLocked()
+
+	k := b.kinds[kindGatewayTarget]
+	out := make([]any, 0, len(views))
+
+	for i, v := range views {
+		t, found := b.find(sc, k, gwID, v.id)
+		if !found {
+			return nil, notFound("gateway target %q not found", v.id)
+		}
+
+		b.applySync(t, outcomes[i])
+		b.settle(t, "SYNCHRONIZING")
+		out = append(out, b.project(k, t, elemKeys(op, "targets"), timesOf(op, "targets"), "SYNCHRONIZING", nil))
+	}
+
+	return &reply{body: map[string]any{"targets": out}, status: http.StatusAccepted}, nil
+}
+
+func (b *InMemoryBackend) syncCandidates(sc scope, in args) ([]targetView, string, error) {
+	b.mu.Lock("syncCandidates")
 	defer b.mu.Unlock()
 
 	b.purgeLocked()
@@ -299,40 +344,91 @@ func (b *InMemoryBackend) synchronizeTargets(sc scope, op string, in args) (*rep
 
 	gw, err := b.parentOf(sc, k, in)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	ids := in.list("targetIdList")
 	if len(ids) == 0 {
-		return nil, invalid("targetIdList must not be empty")
+		return nil, "", invalid("targetIdList must not be empty")
 	}
 
-	var targets []*Resource
+	views := make([]targetView, 0, len(ids))
 
 	for _, v := range ids {
 		id, _ := v.(string)
 
 		t, found := b.find(sc, k, gw.ID, id)
 		if !found {
-			return nil, notFound("gateway target %q not found", id)
+			return nil, "", notFound("gateway target %q not found", id)
 		}
 
 		if isTransitional(b.visible(t)) {
-			return nil, conflict("gateway target %q is %s", id, b.visible(t))
+			return nil, "", conflict("gateway target %q is %s", id, b.visible(t))
 		}
 
-		targets = append(targets, t)
+		views = append(views, b.targetViewLocked(t))
 	}
 
-	out := make([]any, 0, len(targets))
+	return views, gw.ID, nil
+}
 
-	for _, t := range targets {
-		t.Doc["lastSynchronizedAt"] = b.now().UTC().Format(time.RFC3339Nano)
-		b.settle(t, "SYNCHRONIZING")
-		out = append(out, b.project(k, t, elemKeys(op, "targets"), timesOf(op, "targets"), "SYNCHRONIZING", nil))
+// discoverTarget lists the tools a target exposes; any failure becomes a status reason.
+func (b *InMemoryBackend) discoverTarget(ctx context.Context, t targetView) syncOutcome {
+	kind, cfg := mcpConfig(t)
+	if kind == "" {
+		return syncOutcome{}
 	}
 
-	return &reply{body: map[string]any{"targets": out}, status: http.StatusAccepted}, nil
+	if kind == targetLambda {
+		b.mu.RLock("discoverTarget")
+		refs := b.refs
+		b.mu.RUnlock()
+
+		if arn := strOf(cfg, "lambdaArn"); refs != nil && !refs.LambdaFunctionExists(arn) {
+			return syncOutcome{reason: "Lambda function " + arn + " does not exist"}
+		}
+	}
+
+	var (
+		entries []toolEntry
+		err     error
+	)
+
+	if kind == targetMCPSrv && objOf(cfg, "mcpToolSchema") == nil {
+		entries, err = b.discoverMCPServer(ctx, t, cfg)
+	} else {
+		entries, err = b.listTools(ctx, t)
+	}
+
+	if err != nil {
+		return syncOutcome{reason: "Tool discovery failed: " + err.Error()}
+	}
+
+	tools := make([]any, 0, len(entries))
+	for _, e := range entries {
+		tools = append(tools, e.def)
+	}
+
+	return syncOutcome{tools: tools}
+}
+
+func (b *InMemoryBackend) applySync(t *Resource, o syncOutcome) {
+	now := b.now().UTC()
+	t.Doc["lastSynchronizedAt"] = now.Format(time.RFC3339Nano)
+
+	if o.reason != "" {
+		t.Status = "SYNCHRONIZE_UNSUCCESSFUL"
+		t.Doc["statusReasons"] = []any{o.reason}
+
+		return
+	}
+
+	t.Status = stateReady
+	t.Doc["statusReasons"] = []any{}
+
+	if o.tools != nil {
+		t.Aux2()[keyTools] = o.tools
+	}
 }
 
 func elemKeys(op, key string) []string {

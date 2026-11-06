@@ -264,11 +264,22 @@ func truncate(s string, limit int) string {
 }
 
 // deliverNotifications publishes pending notifications and reports each outcome to the dispatcher.
-func deliverNotifications(ctx context.Context, pub SNSPublisher, pending []pendingNotify) {
+func deliverNotifications(ctx context.Context, pub SNSPublisher, pending []pendingNotify) []notifyFailure {
+	var failed []notifyFailure
+
 	for _, p := range pending {
-		p.done(deliverOne(ctx, pub, p))
+		err := deliverOne(ctx, pub, p)
+		p.done(err)
+
+		if err != nil {
+			failed = append(failed, notifyFailure{receiver: p.receiver.name, err: err.Error()})
+		}
 	}
+
+	return failed
 }
+
+type notifyFailure struct{ receiver, err string }
 
 func deliverOne(ctx context.Context, pub SNSPublisher, p pendingNotify) error {
 	if pub == nil {

@@ -38,7 +38,7 @@ func (b *InMemoryBackend) policyARN(orgID, policyType, policyID string) string {
 		"arn:aws:organizations::%s:policy/%s/%s/%s",
 		b.accountID,
 		orgID,
-		policyType,
+		strings.ToLower(policyType),
 		policyID,
 	)
 }
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) policyARN(orgID, policyType, policyID string) string {
 // offers exactly two alternatives -- the customer-owned shape policyARN
 // builds, and this one.
 func (b *InMemoryBackend) awsManagedPolicyARN(policyType, policyID string) string {
-	return fmt.Sprintf("arn:aws:organizations::aws:policy/%s/%s", policyType, policyID)
+	return fmt.Sprintf("arn:aws:organizations::aws:policy/%s/%s", strings.ToLower(policyType), policyID)
 }
 
 // resourcePolicyARN builds an ARN for the organization resource policy.

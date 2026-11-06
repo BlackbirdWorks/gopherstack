@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"cel.dev/cel-go/cel"
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/iam/apiv1/iampb"
 	"google.golang.org/protobuf/proto"
@@ -44,21 +45,38 @@ type InMemoryBackend struct {
 	vpcsc    map[string]*artifactregistrypb.VPCSCConfig
 	ledger   ociregistry.Ledger
 	ops      *gcplro.Store
+	celEnv   *cel.Env
+	sessions map[string]*uploadSession
+	pending  map[string]*pendingOp
+	signKeys map[string][]byte
+	secrets  SecretResolver
+	attach   map[string]*artifactregistrypb.Attachment
+	settleMu *lockmetrics.RWMutex
+	objects  ObjectStore
+	remote   remoteOptions
+	ticker   TickerFunc
 	raw      http.Handler
 	app      http.Handler
 	dataDir  string
 	host     string
 	hostPort string
+	opDelay  time.Duration
 }
 
 // NewInMemoryBackend creates an empty backend that keeps images in memory.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		now: time.Now, ctx: context.Background(), mu: lockmetrics.New("gcpartifactregistry"),
-		repos: map[string]*repoRec{}, ledger: ociregistry.Ledger{}, ops: gcplro.New("gcpartifactregistry"),
-		host: DefaultRegistryHost,
+		now:      time.Now,
+		ctx:      context.Background(),
+		mu:       lockmetrics.New("gcpartifactregistry"),
+		settleMu: lockmetrics.New("gcpartifactregistry.settle"),
+		repos:    map[string]*repoRec{},
+		ledger:   ociregistry.Ledger{},
+		ops:      gcplro.New("gcpartifactregistry"),
+		host:     DefaultRegistryHost,
 	}
 
+	b.celEnv, _ = newRuleEnv()
 	b.resetExtras()
 
 	return b
@@ -71,6 +89,10 @@ func (b *InMemoryBackend) resetExtras() {
 	b.rules = map[string]*artifactregistrypb.Rule{}
 	b.settings = map[string]*artifactregistrypb.ProjectSettings{}
 	b.vpcsc = map[string]*artifactregistrypb.VPCSCConfig{}
+	b.sessions = map[string]*uploadSession{}
+	b.pending = map[string]*pendingOp{}
+	b.signKeys = map[string][]byte{}
+	b.attach = map[string]*artifactregistrypb.Attachment{}
 }
 
 // SetDataDir keeps image blobs and manifests under dir; empty keeps them in memory.
@@ -154,6 +176,7 @@ func (b *InMemoryBackend) repoByKey(project, id string) (string, *repoRec, bool)
 // DockerRepoInfo describes the repository a registry path belongs to.
 type DockerRepoInfo struct {
 	Location  string
+	Mode      artifactregistrypb.Repository_Mode
 	Immutable bool
 	Docker    bool
 }
@@ -172,6 +195,7 @@ func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, 
 
 	return DockerRepoInfo{
 		Location:  ref.location,
+		Mode:      rec.pb.GetMode(),
 		Docker:    rec.pb.GetFormat() == artifactregistrypb.Repository_DOCKER,
 		Immutable: rec.pb.GetDockerConfig().GetImmutableTags(),
 	}, true

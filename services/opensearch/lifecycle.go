@@ -107,6 +107,7 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	delete(b.scheduledActions, name)
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
 	b.dryRuns.Delete(name)
+	b.securityConfigs.Delete(name)
 
 	b.removeDomainIndexesLocked(name)
 

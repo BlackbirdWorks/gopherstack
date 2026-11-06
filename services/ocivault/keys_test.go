@@ -131,6 +131,8 @@ func TestKeyStateMachine(t *testing.T) {
 	dis, err := m.DisableKey(ctx, keymanagement.DisableKeyRequest{KeyId: k.Id})
 	require.NoError(t, err)
 	assert.Equal(t, keymanagement.KeyLifecycleStateDisabling, dis.LifecycleState)
+	assert.Equal(t, keymanagement.KeyLifecycleStateDisabling, get().LifecycleState)
+	e.settle()
 	assert.Equal(t, keymanagement.KeyLifecycleStateDisabled, get().LifecycleState)
 
 	_, err = m.DisableKey(ctx, keymanagement.DisableKeyRequest{KeyId: k.Id})
@@ -138,12 +140,16 @@ func TestKeyStateMachine(t *testing.T) {
 
 	_, err = m.EnableKey(ctx, keymanagement.EnableKeyRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateEnabling, get().LifecycleState)
+	e.settle()
 
 	at := common.SDKTime{Time: e.clock.Now().Add(8 * 24 * time.Hour)}
 	_, err = m.ScheduleKeyDeletion(ctx, keymanagement.ScheduleKeyDeletionRequest{
 		KeyId: k.Id, TimeOfDeletion: &at,
 	})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateSchedulingDeletion, get().LifecycleState)
+	e.settle()
 	assert.Equal(t, keymanagement.KeyLifecycleStatePendingDeletion, get().LifecycleState)
 
 	_, err = m.EnableKey(ctx, keymanagement.EnableKeyRequest{KeyId: k.Id})
@@ -151,12 +157,16 @@ func TestKeyStateMachine(t *testing.T) {
 
 	_, err = m.CancelKeyDeletion(ctx, keymanagement.CancelKeyDeletionRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	assert.Equal(t, keymanagement.KeyLifecycleStateCancellingDeletion, get().LifecycleState)
+	e.settle()
+
 	got := get()
 	assert.Equal(t, keymanagement.KeyLifecycleStateEnabled, got.LifecycleState)
 	assert.Nil(t, got.TimeOfDeletion)
 
 	_, err = m.ScheduleKeyDeletion(ctx, keymanagement.ScheduleKeyDeletionRequest{KeyId: k.Id})
 	require.NoError(t, err)
+	e.settle()
 	e.clock.Advance(31 * 24 * time.Hour)
 	assert.Equal(t, keymanagement.KeyLifecycleStateDeleted, get().LifecycleState)
 }

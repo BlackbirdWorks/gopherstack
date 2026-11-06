@@ -44,7 +44,13 @@ func (b *InMemoryBackend) execCatalogStatement(
 		return b.execGlueDropTable(query, qctx)
 	case hasKeyword(upper, "MSCK"):
 		return b.execMsckRepair(query, qctx)
+	case hasKeyword(upper, "VACUUM"):
+		return b.execVacuum(query, qctx)
 	case hasKeyword(upper, "ALTER"):
+		if res, out, handled := b.execIcebergAlter(query, qctx); handled {
+			return res, out, true
+		}
+
 		return b.execAlterAddPartition(query, qctx)
 	case hasKeyword(upper, "SHOW"), hasKeyword(upper, "DESCRIBE"), hasKeyword(upper, "DESC"):
 		return b.execShowDescribe(query, qctx)

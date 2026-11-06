@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 11 (10 ok, 1 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 13 |
+| Known gaps | 12 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -27,7 +27,6 @@
 - redisConfiguration settings are stored but not enforced (no CONFIG in miniredis).
 - Entra ID authentication, disableAccessKeyAuthentication and access policies are not implemented.
 - Reboots do not drop connections and firewall rules do not filter them.
-- No dashboard page.
 
 ## More
 

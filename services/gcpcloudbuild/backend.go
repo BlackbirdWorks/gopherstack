@@ -25,6 +25,7 @@ const (
 type buildRec struct {
 	pb     *cloudbuildpb.Build
 	orig   *cloudbuildpb.Build
+	left   chan struct{}
 	ref    ref
 	opName string
 }
@@ -136,6 +137,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, rec := range b.builds {
+		rec.stopQueueTimer()
+	}
 
 	b.builds = map[string]*buildRec{}
 	b.triggers = map[string]*cloudbuildpb.BuildTrigger{}

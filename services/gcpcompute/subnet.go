@@ -51,6 +51,8 @@ func (b *InMemoryBackend) networkRangesLocked(network, skip string) []netip.Pref
 		}
 	}
 
+	out = append(out, b.peeringRangesLocked(network)...)
+
 	if n := b.networkBySelfLinkLocked(network); n != nil {
 		for _, peer := range b.activePeersLocked(n) {
 			for p := range b.networkRangesWithOwnerLocked(peer) {
@@ -161,6 +163,10 @@ func (b *InMemoryBackend) insertSubnet(
 	s := newSubnet(project, region, in.Name, n.SelfLink, p, b.stamp())
 	s.Description, s.PrivateIpGoogleAccess, s.EnableFlowLogs = in.Description, in.PrivateIpGoogleAccess, in.EnableFlowLogs
 	s.SecondaryIpRanges = in.SecondaryIpRanges
+
+	if apiErr := b.applySubnetStackLocked(n, s, in, true); apiErr != nil {
+		return nil, apiErr
+	}
 
 	if in.LogConfig != nil {
 		s.LogConfig, s.EnableFlowLogs = in.LogConfig, in.LogConfig.Enable || in.EnableFlowLogs
@@ -310,7 +316,7 @@ var subnetPatchable = map[string]bool{ //nolint:gochecknoglobals // read-only lo
 	jsonName: true, collNetwork: true, "ipCidrRange": true, "secondaryIpRanges": true, "privateIpGoogleAccess": true,
 	"enableFlowLogs": true, "logConfig": true, jsonDesc: true, "fingerprint": true, "region": true,
 	jsonKind: true, "id": true, jsonSelfLink: true, jsonCreated: true, "gatewayAddress": true, "purpose": true,
-	jsonStackType: true, "privateIpv6GoogleAccess": true,
+	jsonStackType: true, "privateIpv6GoogleAccess": true, "ipv6AccessType": true,
 }
 
 func (b *InMemoryBackend) patchSubnet(
@@ -345,6 +351,10 @@ func (b *InMemoryBackend) patchSubnet(
 	}
 
 	if err = b.mergeSecondariesLocked(s, in); err != nil {
+		return nil, err
+	}
+
+	if err = b.patchSubnetStackLocked(s, in, raw); err != nil {
 		return nil, err
 	}
 

@@ -420,7 +420,7 @@ func (b *InMemoryBackend) placeAwaitingTasks() {
 		}
 	}()
 
-	b.startTasksOutsideLock(work)
+	b.launchAll(b.startTasksOutsideLock(work))
 }
 
 type taskNeed struct{ cpu, mem int64 }

@@ -146,6 +146,10 @@ func (b *InMemoryBackend) CreateLoggingConfiguration(
 		return wStatus{}, err
 	}
 
+	if err := b.checkLogGroup(ctx, logGroup); err != nil {
+		return wStatus{}, err
+	}
+
 	b.mu.Lock("CreateLoggingConfiguration")
 	defer b.mu.Unlock()
 
@@ -177,6 +181,10 @@ func (b *InMemoryBackend) CreateLoggingConfiguration(
 // UpdateLoggingConfiguration changes the log group.
 func (b *InMemoryBackend) UpdateLoggingConfiguration(ctx context.Context, wsID, logGroup string) (wStatus, error) {
 	if err := validateLogGroup(logGroup); err != nil {
+		return wStatus{}, err
+	}
+
+	if err := b.checkLogGroup(ctx, logGroup); err != nil {
 		return wStatus{}, err
 	}
 

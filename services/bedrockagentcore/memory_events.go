@@ -34,7 +34,7 @@ func (b *InMemoryBackend) memoryOf(sc Scope, id string) (MemoryInfo, error) {
 }
 
 func (e *Event) expired(m MemoryInfo, now time.Time) bool {
-	return m.ExpiryDays > 0 && now.After(e.Timestamp.AddDate(0, 0, m.ExpiryDays))
+	return m.ExpiryDays > 0 && now.After(e.Timestamp.UTC().AddDate(0, 0, m.ExpiryDays))
 }
 
 func validatePayload(p []any) error {

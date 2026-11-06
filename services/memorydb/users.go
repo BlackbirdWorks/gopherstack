@@ -167,6 +167,7 @@ func (b *InMemoryBackend) DescribeUsers(ctx context.Context, name string) ([]*Us
 func (b *InMemoryBackend) DeleteUser(ctx context.Context, name string) (*User, error) {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
+	defer b.syncAllAuthLocked()
 
 	region := getRegion(ctx, b.defaultRegion)
 

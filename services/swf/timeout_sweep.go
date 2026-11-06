@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// retentionDay is a fixed 24h elapsed day; AddDate would shift with the local zone's DST.
+const retentionDay = 24 * time.Hour
+
 // closedExecutionRetentionCutoffLocked returns the epoch cutoff for closed executions
 // and false when retention is NONE/unset. Caller holds the read lock.
 // https://docs.aws.amazon.com/amazonswf/latest/apireference/API_RegisterDomain.html
@@ -21,7 +24,7 @@ func (b *InMemoryBackend) closedExecutionRetentionCutoffLocked(domain string, no
 		return 0, false
 	}
 
-	return float64(now.AddDate(0, 0, -days).Unix()), true
+	return float64(now.Add(-time.Duration(days) * retentionDay).Unix()), true
 }
 
 // sweepExpiredClosedExecutionsLocked evicts closed executions past their domain's

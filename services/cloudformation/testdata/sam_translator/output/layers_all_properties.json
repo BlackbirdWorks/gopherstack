@@ -1,0 +1,120 @@
+{
+  "Outputs": {
+    "FunctionAtt": {
+      "Value": {
+        "Fn::GetAtt": [
+          "MyFunction",
+          "Arn"
+        ]
+      }
+    },
+    "FunctionName": {
+      "Value": {
+        "Ref": "MyFunction"
+      }
+    },
+    "FunctionSub": {
+      "Value": {
+        "Fn::Sub": "${MyFunction}"
+      }
+    },
+    "LayerName": {
+      "Value": {
+        "Ref": "MyLayerd04062b365"
+      }
+    },
+    "LayerSub": {
+      "Value": {
+        "Fn::Sub": "${MyLayerd04062b365}"
+      }
+    }
+  },
+  "Parameters": {
+    "LayerDeleteParam": {
+      "Default": "Delete",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "MyFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "Handler": "app.handler",
+        "Layers": [
+          {
+            "Ref": "MyLayerd04062b365"
+          }
+        ],
+        "Role": {
+          "Fn::GetAtt": [
+            "MyFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.6",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyLayerWithANamefda8c9ec8c": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "LayerName": "DifferentLayerName"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    },
+    "MyLayerd04062b365": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "Content": {
+          "S3Bucket": "bucket",
+          "S3Key": "key"
+        },
+        "LayerName": "MyLayer"
+      },
+      "Type": "AWS::Lambda::LayerVersion"
+    }
+  }
+}

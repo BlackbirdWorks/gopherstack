@@ -8,24 +8,22 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 20 (20 ok) |
-| Feature families | 13 (10 ok, 3 partial) |
-| Known gaps | 11 |
+| Feature families | 14 (12 ok, 2 partial) |
+| Known gaps | 9 |
 | Deferred items | 0 |
 | Resource leaks | ok |
 
 ### Known gaps
 
-- connectedRepository and storageSourceManifest builds fail with FETCH_SOURCE_FAILED; repoSource branch_name is a literal ref, not a regex; repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
+- connectedRepository builds fail with FETCH_SOURCE_FAILED (no Cloud Build v2 connections or repositories API in-process); there is no Source Repositories emulator, so repoSource resolves refs from Services.RepoBase git remotes only; repository_event_config and git_file_source triggers cannot resolve a repository, and triggers that read cloudbuild.yaml from a repository can be stored but not run.
 - Event triggers on repository events (trigger_template, github, repository_event_config) are stored and never fire, because the emulator has no repository event source; builds start from CreateBuild, RetryBuild, RunBuildTrigger, ReceiveTriggerWebhook and pubsub_config triggers. pubsub_config.subscription is not populated because no subscription is created, so $(body.subscription) is empty, and webhook and pubsub filters support only ==, !=, &&, ||, !, parentheses and matches/contains/startsWith/endsWith over substitution variables.
-- KMS-encrypted secrets and automap_substitutions are not supported.
-- options.pool, machine_type and disk_size_gb do not change where or how steps run, and queue_ttl never expires a build.
-- results.build_step_images, build_step_outputs, source_provenance file hashes, warnings and the FETCHSOURCE/PUSH timing entries are not populated; only the BUILD timing, step timing and artifact timing are.
-- Artifacts other than artifacts.objects (Maven, Python, npm, Go modules) are not uploaded because the Artifact Registry emulator only stores Docker images, and artifacts.images is not honoured beyond images.
+- options.pool, machine_type and disk_size_gb do not change where or how steps run; no concurrency limit exists, so a build is never held QUEUED and queue_ttl only applies to approval-held and late-started builds.
+- Build.warnings is never populated (the API docs name no warning conditions); a restored PENDING build has no queue_ttl timer until it is approved.
+- Uploaded package URIs are the emulator's choice: Maven <repository>/<group path>/<artifactId>/<version>/<artifactId>-<version><ext>, Python <repository>/<file>, npm <repository>/<name>/-/<file>.tgz and Go https://<location>-go.pkg.dev/<project>/<repository>/<escaped module>/@v/<version>.zip (UNVERIFIED against the live service); an npm package_path is packed from the directory itself (no .npmignore or npm pack semantics) and a Go module is zipped with golang.org/x/mod/zip from source_path.
 - Images can only be pushed to the Artifact Registry emulator; gcr.io and other registries fail the build.
 - Step containers share the host Docker daemon (and its socket when present), so builds are not isolated from each other or from the host.
 - Locations are path parameters only: the v1 API has no ListLocations, and any location id is accepted.
 - Authentication is not checked, IAM is not enforced and service_account is ignored.
-- No dashboard page.
 
 ## More
 

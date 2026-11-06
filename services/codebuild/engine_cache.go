@@ -44,6 +44,15 @@ type specCache struct {
 	Paths        []string `yaml:"paths"`
 }
 
+// cacheScope is the cache namespace when set (shared across projects), else the project name.
+func cacheScope(c *ProjectCache, project string) string {
+	if c != nil && c.CacheNamespace != "" {
+		return c.CacheNamespace
+	}
+
+	return project
+}
+
 func (r *buildRunner) cacheCfg() *ProjectCache {
 	c := r.build.Cache
 	if c == nil || (c.Type != cacheTypeLocal && c.Type != cacheTypeS3) {
@@ -61,7 +70,7 @@ func (r *buildRunner) localMode(mode string) bool {
 
 // cacheRoot is the persistent host directory holding this project's local caches.
 func (r *buildRunner) cacheRoot() string {
-	key := filepath.Base(r.b.accountID + "-" + r.region + "-" + r.build.ProjectName)
+	key := filepath.Base(r.b.accountID + "-" + r.region + "-" + cacheScope(r.build.Cache, r.build.ProjectName))
 
 	return filepath.Join(r.cfg.CacheDir, key)
 }
@@ -255,7 +264,7 @@ func (r *buildRunner) stageCache(rel, abs []string) error {
 }
 
 func (r *buildRunner) execCache(script string) error {
-	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(script))
+	res, err := r.rt.Exec(r.ctx, r.containerID, shellInvocation(script, "", ""))
 	if err != nil {
 		return fmt.Errorf("cache exec: %w", err)
 	}
@@ -514,7 +523,7 @@ func (b *InMemoryBackend) invalidateEngineCache(ctx context.Context, proj *Proje
 		return nil
 	}
 
-	key := filepath.Base(b.accountID + "-" + b.region + "-" + proj.Name)
+	key := filepath.Base(b.accountID + "-" + b.region + "-" + cacheScope(proj.Cache, proj.Name))
 	if err := os.RemoveAll(filepath.Join(eng.cfg.CacheDir, key)); err != nil {
 		return fmt.Errorf("invalidate local cache: %w", err)
 	}
@@ -523,7 +532,7 @@ func (b *InMemoryBackend) invalidateEngineCache(ctx context.Context, proj *Proje
 		return nil
 	}
 
-	bucket, objKey, ok := s3CacheLocation(proj.Cache.Location, proj.Name)
+	bucket, objKey, ok := s3CacheLocation(proj.Cache.Location, cacheScope(proj.Cache, proj.Name))
 	store := eng.svc().Store
 
 	if !ok || store == nil {

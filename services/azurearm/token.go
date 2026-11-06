@@ -23,7 +23,19 @@ type TokenResponse struct {
 // (v2 shape, e.g. "https://management.azure.com/.default") or "resource"
 // (v1 shape) form value, stripping a trailing "/.default" if present.
 func audienceFromScope(scopeOrResource string) string {
-	s := strings.TrimSpace(scopeOrResource)
+	s := ""
+
+	for f := range strings.FieldsSeq(scopeOrResource) {
+		switch f {
+		case "openid", "profile", "offline_access", "email":
+			continue
+		}
+
+		s = f
+
+		break
+	}
+
 	if s == "" {
 		return defaultTokenAudience
 	}

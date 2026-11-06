@@ -28,8 +28,10 @@ func (graphARMConfig) GetAzureARMSettings() azurearm.Settings {
 }
 
 type graphStack struct {
-	arm   *httptest.Server
-	graph *httptest.Server
+	arm    *httptest.Server
+	graph  *httptest.Server
+	armH   *azurearm.Handler
+	graphH *azuregraph.Handler
 }
 
 func newGraphStack(t *testing.T) *graphStack {
@@ -51,7 +53,7 @@ func newGraphStack(t *testing.T) *graphStack {
 	ae.Any("/*", armH.Handler())
 	ge.Any("/*", graphH.Handler())
 
-	s := &graphStack{arm: httptest.NewTLSServer(ae), graph: httptest.NewTLSServer(ge)}
+	s := &graphStack{arm: httptest.NewTLSServer(ae), graph: httptest.NewTLSServer(ge), armH: armH, graphH: graphH}
 	t.Cleanup(s.arm.Close)
 	t.Cleanup(s.graph.Close)
 

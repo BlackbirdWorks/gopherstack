@@ -4,9 +4,10 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import Tabs from '#lib/components/Tabs.svelte';
 	import GcpScopeBar from '#lib/components/gcp/GcpScopeBar.svelte';
-	import { attempt, confirmedAttempt, GCP_INPUT, GCP_MINI } from '#lib/gcp-action.ts';
+	import { attempt, confirmedAttempt, copyText, GCP_INPUT, GCP_MINI } from '#lib/gcp-action.ts';
 	import {
 		deleteCluster,
+		getKubeconfig,
 		getPoolSizes,
 		listClusters,
 		listOperations,
@@ -17,6 +18,7 @@
 		writeStoredGkeProject,
 		type Cluster,
 		type GkeOperation,
+		type Kubeconfig,
 		type NodePool
 	} from '#lib/gcpcontainer.ts';
 	import { describeGcpError } from '#lib/gcprest.ts';
@@ -36,6 +38,7 @@
 	let sizes = $state<Record<string, number>>({});
 	let draft = $state<Record<string, string>>({});
 	let detailError = $state('');
+	let kubeconfig = $state<Kubeconfig | null>(null);
 
 	const current = $derived(clusters.find((c) => c.path === selected));
 
@@ -72,8 +75,21 @@
 		void load();
 	}
 
+	async function revealKubeconfig() {
+		if (kubeconfig) {
+			kubeconfig = null;
+			return;
+		}
+		try {
+			kubeconfig = await getKubeconfig(selected);
+		} catch (e) {
+			detailError = describeGcpError(e);
+		}
+	}
+
 	function select(c: Cluster) {
 		selected = selected === c.path ? '' : c.path;
+		kubeconfig = null;
 		sizes = {};
 		if (selected) void loadSizes();
 	}
@@ -143,6 +159,14 @@
 				<div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700" data-testid="gke-detail">
 					<h2 class="text-lg font-semibold text-gray-900 dark:text-white">{current.name} node pools</h2>
 					{#if detailError}<p class="text-sm text-red-600" role="alert" data-testid="gke-detail-error">{detailError}</p>{/if}
+					<div class="space-y-2" data-testid="gke-kubeconfig">
+						<button class={GCP_MINI} onclick={revealKubeconfig} data-testid="gke-kubeconfig-toggle">{kubeconfig ? 'Hide kubeconfig' : 'Get kubeconfig'}</button>
+						{#if kubeconfig}
+							<p class="text-xs text-amber-700 dark:text-amber-400">{kubeconfig.hasToken ? 'Contains a cluster-admin token; treat it as a secret.' : 'Authenticates through gke-gcloud-auth-plugin; no credentials are embedded.'}</p>
+							<pre class="max-h-72 overflow-auto rounded-md bg-gray-50 p-3 text-xs dark:bg-slate-800" data-testid="gke-kubeconfig-yaml">{kubeconfig.yaml}</pre>
+							<button class={GCP_MINI} onclick={() => copyText(kubeconfig?.yaml ?? '')}>Copy</button>
+						{/if}
+					</div>
 					{#if current.pools.length === 0}
 						<p class="text-sm text-gray-500 dark:text-gray-400" data-testid="gke-pools-empty">This cluster has no node pools</p>
 					{:else}

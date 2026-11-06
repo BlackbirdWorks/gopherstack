@@ -3,7 +3,6 @@ package ociapigateway
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"time"
 
@@ -13,12 +12,12 @@ import (
 
 type createCertificateIn struct {
 	Tags
-	CompartmentID string          `json:"compartmentId"`
-	DisplayName   string          `json:"displayName"`
-	PrivateKey    string          `json:"privateKey"`
-	Certificate   string          `json:"certificate"`
-	Intermediate  string          `json:"intermediateCertificates"`
-	Locks         json.RawMessage `json:"locks"`
+	CompartmentID string   `json:"compartmentId"`
+	DisplayName   string   `json:"displayName"`
+	PrivateKey    string   `json:"privateKey"`
+	Certificate   string   `json:"certificate"`
+	Intermediate  string   `json:"intermediateCertificates"`
+	Locks         []lockIn `json:"locks"`
 }
 
 type updateCertificateIn struct {
@@ -33,7 +32,7 @@ type CertificateWire struct {
 	TimeNotValidAfter time.Time                 `json:"timeNotValidAfter"`
 	DefinedTags       map[string]map[string]any `json:"definedTags,omitempty"`
 	FreeformTags      map[string]string         `json:"freeformTags,omitempty"`
-	Locks             json.RawMessage           `json:"locks,omitempty"`
+	Locks             []Lock                    `json:"locks,omitempty"`
 	ID                string                    `json:"id"`
 	CompartmentID     string                    `json:"compartmentId"`
 	DisplayName       string                    `json:"displayName"`
@@ -140,6 +139,12 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 
 	now := b.nowUTC()
+
+	locks, lerr := newLocks(in.Locks, now)
+	if lerr != nil {
+		return CertificateWire{}, "", "", lerr
+	}
+
 	name := in.DisplayName
 
 	if name == "" {
@@ -153,10 +158,21 @@ func (b *InMemoryBackend) CreateCertificate(in createCertificateIn) (Certificate
 	}
 
 	c := &Certificate{
-		ID: newOCID("apigatewaycertificate"), CompartmentID: in.CompartmentID, DisplayName: name,
-		CertPEM: in.Certificate, Intermediate: in.Intermediate, SubjectNames: subjectNames(leaf),
-		TimeNotValidAfter: leaf.NotAfter.UTC(), Locks: nullRaw(in.Locks), State: stateCreating,
-		TransitionAt: b.transitionAt(), TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
+		ID:                newOCID("apigatewaycertificate"),
+		CompartmentID:     in.CompartmentID,
+		DisplayName:       name,
+		CertPEM:           in.Certificate,
+		Intermediate:      in.Intermediate,
+		PrivateKey:        in.PrivateKey,
+		SubjectNames:      subjectNames(leaf),
+		TimeNotValidAfter: leaf.NotAfter.UTC(),
+		Locks:             locks,
+		State:             stateCreating,
+		TransitionAt:      b.transitionAt(),
+		TimeCreated:       now,
+		TimeUpdated:       now,
+		Etag:              newEtag(),
+		Tags:              in.Tags,
 	}
 	b.certificates[c.ID] = c
 	wr := b.newWR(wrCreateCert, c.CompartmentID, entityCert, c.ID, actionCreated, *c.TransitionAt)
@@ -237,6 +253,10 @@ func (b *InMemoryBackend) UpdateCertificate(id, ifMatch string, in updateCertifi
 		return "", err
 	}
 
+	if lerr := checkLocked(c.Locks, false); lerr != nil {
+		return "", lerr
+	}
+
 	if in.DisplayName != nil && *in.DisplayName != "" {
 		if b.certNameTaken(c.CompartmentID, *in.DisplayName, c.ID) {
 			return "", errConflict("a certificate named " + *in.DisplayName + " already exists in this compartment")
@@ -270,6 +290,10 @@ func (b *InMemoryBackend) DeleteCertificate(id, ifMatch string) (string, error) 
 		return "", err
 	}
 
+	if lerr := checkLocked(c.Locks, true); lerr != nil {
+		return "", lerr
+	}
+
 	for _, g := range b.gateways {
 		if g.CertificateID == id && g.State != stateDeleted {
 			return "", errConflict("certificate " + id + " is used by gateway " + g.ID)
@@ -292,17 +316,17 @@ func (b *InMemoryBackend) ChangeCertificateCompartment(id, ifMatch string, in ch
 		return "", err
 	}
 
-	if err = b.checkMove(c.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
+	return b.move(moveSpec{
+		id: id, op: wrUpdateCert, entity: entityCert, locks: c.Locks, compartment: &c.CompartmentID,
+		etag: &c.Etag, updated: &c.TimeUpdated,
+		conflict: func(target string) *APIError {
+			if b.certNameTaken(target, c.DisplayName, c.ID) {
+				return errConflict("a certificate named " + c.DisplayName + " already exists in the target compartment")
+			}
 
-	if b.certNameTaken(in.CompartmentID, c.DisplayName, c.ID) {
-		return "", errConflict("a certificate named " + c.DisplayName + " already exists in the target compartment")
-	}
-
-	c.CompartmentID, c.TimeUpdated, c.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateCert, c.CompartmentID, entityCert, id, actionUpdated, b.nowUTC().Add(b.transition)), nil
+			return nil
+		},
+	}, ifMatch, in.CompartmentID)
 }
 
 func (h *Handler) createCertificate(q *req) error {

@@ -313,7 +313,7 @@ func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp i
 	h.writeJSON(r, w, map[string]any{
 		"acknowledged":        true,
 		"shards_acknowledged": true,
-		"index":               sp.index,
+		segIndex:              sp.index,
 	})
 }
 

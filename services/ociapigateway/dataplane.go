@@ -1,6 +1,7 @@
 package ociapigateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"maps"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
@@ -20,6 +22,7 @@ type target struct {
 	depID   string
 	rel     string
 	gateway string
+	cacheOn bool
 }
 
 func writeGWError(w http.ResponseWriter, status int, msg string) {
@@ -60,7 +63,9 @@ func (b *InMemoryBackend) resolveTarget(r *http.Request) (target, bool) {
 		rel = "/"
 	}
 
-	return target{spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID}, true
+	return target{
+		spec: b.specs[best.ID], depID: best.ID, rel: rel, gateway: gwID, cacheOn: cacheOnFor(b.gateways[gwID]),
+	}, true
 }
 
 func servable(state string) bool { return state == stateActive || state == stateUpdating }
@@ -111,6 +116,12 @@ func (b *InMemoryBackend) ServeData(w http.ResponseWriter, r *http.Request) {
 
 	rp := tgt.spec.doc.RequestPolicies
 
+	if d := b.checkMTLS(r, tgt); d.status != 0 {
+		writeGWError(w, d.status, d.msg)
+
+		return
+	}
+
 	if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" &&
 		r.Header.Get("Access-Control-Request-Method") != "" {
 		if c := effectiveCors(rp, tgt.spec.anyRouteFor(tgt.rel)); c != nil {
@@ -149,24 +160,99 @@ func effectiveCors(rp *requestPolicies, route *compiledRoute) *corsDoc {
 	return nil
 }
 
+// routeCtx is one data-plane request that resolved to a route.
+type routeCtx struct {
+	w    http.ResponseWriter
+	r    *http.Request
+	cors *corsDoc
+	tgt  target
+	m    matchResult
+}
+
+// deny answers with a gateway error, decorated with the CORS headers of the route.
+func (c *routeCtx) deny(status int, msg string, h ...string) {
+	for i := 0; i+1 < len(h); i += 2 {
+		c.w.Header().Set(h[i], h[i+1])
+	}
+
+	corsHeaders(c.w.Header(), c.cors, c.r.Header.Get("Origin"))
+	writeGWError(c.w, status, msg)
+}
+
+func (b *InMemoryBackend) rateLimited(c *routeCtx) bool {
+	rp := c.tgt.spec.doc.RequestPolicies
+	if rp == nil || rp.RateLimiting == nil {
+		return false
+	}
+
+	key := c.tgt.depID + "|total"
+	if rp.RateLimiting.Key == rateKeyClient {
+		key = c.tgt.depID + "|" + clientKey(c.r)
+	}
+
+	ok, retry := b.limiter.allow(key, *rp.RateLimiting.Rate, b.clock())
+	if !ok {
+		c.deny(http.StatusTooManyRequests, "Too Many Requests", "Retry-After", strconv.Itoa(retry))
+	}
+
+	return !ok
+}
+
+// admitted is what the request policies learned about an accepted request.
+type admitted struct {
+	claims map[string]any
+	refund []string
+}
+
+// gate runs authentication, usage plans and request validations; ok is false once the request was answered.
+func (b *InMemoryBackend) gate(c *routeCtx, rv *reqView, body []byte) (admitted, bool) {
+	rp := c.tgt.spec.doc.RequestPolicies
+
+	d := b.authorize(c.r, rp, c.m.route, rv)
+	if d.status != 0 {
+		var h []string
+		if d.www != "" {
+			h = []string{"WWW-Authenticate", d.www}
+		}
+
+		c.deny(d.status, d.msg, h...)
+
+		return admitted{}, false
+	}
+
+	uv := b.enforceUsage(c.r, usagePolicy(rp), c.tgt.depID)
+	if uv.status != 0 {
+		var h []string
+		if uv.retry > 0 {
+			h = []string{"Retry-After", strconv.Itoa(uv.retry)}
+		}
+
+		c.deny(uv.status, uv.msg, h...)
+
+		return admitted{}, false
+	}
+
+	fail, soft := validateRequest(c.r, c.m.route.doc.RequestPolicies, body)
+	if fail != "" {
+		b.refundQuota(uv.refund)
+		c.deny(http.StatusBadRequest, fail)
+
+		return admitted{}, false
+	}
+
+	if soft != "" {
+		logger.Load(c.r.Context()).
+			InfoContext(c.r.Context(), "ociapigateway: request failed PERMISSIVE validation", "reason", soft)
+	}
+
+	return admitted{claims: d.claims, refund: uv.refund}, true
+}
+
 func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt target, m matchResult) {
-	rp := tgt.spec.doc.RequestPolicies
-	cors := effectiveCors(rp, m.route)
-	origin := r.Header.Get("Origin")
+	c := &routeCtx{w: w, r: r, tgt: tgt, m: m, cors: effectiveCors(tgt.spec.doc.RequestPolicies, m.route)}
 
-	if rp != nil && rp.RateLimiting != nil {
-		key := tgt.depID + "|total"
-		if rp.RateLimiting.Key == rateKeyClient {
-			key = tgt.depID + "|" + clientKey(r)
-		}
-
-		if ok, retry := b.limiter.allow(key, *rp.RateLimiting.Rate, b.clock()); !ok {
-			w.Header().Set("Retry-After", strconv.Itoa(retry))
-			corsHeaders(w.Header(), cors, origin)
-			writeGWError(w, http.StatusTooManyRequests, "Too Many Requests")
-
-			return
-		}
+	if b.rateLimited(c) {
+		return
 	}
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxDataBody))
@@ -178,14 +264,8 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 
 	rv := &reqView{params: m.params, query: cloneValues(r.URL.Query()), header: r.Header.Clone()}
 
-	if d := b.authorize(r, rp, m.route, rv); d.status != 0 {
-		if d.www != "" {
-			w.Header().Set("WWW-Authenticate", d.www)
-		}
-
-		corsHeaders(w.Header(), cors, origin)
-		writeGWError(w, d.status, d.msg)
-
+	adm, ok := b.gate(c, rv, body)
+	if !ok {
 		return
 	}
 
@@ -194,10 +274,18 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 		transformQuery(rv.query, pol.QueryTransform, rv)
 	}
 
+	rc := cachePlan(tgt, m.route, r, adm.claims)
+	if rc.active && !rc.bypass && b.cacheServe(w, r, rc, c.cors) {
+		return
+	}
+
 	res := b.runBackend(r.Context(), m.route.doc.Backend, r, rv, body)
+	if res.err != nil || res.status >= http.StatusInternalServerError {
+		b.refundQuota(adm.refund)
+	}
+
 	if res.err != nil {
-		corsHeaders(w.Header(), cors, origin)
-		writeGWError(w, http.StatusBadGateway, "Bad Gateway")
+		c.deny(http.StatusBadGateway, "Bad Gateway")
 
 		return
 	}
@@ -208,7 +296,43 @@ func (b *InMemoryBackend) serveRoute(w http.ResponseWriter, r *http.Request, tgt
 		transformHeaders(res.header, pol.HeaderTransform, rv)
 	}
 
-	corsHeaders(res.header, cors, origin)
+	b.respond(w, r, res, respondOpts{cors: c.cors, cache: rc, tgt: tgt})
+}
+
+type respondOpts struct {
+	cors  *corsDoc
+	tgt   target
+	cache routeCache
+}
+
+// respond writes the backend response, storing it in the response cache when the route's policies call for it.
+func (b *InMemoryBackend) respond(w http.ResponseWriter, r *http.Request, res backendResponse, o respondOpts) {
+	var captured []byte
+
+	storable := o.cache.active && !o.cache.bypass && cachedStatus(res.status)
+	if storable {
+		captured, _ = io.ReadAll(io.LimitReader(res.body, cacheMaxBody+1))
+		storable = len(captured) <= cacheMaxBody
+
+		res.body = io.NopCloser(io.MultiReader(bytes.NewReader(captured), res.body))
+	}
+
+	if storable {
+		stored := res.header.Clone()
+		now := b.clock()
+		b.cache.put(o.cache.key, &cacheEntry{
+			status: res.status, header: stored, body: captured, dep: o.tgt.depID, expires: now.Add(o.cache.ttl),
+		}, now)
+	}
+
+	switch {
+	case o.cache.bypass:
+		res.header.Set(cacheStatusHeader, cacheBypass)
+	case o.cache.active:
+		res.header.Set(cacheStatusHeader, cacheMiss)
+	}
+
+	corsHeaders(res.header, o.cors, r.Header.Get("Origin"))
 
 	maps.Copy(w.Header(), res.header)
 
@@ -230,13 +354,27 @@ func cloneValues(v url.Values) url.Values {
 
 // denial is an authentication or authorization refusal; a zero status means the request may proceed.
 type denial struct {
+	claims map[string]any
 	www    string
 	msg    string
 	status int
 }
 
+func usagePolicy(rp *requestPolicies) *usagePlansDoc {
+	if rp == nil {
+		return nil
+	}
+
+	return rp.UsagePlans
+}
+
 func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route *compiledRoute, rv *reqView) denial {
-	if rp == nil || rp.Authentication == nil {
+	a, ok := authPolicy(rp, rv)
+	if !ok {
+		return denial{status: http.StatusUnauthorized, msg: msgUnauthorized}
+	}
+
+	if a == nil {
 		return denial{}
 	}
 
@@ -250,16 +388,16 @@ func (b *InMemoryBackend) authorize(r *http.Request, rp *requestPolicies, route 
 		return denial{}
 	}
 
-	res, anonymous := b.authenticate(r.Context(), rp.Authentication, r, rv)
+	res, anonymous := b.authenticate(r.Context(), a, r, rv)
 	if !res.ok {
-		return denial{status: http.StatusUnauthorized, www: res.wwwAuth, msg: "Unauthorized"}
+		return denial{status: http.StatusUnauthorized, www: res.wwwAuth, msg: msgUnauthorized}
 	}
 
 	if authz != nil && authz.Type == anyOf && (anonymous || !hasAnyScope(res.scopes, authz.AllowedScope)) {
 		return denial{status: http.StatusForbidden, msg: "Forbidden"}
 	}
 
-	return denial{}
+	return denial{claims: res.claims}
 }
 
 func hasAnyScope(have, allowed []string) bool {

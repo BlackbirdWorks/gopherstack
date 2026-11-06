@@ -202,6 +202,7 @@ func (b *InMemoryBackend) runOneAction(
 	action Action,
 ) *ActionExecution {
 	now := time.Now().UTC()
+	action = b.resolveActionConfiguration(region, pipelineName, executionID, action)
 
 	ae := &ActionExecution{
 		PipelineExecutionID: executionID,
@@ -296,4 +297,31 @@ func (b *InMemoryBackend) runCodeDeployAction(ctx context.Context, action Action
 // regionContext carries the pipeline's region so cross-service calls reach that region's backend.
 func (b *InMemoryBackend) regionContext(region string) context.Context {
 	return awsmeta.Set(context.Background(), &awsmeta.Metadata{Region: region, Account: b.accountID})
+}
+
+// resolveActionConfiguration substitutes #{...} references in the action's configuration values.
+func (b *InMemoryBackend) resolveActionConfiguration(
+	region, pipelineName, executionID string, action Action,
+) Action {
+	if len(action.Configuration) == 0 {
+		return action
+	}
+
+	p, ok := b.pipelines.Get(regionKey(region, pipelineName))
+	exec := findExecution(b.executionsStore(region)[pipelineName], executionID)
+
+	if !ok || exec == nil {
+		return action
+	}
+
+	resolve := b.referenceResolver(region, p, exec)
+	cfg := make(map[string]string, len(action.Configuration))
+
+	for k, v := range action.Configuration {
+		cfg[k] = resolve(v)
+	}
+
+	action.Configuration = cfg
+
+	return action
 }

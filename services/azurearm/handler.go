@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -139,6 +140,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if ap, ok := h.apimProvider(); ok && ap.ServeGateway(c.Response(), r) {
+			return nil
+		}
+
+		if lp, ok := h.logicProvider(); ok && strings.HasPrefix(r.URL.Path, logicDataPrefix) &&
+			lp.ServeDataPlane(c.Response(), r) {
 			return nil
 		}
 
@@ -448,10 +454,10 @@ var armResourceRoutes = []armRoute{
 func (h *Handler) dispatchARMResource(c *echo.Context, segs []string) error {
 	for _, table := range [][]armRoute{
 		privateLinkRoutes, authorizationRoutes, eventGridScopeRoutes, keyVaultRoutes, cosmosRoutes, eventGridRoutes,
-		appConfigRoutes, containerRegistryRoutes,
+		appConfigRoutes, searchRoutes, containerRegistryRoutes,
 		monitorRoutes, redisRoutes, sqlRoutes, flexRoutes, containerInstanceRoutes, containerAppsRoutes,
 		containerServiceRoutes, networkRoutes, managedIdentityRoutes, computeRoutes, webRoutes,
-		storageFileServiceRoutes, apimRoutes, armResourceRoutes,
+		storageFileServiceRoutes, apimRoutes, logicRoutes, armResourceRoutes,
 	} {
 		if handled, err := matchRoutes(table, h, c, segs); handled {
 			return err
@@ -780,12 +786,12 @@ func (h *Handler) loadOrGenerateCert() (tls.Certificate, error) {
 // 10.8), so a plain-HTTP listener here would make provider initialization
 // fail outright, not merely warn.
 func (h *Handler) StartWorker(ctx context.Context) error {
-	var listenConfig net.ListenConfig
-
-	listener, err := listenConfig.Listen(ctx, "tcp", fmt.Sprintf(":%d", h.Port))
+	listener, port, err := portalloc.ListenTCP(ctx, h.Port)
 	if err != nil {
 		return fmt.Errorf("azurearm: bind port %d: %w", h.Port, err)
 	}
+
+	h.Port = port
 
 	cert, err := h.loadOrGenerateCert()
 	if err != nil {

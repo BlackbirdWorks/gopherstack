@@ -32,7 +32,10 @@ type InMemoryBackend struct {
 	now         func() time.Time
 	res         map[string]resource
 	nsgRules    map[string]*NSGRule
+	workReqs    map[string]*WorkRequest
+	ipInvReqs   map[string]*IPInventoryRequest
 	compartment func(string) bool
+	keyState    func(string) (string, bool)
 	// Auth is the API-key registry shared with the other OCI services.
 	Auth    *ociauth.Registry
 	seq     int64
@@ -51,6 +54,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) initMaps() {
 	b.res = map[string]resource{}
 	b.nsgRules = map[string]*NSGRule{}
+	b.workReqs = map[string]*WorkRequest{}
+	b.ipInvReqs = map[string]*IPInventoryRequest{}
 }
 
 // SetClock injects the time source used for lifecycle transitions.
@@ -237,6 +242,7 @@ func (b *InMemoryBackend) Sweep() {
 	defer b.mu.Unlock()
 
 	now := b.nowUTC()
+	b.sweepWorkRequests(now)
 
 	for id, r := range b.res {
 		bs := r.base()
@@ -270,8 +276,13 @@ func (b *InMemoryBackend) settle(r resource, at time.Time) {
 	switch bs.LifecycleState {
 	case statProvisioning:
 		bs.LifecycleState = statAvailable
-		if p, ok := r.(*PublicIP); ok && p.AssignedEntityID != "" {
-			p.LifecycleState = statAssigned
+		switch v := r.(type) {
+		case *PublicIP:
+			if v.AssignedEntityID != "" {
+				v.LifecycleState = statAssigned
+			}
+		case *BlockVolumeReplica:
+			v.TimeLastSynced = at
 		}
 	case statTerminating:
 		bs.LifecycleState, bs.Internal.TimeDeleted = statTerminated, &at
@@ -297,6 +308,8 @@ type ListOpts struct {
 	Order       string
 	Page        string
 	Limit       int
+	// AnyCompartment skips the compartment filter for lists scoped by another parent (a DRG).
+	AnyCompartment bool
 }
 
 func validListOpts(o ListOpts) *APIError {
@@ -336,6 +349,16 @@ func sortRes[T resource](items []T, o ListOpts) {
 	})
 }
 
+// accepts applies the shared list filters to one resource.
+func (o ListOpts) accepts(t resource) bool {
+	bs := t.base()
+
+	return (o.AnyCompartment || bs.CompartmentID == o.Compartment) &&
+		(o.DisplayName == "" || bs.DisplayName == o.DisplayName) &&
+		(o.State == "" || strings.EqualFold(bs.LifecycleState, o.State)) &&
+		(o.VcnID == "" || t.vcnRef() == o.VcnID) && (o.Match == nil || o.Match(t))
+}
+
 // list returns the resources of one kind in a compartment, filtered, sorted and paged.
 func list[T resource](b *InMemoryBackend, o ListOpts) (page.Page[resource], *APIError) {
 	if aerr := validListOpts(o); aerr != nil {
@@ -345,22 +368,16 @@ func list[T resource](b *InMemoryBackend, o ListOpts) (page.Page[resource], *API
 	b.mu.RLock("list")
 	defer b.mu.RUnlock()
 
-	if aerr := b.checkCompartment(o.Compartment); aerr != nil {
-		return page.Page[resource]{}, aerr
+	if !o.AnyCompartment {
+		if aerr := b.checkCompartment(o.Compartment); aerr != nil {
+			return page.Page[resource]{}, aerr
+		}
 	}
 
 	var all []T
 
 	for _, r := range b.res {
-		t, ok := r.(T)
-		if !ok {
-			continue
-		}
-
-		bs := t.base()
-		if bs.CompartmentID == o.Compartment && (o.DisplayName == "" || bs.DisplayName == o.DisplayName) &&
-			(o.State == "" || strings.EqualFold(bs.LifecycleState, o.State)) &&
-			(o.VcnID == "" || t.vcnRef() == o.VcnID) && (o.Match == nil || o.Match(t)) {
+		if t, ok := r.(T); ok && o.accepts(t) {
 			all = append(all, t)
 		}
 	}

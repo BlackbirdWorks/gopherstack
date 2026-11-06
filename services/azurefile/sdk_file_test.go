@@ -506,10 +506,10 @@ func TestSDK_FileLease(t *testing.T) {
 			assert.Equal(t, lease.DurationTypeInfinite, *props.LeaseDuration)
 
 			_, err = fc.Delete(ctx(t), nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileOperation"))
 
 			_, err = fc.UploadRange(ctx(t), 0, newReadSeekCloser("x"), nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileOperation"))
 
 			_, err = fc.UploadRange(ctx(t), 0, newReadSeekCloser("x"), &file.UploadRangeOptions{
 				LeaseAccessConditions: &file.LeaseAccessConditions{LeaseID: lc.LeaseID()},
@@ -583,7 +583,7 @@ func TestSDK_FileLease(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = fc.Create(ctx(t), 4, nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileOperation"))
 
 			_, err = fc.Create(
 				ctx(t),
@@ -704,7 +704,7 @@ func TestSDK_FileRename(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = a.Rename(ctx(t), "moved.txt", nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileOperation"))
 
 			_, err = a.Rename(
 				ctx(t),

@@ -1,6 +1,9 @@
 package timestreamquery
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Measure value types as written by TimestreamWrite.
 const (
@@ -48,6 +51,32 @@ type RecordSource interface {
 	AppendRecords(region, database, table string, records []SourceRecord) error
 }
 
+// RejectedRecord is one record a target table refused, by index into the appended batch.
+type RejectedRecord struct {
+	Reason string
+	Index  int
+}
+
+// RejectedError is returned by AppendRecords when the table rejects records.
+type RejectedError struct {
+	Rejected []RejectedRecord
+}
+
+func (e *RejectedError) Error() string {
+	if len(e.Rejected) == 0 {
+		return "records rejected"
+	}
+
+	return fmt.Sprintf("%d record(s) rejected: %s", len(e.Rejected), e.Rejected[0].Reason)
+}
+
+// SchemaSource is optionally implemented by a RecordSource that remembers table schemas
+// after the records that defined them have aged out.
+type SchemaSource interface {
+	// TableShapes returns one value-less SourceRecord per distinct record shape ever written, first-seen first.
+	TableShapes(region, database, table string) []SourceRecord
+}
+
 // SetRecordSource wires the record source used to execute queries and scheduled-query writes.
 // It also serves as the table catalog.
 func (b *InMemoryBackend) SetRecordSource(s RecordSource) {
@@ -69,6 +98,27 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.mu.Lock("SetClock")
 	defer b.mu.Unlock()
 	b.nowFn = now
+}
+
+// DefaultQueryTimeout is the documented maximum query execution duration (Timestream quotas: 1 hour).
+const DefaultQueryTimeout = time.Hour
+
+// SetQueryTimeout overrides the query execution time limit; d <= 0 restores DefaultQueryTimeout.
+func (b *InMemoryBackend) SetQueryTimeout(d time.Duration) {
+	if d <= 0 {
+		d = DefaultQueryTimeout
+	}
+
+	b.mu.Lock("SetQueryTimeout")
+	defer b.mu.Unlock()
+	b.queryTimeout = d
+}
+
+func (b *InMemoryBackend) timeout() time.Duration {
+	b.mu.RLock("timeout")
+	defer b.mu.RUnlock()
+
+	return b.queryTimeout
 }
 
 func (b *InMemoryBackend) clock() time.Time {

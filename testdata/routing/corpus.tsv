@@ -21901,3 +21901,47 @@ POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambd
 POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSCognitoIdentityProviderService.InitiateAuth	{}		CognitoIDP	CognitoIDP
 POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AWSLambda20150331.ListFunctions	{}		Lambda	Lambda
 POST	localhost:4566	/q/000000000000/name	sqs	application/x-amz-json-1.1	AmazonMemoryDB	{}		S3	S3
+PUT	localhost:4566	/2025-03-07/web-functions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	lambda.us-east-1.amazonaws.com	/2025-03-07/web-functions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions						LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	lambda.us-east-1.amazonaws.com	/2025-03-07/web-functions/xfuncti/endpoints	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints						LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	lambda.us-east-1.amazonaws.com	/2025-03-07/web-functions/xfuncti/revisions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions						LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/resource-policy/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/resource-policy/xresour	execute-api				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	lambda.us-east-1.amazonaws.com	/2025-03-07/resource-policy/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/resource-policy/xresour?X-Amz-Credential=AKIA%2F20260101%2Fus-east-1%2Flambda%2Faws4_request&X-Amz-Signature=00					User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/resource-policy/xresour						LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti						LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints/xendpoi	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints/xendpoi						LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions/xrevisi	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions/xrevisi						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/resource-policy/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/resource-policy/xresour						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-account-settings	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-account-settings						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints/xendpoi	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints/xendpoi						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions/xrevisi	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/web-functions/xfuncti/revisions/xrevisi						LambdaWeb	LambdaWeb
+GET	localhost:4566	/2025-03-07/tags/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/list-endpoints	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions/xfuncti/list-revisions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/web-functions	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PUT	localhost:4566	/2025-03-07/resource-policy/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+POST	localhost:4566	/2025-03-07/tags/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+DELETE	localhost:4566	/2025-03-07/tags/xresour	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb
+PATCH	localhost:4566	/2025-03-07/web-functions/xfuncti/endpoints/xendpoi	lambda				User-Agent:aws-sdk-go-v2/1.41.0 ua/2.1 os/linux lang/go#1.26 api/lambdaweb#1.0.0	LambdaWeb	LambdaWeb

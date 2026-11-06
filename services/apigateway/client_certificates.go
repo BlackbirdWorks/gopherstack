@@ -21,7 +21,7 @@ func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertific
 		Description:           input.Description,
 		PemEncodedCertificate: "-----BEGIN CERTIFICATE-----\nMIICpDCCAYwCCQDU...(mock)...\n-----END CERTIFICATE-----",
 		CreatedDate:           unixEpochTime{now},
-		ExpirationDate:        unixEpochTime{now.AddDate(0, 0, clientCertValidityDays)},
+		ExpirationDate:        unixEpochTime{now.UTC().AddDate(0, 0, clientCertValidityDays)},
 	}
 
 	b.clientCertificates.Put(cert)

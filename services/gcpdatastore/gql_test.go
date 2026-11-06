@@ -103,6 +103,30 @@ func TestGQL(t *testing.T) {
 			"key only",
 			[]string{"a", "c"},
 		},
+		{
+			&datastorepb.GqlQuery{
+				QueryString:   `SELECT * FROM Task WHERE Tags = "z" AND ` + "`Priority`" + ` = 3`,
+				AllowLiterals: true,
+			},
+			"double quoted string and backquoted name",
+			[]string{"c"},
+		},
+		{
+			&datastorepb.GqlQuery{
+				QueryString:   `SELECT * FROM Task WHERE __key__ = KEY(PROJECT("` + project + `"), Task, "c")`,
+				AllowLiterals: true,
+			},
+			"double quoted key arguments",
+			[]string{"c"},
+		},
+		{
+			&datastorepb.GqlQuery{
+				QueryString:   "SELECT DISTINCT ON (Done) * FROM Task ORDER BY Done, Priority",
+				AllowLiterals: true,
+			},
+			"distinct on star",
+			[]string{"b", "a"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -311,6 +335,53 @@ func TestQueryValidation(t *testing.T) {
 				ProjectId: project, QueryType: &datastorepb.RunQueryRequest_Query{Query: tt.query},
 			})
 			assert.Equal(t, codes.InvalidArgument, status.Code(err))
+		})
+	}
+}
+
+func TestAggregationSkipsUnindexedProperty(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		agg  string
+		want float64
+	}{
+		{name: "sum", agg: "SUM(N)", want: 4},
+		{name: "avg", agg: "AVG(N)", want: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newLooseEnv(t)
+			excluded := intVal(100)
+			excluded.ExcludeFromIndexes = true
+
+			_, err := e.commit(t,
+				upsert(strEntity("a", map[string]*datastorepb.Value{"N": intVal(4)})),
+				upsert(strEntity("b", map[string]*datastorepb.Value{"N": excluded})),
+			)
+			require.NoError(t, err)
+
+			resp, err := e.raw.RunAggregationQuery(t.Context(), &datastorepb.RunAggregationQueryRequest{
+				ProjectId: project,
+				QueryType: &datastorepb.RunAggregationQueryRequest_GqlQuery{GqlQuery: &datastorepb.GqlQuery{
+					QueryString:   "AGGREGATE " + tt.agg + " AS r OVER (SELECT * FROM K)",
+					AllowLiterals: true,
+				}},
+			})
+			require.NoError(t, err)
+
+			r := resp.GetBatch().GetAggregationResults()[0].GetAggregateProperties()["r"]
+			got := r.GetDoubleValue()
+
+			if tt.name == "sum" {
+				got = float64(r.GetIntegerValue())
+			}
+
+			assert.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }

@@ -261,10 +261,7 @@ func npmTime(t interface{ Format(string) string }) string {
 }
 
 func baseURL(r *http.Request, route string, rc repoCtx) string {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	scheme := requestScheme(r)
 
 	return scheme + "://" + r.Host + repoPrefix(isPkgHost(r), route, rc)
 }

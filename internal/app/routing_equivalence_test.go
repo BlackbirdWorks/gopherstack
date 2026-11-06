@@ -243,7 +243,8 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 	var missing []string
 
 	neverMatch := []string{
-		"AzureAppConfig", "AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
+		"AzureAppConfig", "AzureSearch",
+		"AzureARM", "AzureBlob", "AzureEventGrid", "AzureEventHubs", "AzureKeyVault", "AzureQueue",
 		"AzureFile", "AzureGraph", "AzureMonitor", "AzureServiceBus", "AzureStorageVHost", "AzureTable", "CosmosDB",
 		"GCPStorage", "GCPPubSub", "GCPSecretManager", "GCPKMS", "GCPCloudTasks", "GCPScheduler",
 		"GCPFirestore", "GCPIAM", "GCPRun", "GCPFunctions", "GCPBigQuery", "GCPSQL", "GCPLogging",
@@ -254,7 +255,8 @@ func TestRoutingCorpusCoversServices(t *testing.T) {
 		"AzureContainerRegistry", "AzureFunctions", "GCPArtifactRegistry", "OCIObjectStorage",
 		"OCIVault", "OCIStreaming", "OCIIdentity", "OCIFunctions", "OCICore", "OCIQueue", "OCINotifications",
 		"OCIContainerEngine", "OCIMySQL", "OCILogging", "OCIMonitoring", "OCINoSQL", "OCIAPIGateway", "OCIEvents",
-		"OCILoadBalancer", "OCIArtifacts", "OCIContainerInstances",
+		"OCILoadBalancer", "OCIArtifacts", "OCIContainerInstances", "OCIDNS", "OCIDatabase",
+		"OCIFileStorage",
 	}
 
 	for _, e := range entries {

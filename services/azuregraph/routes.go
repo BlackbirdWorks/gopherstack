@@ -69,6 +69,10 @@ func (h *Handler) list(
 	}
 
 	res := q.run(items)
+	if err = h.expandAll(q, resource, res.items...); err != nil {
+		return h.writeErr(c, err)
+	}
+
 	out := map[string]any{"@odata.context": odataBase(r) + "/$metadata#" + context, propValue: res.items}
 
 	if q.count {
@@ -96,6 +100,12 @@ func (h *Handler) dispatch(c *echo.Context, segs []string, claims jwt.MapClaims)
 		return h.handleDirectoryObjects(c, segs)
 	case "oauth2PermissionGrants":
 		return h.handleGrants(c, segs)
+	case "directory":
+		return h.handleDirectory(c, segs)
+	case "roleManagement":
+		return h.handleRoleManagement(c, segs)
+	case "$batch":
+		return h.handleBatch(c, segs, claims)
 	}
 
 	coll, ok := h.colls[name]
@@ -159,7 +169,12 @@ func (h *Handler) entityOp(c *echo.Context, coll *collection, ref Ref) error {
 			return h.writeErr(c, qerr)
 		}
 
-		return h.entity(c, http.StatusOK, coll.name, q.project(m))
+		out := q.project(m)
+		if err = h.expandAll(q, coll.resource, out); err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return h.entity(c, http.StatusOK, coll.name, out)
 	case http.MethodPatch:
 		body, err := readJSON(c)
 		if err == nil {
@@ -252,7 +267,7 @@ func (h *Handler) handleOrganization(c *echo.Context, segs []string) error {
 	}
 
 	org := map[string]any{
-		"id": h.Backend.TenantID(), "displayName": "Gopherstack", "tenantType": "AAD", "verifiedDomains": domains,
+		"id": h.Backend.TenantID(), propDisplayName: "Gopherstack", "tenantType": "AAD", "verifiedDomains": domains,
 		"assignedPlans": []any{}, "businessPhones": []any{}, "provisionedPlans": []any{},
 		"technicalNotificationMails": []any{}, "onPremisesSyncEnabled": nil, "countryLetterCode": "US",
 	}

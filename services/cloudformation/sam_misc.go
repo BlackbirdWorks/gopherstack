@@ -1,20 +1,18 @@
 package cloudformation
 
-import "encoding/json"
+import (
+	"maps"
+	"strings"
+)
 
 func samTableAllowed() map[string]bool {
-	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, "Tags", "SSESpecification",
+	return keySet("PrimaryKey", "ProvisionedThroughput", samKeyTableName, scopeTags, "SSESpecification",
 		"BillingMode", "PointInTimeRecoverySpecification")
 }
 
 func samLayerAllowed() map[string]bool {
 	return keySet("LayerName", samKeyDesc, "ContentUri", "CompatibleRuntimes",
-		"CompatibleArchitectures", "LicenseInfo", "RetentionPolicy")
-}
-
-func samSMAllowed() map[string]bool {
-	return keySet("Definition", "DefinitionUri", "DefinitionSubstitutions", "Role", "Policies",
-		"Name", "Type", "Tracing", "Logging", "Tags", "PermissionsBoundary", "Events")
+		"CompatibleArchitectures", "LicenseInfo", "RetentionPolicy", "PublishLambdaVersion")
 }
 
 func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error {
@@ -24,12 +22,16 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 	}
 	key, typ := "id", samTypeString
 	if pk := asMap(props["PrimaryKey"]); pk != nil {
-		if n, ok := pk["Name"].(string); ok {
-			key = n
+		n, hasName := pk[attrNameName]
+		ty, hasType := pk[samKeyType]
+		switch {
+		case !hasName || n == nil:
+			return samErr(id, "Property 'PrimaryKey.Name' is required.")
+		case !hasType || ty == nil:
+			return samErr(id, "Property 'PrimaryKey.Type' is required.")
 		}
-		if ty, ok := pk["Type"].(string); ok {
-			typ = ty
-		}
+		key, _ = n.(string)
+		typ, _ = ty.(string)
 	}
 	attrType := map[string]string{samTypeString: "S", "Number": "N", "Binary": "B"}[typ]
 	if attrType == "" {
@@ -49,10 +51,10 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 			tbl[k] = v
 		}
 	}
-	if tags := asMap(props["Tags"]); tags != nil {
-		tbl["Tags"] = samTagList(tags)
+	if tags := asMap(props[scopeTags]); tags != nil {
+		tbl[scopeTags] = samTagList(tags)
 	}
-	base := map[string]any{samKeyType: "AWS::DynamoDB::Table", samKeyProps: tbl}
+	base := map[string]any{samKeyType: resTypeDynamoDBTable, samKeyProps: tbl}
 	carryAttrs(r, base)
 
 	return t.put(id, base)
@@ -65,109 +67,102 @@ func samTagList(tags map[string]any) []any {
 }
 
 func (t *samTranslator) translateLayer(id string, r map[string]any) error {
-	props := asMap(r[samKeyProps])
+	props := t.resProps("LayerVersion", r)
 	if err := rejectUnknown(id, props, samLayerAllowed()); err != nil {
 		return err
 	}
 	layer := map[string]any{"LayerName": id}
-	for _, k := range []string{"LayerName", samKeyDesc, "CompatibleRuntimes", "CompatibleArchitectures", "LicenseInfo"} {
+	for _, k := range []string{"LayerName", samKeyDesc, "CompatibleRuntimes", "LicenseInfo"} {
 		if v, ok := props[k]; ok {
-			layer[k] = v
+			layer[k] = t.resolveStringParam(v)
 		}
+	}
+	if v, ok := props["CompatibleArchitectures"]; ok {
+		layer["CompatibleArchitectures"] = v
 	}
 	content, err := s3Location(id, "ContentUri", props["ContentUri"], "S3Bucket", "S3Key", "S3ObjectVersion")
 	if err != nil {
 		return err
 	}
 	layer["Content"] = content
-	layerID := id + samHash(layer)
+	retention, hasRetention := props["RetentionPolicy"]
+	body := layerHashBody(r)
+	if hasRetention {
+		body = maps.Clone(body)
+		resolved := maps.Clone(asMap(body[samKeyProps]))
+		resolved["RetentionPolicy"] = t.paramDefault(retention)
+		body[samKeyProps] = resolved
+	}
+	layerID := samLogicalID(id, map[string]any{id: body})
 	t.refs[id] = layerID
 	base := map[string]any{samKeyType: samTypeLayer, samKeyProps: layer}
 	carryAttrs(r, base)
-	if props["RetentionPolicy"] == "Retain" || props["RetentionPolicy"] == nil {
-		base["DeletionPolicy"] = "Retain"
+	t.mapLayerDependsOn(base)
+	policy, err := layerDeletionPolicy(id, t.paramDefault(retention), base[samKeyDelPolicy])
+	if err != nil {
+		return err
+	}
+	if policy != nil {
+		base[samKeyDelPolicy] = policy
 	}
 
 	return t.put(layerID, base)
 }
 
-func (t *samTranslator) translateStateMachine(id string, r map[string]any) error {
-	props := asMap(r[samKeyProps])
-	if err := rejectUnknown(id, props, samSMAllowed()); err != nil {
-		return err
-	}
-	sm := map[string]any{}
-	for _, k := range []string{"DefinitionSubstitutions", "Logging", "Tags"} {
-		if v, ok := props[k]; ok {
-			sm[k] = v
+// mapLayerDependsOn points DependsOn at the hashed ids of layers already translated.
+func (t *samTranslator) mapLayerDependsOn(res map[string]any) {
+	remap := func(v any) any {
+		if s, ok := v.(string); ok {
+			if id, has := t.refs[s]; has {
+				return id
+			}
 		}
-	}
-	if err := smDefinition(id, props, sm); err != nil {
-		return err
-	}
-	if v, ok := props["Name"]; ok {
-		sm["StateMachineName"] = v
-	}
-	if v, ok := props["Type"]; ok {
-		sm["StateMachineType"] = v
-	}
-	if props["Tracing"] != nil {
-		sm["TracingConfiguration"] = props["Tracing"]
-	}
-	if props["Role"] != nil {
-		sm["RoleArn"] = props["Role"]
-	} else {
-		sm["RoleArn"] = samGetAtt(id+"Role", attrNameArn)
-		if err := t.putSMRole(id, props); err != nil {
-			return err
-		}
-	}
-	base := map[string]any{samKeyType: "AWS::StepFunctions::StateMachine", samKeyProps: sm}
-	carryAttrs(r, base)
-	if err := t.put(id, base); err != nil {
-		return err
-	}
 
-	return t.translateStateMachineEvents(id, asMap(props["Events"]))
+		return v
+	}
+	switch d := res["DependsOn"].(type) {
+	case string:
+		res["DependsOn"] = remap(d)
+	case []any:
+		out := make([]any, len(d))
+		for i, e := range d {
+			out[i] = remap(e)
+		}
+		res["DependsOn"] = out
+	}
 }
 
-func smDefinition(id string, props, sm map[string]any) error {
-	switch {
-	case props["Definition"] != nil:
-		raw, err := json.Marshal(props["Definition"])
-		if err != nil {
-			return samErr(id, "Definition is not valid JSON: %v", err)
+// layerDeletionPolicy maps RetentionPolicy (case-insensitive) onto DeletionPolicy; without it
+// a user-set DeletionPolicy stands and the default is Retain.
+func layerDeletionPolicy(id string, retention, existing any) (any, error) {
+	switch v := retention.(type) {
+	case nil:
+		if existing != nil {
+			return existing, nil
 		}
-		sm["DefinitionString"] = string(raw)
-	case props["DefinitionUri"] != nil:
-		loc, err := s3Location(id, "DefinitionUri", props["DefinitionUri"], "Bucket", "Key", "Version")
-		if err != nil {
-			return err
+
+		return deletionPolicyRetain, nil
+	case string:
+		switch strings.ToLower(v) {
+		case "retain":
+			return deletionPolicyRetain, nil
+		case "delete":
+			return "Delete", nil
 		}
-		sm["DefinitionS3Location"] = loc
 	default:
-		return samErr(id, "Missing required property 'Definition' or 'DefinitionUri'.")
+		return nil, nil //nolint:nilnil // unresolved intrinsic: leave as is
 	}
 
-	return nil
+	return nil, samErr(id, "'RetentionPolicy' must be one of the following options: ['Retain', 'Delete'].")
 }
 
-func (t *samTranslator) putSMRole(id string, props map[string]any) error {
-	var managed []any
-	inline, err := splitPolicies(id, props["Policies"], id+"Role", &managed)
-	if err != nil {
-		return err
-	}
-	role := map[string]any{
-		samKeyAssumeRole:    servicePrincipalTrust("states.amazonaws.com"),
-		"ManagedPolicyArns": toSubs(managed),
-	}
-	if len(inline) > 0 {
-		role["Policies"] = inline
-	}
-	if props["PermissionsBoundary"] != nil {
-		role["PermissionsBoundary"] = props["PermissionsBoundary"]
+// layerHashBody is the SAM resource as written, minus passthrough attributes
+// that SAM excludes from the layer's hash.
+func layerHashBody(r map[string]any) map[string]any {
+	body := maps.Clone(r)
+	for _, k := range []string{samKeyDelPolicy, samKeyUpdPolicy, "Metadata"} {
+		delete(body, k)
 	}
 
-	return t.put(id+"Role", map[string]any{samKeyType: resTypeIAMRole, samKeyProps: role})
+	return body
 }

@@ -643,7 +643,7 @@ func simulateCustomPolicyOne(
 		}
 
 		if allowed {
-			detail["PermissionsBoundaryPolicy"] = "allowed"
+			detail["PermissionsBoundaryPolicy"] = decisionAllowed
 		} else {
 			detail["PermissionsBoundaryPolicy"] = decisionExplicitDeny
 		}

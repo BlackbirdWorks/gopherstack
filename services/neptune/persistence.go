@@ -62,6 +62,7 @@ type backendSnapshot struct {
 	PendingMaintenanceActions map[string]map[string]PendingMaintenanceAction `json:"pendingMaintenanceActions"`
 	EventsLog                 map[string][]Event                             `json:"eventsLog"`
 	OpenCypherGraphs          map[string]json.RawMessage                     `json:"openCypherGraphs,omitempty"`
+	SparqlStores              map[string]string                              `json:"sparqlStores,omitempty"`
 	AccountID                 string                                         `json:"accountID"`
 	Region                    string                                         `json:"region"`
 	Version                   int                                            `json:"version"`
@@ -176,6 +177,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		PendingMaintenanceActions: b.pendingMaintenanceActions,
 		EventsLog:                 b.eventsLog,
 		OpenCypherGraphs:          b.exportGraphsLocked(ctx),
+		SparqlStores:              b.exportRDFLocked(),
 		AccountID:                 b.accountID,
 		Region:                    b.region,
 	}
@@ -216,6 +218,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.pendingMaintenanceActions = make(map[string]map[string]PendingMaintenanceAction)
 		b.eventsLog = make(map[string][]Event)
 		b.graphs = make(map[string]*opencypher.Graph)
+		b.rdf = make(map[string]*rdfService)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -256,6 +259,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 	b.eventsLog = snap.EventsLog
 	b.importGraphsLocked(ctx, snap.OpenCypherGraphs)
+	b.importRDFLocked(ctx, snap.SparqlStores)
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region

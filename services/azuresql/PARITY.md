@@ -36,7 +36,6 @@ items_still_open:
   - "Managed instances, failover groups, geo-replication, restore, copy and long-term retention data flow are not implemented."
   - "Entra authentication, firewall rules, TLS and public-network settings, and pool or sku limits are stored but not enforced."
   - "Engine data does not survive a snapshot restore."
-  - "No dashboard page."
 leaks: {status: clean, note: "Reset and Shutdown stop every container and release its port and the runtime client; the package runs under testleak."}
 ---
 

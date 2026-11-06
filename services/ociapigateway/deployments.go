@@ -14,7 +14,7 @@ type createDeploymentIn struct {
 	CompartmentID string          `json:"compartmentId"`
 	PathPrefix    string          `json:"pathPrefix"`
 	DisplayName   string          `json:"displayName"`
-	Locks         json.RawMessage `json:"locks"`
+	Locks         []lockIn        `json:"locks"`
 	Specification json.RawMessage `json:"specification"`
 }
 
@@ -37,7 +37,7 @@ type DeploymentWire struct {
 	Endpoint       string                    `json:"endpoint"`
 	DisplayName    string                    `json:"displayName"`
 	LifecycleState string                    `json:"lifecycleState"`
-	Locks          json.RawMessage           `json:"locks,omitempty"`
+	Locks          []Lock                    `json:"locks,omitempty"`
 	Specification  json.RawMessage           `json:"specification,omitempty"`
 }
 
@@ -110,6 +110,12 @@ func (b *InMemoryBackend) CreateDeployment(in createDeploymentIn) (DeploymentWir
 	}
 
 	now := b.nowUTC()
+
+	locks, lerr := newLocks(in.Locks, now)
+	if lerr != nil {
+		return DeploymentWire{}, "", "", lerr
+	}
+
 	name := in.DisplayName
 
 	if name == "" {
@@ -118,7 +124,7 @@ func (b *InMemoryBackend) CreateDeployment(in createDeploymentIn) (DeploymentWir
 
 	d := &Deployment{
 		ID: newOCID("apideployment"), GatewayID: g.ID, CompartmentID: in.CompartmentID, PathPrefix: in.PathPrefix,
-		DisplayName: name, Spec: in.Specification, Locks: nullRaw(in.Locks), State: stateCreating,
+		DisplayName: name, Spec: in.Specification, Locks: locks, State: stateCreating,
 		TransitionAt: b.transitionAt(), TimeCreated: now, TimeUpdated: now, Etag: newEtag(), Tags: in.Tags,
 	}
 	b.deployments[d.ID] = d
@@ -201,6 +207,10 @@ func (b *InMemoryBackend) UpdateDeployment(id, ifMatch string, in updateDeployme
 		return "", err
 	}
 
+	if lerr := checkLocked(d.Locks, false); lerr != nil {
+		return "", lerr
+	}
+
 	if isPresent(in.Specification) {
 		cs, cerr := compileSpec(in.Specification)
 		if cerr != nil {
@@ -208,6 +218,7 @@ func (b *InMemoryBackend) UpdateDeployment(id, ifMatch string, in updateDeployme
 		}
 
 		d.Spec, b.specs[id] = in.Specification, cs
+		b.cache.forgetDeployment(id)
 	}
 
 	if in.DisplayName != nil && *in.DisplayName != "" {
@@ -239,8 +250,13 @@ func (b *InMemoryBackend) DeleteDeployment(id, ifMatch string) (string, error) {
 		return "", err
 	}
 
+	if lerr := checkLocked(d.Locks, true); lerr != nil {
+		return "", lerr
+	}
+
 	d.State, d.TransitionAt = stateDeleting, b.transitionAt()
 	d.TimeUpdated = b.nowUTC()
+	b.cache.forgetDeployment(id)
 
 	return b.newWR(wrDeleteDeploy, d.CompartmentID, entityDeploy, id, actionDeleted, *d.TransitionAt), nil
 }
@@ -255,13 +271,10 @@ func (b *InMemoryBackend) ChangeDeploymentCompartment(id, ifMatch string, in cha
 		return "", err
 	}
 
-	if err = b.checkMove(d.Etag, ifMatch, in.CompartmentID); err != nil {
-		return "", err
-	}
-
-	d.CompartmentID, d.TimeUpdated, d.Etag = in.CompartmentID, b.nowUTC(), newEtag()
-
-	return b.newWR(wrUpdateDeploy, d.CompartmentID, entityDeploy, id, actionUpdated, b.nowUTC().Add(b.transition)), nil
+	return b.move(moveSpec{
+		id: id, op: wrUpdateDeploy, entity: entityDeploy, locks: d.Locks, compartment: &d.CompartmentID,
+		etag: &d.Etag, updated: &d.TimeUpdated,
+	}, ifMatch, in.CompartmentID)
 }
 
 func (h *Handler) createDeployment(q *req) error {

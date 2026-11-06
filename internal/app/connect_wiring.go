@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -11,7 +12,19 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 )
+
+// connectMailer delivers Connect outbound email through SES.
+type connectMailer struct{ ses *sesbackend.InMemoryBackend }
+
+func (m connectMailer) SendEmail(_ context.Context, msg connectbackend.EmailMessage) error {
+	_, err := m.ses.SendEmail(sesbackend.SendEmailInput{
+		From: msg.From, To: msg.To, Cc: msg.Cc, Subject: msg.Subject, BodyHTML: msg.HTML, BodyText: msg.Text,
+	})
+
+	return err
+}
 
 // connectResolvers checks Lambda functions and S3 objects named by Connect configuration.
 type connectResolvers struct {
@@ -35,6 +48,17 @@ func (r connectResolvers) ObjectExists(ctx context.Context, bucket, key string) 
 	_, err := r.s3.HeadObject(ctx, &awss3.HeadObjectInput{Bucket: &bucket, Key: &key})
 
 	return err == nil
+}
+
+func (r connectResolvers) ReadObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := r.s3.GetObject(ctx, &awss3.GetObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil {
+		return nil, err
+	}
+
+	defer out.Body.Close()
+
+	return io.ReadAll(out.Body)
 }
 
 // connectIntegrations registers Connect integration associations with AppIntegrations.
@@ -107,6 +131,12 @@ func wireConnectIntegrations(byName map[string]service.Registerable) {
 
 	if ai != nil {
 		cn.Backend.SetIntegrations(connectIntegrations{ai: ai.Backend})
+	}
+
+	if sesH, ok := byName["SES"].(*sesbackend.Handler); ok {
+		if bk, bkOK := sesH.Backend.(*sesbackend.InMemoryBackend); bkOK {
+			cn.Backend.SetMailer(connectMailer{ses: bk})
+		}
 	}
 
 	lambdaH, lok := byName["Lambda"].(*lambdabackend.Handler)

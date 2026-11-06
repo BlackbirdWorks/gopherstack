@@ -57,6 +57,8 @@ func (h *Handler) serveStatus(c *echo.Context, op, wsID string, vals url.Values)
 		data, err = h.alertsData(ctx, wsID)
 	case opMetadata:
 		data, err = h.metadataData(ctx, wsID, vals)
+	case opExemplars:
+		data, err = h.exemplarsData(ctx, wsID, vals)
 	case opAMAlerts:
 		out, aerr := h.Backend.alertManagerAlerts(ctx, wsID)
 		if aerr != nil {

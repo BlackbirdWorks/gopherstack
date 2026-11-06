@@ -212,6 +212,10 @@ func (b *InMemoryBackend) GetMessages(streamID, cursor string, limit int) ([]mes
 		return nil, "", errParam("The cursor has expired; create a new cursor")
 	}
 
+	if cerr := b.chargeGet(s.ID, "", cur.Part, now); cerr != nil {
+		return nil, "", cerr
+	}
+
 	cur.Issued = now.UnixMilli()
 
 	msgs := s.read(cur.Part, cur.Offset, limit)
@@ -350,6 +354,10 @@ func (b *InMemoryBackend) CreateGroupCursor(streamID string, in CreateGroupCurso
 
 	g, ok := b.groups[groupKey(streamID, in.GroupName)]
 	if !ok {
+		if b.groupCount(streamID) >= maxGroupsPerStream {
+			return cursorWire{}, errParam("A stream supports at most 50 consumer groups")
+		}
+
 		g = &Group{
 			StreamID: streamID, Name: in.GroupName, Instances: map[string]time.Time{},
 			Rotation: map[string]int{}, Reserved: make([]Reservation, len(s.Parts)),
@@ -403,6 +411,10 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 			continue
 		}
 
+		if cerr := b.chargeGet(s.ID, cur.Group, part, b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
+
 		g.Rotation[cur.Instance] = idx + 1
 		end := msgs[len(msgs)-1].Offset + 1
 
@@ -416,6 +428,12 @@ func (b *InMemoryBackend) readGroup(s *Stream, cur cursorTok, limit int) ([]mess
 		}
 
 		return msgs, cur.encode(), nil
+	}
+
+	if len(owned) > 0 {
+		if cerr := b.chargeGet(s.ID, cur.Group, owned[0], b.nowUTC()); cerr != nil {
+			return nil, "", cerr
+		}
 	}
 
 	return []messageWire{}, cur.encode(), nil
@@ -647,4 +665,54 @@ func (h *Handler) consumerHeartbeat(q *req) error {
 	c, err := h.Backend.ConsumerHeartbeat(q.param("streamId"), q.query("cursor"))
 
 	return reply(q, c, "", err)
+}
+
+type getWindow struct {
+	sec   int64
+	count int
+}
+
+// chargeGet enforces 5 GetMessages requests per second per partition per consumer group.
+func (b *InMemoryBackend) chargeGet(streamID, group string, part int, now time.Time) *APIError {
+	k := groupKey(streamID, group) + "/" + strconv.Itoa(part)
+
+	if len(b.getWindows) > maxGetWindows {
+		for key, old := range b.getWindows {
+			if old.sec < now.Unix() {
+				delete(b.getWindows, key)
+			}
+		}
+	}
+
+	w := b.getWindows[k]
+	if w == nil {
+		w = &getWindow{}
+		b.getWindows[k] = w
+	}
+
+	if w.sec != now.Unix() {
+		w.sec, w.count = now.Unix(), 0
+	}
+
+	if w.count >= maxGetsPerSecond {
+		return errThrottled(
+			"Partition " + strconv.Itoa(part) + " exceeded 5 GetMessages requests per second for this consumer group",
+		)
+	}
+
+	w.count++
+
+	return nil
+}
+
+func (b *InMemoryBackend) groupCount(streamID string) int {
+	n := 0
+
+	for _, g := range b.groups {
+		if g.StreamID == streamID {
+			n++
+		}
+	}
+
+	return n
 }

@@ -42,18 +42,20 @@ type cypherFront struct {
 	proxy          *httputil.ReverseProxy
 	tr             *http.Transport
 	graph          *opencypher.Graph
+	rdf            *rdfService
 	queries        *queryTracker
 	gremlin        *gremlin.Server
 	gremlinQueries *queryTracker
 	auth           func() clusterAuth
 	cancel         context.CancelFunc
 	upstream       string
+	port           int
 	up             atomic.Bool
 }
 
-// startCypherFront listens on port. An empty innerAddr serves Gremlin in-process over graph.
+// startCypherFront listens on port (0 = ephemeral; read f.port). An empty innerAddr serves Gremlin in-process.
 func startCypherFront(
-	host string, port int, innerAddr string, graph *opencypher.Graph, admit sgfilter.Admitter,
+	host string, port int, innerAddr string, graph *opencypher.Graph, rdf *rdfService, admit sgfilter.Admitter,
 	auth func() clusterAuth,
 ) (*cypherFront, error) {
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp",
@@ -66,7 +68,24 @@ func startCypherFront(
 		graph = opencypher.NewGraph()
 	}
 
-	f := &cypherFront{auth: auth, graph: graph, queries: newQueryTracker(), tr: httpclient.NewTransport()}
+	if addr, ok := ln.Addr().(*net.TCPAddr); ok {
+		port = addr.Port
+	}
+
+	if rdf == nil {
+		rdf = newRDFService(nil)
+	}
+
+	rdf.graph = graph
+
+	f := &cypherFront{
+		port:    port,
+		auth:    auth,
+		graph:   graph,
+		rdf:     rdf,
+		queries: newQueryTracker(),
+		tr:      httpclient.NewTransport(),
+	}
 	f.ctx, f.cancel = context.WithCancel(context.Background())
 
 	if innerAddr == "" {
@@ -90,6 +109,7 @@ func startCypherFront(
 // Close stops the listener and drops idle upstream connections.
 func (f *cypherFront) Close() {
 	f.cancel()
+	f.rdf.loader.wg.Wait()
 
 	ctx, cancel := context.WithTimeout(context.Background(), cypherCloseTimeout)
 	defer cancel()
@@ -115,6 +135,10 @@ func (f *cypherFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(strings.TrimRight(r.URL.Path, "/"), cypherPath) {
 		f.serveOpenCypher(w, r)
 
+		return
+	}
+
+	if f.serveRDF(w, r) {
 		return
 	}
 

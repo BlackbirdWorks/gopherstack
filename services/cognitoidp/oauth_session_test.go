@@ -438,9 +438,9 @@ func TestOAuthHostedMFAStep(t *testing.T) {
 	}{
 		{name: "valid totp completes the flow", wantStatus: http.StatusFound, wantCode: true,
 			code: validTOTP},
-		{name: "wrong code returns to sign in", wantStatus: http.StatusOK, wantText: "sign in again",
+		{name: "wrong code can be retried", wantStatus: http.StatusOK, wantText: "not valid",
 			code: func(string) string { return "000000" }},
-		{name: "empty code", wantStatus: http.StatusOK, wantText: "sign in again",
+		{name: "empty code can be retried", wantStatus: http.StatusOK, wantText: "not valid",
 			code: func(string) string { return "" }},
 		{name: "forged csrf", csrf: "forged", wantStatus: http.StatusForbidden, wantText: "session expired",
 			code: validTOTP},
@@ -487,20 +487,16 @@ func TestOAuthHostedMFAStep(t *testing.T) {
 			assert.Empty(t, env.sessionCookie(t), "no session before the challenge is answered")
 			assert.Contains(t, strings.ToLower(string(body)), strings.ToLower(tt.wantText))
 
-			if tt.csrf == "" {
-				return
-			}
-
 			good := url.Values{
 				"_csrf": {
 					between(string(body), `name="_csrf" value="`, `"`),
 				},
 				"session":   {step.session},
 				"challenge": {name},
-				"code":      {tt.code(secret)},
+				"code":      {validTOTP(secret)},
 			}
 			resp, _ = env.postForm(t, step.loginURL, good, nil)
-			assert.Equal(t, http.StatusFound, resp.StatusCode, "csrf rejection must not burn the challenge")
+			assert.Equal(t, http.StatusFound, resp.StatusCode, "a rejected attempt must not burn the challenge")
 		})
 	}
 }

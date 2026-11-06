@@ -135,13 +135,32 @@ func (h *Handler) handleUpdateStack(form url.Values, c *echo.Context) error {
 	return writeCreateOrUpdateStackResponse(c, "UpdateStackResponse", "UpdateStackResult", stack.StackID)
 }
 
+const deletionModeStandard = "STANDARD"
+
 func (h *Handler) handleDeleteStack(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
 	}
 
-	if err := h.Backend.DeleteStack(c.Request().Context(), stackName); err != nil {
+	var opts []DeleteStackOption
+
+	if retain := parseMemberList(form, "RetainResources."); len(retain) > 0 {
+		opts = append(opts, WithRetainResources(retain))
+	}
+
+	switch mode := form.Get("DeletionMode"); mode {
+	case "", deletionModeStandard:
+	case "FORCE_DELETE_STACK":
+		opts = append(opts, WithForceDelete())
+	default:
+		return h.xmlError(c, errCodeValidation, fmt.Sprintf(
+			"1 validation error detected: Value '%s' at 'deletionMode' failed to satisfy constraint: "+
+				"Member must satisfy enum value set: [STANDARD, FORCE_DELETE_STACK]", mode,
+		))
+	}
+
+	if err := h.Backend.DeleteStack(c.Request().Context(), stackName, opts...); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
@@ -217,12 +236,18 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 
 	if stackName != "" {
 		s, err := h.Backend.DescribeStack(stackName)
-		if err != nil {
+		if err != nil || (s.StackStatus == statusDeleteComplete && stackName != s.StackID) {
+			if err == nil {
+				err = ErrStackNotFound
+			}
+
 			return h.xmlError(c, "ValidationError", err.Error())
 		}
 		stacks = append(stacks, toXML(s))
 	} else {
-		all := h.Backend.ListAll()
+		all := slices.DeleteFunc(h.Backend.ListAll(), func(s *Stack) bool {
+			return s.StackStatus == statusDeleteComplete
+		})
 		slices.SortFunc(all, func(a, b *Stack) int { return strings.Compare(a.StackName, b.StackName) })
 
 		p := pageForm(form, all)

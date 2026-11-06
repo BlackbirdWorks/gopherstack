@@ -140,6 +140,7 @@ func (p *ContainerAppsProvider) putApp(
 ) (map[string]any, error) {
 	p.opMu.Lock("putApp")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	name := id.LeafName()
 	if !acaNameValid(name, acaMinNameLen, acaMaxAppNameLen) {
@@ -648,6 +649,7 @@ func (p *ContainerAppsProvider) listApps(id ResourceID) []map[string]any {
 func (p *ContainerAppsProvider) deleteApp(id ResourceID, name string) error {
 	p.opMu.Lock("deleteApp")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	key := acaKey(id.ResourceGroup, name)
 

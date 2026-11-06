@@ -227,11 +227,11 @@ func TestMedicalTranscriptionJobTranscriptURI(t *testing.T) {
 			wantURISuffix: "",
 		},
 		{
-			name:          "no_bucket_uses_synthetic",
+			name:          "no_bucket_uses_managed_url",
 			outputBucket:  "",
 			outputKey:     "",
-			wantURIPrefix: "s3://synthetic-transcripts/",
-			wantURISuffix: ".json",
+			wantURIPrefix: "http://localhost:8000/_gopherstack/transcribe/output/us-east-1/medical/",
+			wantURISuffix: "/asrOutput.json",
 		},
 	}
 

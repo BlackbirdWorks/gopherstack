@@ -36,6 +36,7 @@ type InMemoryBackend struct {
 	harnesses  map[string]*Harness
 	groups     map[string]*Group
 	workReqs   map[string]*WorkRequest
+	getWindows map[string]*getWindow
 	Auth       *ociauth.Registry
 	keyChecker KeyChecker
 	transition time.Duration
@@ -54,6 +55,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func (b *InMemoryBackend) resetMaps() {
 	b.pools, b.streams, b.harnesses = map[string]*Pool{}, map[string]*Stream{}, map[string]*Harness{}
 	b.groups, b.workReqs = map[string]*Group{}, map[string]*WorkRequest{}
+	b.getWindows = map[string]*getWindow{}
 }
 
 // SetClock injects the time source used for lifecycle transitions, retention and reservations.

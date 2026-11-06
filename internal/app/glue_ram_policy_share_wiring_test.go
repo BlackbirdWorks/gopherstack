@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
@@ -29,8 +29,7 @@ func TestInitializeServices_GlueRAMPolicyShareWiring(t *testing.T) {
 	t.Parallel()
 
 	cli := &CLI{AccountID: "000000000000", Region: "us-east-1"}
-	portAlloc, err := portalloc.New(19200, 19300)
-	require.NoError(t, err)
+	portAlloc := portalloctest.New(t, 100)
 
 	appCtx := &service.AppContext{
 		Logger:     slog.Default(),

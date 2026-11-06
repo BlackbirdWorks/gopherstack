@@ -1,6 +1,7 @@
 package transcribe_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,10 +44,10 @@ func TestStartCallAnalyticsJob_OutputLocation_RealClient(t *testing.T) {
 			wantURI:        "s3://doc-example-bucket/my-output-folder/custom-name.json",
 		},
 		{
-			name:           "omitted falls back to the service-managed bucket",
+			name:           "omitted falls back to the service-managed url",
 			outputLocation: "",
 			jobName:        "default-job",
-			wantURI:        "s3://synthetic-transcripts/default-job.json",
+			wantURI:        "http://localhost:8000/_gopherstack/transcribe/output/us-east-1/call-analytics/default-job/",
 		},
 	}
 
@@ -74,7 +75,15 @@ func TestStartCallAnalyticsJob_OutputLocation_RealClient(t *testing.T) {
 			})
 			require.NoError(t, getErr)
 			require.NotNil(t, out.CallAnalyticsJob.Transcript)
-			require.Equal(t, tt.wantURI, aws.ToString(out.CallAnalyticsJob.Transcript.TranscriptFileUri))
+			got := aws.ToString(out.CallAnalyticsJob.Transcript.TranscriptFileUri)
+			if tt.outputLocation == "" {
+				require.True(t, strings.HasPrefix(got, tt.wantURI), got)
+				require.True(t, strings.HasSuffix(got, "/asrOutput.json"), got)
+
+				return
+			}
+
+			require.Equal(t, tt.wantURI, got)
 		})
 	}
 }

@@ -68,7 +68,8 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 // RouteMatcher returns a function that matches Transcribe requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), transcribeTargetPrefix)
+		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), transcribeTargetPrefix) ||
+			isManagedOutputRequest(c.Request())
 	}
 }
 
@@ -77,6 +78,10 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the Transcribe action from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if isManagedOutputRequest(c.Request()) {
+		return "GetManagedTranscript"
+	}
+
 	target := c.Request().Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, transcribeTargetPrefix)
 	if action == "" || action == target {

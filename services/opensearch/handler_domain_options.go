@@ -100,17 +100,67 @@ type samlOptionsJSON struct {
 	Idp                   *samlIdpJSON `json:"Idp,omitempty"`
 	RolesKey              string       `json:"RolesKey,omitempty"`
 	SubjectKey            string       `json:"SubjectKey,omitempty"`
+	MasterUserName        string       `json:"MasterUserName,omitempty"`
+	MasterBackendRole     string       `json:"MasterBackendRole,omitempty"`
 	SessionTimeoutMinutes int          `json:"SessionTimeoutMinutes,omitempty"`
 	Enabled               bool         `json:"Enabled"`
 }
 
 // advancedSecurityOptionsJSON is the JSON representation of advanced security options.
 type advancedSecurityOptionsJSON struct {
-	SAMLOptions                 *samlOptionsJSON       `json:"SAMLOptions,omitempty"`
-	MasterUserOptions           *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
-	AnonymousAuthEnabled        bool                   `json:"AnonymousAuthEnabled"`
-	Enabled                     bool                   `json:"Enabled"`
-	InternalUserDatabaseEnabled bool                   `json:"InternalUserDatabaseEnabled"`
+	SAMLOptions                 *samlOptionsJSON          `json:"SAMLOptions,omitempty"`
+	JWTOptions                  *jwtOptionsJSON           `json:"JWTOptions,omitempty"`
+	IAMFederationOptions        *iamFederationOptionsJSON `json:"IAMFederationOptions,omitempty"`
+	MasterUserOptions           *masterUserOptionsJSON    `json:"MasterUserOptions,omitempty"`
+	AnonymousAuthDisableDate    *float64                  `json:"AnonymousAuthDisableDate,omitempty"`
+	present                     advancedSecurityPresence
+	AnonymousAuthEnabled        bool `json:"AnonymousAuthEnabled"`
+	Enabled                     bool `json:"Enabled"`
+	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled"`
+}
+
+// advancedSecurityPresence records which scalar members a request carried, so an update that
+// omits them keeps the stored value.
+type advancedSecurityPresence struct {
+	enabled   bool
+	internal  bool
+	anonymous bool
+}
+
+// UnmarshalJSON decodes the options and notes which scalar members were present.
+func (a *advancedSecurityOptionsJSON) UnmarshalJSON(data []byte) error {
+	type plain advancedSecurityOptionsJSON
+
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*a = advancedSecurityOptionsJSON(p)
+	_, a.present.enabled = raw["Enabled"]
+	_, a.present.internal = raw["InternalUserDatabaseEnabled"]
+	_, a.present.anonymous = raw["AnonymousAuthEnabled"]
+
+	return nil
+}
+
+type jwtOptionsJSON struct {
+	JwksURL    string `json:"JwksUrl,omitempty"`
+	PublicKey  string `json:"PublicKey,omitempty"`
+	RolesKey   string `json:"RolesKey,omitempty"`
+	SubjectKey string `json:"SubjectKey,omitempty"`
+	Enabled    bool   `json:"Enabled"`
+}
+
+type iamFederationOptionsJSON struct {
+	RolesKey   string `json:"RolesKey,omitempty"`
+	SubjectKey string `json:"SubjectKey,omitempty"`
+	Enabled    bool   `json:"Enabled"`
 }
 
 type masterUserOptionsJSON struct {
@@ -347,11 +397,16 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 	if aso == nil {
 		return nil
 	}
+
 	out := &AdvancedSecurityOptions{
 		Enabled:                     aso.Enabled,
 		InternalUserDatabaseEnabled: aso.InternalUserDatabaseEnabled,
 		AnonymousAuthEnabled:        aso.AnonymousAuthEnabled,
+		fieldsSet: advancedSecurityPresence{
+			enabled: aso.present.enabled, internal: aso.present.internal, anonymous: aso.present.anonymous,
+		},
 	}
+
 	if mu := aso.MasterUserOptions; mu != nil {
 		out.MasterUserName = mu.MasterUserName
 		out.MasterUserARN = mu.MasterUserARN
@@ -360,16 +415,34 @@ func parseAdvancedSecurityOptsFromReq(aso *advancedSecurityOptionsJSON) *Advance
 			out.MasterUserPasswordHash = hashMasterPassword(mu.MasterUserPassword)
 		}
 	}
+
 	if aso.SAMLOptions != nil {
 		out.SAMLOptions = &SAMLOptionsInput{
 			Enabled:               aso.SAMLOptions.Enabled,
 			RolesKey:              aso.SAMLOptions.RolesKey,
 			SubjectKey:            aso.SAMLOptions.SubjectKey,
 			SessionTimeoutMinutes: aso.SAMLOptions.SessionTimeoutMinutes,
+			MasterUserName:        aso.SAMLOptions.MasterUserName,
+			MasterBackendRole:     aso.SAMLOptions.MasterBackendRole,
 		}
 		if aso.SAMLOptions.Idp != nil {
 			out.SAMLOptions.IDPEntityID = aso.SAMLOptions.Idp.EntityID
 			out.SAMLOptions.IDPMetadataContent = aso.SAMLOptions.Idp.MetadataContent
+		}
+	}
+
+	if j := aso.JWTOptions; j != nil {
+		out.JWTOptions = &JWTOptions{
+			Enabled: j.Enabled, JwksURL: j.JwksURL, PublicKey: j.PublicKey,
+			RolesKey: j.RolesKey, SubjectKey: j.SubjectKey,
+		}
+	}
+
+	if f := aso.IAMFederationOptions; f != nil {
+		out.IAMFederationOptions = &IAMFederationOptions{
+			Enabled:    f.Enabled,
+			RolesKey:   f.RolesKey,
+			SubjectKey: f.SubjectKey,
 		}
 	}
 
@@ -560,11 +633,18 @@ func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecuri
 	if aso == nil {
 		return &advancedSecurityOptionsJSON{}
 	}
+
 	out := &advancedSecurityOptionsJSON{
 		Enabled:                     aso.Enabled,
 		InternalUserDatabaseEnabled: aso.InternalUserDatabaseEnabled,
 		AnonymousAuthEnabled:        aso.AnonymousAuthEnabled,
 	}
+
+	if !aso.AnonymousAuthDisableDate.IsZero() {
+		epoch := awstime.Epoch(aso.AnonymousAuthDisableDate)
+		out.AnonymousAuthDisableDate = &epoch
+	}
+
 	if aso.SAMLOptions != nil {
 		out.SAMLOptions = &samlOptionsJSON{
 			Enabled:               aso.SAMLOptions.Enabled,
@@ -577,6 +657,19 @@ func toAdvancedSecurityOptionsJSON(aso *AdvancedSecurityOptions) *advancedSecuri
 				EntityID:        aso.SAMLOptions.IDPEntityID,
 				MetadataContent: aso.SAMLOptions.IDPMetadataContent,
 			}
+		}
+	}
+
+	if j := aso.JWTOptions; j != nil {
+		out.JWTOptions = &jwtOptionsJSON{
+			Enabled: j.Enabled, JwksURL: j.JwksURL, PublicKey: j.PublicKey,
+			RolesKey: j.RolesKey, SubjectKey: j.SubjectKey,
+		}
+	}
+
+	if f := aso.IAMFederationOptions; f != nil {
+		out.IAMFederationOptions = &iamFederationOptionsJSON{
+			Enabled: f.Enabled, RolesKey: f.RolesKey, SubjectKey: f.SubjectKey,
 		}
 	}
 
@@ -671,5 +764,5 @@ func validateDomainOptions(req *domainJSON) error {
 			ErrValidation, minEBSVolumeSize, maxEBSVolumeSize)
 	}
 
-	return nil
+	return validateAdvancedSecurityRequest(req.AdvancedSecurityOptions)
 }

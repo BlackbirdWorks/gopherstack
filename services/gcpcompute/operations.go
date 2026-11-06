@@ -160,7 +160,6 @@ func (b *InMemoryBackend) waitOperation(
 ) (*computeapi.Operation, error) {
 	b.mu.RLock("WaitOperation")
 	r, err := b.getOpLocked(project, scope, loc, name)
-
 	if err != nil {
 		b.mu.RUnlock()
 

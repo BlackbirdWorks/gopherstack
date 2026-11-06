@@ -39,6 +39,36 @@ type Delivery struct {
 	State      string    `json:"state"`
 	Result     string    `json:"result"`
 	Error      string    `json:"error,omitempty"`
+	Recipient  string    `json:"recipient,omitempty"`
+	Payload    string    `json:"payload,omitempty"`
+}
+
+const resultRecorded = "recorded"
+
+// Outbox returns the notifications of channels that have no egress in the emulator (email, sms, slack,
+// pagerduty), oldest first, each with the incident JSON it would have carried.
+func (b *InMemoryBackend) Outbox() []Delivery {
+	b.mu.RLock("Outbox")
+	defer b.mu.RUnlock()
+
+	return slices.DeleteFunc(slices.Clone(b.deliveries), func(d Delivery) bool { return d.Result != resultRecorded })
+}
+
+func outboxRecipient(t target) string {
+	switch t.typ {
+	case typeEmail:
+		return t.labels["email_address"]
+	case typeSMS:
+		return t.labels["number"]
+	case typeSlack:
+		return t.labels["channel_name"]
+	}
+
+	return ""
+}
+
+func isOutboxType(typ string) bool {
+	return typ == typeEmail || typ == typeSMS || typ == typeSlack || typ == typePagerDuty
 }
 
 // Deliveries returns the most recent notification attempts, oldest first.
@@ -103,7 +133,13 @@ func (b *InMemoryBackend) deliver(ctx context.Context, n notification) {
 			d.At = n.incident.EndedAt
 		}
 
-		if err = b.send(ctx, n, t, payload); err != nil {
+		if n.reminder {
+			d.At = b.currentTime()
+		}
+
+		if isOutboxType(t.typ) {
+			d.Result, d.Recipient, d.Payload = resultRecorded, outboxRecipient(t), string(payload)
+		} else if err = b.send(ctx, n, t, payload); err != nil {
 			d.Result, d.Error = "failed", err.Error()
 			logger.Load(ctx).WarnContext(ctx, "gcpmonitoring: notification failed",
 				"channel", t.name, "type", t.typ, "error", err)

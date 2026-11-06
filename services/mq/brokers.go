@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -958,6 +959,18 @@ func (b *InMemoryBackend) copyBroker(br *Broker) *Broker {
 	}
 
 	cp.BrokerInstances = append([]BrokerInstance{}, br.BrokerInstances...)
+
+	if br.LogsSummary != nil {
+		ls := *br.LogsSummary
+		cp.LogsSummary = &ls
+	}
+
+	if br.Configurations != nil {
+		cfg := *br.Configurations
+		cfg.History = slices.Clone(cfg.History)
+		cp.Configurations = &cfg
+	}
+
 	b.applyLiveEndpoints(&cp)
 
 	return &cp

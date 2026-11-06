@@ -17,6 +17,9 @@ import (
 const (
 	mebibyte = int64(1) << 20
 
+	nanoCPUsPerVCPU    = int64(1_000_000_000)
+	cpuUnitsPerVCPUInt = int64(1024)
+
 	defaultStopTimeoutSeconds = 30
 
 	defaultHealthInterval = 30 * time.Second
@@ -36,6 +39,8 @@ type containerInput struct {
 	env          []string
 	mounts       []mount.Mount
 	volumesFrom  []string
+	network      netSetup
+	logSecrets   map[string]string
 	cd           ContainerDefinition
 }
 
@@ -53,27 +58,23 @@ func buildDockerConfigs(in containerInput) (*dockertypes.Config, *dockertypes.Ho
 		SecurityOpt:    cd.DockerSecurityOptions,
 		PidMode:        mobycontainer.PidMode(in.pidMode),
 		IpcMode:        mobycontainer.IpcMode(in.ipcMode),
+		NetworkMode:    mobycontainer.NetworkMode(in.network.mode),
 	}
 
-	dns, err := parseDNSServers(cd.DNSServers)
-	if err != nil {
+	if err := applyNetworkSettings(hostCfg, cd, in.network); err != nil {
 		return nil, nil, err
 	}
 
-	hostCfg.DNS = dns
-
-	for _, h := range cd.ExtraHosts {
-		hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, h.Hostname+":"+h.IPAddress)
+	logCfg, err := buildLogConfig(cd.LogConfiguration, in.logSecrets)
+	if err != nil {
+		return nil, nil, fmt.Errorf("container %q: %w", cd.Name, err)
 	}
 
-	if len(cd.SystemControls) > 0 {
-		hostCfg.Sysctls = make(map[string]string, len(cd.SystemControls))
-		for _, sc := range cd.SystemControls {
-			hostCfg.Sysctls[sc.Namespace] = sc.Value
-		}
-	}
+	hostCfg.LogConfig = logCfg
 
+	taskCPU, taskMem := taskLimits(in.task)
 	applyResourceLimits(hostCfg, cd)
+	applyTaskLimits(hostCfg, cd, taskCPU, taskMem)
 	applyLinuxParameters(hostCfg, cd)
 
 	labels := map[string]string{}
@@ -97,14 +98,49 @@ func buildDockerConfigs(in containerInput) (*dockertypes.Config, *dockertypes.Ho
 		User:            cd.User,
 		WorkingDir:      cd.WorkingDirectory,
 		Hostname:        cd.Hostname,
-		NetworkDisabled: cd.DisableNetworking,
+		NetworkDisabled: cd.DisableNetworking && !in.network.shared,
 		OpenStdin:       cd.Interactive,
 		Tty:             cd.PseudoTerminal,
 		StopTimeout:     &stopTimeout,
 		Healthcheck:     buildHealthConfig(cd.HealthCheck),
 	}
 
+	if in.network.shared {
+		cfg.Hostname = ""
+	}
+
 	return cfg, hostCfg, nil
+}
+
+// applyNetworkSettings sets DNS, extra hosts and sysctls; a container joined to the task's pause container
+// takes none of the namespace-level ones (Docker rejects them) and net.* sysctls live on the pause container.
+func applyNetworkSettings(hostCfg *dockertypes.HostConfig, cd ContainerDefinition, nw netSetup) error {
+	if !nw.shared {
+		dns, err := parseDNSServers(cd.DNSServers)
+		if err != nil {
+			return err
+		}
+
+		hostCfg.DNS = dns
+
+		for _, h := range cd.ExtraHosts {
+			hostCfg.ExtraHosts = append(hostCfg.ExtraHosts, h.Hostname+":"+h.IPAddress)
+		}
+	}
+
+	for _, sc := range cd.SystemControls {
+		if nw.shared && strings.HasPrefix(sc.Namespace, sysctlNetPrefix) {
+			continue
+		}
+
+		if hostCfg.Sysctls == nil {
+			hostCfg.Sysctls = make(map[string]string, len(cd.SystemControls))
+		}
+
+		hostCfg.Sysctls[sc.Namespace] = sc.Value
+	}
+
+	return nil
 }
 
 func parseDNSServers(servers []string) ([]netip.Addr, error) {
@@ -134,6 +170,19 @@ func applyResourceLimits(hc *dockertypes.HostConfig, cd ContainerDefinition) {
 			Soft: int64(u.SoftLimit),
 			Hard: int64(u.HardLimit),
 		})
+	}
+}
+
+// applyTaskLimits bounds a container by the task's size: a container with no hard memory limit may use up to the
+// task's memory, and none may use more than the task's vCPUs. Docker has no per-task cgroup, so the sum across
+// containers is not enforced.
+func applyTaskLimits(hc *dockertypes.HostConfig, cd ContainerDefinition, taskCPU, taskMem int) {
+	if taskMem > 0 && cd.Memory == 0 {
+		hc.Memory = int64(taskMem) * mebibyte
+	}
+
+	if taskCPU > 0 {
+		hc.NanoCPUs = int64(taskCPU) * nanoCPUsPerVCPU / cpuUnitsPerVCPUInt
 	}
 }
 

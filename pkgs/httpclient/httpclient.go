@@ -3,6 +3,7 @@ package httpclient
 
 import (
 	"net/http"
+	"net/netip"
 	"time"
 )
 
@@ -21,4 +22,12 @@ func NewTransport() *http.Transport {
 // backend and reuse it so connections are pooled.
 func New(timeout time.Duration) *http.Client {
 	return &http.Client{Timeout: timeout, Transport: NewTransport()}
+}
+
+// IsLoopbackHost reports whether host is a loopback IP literal; the only targets where TLS verification may be
+// skipped (emulator-run backends; policy 2026-10-31).
+func IsLoopbackHost(host string) bool {
+	ip, err := netip.ParseAddr(host)
+
+	return err == nil && ip.IsLoopback()
 }

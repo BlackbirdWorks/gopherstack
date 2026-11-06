@@ -11,7 +11,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/container"
 	"github.com/blackbirdworks/gopherstack/pkgs/mysqlengine"
-	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc/portalloctest"
 )
 
 var errBoom = errors.New("boom")
@@ -66,8 +66,7 @@ func TestVolumeName(t *testing.T) {
 func TestLaunchFailureReleasesPorts(t *testing.T) {
 	t.Parallel()
 
-	alloc, err := portalloc.New(40100, 40110)
-	require.NoError(t, err)
+	alloc := portalloctest.New(t, 10)
 
 	rt := &failingRuntime{}
 	e, err := mysqlengine.New(mysqlengine.Config{Runtime: rt, Ports: alloc, Prefix: "t"})

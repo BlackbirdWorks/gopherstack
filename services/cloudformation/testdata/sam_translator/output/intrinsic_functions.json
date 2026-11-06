@@ -1,0 +1,641 @@
+{
+  "Conditions": {
+    "TrueCondition": {
+      "Fn::Equals": [
+        true,
+        true
+      ]
+    }
+  },
+  "Parameters": {
+    "CodeBucket": {
+      "Default": "sam-demo-bucket",
+      "Type": "String"
+    },
+    "CodeKey": {
+      "Default": "key",
+      "Type": "String"
+    },
+    "FunctionName": {
+      "Default": "MySuperFunctionName",
+      "Type": "String"
+    },
+    "MyExplicitApiName": {
+      "Default": "SomeName",
+      "Type": "String"
+    },
+    "RoleFieldName": {
+      "Default": "Role",
+      "Type": "String"
+    },
+    "TracingConfigParam": {
+      "Default": "PassThrough",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "ApiWithExplicitS3Uri": {
+      "Condition": "TrueCondition",
+      "Properties": {
+        "BodyS3Location": {
+          "Bucket": "mybucket",
+          "Key": "mykey",
+          "Version": 3
+        }
+      },
+      "Type": "AWS::ApiGateway::RestApi"
+    },
+    "ApiWithExplicitS3UriDeployment7ab7044581": {
+      "Condition": "TrueCondition",
+      "Properties": {
+        "Description": "RestApi deployment id: 7ab7044581d53db4957e668f336b462f099db4af",
+        "RestApiId": {
+          "Ref": "ApiWithExplicitS3Uri"
+        },
+        "StageName": "Stage"
+      },
+      "Type": "AWS::ApiGateway::Deployment"
+    },
+    "ApiWithExplicitS3UridevStage": {
+      "Condition": "TrueCondition",
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "ApiWithExplicitS3UriDeployment7ab7044581"
+        },
+        "RestApiId": {
+          "Ref": "ApiWithExplicitS3Uri"
+        },
+        "StageName": "dev"
+      },
+      "Type": "AWS::ApiGateway::Stage"
+    },
+    "DynamoDBFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "streams.zip"
+        },
+        "Handler": "stream.ddb_handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "DynamoDBFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "DynamoDBFunctionMyDDBStream": {
+      "Properties": {
+        "BatchSize": 200,
+        "EventSourceArn": {
+          "Fn::GetAtt": [
+            "MyTable",
+            "StreamArn"
+          ]
+        },
+        "FilterCriteria": {
+          "Fn::Select": [
+            "1",
+            [
+              {},
+              {
+                "Filters": {
+                  "Pattern": "{\"value\": \"b\"}"
+                }
+              }
+            ]
+          ]
+        },
+        "FunctionName": {
+          "Ref": "DynamoDBFunction"
+        },
+        "StartingPosition": "LATEST"
+      },
+      "Type": "AWS::Lambda::EventSourceMapping"
+    },
+    "DynamoDBFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaDynamoDBExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "FunctionWithExplicitS3Uri": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "mybucket",
+          "S3Key": "mykey",
+          "S3ObjectVersion": "MyVersion"
+        },
+        "Handler": "stream.ddb_handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "FunctionWithExplicitS3UriRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "FunctionWithExplicitS3UriRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "FunctionWithValidGetAttAndRef": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MyOtherFunction",
+            {
+              "Fn::Ref": "RoleFieldName"
+            }
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyExplicitApi": {
+      "Properties": {
+        "BodyS3Location": {
+          "Bucket": "sam-demo-bucket",
+          "Key": "swagger.yaml"
+        },
+        "Name": {
+          "Ref": "MyExplicitApiName"
+        }
+      },
+      "Type": "AWS::ApiGateway::RestApi"
+    },
+    "MyExplicitApiDeployment7145dd00ce": {
+      "Properties": {
+        "Description": "RestApi deployment id: 7145dd00cea59b4a62b4d7855add490c587f3f62",
+        "RestApiId": {
+          "Ref": "MyExplicitApi"
+        },
+        "StageName": "Stage"
+      },
+      "Type": "AWS::ApiGateway::Deployment"
+    },
+    "MyExplicitApidevStage": {
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "MyExplicitApiDeployment7145dd00ce"
+        },
+        "RestApiId": {
+          "Ref": "MyExplicitApi"
+        },
+        "StageName": "dev",
+        "Variables": {
+          "FunctionName": {
+            "Fn::Sub": "${MyFunction}"
+          },
+          "Var2": {
+            "Fn::Join": [
+              "join ",
+              [
+                "some value ",
+                "with some other value"
+              ]
+            ]
+          }
+        }
+      },
+      "Type": "AWS::ApiGateway::Stage"
+    },
+    "MyFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Ref": "CodeBucket"
+          },
+          "S3Key": {
+            "Fn::Sub": "code.zip.${CodeKey}"
+          },
+          "S3ObjectVersion": {
+            "Fn::Join": [
+              "",
+              [
+                "some",
+                "version"
+              ]
+            ]
+          }
+        },
+        "FunctionName": {
+          "Fn::Sub": "${FunctionName}"
+        },
+        "Handler": {
+          "Fn::Sub": [
+            "${filename}.handler",
+            {
+              "filename": "index"
+            }
+          ]
+        },
+        "Role": {
+          "Fn::GetAtt": [
+            "MyNewRole",
+            "Arn"
+          ]
+        },
+        "Runtime": {
+          "Fn::Join": [
+            "",
+            [
+              "nodejs",
+              "4.3"
+            ]
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ],
+        "TracingConfig": {
+          "Mode": {
+            "Ref": "TracingConfigParam"
+          }
+        }
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyFunctionMyApiPermissiondev": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Ref": "MyFunction"
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": [
+            "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/${__Stage__}/GET/",
+            {
+              "__ApiId__": {
+                "Ref": "MyExplicitApi"
+              },
+              "__Stage__": "*"
+            }
+          ]
+        }
+      },
+      "Type": "AWS::Lambda::Permission"
+    },
+    "MyNewRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "cloudwatch:*",
+                    "logs:*"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "lambdaRole"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyOtherFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "Handler": "hello.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MyOtherFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MyOtherFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MySnsDlqLambdaFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "DeadLetterConfig": {
+          "TargetArn": {
+            "Ref": "SnsDlqQueue"
+          }
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MySnsDlqLambdaFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MySnsDlqLambdaFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sns:Publish",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Ref": "SnsDlqQueue"
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "DeadLetterQueuePolicy"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MySqsDlqLambdaFunction": {
+      "Properties": {
+        "Code": {
+          "S3Bucket": "sam-demo-bucket",
+          "S3Key": "hello.zip"
+        },
+        "DeadLetterConfig": {
+          "TargetArn": {
+            "Fn::GetAtt": [
+              "SqsDlqQueue",
+              "Arn"
+            ]
+          }
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "MySqsDlqLambdaFunctionRole",
+            "Arn"
+          ]
+        },
+        "Runtime": "python2.7",
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::Lambda::Function"
+    },
+    "MySqsDlqLambdaFunctionRole": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "sts:AssumeRole"
+              ],
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "lambda.amazonaws.com"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sqs:SendMessage",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "SqsDlqQueue",
+                      "Arn"
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "DeadLetterQueuePolicy"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "lambda:createdBy",
+            "Value": "SAM"
+          }
+        ]
+      },
+      "Type": "AWS::IAM::Role"
+    },
+    "MyTable": {
+      "Properties": {
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "id",
+            "KeyType": "HASH"
+          }
+        ],
+        "ProvisionedThroughput": {
+          "ReadCapacityUnits": 5,
+          "WriteCapacityUnits": 5
+        },
+        "StreamSpecification": {
+          "StreamViewType": "NEW_IMAGE"
+        }
+      },
+      "Type": "AWS::DynamoDB::Table"
+    },
+    "SnsDlqQueue": {
+      "Type": "AWS::SNS::Topic"
+    },
+    "SqsDlqQueue": {
+      "Type": "AWS::SQS::Queue"
+    }
+  }
+}

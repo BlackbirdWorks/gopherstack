@@ -57,6 +57,12 @@ func serveObject(c *echo.Context, o *Object) {
 		hdr.Set(metaHeaderPrefix+k, v)
 	}
 
+	if transcodes(c.Request(), o) {
+		serveTranscoded(c, o)
+
+		return
+	}
+
 	http.ServeContent(c.Response(), c.Request(), "", o.Updated, bytes.NewReader(o.Data))
 }
 

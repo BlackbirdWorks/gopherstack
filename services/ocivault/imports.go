@@ -146,7 +146,7 @@ func (b *InMemoryBackend) ImportKey(vaultID string, in ImportKeyIn) (keyWire, st
 		return keyWire{}, "", aerr
 	}
 
-	return keyView(k, stateEnabling), k.Etag, nil
+	return keyView(k), k.Etag, nil
 }
 
 // ImportKeyVersion adds wrapped external key material as a new current version.
@@ -176,7 +176,7 @@ func (b *InMemoryBackend) ImportKeyVersion(
 	}
 
 	kv := b.addVersion(k, v.Prefix, originExternal, mat)
-	k.Etag = newEtag()
+	b.touchKey(k)
 
 	return keyVersionFull(k, kv, stateEnabling), k.Etag, nil
 }

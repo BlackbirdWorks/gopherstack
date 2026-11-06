@@ -174,6 +174,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "route53recoverycluster",
   "route53recoveryreadiness",
   "arczonalshift",
+  "lambdaweb",
 ]);
 
 // The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
@@ -205,6 +206,7 @@ export const sidebarCategories: DashboardCategory[] = [
     label: "Messaging & Serverless",
     routes: [
       { id: "lambda", href: "/dashboard/lambda", label: "Lambda", icon: "lambda", common: true },
+      { id: "lambdaweb", href: "/dashboard/lambdaweb", label: "Lambda Web", icon: "lambdaweb" },
       { id: "sns", href: "/dashboard/sns", label: "SNS", icon: "sns", common: true },
       { id: "sqs", href: "/dashboard/sqs", label: "SQS", icon: "sqs", common: true },
       {

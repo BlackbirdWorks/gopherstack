@@ -180,3 +180,13 @@ func (a *athenaGlueAdapter) CommitTableMetadata(db, name, expected, next string)
 
 	return err
 }
+
+// SetTableColumns replaces a table's Glue columns after an Iceberg schema change.
+func (a *athenaGlueAdapter) SetTableColumns(db, name string, cols []athenabackend.Column) error {
+	t, err := a.glueTable(db, name)
+	if err != nil {
+		return err
+	}
+
+	return a.backend.SetTableColumns(t.DatabaseName, t.Name, glueColumns(cols))
+}

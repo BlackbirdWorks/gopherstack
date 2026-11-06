@@ -93,7 +93,11 @@ func enforceAnonymousScope(c *echo.Context, next echo.HandlerFunc, cfg Enforceme
 	resource := arn.Canonical(scope.ResourceARN)
 
 	if EvaluatePolicies(filterPrincipalDocs(docs, condCtx), scope.Action, resource, condCtx) == EvalAllow {
-		return next(c)
+		if _, denied := cfg.rcpVerdict(ctx, scope.Action, scope.ResourceARN, resource, condCtx); !denied || cfg.Audit {
+			return next(c)
+		}
+
+		return scope.deny(c, scope.Action, resource)
 	}
 
 	logger.Load(ctx).InfoContext(ctx, "IAM enforcement: anonymous access denied",

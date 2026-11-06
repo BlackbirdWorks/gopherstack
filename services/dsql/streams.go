@@ -28,14 +28,14 @@ func (b *InMemoryBackend) CreateStream(clusterIdentifier string, in CreateStream
 		return nil, err
 	}
 
-	b.sweepDeletedStreamsLocked(time.Now())
+	b.sweepDeletedStreamsLocked(b.now())
 
 	if b.countStreamsLocked(clusterIdentifier) >= maxStreamsPerCluster {
 		return nil, ErrStreamQuotaExceeded
 	}
 
 	streamIdentifier := newIdentifier()
-	now := time.Now().UTC()
+	now := b.now().UTC()
 
 	tags := make(map[string]string, len(in.Tags))
 	maps.Copy(tags, in.Tags)
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) DeleteStream(clusterIdentifier, streamIdentifier strin
 
 	if s.Status != streamStatusDeleting {
 		s.Status = streamStatusDeleting
-		s.PendingUntil = time.Now().UTC().Add(b.dwell(streamDeletionDelay))
+		s.PendingUntil = b.now().UTC().Add(b.dwell(streamDeletionDelay))
 	}
 
 	return s.clone(), nil
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) ListStreams(clusterIdentifier, nextToken string, maxRe
 
 		b.advanceStreamLocked(s)
 
-		if s.deletionDue(time.Now()) {
+		if s.deletionDue(b.now()) {
 			b.streams.Delete(streamKey(clusterIdentifier, s.StreamIdentifier))
 
 			continue
