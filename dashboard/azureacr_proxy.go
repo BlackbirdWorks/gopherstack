@@ -41,6 +41,8 @@ type acrRepoJSON struct {
 
 type acrManifestJSON struct {
 	Created      time.Time `json:"created"`
+	Updated      time.Time `json:"updated,omitzero"`
+	Name         string    `json:"name,omitempty"`
 	Digest       string    `json:"digest"`
 	MediaType    string    `json:"mediaType"`
 	Architecture string    `json:"architecture"`
@@ -49,12 +51,6 @@ type acrManifestJSON struct {
 	Size         int64     `json:"sizeBytes"`
 	Children     int       `json:"childManifests"`
 	Index        bool      `json:"index"`
-}
-
-type acrTagJSON struct {
-	acrManifestJSON
-	Updated time.Time `json:"updated"`
-	Name    string    `json:"name"`
 }
 
 // registerAzureACRRoutes serves the Container Registry page from the backend in-process: repositories, tags and
@@ -196,7 +192,7 @@ func (a *azureACRAPI) tags(c *echo.Context) error {
 	}
 
 	cache := map[string]acrManifestJSON{}
-	out := make([]acrTagJSON, 0, len(tags))
+	out := make([]acrManifestJSON, 0, len(tags))
 
 	for _, t := range tags {
 		m, seen := cache[t.Digest]
@@ -205,8 +201,8 @@ func (a *azureACRAPI) tags(c *echo.Context) error {
 			cache[t.Digest] = m
 		}
 
-		m.Created = t.Created
-		out = append(out, acrTagJSON{Name: t.Name, Updated: t.Updated, acrManifestJSON: m})
+		m.Created, m.Updated, m.Name = t.Created, t.Updated, t.Name
+		out = append(out, m)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"tags": out})

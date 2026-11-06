@@ -20,6 +20,7 @@ const (
 	redisMask             = "••••••••"
 	redisKeysField        = "keys"
 	redisKeyField         = "key"
+	redisTypeField        = "type"
 	redisTruncatedField   = "truncated"
 )
 
@@ -183,7 +184,7 @@ func (a *azureRedisAPI) value(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		redisKeyField: v.Key, "type": v.Type, "text": v.Text, "elements": elems, "total": v.Total,
+		redisKeyField: v.Key, redisTypeField: v.Type, "text": v.Text, "elements": elems, "total": v.Total,
 		redisTruncatedField: v.Truncated, "ttlSeconds": redisTTL(v.TTL),
 	})
 }
