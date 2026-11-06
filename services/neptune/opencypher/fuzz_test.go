@@ -20,7 +20,7 @@ func FuzzExecute(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, src string) {
+	f.Fuzz(func(_ *testing.T, src string) {
 		g := opencypher.NewGraph()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 

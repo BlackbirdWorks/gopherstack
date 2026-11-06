@@ -12,6 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
+const fuzzSeedGraph = `g.addV("p").property("n",1).as("a").addV("p").property("n",2).addE("k").from("a")`
+
 func TestStepsMalformedArgsNeverPanic(t *testing.T) {
 	t.Parallel()
 
@@ -32,7 +34,8 @@ func TestStepsMalformedArgsNeverPanic(t *testing.T) {
 		"g.V().order().", "g.V().group().", "g.V().groupCount().", "g.V().project('a').",
 		"g.V().choose(__.out()).", "g.V().repeat(__.out()).", "g.V().addE('k').", "g.V().addV('q').",
 		"g.V().select('a').", "g.V().path().", "g.V().tree().", "g.V().sack().", "g.V().union(__.out()).",
-		"g.V().local(__.out()).", "g.V().repeat(__.out()).", "g.V().emit().", "g.V().until(__.out()).", "g.V().mergeV([:]).", "g.V().math('_+1').", "g.V().fold().", "g.V().coalesce(__.out()).",
+		"g.V().local(__.out()).", "g.V().emit().", "g.V().until(__.out()).", "g.V().mergeV([:]).",
+		"g.V().math('_+1').", "g.V().fold().", "g.V().coalesce(__.out()).",
 	}
 
 	names := make([]string, 0)
@@ -40,7 +43,9 @@ func TestStepsMalformedArgsNeverPanic(t *testing.T) {
 		names = append(names, name)
 	}
 
-	for _, mod := range []string{"by", "from", "to", modTimes, modUntil, modEmit, "option", "with", "read", "write", "property"} {
+	mods := []string{"by", "from", "to", modTimes, modUntil, modEmit, "option", "with", "read", "write", "property"}
+
+	for _, mod := range mods {
 		if _, dup := buildSteps()[mod]; !dup {
 			names = append(names, mod)
 		}
@@ -63,7 +68,7 @@ func TestStepsMalformedArgsNeverPanic(t *testing.T) {
 
 					defer cancel()
 
-					_, err := e.Eval(ctx, g, `g.addV("p").property("n",1).as("a").addV("p").property("n",2).addE("k").from("a")`, nil)
+					_, err := e.Eval(ctx, g, fuzzSeedGraph, nil)
 					require.NoError(t, err)
 
 					require.NotPanics(t, func() { _, _ = e.Eval(ctx, g, script, nil) }, script)
@@ -87,14 +92,14 @@ func FuzzEval(f *testing.F) {
 		f.Add(s)
 	}
 
-	f.Fuzz(func(t *testing.T, src string) {
+	f.Fuzz(func(_ *testing.T, src string) {
 		g := opencypher.NewGraph()
 		e := NewEngine()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 
 		defer cancel()
 
-		_, _ = e.Eval(ctx, g, `g.addV("p").property("n",1).as("a").addV("p").property("n",2).addE("k").from("a")`, nil)
+		_, _ = e.Eval(ctx, g, fuzzSeedGraph, nil)
 		_, _ = e.Eval(ctx, g, src, nil)
 	})
 }
