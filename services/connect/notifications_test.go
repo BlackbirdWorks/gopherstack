@@ -14,13 +14,19 @@ import (
 func (e *contactEnv) userARN(t *testing.T, id string) string {
 	t.Helper()
 
-	out, err := e.f.client.DescribeUser(t.Context(), &sdk.DescribeUserInput{InstanceId: aws.String(e.inst), UserId: aws.String(id)})
+	out, err := e.f.client.DescribeUser(
+		t.Context(),
+		&sdk.DescribeUserInput{InstanceId: aws.String(e.inst), UserId: aws.String(id)},
+	)
 	require.NoError(t, err)
 
 	return aws.ToString(out.User.Arn)
 }
 
-func (e *contactEnv) notify(t *testing.T, mut func(*sdk.CreateNotificationInput)) (*sdk.CreateNotificationOutput, error) {
+func (e *contactEnv) notify(
+	t *testing.T,
+	mut func(*sdk.CreateNotificationInput),
+) (*sdk.CreateNotificationOutput, error) {
 	t.Helper()
 
 	in := &sdk.CreateNotificationInput{
@@ -56,7 +62,9 @@ func TestNotificationLifecycle(t *testing.T) {
 	e.f.clock.advance(time.Minute)
 
 	_, err = e.f.client.UpdateNotificationContent(t.Context(), &sdk.UpdateNotificationContentInput{
-		InstanceId: inst, NotificationId: created.NotificationId, Content: map[string]string{"en-US": "Maintenance moved", "de-DE": "Wartung"},
+		InstanceId:     inst,
+		NotificationId: created.NotificationId,
+		Content:        map[string]string{"en-US": "Maintenance moved", "de-DE": "Wartung"},
 	})
 	require.NoError(t, err)
 
@@ -69,20 +77,34 @@ func TestNotificationLifecycle(t *testing.T) {
 	second, err := e.notify(t, func(in *sdk.CreateNotificationInput) { in.Priority = "" })
 	require.NoError(t, err)
 
-	list, err := e.f.client.ListNotifications(t.Context(), &sdk.ListNotificationsInput{InstanceId: inst, MaxResults: aws.Int32(1)})
+	list, err := e.f.client.ListNotifications(
+		t.Context(),
+		&sdk.ListNotificationsInput{InstanceId: inst, MaxResults: aws.Int32(1)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.NotificationSummaryList, 1)
 	require.NotNil(t, list.NextToken)
-	assert.Equal(t, aws.ToString(second.NotificationId), aws.ToString(list.NotificationSummaryList[0].Id), "newest first")
+	assert.Equal(
+		t,
+		aws.ToString(second.NotificationId),
+		aws.ToString(list.NotificationSummaryList[0].Id),
+		"newest first",
+	)
 
-	_, err = e.f.client.DeleteNotification(t.Context(), &sdk.DeleteNotificationInput{InstanceId: inst, NotificationId: created.NotificationId})
+	_, err = e.f.client.DeleteNotification(
+		t.Context(),
+		&sdk.DeleteNotificationInput{InstanceId: inst, NotificationId: created.NotificationId},
+	)
 	require.NoError(t, err)
 
 	_, err = e.f.client.DescribeNotification(t.Context(),
 		&sdk.DescribeNotificationInput{InstanceId: inst, NotificationId: created.NotificationId})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-	_, err = e.f.client.DeleteNotification(t.Context(), &sdk.DeleteNotificationInput{InstanceId: inst, NotificationId: created.NotificationId})
+	_, err = e.f.client.DeleteNotification(
+		t.Context(),
+		&sdk.DeleteNotificationInput{InstanceId: inst, NotificationId: created.NotificationId},
+	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 
@@ -94,30 +116,65 @@ func TestCreateNotificationValidation(t *testing.T) {
 		name string
 		code string
 	}{
-		{name: "no content", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) { in.Content = map[string]string{} }},
-		{name: "long content", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
-			in.Content = map[string]string{"en-US": string(make([]byte, 251))}
-		}},
-		{name: "blank content", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
-			in.Content = map[string]string{"en-US": " "}
-		}},
-		{name: "no recipients", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) { in.Recipients = []string{} }},
-		{name: "foreign recipient", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
-			in.Recipients = []string{"arn:aws:connect:us-east-1:123456789012:instance/other/agent/x"}
-		}},
-		{name: "unknown user", code: "ResourceNotFoundException", mut: func(e *contactEnv, in *sdk.CreateNotificationInput) {
-			in.Recipients = []string{e.instARN() + "/agent/nobody"}
-		}},
-		{name: "urgent is not configurable", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
-			in.Priority = "URGENT"
-		}},
+		{
+			name: "no content",
+			code: "InvalidParameterException",
+			mut:  func(_ *contactEnv, in *sdk.CreateNotificationInput) { in.Content = map[string]string{} },
+		},
+		{
+			name: "long content",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
+				in.Content = map[string]string{"en-US": string(make([]byte, 251))}
+			},
+		},
+		{
+			name: "blank content",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
+				in.Content = map[string]string{"en-US": " "}
+			},
+		},
+		{
+			name: "no recipients",
+			code: "InvalidParameterException",
+			mut:  func(_ *contactEnv, in *sdk.CreateNotificationInput) { in.Recipients = []string{} },
+		},
+		{
+			name: "foreign recipient",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
+				in.Recipients = []string{"arn:aws:connect:us-east-1:123456789012:instance/other/agent/x"}
+			},
+		},
+		{
+			name: "unknown user",
+			code: "ResourceNotFoundException",
+			mut: func(e *contactEnv, in *sdk.CreateNotificationInput) {
+				in.Recipients = []string{e.instARN() + "/agent/nobody"}
+			},
+		},
+		{
+			name: "urgent is not configurable",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
+				in.Priority = "URGENT"
+			},
+		},
 		{name: "expired", code: "InvalidParameterException", mut: func(e *contactEnv, in *sdk.CreateNotificationInput) {
 			in.ExpiresAt = aws.Time(e.f.clock.now().Add(-time.Hour))
 		}},
-		{name: "unknown instance", code: "ResourceNotFoundException", mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
-			in.InstanceId = aws.String("missing")
-		}},
-		{name: "instance recipient ok", mut: func(e *contactEnv, in *sdk.CreateNotificationInput) { in.Recipients = []string{e.instARN()} }},
+		{
+			name: "unknown instance",
+			code: "ResourceNotFoundException",
+			mut: func(_ *contactEnv, in *sdk.CreateNotificationInput) {
+				in.InstanceId = aws.String("missing")
+			},
+		},
+		{
+			name: "instance recipient ok",
+			mut:  func(e *contactEnv, in *sdk.CreateNotificationInput) { in.Recipients = []string{e.instARN()} },
+		},
 	}
 
 	for _, tt := range tests {
@@ -147,7 +204,10 @@ func TestUserNotifications(t *testing.T) {
 	require.NoError(t, err)
 
 	list := func(user string) []types.UserNotificationSummary {
-		out, lerr := e.f.client.ListUserNotifications(t.Context(), &sdk.ListUserNotificationsInput{InstanceId: inst, UserId: aws.String(user)})
+		out, lerr := e.f.client.ListUserNotifications(
+			t.Context(),
+			&sdk.ListUserNotificationsInput{InstanceId: inst, UserId: aws.String(user)},
+		)
 		require.NoError(t, lerr)
 
 		return out.UserNotifications
@@ -163,7 +223,10 @@ func TestUserNotifications(t *testing.T) {
 	}
 
 	_, err = e.f.client.UpdateUserNotificationStatus(t.Context(), &sdk.UpdateUserNotificationStatusInput{
-		InstanceId: inst, UserId: aws.String(e.user), NotificationId: direct.NotificationId, Status: types.NotificationStatusRead,
+		InstanceId:     inst,
+		UserId:         aws.String(e.user),
+		NotificationId: direct.NotificationId,
+		Status:         types.NotificationStatusRead,
 	})
 	require.NoError(t, err)
 
@@ -184,11 +247,17 @@ func TestUserNotifications(t *testing.T) {
 	assert.Equal(t, "InvalidParameterException", apiCode(err))
 
 	_, err = e.f.client.UpdateUserNotificationStatus(t.Context(), &sdk.UpdateUserNotificationStatusInput{
-		InstanceId: inst, UserId: aws.String("nobody"), NotificationId: direct.NotificationId, Status: types.NotificationStatusHidden,
+		InstanceId:     inst,
+		UserId:         aws.String("nobody"),
+		NotificationId: direct.NotificationId,
+		Status:         types.NotificationStatusHidden,
 	})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-	_, err = e.f.client.ListUserNotifications(t.Context(), &sdk.ListUserNotificationsInput{InstanceId: inst, UserId: aws.String("nobody")})
+	_, err = e.f.client.ListUserNotifications(
+		t.Context(),
+		&sdk.ListUserNotificationsInput{InstanceId: inst, UserId: aws.String("nobody")},
+	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 
@@ -203,11 +272,19 @@ func TestUserNotificationNeedsRecipient(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = e.f.client.UpdateUserNotificationStatus(t.Context(), &sdk.UpdateUserNotificationStatusInput{
-		InstanceId: aws.String(e.inst), UserId: other.UserId, NotificationId: n.NotificationId, Status: types.NotificationStatusRead,
+		InstanceId: aws.String(
+			e.inst,
+		),
+		UserId:         other.UserId,
+		NotificationId: n.NotificationId,
+		Status:         types.NotificationStatusRead,
 	})
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err), "agent2 is not a recipient")
 
-	out, err := e.f.client.ListUserNotifications(t.Context(), &sdk.ListUserNotificationsInput{InstanceId: aws.String(e.inst), UserId: other.UserId})
+	out, err := e.f.client.ListUserNotifications(
+		t.Context(),
+		&sdk.ListUserNotificationsInput{InstanceId: aws.String(e.inst), UserId: other.UserId},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, out.UserNotifications)
 }
@@ -234,7 +311,11 @@ func TestSearchNotifications(t *testing.T) {
 	}
 
 	byContent := search(&sdk.SearchNotificationsInput{SearchCriteria: &types.NotificationSearchCriteria{
-		StringCondition: &types.StringCondition{FieldName: aws.String("MessageContent"), Value: aws.String("maintenance"), ComparisonType: types.StringComparisonTypeContains},
+		StringCondition: &types.StringCondition{
+			FieldName:      aws.String("MessageContent"),
+			Value:          aws.String("maintenance"),
+			ComparisonType: types.StringComparisonTypeContains,
+		},
 	}})
 	require.Len(t, byContent.Notifications, 1)
 	assert.Equal(t, aws.ToString(first.NotificationId), aws.ToString(byContent.Notifications[0].Id))
@@ -242,13 +323,21 @@ func TestSearchNotifications(t *testing.T) {
 	assert.EqualValues(t, 1, aws.ToInt64(byContent.ApproximateTotalCount))
 
 	byID := search(&sdk.SearchNotificationsInput{SearchCriteria: &types.NotificationSearchCriteria{
-		StringCondition: &types.StringCondition{FieldName: aws.String("NotificationId"), Value: first.NotificationId, ComparisonType: types.StringComparisonTypeExact},
+		StringCondition: &types.StringCondition{
+			FieldName:      aws.String("NotificationId"),
+			Value:          first.NotificationId,
+			ComparisonType: types.StringComparisonTypeExact,
+		},
 	}})
 	require.Len(t, byID.Notifications, 1)
 
-	byTag := search(&sdk.SearchNotificationsInput{SearchFilter: &types.NotificationSearchFilter{AttributeFilter: &types.ControlPlaneAttributeFilter{
-		TagCondition: &types.TagCondition{TagKey: aws.String("team"), TagValue: aws.String("dev")},
-	}}})
+	byTag := search(
+		&sdk.SearchNotificationsInput{
+			SearchFilter: &types.NotificationSearchFilter{AttributeFilter: &types.ControlPlaneAttributeFilter{
+				TagCondition: &types.TagCondition{TagKey: aws.String("team"), TagValue: aws.String("dev")},
+			}},
+		},
+	)
 	require.Len(t, byTag.Notifications, 1)
 	assert.Equal(t, "New release", byTag.Notifications[0].Content["en-US"])
 
@@ -257,7 +346,11 @@ func TestSearchNotifications(t *testing.T) {
 
 	_, err = e.f.client.SearchNotifications(t.Context(), &sdk.SearchNotificationsInput{
 		InstanceId: aws.String(e.inst), SearchCriteria: &types.NotificationSearchCriteria{
-			StringCondition: &types.StringCondition{FieldName: aws.String("bogus"), Value: aws.String("x"), ComparisonType: types.StringComparisonTypeExact},
+			StringCondition: &types.StringCondition{
+				FieldName:      aws.String("bogus"),
+				Value:          aws.String("x"),
+				ComparisonType: types.StringComparisonTypeExact,
+			},
 		},
 	})
 	assert.Equal(t, "InvalidParameterException", apiCode(err))
@@ -270,7 +363,9 @@ func TestPushNotificationRegistration(t *testing.T) {
 	chat := e.chat(t)
 	pinpoint := "arn:aws:mobiletargeting:us-east-1:123456789012:apps/app1"
 
-	create := func(mut func(*sdk.CreatePushNotificationRegistrationInput)) (*sdk.CreatePushNotificationRegistrationOutput, error) {
+	type pushIn = sdk.CreatePushNotificationRegistrationInput
+
+	create := func(mut func(*pushIn)) (*sdk.CreatePushNotificationRegistrationOutput, error) {
 		in := &sdk.CreatePushNotificationRegistrationInput{
 			InstanceId: aws.String(e.inst), PinpointAppArn: aws.String(pinpoint), DeviceToken: aws.String("tok"),
 			DeviceType: types.DeviceTypeGcm, ContactConfiguration: &types.ContactConfiguration{
@@ -287,9 +382,12 @@ func TestPushNotificationRegistration(t *testing.T) {
 	require.NotEmpty(t, aws.ToString(out.RegistrationId))
 
 	del := func(contact string) error {
-		_, derr := e.f.client.DeletePushNotificationRegistration(t.Context(), &sdk.DeletePushNotificationRegistrationInput{
-			InstanceId: aws.String(e.inst), RegistrationId: out.RegistrationId, ContactId: aws.String(contact),
-		})
+		_, derr := e.f.client.DeletePushNotificationRegistration(
+			t.Context(),
+			&sdk.DeletePushNotificationRegistrationInput{
+				InstanceId: aws.String(e.inst), RegistrationId: out.RegistrationId, ContactId: aws.String(contact),
+			},
+		)
 
 		return derr
 	}
@@ -314,7 +412,12 @@ func TestPushNotificationRegistration(t *testing.T) {
 		},
 	} {
 		_, err = create(mut)
-		assert.Contains(t, []string{"InvalidParameterException", "InvalidRequestException", "ResourceNotFoundException"}, apiCode(err), name)
+		assert.Contains(
+			t,
+			[]string{"InvalidParameterException", "InvalidRequestException", "ResourceNotFoundException"},
+			apiCode(err),
+			name,
+		)
 		assert.NotEmpty(t, apiCode(err), name)
 	}
 }
@@ -327,17 +430,28 @@ func TestNotificationsSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = e.f.client.UpdateUserNotificationStatus(t.Context(), &sdk.UpdateUserNotificationStatusInput{
-		InstanceId: aws.String(e.inst), UserId: aws.String(e.user), NotificationId: created.NotificationId, Status: types.NotificationStatusHidden,
+		InstanceId: aws.String(
+			e.inst,
+		),
+		UserId:         aws.String(e.user),
+		NotificationId: created.NotificationId,
+		Status:         types.NotificationStatusHidden,
 	})
 	require.NoError(t, err)
 
 	r := e.f.restored(t)
-	out, err := r.client.ListUserNotifications(t.Context(), &sdk.ListUserNotificationsInput{InstanceId: aws.String(e.inst), UserId: aws.String(e.user)})
+	out, err := r.client.ListUserNotifications(
+		t.Context(),
+		&sdk.ListUserNotificationsInput{InstanceId: aws.String(e.inst), UserId: aws.String(e.user)},
+	)
 	require.NoError(t, err)
 	require.Len(t, out.UserNotifications, 1)
 	assert.Equal(t, types.NotificationStatusHidden, out.UserNotifications[0].NotificationStatus)
 
-	tags, err := r.client.ListTagsForResource(t.Context(), &sdk.ListTagsForResourceInput{ResourceArn: created.NotificationArn})
+	tags, err := r.client.ListTagsForResource(
+		t.Context(),
+		&sdk.ListTagsForResourceInput{ResourceArn: created.NotificationArn},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"team": "ops"}, tags.Tags)
 }

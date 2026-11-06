@@ -1,7 +1,6 @@
 package connect
 
 import (
-
 	"github.com/blackbirdworks/gopherstack/pkgs/restroute"
 )
 
@@ -25,4 +24,3 @@ func (h *Handler) attachedFileOps(ops map[string]restroute.OpFunc) {
 		},
 	)
 }
-

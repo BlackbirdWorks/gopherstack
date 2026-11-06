@@ -42,7 +42,24 @@ var (
 func attachmentScopes() []string { return []string{scopeEmail, scopeChat, scopeCase, scopeTask} }
 
 func defaultExtensions() []string {
-	return []string{"csv", "doc", "docx", "gif", "jpeg", "jpg", "pdf", "png", "ppt", "pptx", "tif", "tiff", "txt", "wav", "xls", "xlsx"}
+	return []string{
+		"csv",
+		"doc",
+		"docx",
+		"gif",
+		"jpeg",
+		"jpg",
+		"pdf",
+		"png",
+		"ppt",
+		"pptx",
+		"tif",
+		"tiff",
+		"txt",
+		"wav",
+		"xls",
+		"xlsx",
+	}
 }
 
 // CreatedByInfo identifies who created an attached file: exactly one member is set.
@@ -116,8 +133,8 @@ type AttachedFileError struct {
 	FileID       string `json:"FileId"`
 }
 
-// UrlMetadata is a pre-signed content URL.
-type UrlMetadata struct {
+// URLMetadata is a pre-signed content URL.
+type URLMetadata struct {
 	HeadersToInclude map[string]string `json:"HeadersToInclude,omitempty"`
 	URL              string            `json:"Url"`
 	URLExpiry        string            `json:"UrlExpiry"`
@@ -125,7 +142,7 @@ type UrlMetadata struct {
 
 type fileRef struct {
 	AssociatedResourceArn string `json:"-" query:"associatedResourceArn"`
-	FileID                string `json:"-" path:"FileId"`
+	FileID                string `json:"-"                               path:"FileId"`
 	instPath
 }
 
@@ -135,7 +152,7 @@ type CreateAttachedFileInput struct {
 	ClientToken           string
 	FileSourceURI         string `json:"FileSourceUri"`
 	FileUseCaseType       string
-	AssociatedResourceArn string `json:"-" query:"associatedResourceArn"`
+	AssociatedResourceArn string `json:"-"             query:"associatedResourceArn"`
 	instPath
 }
 
@@ -146,27 +163,27 @@ type StartAttachedFileUploadInput struct {
 	ClientToken           string
 	FileName              string
 	FileUseCaseType       string
-	AssociatedResourceArn string `json:"-" query:"associatedResourceArn"`
-	FileSizeInBytes       int64
-	UrlExpiryInSeconds    int32
+	AssociatedResourceArn string `json:"-"                  query:"associatedResourceArn"`
 	instPath
+	FileSizeInBytes    int64
+	URLExpiryInSeconds int32 `json:"UrlExpiryInSeconds"`
 }
 
 // GetAttachedFileInput is the GetAttachedFile request.
 type GetAttachedFileInput struct {
-	UrlExpiryInSeconds int32 `json:"-" query:"urlExpiryInSeconds"`
 	fileRef
+	URLExpiryInSeconds int32 `json:"-" query:"urlExpiryInSeconds"`
 }
 
 // BatchGetAttachedFileMetadataInput is the BatchGetAttachedFileMetadata request.
 type BatchGetAttachedFileMetadataInput struct {
-	AssociatedResourceArn string `json:"-" query:"associatedResourceArn"`
-	FileIds               []string
+	AssociatedResourceArn string `json:"-"       query:"associatedResourceArn"`
 	instPath
+	FileIDs []string `json:"FileIds"`
 }
 
 type attachedFileCreated struct {
-	UploadURLMetadata *UrlMetadata  `json:"UploadUrlMetadata,omitempty"`
+	UploadURLMetadata *URLMetadata   `json:"UploadUrlMetadata,omitempty"`
 	CreatedBy         *CreatedByInfo `json:"CreatedBy,omitempty"`
 	CreationTime      string         `json:"CreationTime"`
 	FileArn           string         `json:"FileArn"`
@@ -175,7 +192,7 @@ type attachedFileCreated struct {
 }
 
 type attachedFileOut struct {
-	DownloadURLMetadata *UrlMetadata `json:"DownloadUrlMetadata,omitempty"`
+	DownloadURLMetadata *URLMetadata `json:"DownloadUrlMetadata,omitempty"`
 	AttachedFile
 }
 
@@ -265,7 +282,12 @@ func (b *Backend) attachedConfig(inst, scope string) *attachedConfigRec {
 		return r
 	}
 
-	return &attachedConfigRec{InstanceID: inst, Scope: scope, Extensions: defaultExtensions(), MaxSize: defaultAttachLimit}
+	return &attachedConfigRec{
+		InstanceID: inst,
+		Scope:      scope,
+		Extensions: defaultExtensions(),
+		MaxSize:    defaultAttachLimit,
+	}
 }
 
 // resolveAttachTarget returns the attachment scope of an ARN a file can be attached to.
@@ -300,7 +322,11 @@ func (b *Backend) contactByARN(inst, resourceARN string) (*contactRec, error) {
 	return b.contacts.get(inst, id)
 }
 
-func (b *Backend) newAttachedFile(ctx context.Context, inst, name, useCase, resource string, tags map[string]string) *attachedFileRec {
+func (b *Backend) newAttachedFile(
+	ctx context.Context,
+	inst, name, useCase, resource string,
+	tags map[string]string,
+) *attachedFileRec {
 	id := newID()
 
 	return &attachedFileRec{
@@ -321,7 +347,7 @@ func (b *Backend) checkAttachUpload(inst string, in *StartAttachedFileUploadInpu
 		return 0, invalidParamErr("FileSizeInBytes must be at least 1")
 	}
 
-	expiry, err := checkURLExpiry(in.UrlExpiryInSeconds)
+	expiry, err := checkURLExpiry(in.URLExpiryInSeconds)
 	if err != nil {
 		return 0, err
 	}
@@ -346,7 +372,10 @@ func (b *Backend) checkAttachUpload(inst string, in *StartAttachedFileUploadInpu
 }
 
 // StartAttachedFileUpload registers a file and hands out a pre-signed upload URL.
-func (b *Backend) StartAttachedFileUpload(ctx context.Context, in *StartAttachedFileUploadInput) (*attachedFileCreated, error) {
+func (b *Backend) StartAttachedFileUpload(
+	ctx context.Context,
+	in *StartAttachedFileUploadInput,
+) (*attachedFileCreated, error) {
 	return writeInstance(b, "StartAttachedFileUpload", in.InstanceID, func(inst string) (*attachedFileCreated, error) {
 		expiry, err := b.checkAttachUpload(inst, in)
 		if err != nil {
@@ -372,7 +401,10 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		return nil, invalidParamErr("FileSourceUri must be an s3:// URI")
 	}
 
-	if err := firstError(oneOf("FileUseCaseType", in.FileUseCaseType, useCaseVoiceRecording), checkTags(in.Tags)); err != nil {
+	if err := firstError(
+		oneOf("FileUseCaseType", in.FileUseCaseType, useCaseVoiceRecording),
+		checkTags(in.Tags),
+	); err != nil {
 		return nil, err
 	}
 
@@ -392,7 +424,9 @@ func (b *Backend) CreateAttachedFile(ctx context.Context, in *CreateAttachedFile
 		}
 
 		rec := b.newAttachedFile(ctx, inst, path.Base(key), in.FileUseCaseType, in.AssociatedResourceArn, in.Tags)
-		rec.Size, rec.Status, rec.Source, rec.Content, rec.Uploaded = int64(len(data)), fileStatusApproved, in.FileSourceURI, data, true
+		rec.Size, rec.Status, rec.Source, rec.Content, rec.Uploaded = int64(
+			len(data),
+		), fileStatusApproved, in.FileSourceURI, data, true
 		b.attachedFiles.put(rec)
 
 		return &attachedFileCreated{
@@ -467,7 +501,7 @@ func (b *Backend) CompleteAttachedFileUpload(in *fileRef) (*empty, error) {
 
 // GetAttachedFile returns the metadata of a file and, once approved, a download URL.
 func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput) (*attachedFileOut, error) {
-	expiry, err := checkURLExpiry(in.UrlExpiryInSeconds)
+	expiry, err := checkURLExpiry(in.URLExpiryInSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -489,14 +523,14 @@ func (b *Backend) GetAttachedFile(ctx context.Context, in *GetAttachedFileInput)
 
 // BatchGetAttachedFileMetadata returns the metadata of up to 100 files; the rest are reported as errors.
 func (b *Backend) BatchGetAttachedFileMetadata(in *BatchGetAttachedFileMetadataInput) (*attachedBatchOut, error) {
-	if n := len(in.FileIds); n < 1 || n > maxBatchFiles {
+	if n := len(in.FileIDs); n < 1 || n > maxBatchFiles {
 		return nil, invalidParamErr("FileIds must hold 1-%d items", maxBatchFiles)
 	}
 
 	return readInstance(b, "BatchGetAttachedFileMetadata", in.InstanceID, func(inst string) (*attachedBatchOut, error) {
 		out := &attachedBatchOut{Files: []AttachedFile{}, Errors: []AttachedFileError{}}
 
-		for _, id := range in.FileIds {
+		for _, id := range in.FileIDs {
 			r, err := b.fileOf(inst, id, in.AssociatedResourceArn)
 			if err != nil {
 				out.Errors = append(out.Errors, AttachedFileError{
@@ -530,9 +564,16 @@ func (b *Backend) DescribeAttachedFilesConfiguration(in *configRef) (*attachedCo
 		return nil, err
 	}
 
-	return readInstance(b, "DescribeAttachedFilesConfiguration", in.InstanceID, func(inst string) (*attachedConfigOut, error) {
-		return &attachedConfigOut{AttachedFilesConfiguration: b.attachedConfig(inst, in.AttachmentScope).view()}, nil
-	})
+	return readInstance(
+		b,
+		"DescribeAttachedFilesConfiguration",
+		in.InstanceID,
+		func(inst string) (*attachedConfigOut, error) {
+			return &attachedConfigOut{
+				AttachedFilesConfiguration: b.attachedConfig(inst, in.AttachmentScope).view(),
+			}, nil
+		},
+	)
 }
 
 type attachedConfigOut struct {
@@ -540,15 +581,23 @@ type attachedConfigOut struct {
 }
 
 // ListAttachedFilesConfigurations lists the attachment policy of every scope.
-func (b *Backend) ListAttachedFilesConfigurations(inst, token string, maxResults int32) ([]AttachedFilesConfiguration, string, error) {
-	all, err := readInstance(b, "ListAttachedFilesConfigurations", inst, func(inst string) ([]AttachedFilesConfiguration, error) {
-		out := make([]AttachedFilesConfiguration, 0, len(attachmentScopes()))
-		for _, s := range attachmentScopes() {
-			out = append(out, *b.attachedConfig(inst, s).view())
-		}
+func (b *Backend) ListAttachedFilesConfigurations(
+	inst, token string,
+	maxResults int32,
+) ([]AttachedFilesConfiguration, string, error) {
+	all, err := readInstance(
+		b,
+		"ListAttachedFilesConfigurations",
+		inst,
+		func(inst string) ([]AttachedFilesConfiguration, error) {
+			out := make([]AttachedFilesConfiguration, 0, len(attachmentScopes()))
+			for _, s := range attachmentScopes() {
+				out = append(out, *b.attachedConfig(inst, s).view())
+			}
 
-		return out, nil
-	})
+			return out, nil
+		},
+	)
 	if err != nil {
 		return nil, "", err
 	}
@@ -557,7 +606,10 @@ func (b *Backend) ListAttachedFilesConfigurations(inst, token string, maxResults
 }
 
 // UpdateAttachedFilesConfiguration changes the size limit and allowed extensions of a scope.
-func (b *Backend) UpdateAttachedFilesConfiguration(ctx context.Context, in *UpdateAttachedFilesConfigurationInput) (*AttachedFilesConfiguration, error) {
+func (b *Backend) UpdateAttachedFilesConfiguration(
+	_ context.Context,
+	in *UpdateAttachedFilesConfigurationInput,
+) (*AttachedFilesConfiguration, error) {
 	if err := oneOf("AttachmentScope", in.AttachmentScope, attachmentScopes()...); err != nil {
 		return nil, err
 	}
@@ -579,20 +631,25 @@ func (b *Backend) UpdateAttachedFilesConfiguration(ctx context.Context, in *Upda
 		}
 	}
 
-	return writeInstance(b, "UpdateAttachedFilesConfiguration", in.InstanceID, func(inst string) (*AttachedFilesConfiguration, error) {
-		rec := *b.attachedConfig(inst, in.AttachmentScope)
-		if exts != nil {
-			rec.Extensions = exts
-		}
+	return writeInstance(
+		b,
+		"UpdateAttachedFilesConfiguration",
+		in.InstanceID,
+		func(inst string) (*AttachedFilesConfiguration, error) {
+			rec := *b.attachedConfig(inst, in.AttachmentScope)
+			if exts != nil {
+				rec.Extensions = exts
+			}
 
-		if in.MaximumSizeLimitInBytes != nil {
-			rec.MaxSize = *in.MaximumSizeLimitInBytes
-		}
+			if in.MaximumSizeLimitInBytes != nil {
+				rec.MaxSize = *in.MaximumSizeLimitInBytes
+			}
 
-		t := awstime.NewEpochTime(b.now())
-		rec.LastModified = &t
-		b.attachedConfigs.put(&rec)
+			t := awstime.NewEpochTime(b.now())
+			rec.LastModified = &t
+			b.attachedConfigs.put(&rec)
 
-		return rec.view(), nil
-	})
+			return rec.view(), nil
+		},
+	)
 }

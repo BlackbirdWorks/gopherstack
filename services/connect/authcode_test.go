@@ -43,7 +43,10 @@ func TestCreateAuthCodeAndDeleteSession(t *testing.T) {
 	assert.NotEqual(t, aws.ToString(first.SessionId), aws.ToString(second.SessionId))
 
 	del := func(id string) error {
-		_, derr := f.client.DeleteSession(t.Context(), &sdk.DeleteSessionInput{InstanceId: aws.String(inst), SessionId: aws.String(id)})
+		_, derr := f.client.DeleteSession(
+			t.Context(),
+			&sdk.DeleteSessionInput{InstanceId: aws.String(inst), SessionId: aws.String(id)},
+		)
 
 		return derr
 	}
@@ -62,20 +65,48 @@ func TestCreateAuthCodeValidation(t *testing.T) {
 		name string
 		code string
 	}{
-		{name: "inactivity too short", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) { in.SessionInactivityDurationMinutes = 60 }},
-		{name: "inactivity too long", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) { in.SessionInactivityDurationMinutes = 20161 }},
-		{name: "max session too short", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) { in.MaxSessionDurationMinutes = aws.Int32(100) }},
-		{name: "max session too long", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) { in.MaxSessionDurationMinutes = aws.Int32(43201) }},
+		{
+			name: "inactivity too short",
+			code: "InvalidParameterException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.SessionInactivityDurationMinutes = 60 },
+		},
+		{
+			name: "inactivity too long",
+			code: "InvalidParameterException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.SessionInactivityDurationMinutes = 20161 },
+		},
+		{
+			name: "max session too short",
+			code: "InvalidParameterException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.MaxSessionDurationMinutes = aws.Int32(100) },
+		},
+		{
+			name: "max session too long",
+			code: "InvalidParameterException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.MaxSessionDurationMinutes = aws.Int32(43201) },
+		},
 		{name: "inactivity beyond max", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) {
 			in.SessionInactivityDurationMinutes = 2880
 			in.MaxSessionDurationMinutes = aws.Int32(1440)
 		}},
-		{name: "entity type", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) { in.Scope.EntityType = "AGENT" }},
-		{name: "unknown security profile", code: "ResourceNotFoundException", mut: func(in *sdk.CreateAuthCodeInput) { in.Scope.SecurityProfileIds = []string{"nope"} }},
+		{
+			name: "entity type",
+			code: "InvalidParameterException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.Scope.EntityType = "AGENT" },
+		},
+		{
+			name: "unknown security profile",
+			code: "ResourceNotFoundException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.Scope.SecurityProfileIds = []string{"nope"} },
+		},
 		{name: "too many profiles", code: "InvalidParameterException", mut: func(in *sdk.CreateAuthCodeInput) {
 			in.Scope.SecurityProfileIds = make([]string, 11)
 		}},
-		{name: "unknown instance", code: "ResourceNotFoundException", mut: func(in *sdk.CreateAuthCodeInput) { in.InstanceId = aws.String("missing") }},
+		{
+			name: "unknown instance",
+			code: "ResourceNotFoundException",
+			mut:  func(in *sdk.CreateAuthCodeInput) { in.InstanceId = aws.String("missing") },
+		},
 	}
 
 	for _, tt := range tests {
@@ -109,6 +140,9 @@ func TestAuthSessionsSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	r := f.restored(t)
-	_, err = r.client.DeleteSession(t.Context(), &sdk.DeleteSessionInput{InstanceId: aws.String(inst), SessionId: out.SessionId})
+	_, err = r.client.DeleteSession(
+		t.Context(),
+		&sdk.DeleteSessionInput{InstanceId: aws.String(inst), SessionId: out.SessionId},
+	)
 	require.NoError(t, err)
 }

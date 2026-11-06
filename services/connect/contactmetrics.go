@@ -69,7 +69,10 @@ func (b *Backend) GetContactMetrics(in *GetContactMetricsInput) (*contactMetrics
 				v = position * b.meanQueueAnswer(inst, c.queueID())
 			}
 
-			out.MetricResults = append(out.MetricResults, ContactMetricResult{Name: m.Name, Value: ContactMetricValue{Number: v}})
+			out.MetricResults = append(
+				out.MetricResults,
+				ContactMetricResult{Name: m.Name, Value: ContactMetricValue{Number: v}},
+			)
 		}
 
 		return out, nil

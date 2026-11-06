@@ -3,6 +3,7 @@ package connect
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 
@@ -15,6 +16,10 @@ const (
 	evalSubmitted    = "SUBMITTED"
 	evalTypeStandard = "STANDARD"
 	maxEvalNote      = 3072
+	qtSingle         = "SINGLESELECT"
+	qtMulti          = "MULTISELECT"
+	qtNumeric        = "NUMERIC"
+	pctScale         = 100
 )
 
 // EvaluationAnswerData is the value of one answer.
@@ -53,14 +58,14 @@ type evaluationRec struct {
 	Scores         map[string]EvaluationScore  `json:"scores,omitempty"`
 	Tags           map[string]string           `json:"tags,omitempty"`
 	Score          *EvaluationScore            `json:"score,omitempty"`
-	InstanceID     string                      `json:"instanceId"`
 	ID             string                      `json:"id"`
+	InstanceID     string                      `json:"instanceId"`
 	Arn            string                      `json:"arn"`
 	ContactID      string                      `json:"contactId"`
 	FormID         string                      `json:"formId"`
-	FormVersion    int32                       `json:"formVersion"`
 	Status         string                      `json:"status"`
 	EvaluatorArn   string                      `json:"evaluatorArn,omitempty"`
+	FormVersion    int32                       `json:"formVersion"`
 	AutoEvaluation bool                        `json:"autoEvaluation,omitempty"`
 }
 
@@ -92,10 +97,10 @@ type Evaluation struct {
 
 // EvaluationFormContent is the form version an evaluation was started from.
 type EvaluationFormContent struct {
+	EvaluationFormArn string `json:"EvaluationFormArn"`
+	EvaluationFormID  string `json:"EvaluationFormId"`
 	formContent
-	EvaluationFormArn     string `json:"EvaluationFormArn"`
-	EvaluationFormID      string `json:"EvaluationFormId"`
-	EvaluationFormVersion int32  `json:"EvaluationFormVersion"`
+	EvaluationFormVersion int32 `json:"EvaluationFormVersion"`
 }
 
 type evaluationDescribeOut struct {
@@ -164,9 +169,9 @@ type evaluationIDsOut struct {
 type evalQuestion struct {
 	Props struct {
 		Numeric *struct {
+			Options  []evalNumRange `json:"Options"`
 			MinValue float64        `json:"MinValue"`
 			MaxValue float64        `json:"MaxValue"`
-			Options  []evalNumRange `json:"Options"`
 		} `json:"Numeric"`
 		SingleSelect *evalOptions `json:"SingleSelect"`
 		MultiSelect  *evalOptions `json:"MultiSelect"`
@@ -201,17 +206,24 @@ type evalTally struct {
 	fail, scored      bool
 }
 
-func (t *evalTally) add(o evalTally) {
-	t.earned += o.earned
-	t.maxPoints += o.maxPoints
-	t.fail = t.fail || o.fail
-	t.scored = t.scored || o.scored
+func (t evalTally) plus(o evalTally) evalTally {
+	return evalTally{
+		earned:    t.earned + o.earned,
+		maxPoints: t.maxPoints + o.maxPoints,
+		fail:      t.fail || o.fail,
+		scored:    t.scored || o.scored,
+	}
 }
 
 func (t evalTally) score() EvaluationScore {
-	s := EvaluationScore{EarnedPoints: t.earned, MaxBasePoint: t.maxPoints, AutomaticFail: t.fail, NotApplicable: !t.scored}
+	s := EvaluationScore{
+		EarnedPoints:  t.earned,
+		MaxBasePoint:  t.maxPoints,
+		AutomaticFail: t.fail,
+		NotApplicable: !t.scored,
+	}
 	if t.maxPoints > 0 && !t.fail {
-		s.Percentage = float64(t.earned) / float64(t.maxPoints) * 100
+		s.Percentage = float64(t.earned) / float64(t.maxPoints) * pctScale
 	}
 
 	return s
@@ -272,12 +284,16 @@ func questionTally(q evalQuestion, a EvaluationAnswer) evalTally {
 }
 
 // scoreEvaluation scores answered questions per section and overall; unscored forms yield no scores.
-func scoreEvaluation(c *formContent, answers map[string]EvaluationAnswer) (map[string]EvaluationScore, *EvaluationScore) {
+func scoreEvaluation(
+	c *formContent,
+	answers map[string]EvaluationAnswer,
+) (map[string]EvaluationScore, *EvaluationScore) {
 	var strategy struct {
 		Status string `json:"Status"`
 	}
 
-	if len(c.ScoringStrategy) == 0 || json.Unmarshal(c.ScoringStrategy, &strategy) != nil || strategy.Status != "ENABLED" {
+	if len(c.ScoringStrategy) == 0 || json.Unmarshal(c.ScoringStrategy, &strategy) != nil ||
+		strategy.Status != "ENABLED" {
 		return nil, nil
 	}
 
@@ -290,12 +306,10 @@ func scoreEvaluation(c *formContent, answers map[string]EvaluationAnswer) (map[s
 		}
 
 		t := questionTally(q, a)
-		total.add(t)
+		total = total.plus(t)
 
 		for _, s := range within {
-			cur := sections[s]
-			cur.add(t)
-			sections[s] = cur
+			sections[s] = sections[s].plus(t)
 		}
 	})
 
@@ -316,20 +330,14 @@ func checkAnswer(q evalQuestion, a EvaluationAnswer) error {
 	}
 
 	switch q.QuestionType {
-	case "SINGLESELECT":
+	case qtSingle:
 		if q.Props.SingleSelect == nil || !hasOption(q.Props.SingleSelect, v.StringValue) {
 			return invalidParamErr("answer to %q must be the RefId of one of its options in StringValue", q.RefID)
 		}
-	case "MULTISELECT":
-		if q.Props.MultiSelect == nil || len(v.StringValues) == 0 ||
-			slices.ContainsFunc(v.StringValues, func(s string) bool { return !hasOption(q.Props.MultiSelect, s) }) {
-			return invalidParamErr("answer to %q must list RefIds of its options in StringValues", q.RefID)
-		}
-	case "NUMERIC":
-		n := q.Props.Numeric
-		if n == nil || v.NumericValue == nil || *v.NumericValue < n.MinValue || *v.NumericValue > n.MaxValue {
-			return invalidParamErr("answer to %q must be a NumericValue within its range", q.RefID)
-		}
+	case qtMulti:
+		return checkMultiAnswer(q, v)
+	case qtNumeric:
+		return checkNumericAnswer(q, v)
 	case "DATETIME":
 		if v.DateTimeValue == "" {
 			return invalidParamErr("answer to %q needs a DateTimeValue", q.RefID)
@@ -338,6 +346,24 @@ func checkAnswer(q evalQuestion, a EvaluationAnswer) error {
 		if v.StringValue == "" {
 			return invalidParamErr("answer to %q needs a StringValue", q.RefID)
 		}
+	}
+
+	return nil
+}
+
+func checkMultiAnswer(q evalQuestion, v EvaluationAnswerData) error {
+	if q.Props.MultiSelect == nil || len(v.StringValues) == 0 ||
+		slices.ContainsFunc(v.StringValues, func(s string) bool { return !hasOption(q.Props.MultiSelect, s) }) {
+		return invalidParamErr("answer to %q must list RefIds of its options in StringValues", q.RefID)
+	}
+
+	return nil
+}
+
+func checkNumericAnswer(q evalQuestion, v EvaluationAnswerData) error {
+	n := q.Props.Numeric
+	if n == nil || v.NumericValue == nil || *v.NumericValue < n.MinValue || *v.NumericValue > n.MaxValue {
+		return invalidParamErr("answer to %q must be a NumericValue within its range", q.RefID)
 	}
 
 	return nil
@@ -369,7 +395,10 @@ func (b *Backend) evalFormVersion(inst string, r *evaluationRec) (*evalFormVersi
 }
 
 // StartContactEvaluation opens a draft evaluation of a contact against the active version of a form.
-func (b *Backend) StartContactEvaluation(ctx context.Context, in *StartContactEvaluationInput) (*evaluationIDsOut, error) {
+func (b *Backend) StartContactEvaluation(
+	ctx context.Context,
+	in *StartContactEvaluationInput,
+) (*evaluationIDsOut, error) {
 	if in.ContactID == "" || in.EvaluationFormID == "" {
 		return nil, invalidParamErr("ContactId and EvaluationFormId are required")
 	}
@@ -408,7 +437,11 @@ func (b *Backend) StartContactEvaluation(ctx context.Context, in *StartContactEv
 
 // applyEvaluation validates answers and notes against the form and merges them into the draft.
 func (b *Backend) applyEvaluation(
-	inst string, r *evaluationRec, answers map[string]EvaluationAnswer, notes map[string]EvaluationNote, by *EvaluatorUser,
+	inst string,
+	r *evaluationRec,
+	answers map[string]EvaluationAnswer,
+	notes map[string]EvaluationNote,
+	by *EvaluatorUser,
 ) error {
 	if r.Status != evalDraft {
 		return invalidRequestErr("evaluation %q is %s and cannot change", r.ID, r.Status)
@@ -440,13 +473,8 @@ func (b *Backend) applyEvaluation(
 		}
 	}
 
-	for ref, a := range answers {
-		r.Answers[ref] = a
-	}
-
-	for ref, n := range notes {
-		r.Notes[ref] = n
-	}
+	maps.Copy(r.Answers, answers)
+	maps.Copy(r.Notes, notes)
 
 	if by != nil && by.ConnectUserArn != "" {
 		r.EvaluatorArn = by.ConnectUserArn
@@ -515,43 +543,57 @@ func (b *Backend) evaluationView(inst string, r *evaluationRec) Evaluation {
 	}
 
 	return Evaluation{
-		Metadata: meta, Answers: maps2(r.Answers), Notes: maps2(r.Notes), Scores: maps2(scores), Tags: cloneTags(r.Tags),
-		CreatedTime: r.CreatedTime, LastModifiedTime: r.LastModified, EvaluationID: r.ID, EvaluationArn: r.Arn,
-		Status: r.Status, EvaluationType: evalTypeStandard,
+		Metadata:         meta,
+		Answers:          maps2(r.Answers),
+		Notes:            maps2(r.Notes),
+		Scores:           maps2(scores),
+		Tags:             cloneTags(r.Tags),
+		CreatedTime:      r.CreatedTime,
+		LastModifiedTime: r.LastModified,
+		EvaluationID:     r.ID,
+		EvaluationArn:    r.Arn,
+		Status:           r.Status,
+		EvaluationType:   evalTypeStandard,
 	}
 }
 
 func maps2[V any](m map[string]V) map[string]V {
 	out := make(map[string]V, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 
 	return out
 }
 
 // DescribeContactEvaluation returns an evaluation and the form version it follows.
 func (b *Backend) DescribeContactEvaluation(in *evaluationRef) (*evaluationDescribeOut, error) {
-	return readInstance(b, "DescribeContactEvaluation", in.InstanceID, func(inst string) (*evaluationDescribeOut, error) {
-		r, err := b.evaluations.get(inst, in.EvaluationID)
-		if err != nil {
-			return nil, err
-		}
+	return readInstance(
+		b,
+		"DescribeContactEvaluation",
+		in.InstanceID,
+		func(inst string) (*evaluationDescribeOut, error) {
+			r, err := b.evaluations.get(inst, in.EvaluationID)
+			if err != nil {
+				return nil, err
+			}
 
-		v, err := b.evalFormVersion(inst, r)
-		if err != nil {
-			return nil, err
-		}
+			v, err := b.evalFormVersion(inst, r)
+			if err != nil {
+				return nil, err
+			}
 
-		form, _ := b.evalForms.get(inst, r.FormID)
+			form, _ := b.evalForms.get(inst, r.FormID)
 
-		return &evaluationDescribeOut{
-			Evaluation: b.evaluationView(inst, r),
-			EvaluationForm: EvaluationFormContent{
-				formContent: v.Content, EvaluationFormArn: form.Arn, EvaluationFormID: form.ID, EvaluationFormVersion: v.Version,
-			},
-		}, nil
-	})
+			return &evaluationDescribeOut{
+				Evaluation: b.evaluationView(inst, r),
+				EvaluationForm: EvaluationFormContent{
+					formContent:           v.Content,
+					EvaluationFormArn:     form.Arn,
+					EvaluationFormID:      form.ID,
+					EvaluationFormVersion: v.Version,
+				},
+			}, nil
+		},
+	)
 }
 
 // ListContactEvaluations lists the evaluations of one contact, newest first.
@@ -561,8 +603,14 @@ func (b *Backend) ListContactEvaluations(inst, contactID string) ([]EvaluationSu
 	}
 
 	return readInstance(b, "ListContactEvaluations", inst, func(inst string) ([]EvaluationSummary, error) {
-		recs := slices.DeleteFunc(b.evaluations.in(inst), func(r *evaluationRec) bool { return r.ContactID != contactID })
-		slices.SortStableFunc(recs, func(a, c *evaluationRec) int { return c.CreatedTime.Time.Compare(a.CreatedTime.Time) })
+		recs := slices.DeleteFunc(
+			b.evaluations.in(inst),
+			func(r *evaluationRec) bool { return r.ContactID != contactID },
+		)
+		slices.SortStableFunc(
+			recs,
+			func(a, c *evaluationRec) int { return c.CreatedTime.Time.Compare(a.CreatedTime.Time) },
+		)
 
 		out := make([]EvaluationSummary, 0, len(recs))
 

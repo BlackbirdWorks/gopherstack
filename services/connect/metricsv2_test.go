@@ -42,7 +42,9 @@ func historyEnv(t *testing.T) (*contactEnv, time.Time) {
 	return e, start
 }
 
-func (e *contactEnv) instARN() string { return "arn:aws:connect:us-east-1:" + testAccount + ":instance/" + e.inst }
+func (e *contactEnv) instARN() string {
+	return "arn:aws:connect:us-east-1:" + testAccount + ":instance/" + e.inst
+}
 
 func TestGetMetricDataV2Values(t *testing.T) {
 	t.Parallel()
@@ -106,15 +108,22 @@ func TestGetMetricDataV2FiltersGroupingsIntervals(t *testing.T) {
 	assert.Contains(t, byChannel.MetricResults[0].Dimensions["QUEUE_ARN"], "/queue/"+e.queue)
 
 	chatOnly := call(func(in *sdk.GetMetricDataV2Input) {
-		in.Filters = append(in.Filters, types.FilterV2{FilterKey: aws.String("CHANNEL"), FilterValues: []string{"CHAT"}})
+		in.Filters = append(
+			in.Filters,
+			types.FilterV2{FilterKey: aws.String("CHANNEL"), FilterValues: []string{"CHAT"}},
+		)
 	})
 	assert.InDelta(t, 0, aws.ToFloat64(chatOnly.MetricResults[0].Collections[0].Value), 0.001)
 
 	byMethod := call(func(in *sdk.GetMetricDataV2Input) {
-		in.Metrics = []types.MetricV2{{
-			Name:          aws.String("CONTACTS_CREATED"),
-			MetricFilters: []types.MetricFilterV2{{MetricFilterKey: aws.String("INITIATION_METHOD"), MetricFilterValues: []string{"OUTBOUND"}}},
-		}}
+		in.Metrics = []types.MetricV2{
+			{
+				Name: aws.String("CONTACTS_CREATED"),
+				MetricFilters: []types.MetricFilterV2{
+					{MetricFilterKey: aws.String("INITIATION_METHOD"), MetricFilterValues: []string{"OUTBOUND"}},
+				},
+			},
+		}
 	})
 	assert.InDelta(t, 2, aws.ToFloat64(byMethod.MetricResults[0].Collections[0].Value), 0.001)
 
@@ -122,7 +131,11 @@ func TestGetMetricDataV2FiltersGroupingsIntervals(t *testing.T) {
 		in.Metrics = []types.MetricV2{{
 			Name: aws.String("CONTACTS_CREATED"),
 			MetricFilters: []types.MetricFilterV2{
-				{MetricFilterKey: aws.String("INITIATION_METHOD"), MetricFilterValues: []string{"OUTBOUND"}, Negate: true},
+				{
+					MetricFilterKey:    aws.String("INITIATION_METHOD"),
+					MetricFilterValues: []string{"OUTBOUND"},
+					Negate:             true,
+				},
 			},
 		}}
 	})
@@ -136,7 +149,10 @@ func TestGetMetricDataV2FiltersGroupingsIntervals(t *testing.T) {
 	hourly := call(func(in *sdk.GetMetricDataV2Input) {
 		in.StartTime = aws.Time(start)
 		in.EndTime = aws.Time(start.Add(150 * time.Minute))
-		in.Interval = &types.IntervalDetails{IntervalPeriod: types.IntervalPeriodHour, TimeZone: aws.String("America/Chicago")}
+		in.Interval = &types.IntervalDetails{
+			IntervalPeriod: types.IntervalPeriodHour,
+			TimeZone:       aws.String("America/Chicago"),
+		}
 	})
 	require.Len(t, hourly.MetricResults, 3)
 	assert.InDelta(t, 2, aws.ToFloat64(hourly.MetricResults[0].Collections[0].Value), 0.001)
@@ -161,56 +177,132 @@ func TestGetMetricDataV2Validation(t *testing.T) {
 		name string
 		code string
 	}{
-		{name: "bad arn", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) { in.ResourceArn = aws.String("nope") }},
-		{name: "unknown instance", code: "ResourceNotFoundException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.ResourceArn = aws.String("arn:aws:connect:us-east-1:123456789012:instance/missing")
-		}},
-		{name: "start after end", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.StartTime, in.EndTime = in.EndTime, in.StartTime
-		}},
-		{name: "end in future", code: "InvalidParameterException", mut: func(e *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.EndTime = aws.Time(e.f.clock.now().Add(time.Hour))
-		}},
-		{name: "no scoping filter", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Filters = []types.FilterV2{{FilterKey: aws.String("CHANNEL"), FilterValues: []string{"VOICE"}}}
-		}},
-		{name: "unsupported filter key", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Filters = append(in.Filters, types.FilterV2{FilterKey: aws.String("AGENT_HIERARCHY_LEVEL_ONE"), FilterValues: []string{"x"}})
-		}},
-		{name: "unsupported grouping", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Groupings = []string{"FEATURE"}
-		}},
-		{name: "unsupported metric", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{v2Metric("AGENT_ONLINE_TIME")}
-		}},
-		{name: "threshold missing", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{v2Metric("SERVICE_LEVEL")}
-		}},
-		{name: "threshold on plain metric", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{{Name: aws.String("CONTACTS_QUEUED"), Threshold: []types.ThresholdV2{{Comparison: aws.String("LT"), ThresholdValue: aws.Float64(5)}}}}
-		}},
-		{name: "metric filter not valid for metric", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{{
-				Name:          aws.String("CONTACTS_QUEUED"),
-				MetricFilters: []types.MetricFilterV2{{MetricFilterKey: aws.String("INITIATION_METHOD"), MetricFilterValues: []string{"API"}}},
-			}}
-		}},
-		{name: "name and id", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{{Name: aws.String("CONTACTS_QUEUED"), MetricId: aws.String("x")}}
-		}},
-		{name: "unknown custom metric", code: "ResourceNotFoundException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Metrics = []types.MetricV2{{MetricId: aws.String("nope")}}
-		}},
-		{name: "span too long for hour", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.StartTime = aws.Time(in.EndTime.Add(-4 * 24 * time.Hour))
-			in.Interval = &types.IntervalDetails{IntervalPeriod: types.IntervalPeriodHour}
-		}},
-		{name: "bad time zone", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.Interval = &types.IntervalDetails{TimeZone: aws.String("Mars/Base")}
-		}},
-		{name: "bad max results", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
-			in.MaxResults = aws.Int32(500)
-		}},
+		{
+			name: "bad arn",
+			code: "InvalidParameterException",
+			mut:  func(_ *contactEnv, in *sdk.GetMetricDataV2Input) { in.ResourceArn = aws.String("nope") },
+		},
+		{
+			name: "unknown instance",
+			code: "ResourceNotFoundException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.ResourceArn = aws.String("arn:aws:connect:us-east-1:123456789012:instance/missing")
+			},
+		},
+		{
+			name: "start after end",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.StartTime, in.EndTime = in.EndTime, in.StartTime
+			},
+		},
+		{
+			name: "end in future",
+			code: "InvalidParameterException",
+			mut: func(e *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.EndTime = aws.Time(e.f.clock.now().Add(time.Hour))
+			},
+		},
+		{
+			name: "no scoping filter",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Filters = []types.FilterV2{{FilterKey: aws.String("CHANNEL"), FilterValues: []string{"VOICE"}}}
+			},
+		},
+		{
+			name: "unsupported filter key",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Filters = append(
+					in.Filters,
+					types.FilterV2{FilterKey: aws.String("AGENT_HIERARCHY_LEVEL_ONE"), FilterValues: []string{"x"}},
+				)
+			},
+		},
+		{
+			name: "unsupported grouping",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Groupings = []string{"FEATURE"}
+			},
+		},
+		{
+			name: "unsupported metric",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{v2Metric("AGENT_ONLINE_TIME")}
+			},
+		},
+		{
+			name: "threshold missing",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{v2Metric("SERVICE_LEVEL")}
+			},
+		},
+		{
+			name: "threshold on plain metric",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{
+					{
+						Name:      aws.String("CONTACTS_QUEUED"),
+						Threshold: []types.ThresholdV2{{Comparison: aws.String("LT"), ThresholdValue: aws.Float64(5)}},
+					},
+				}
+			},
+		},
+		{
+			name: "metric filter not valid for metric",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{
+					{
+						Name: aws.String("CONTACTS_QUEUED"),
+						MetricFilters: []types.MetricFilterV2{
+							{MetricFilterKey: aws.String("INITIATION_METHOD"), MetricFilterValues: []string{"API"}},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "name and id",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{{Name: aws.String("CONTACTS_QUEUED"), MetricId: aws.String("x")}}
+			},
+		},
+		{
+			name: "unknown custom metric",
+			code: "ResourceNotFoundException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Metrics = []types.MetricV2{{MetricId: aws.String("nope")}}
+			},
+		},
+		{
+			name: "span too long for hour",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.StartTime = aws.Time(in.EndTime.Add(-4 * 24 * time.Hour))
+				in.Interval = &types.IntervalDetails{IntervalPeriod: types.IntervalPeriodHour}
+			},
+		},
+		{
+			name: "bad time zone",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.Interval = &types.IntervalDetails{TimeZone: aws.String("Mars/Base")}
+			},
+		},
+		{
+			name: "bad max results",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.GetMetricDataV2Input) {
+				in.MaxResults = aws.Int32(500)
+			},
+		},
 	}
 
 	for _, tt := range tests {

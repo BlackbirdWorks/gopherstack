@@ -135,6 +135,20 @@ func (r *testCaseRec) effective() (*testCaseVersion, string) {
 	return r.Saved, testStatusSaved
 }
 
+// updateTarget is the version an update starts from: the named one, else the other version.
+func (r *testCaseRec) updateTarget(status string) *testCaseVersion {
+	cur := r.Saved
+	if status == testStatusPub {
+		cur = r.Published
+	}
+
+	if cur == nil {
+		cur, _ = r.effective()
+	}
+
+	return cur
+}
+
 func (r *testCaseRec) version(status string) (*testCaseVersion, string) {
 	switch status {
 	case testStatusPub:
@@ -150,9 +164,18 @@ func (r *testCaseRec) view(v *testCaseVersion, status string) TestCase {
 	sum := sha256.Sum256([]byte(v.Content))
 
 	return TestCase{
-		LastModifiedTime: v.LastModified, EntryPoint: v.EntryPoint, Tags: cloneTags(r.Tags), Arn: r.Arn, Content: v.Content,
-		Description: v.Description, ID: r.ID, InitializationData: v.InitializationData, LastModifiedRegion: v.LastModifiedRegion,
-		Name: r.Name, Status: status, TestCaseSha256: hex.EncodeToString(sum[:]),
+		LastModifiedTime:   v.LastModified,
+		EntryPoint:         v.EntryPoint,
+		Tags:               cloneTags(r.Tags),
+		Arn:                r.Arn,
+		Content:            v.Content,
+		Description:        v.Description,
+		ID:                 r.ID,
+		InitializationData: v.InitializationData,
+		LastModifiedRegion: v.LastModifiedRegion,
+		Name:               r.Name,
+		Status:             status,
+		TestCaseSha256:     hex.EncodeToString(sum[:]),
 	}
 }
 
@@ -345,20 +368,7 @@ func (b *Backend) UpdateTestCase(ctx context.Context, in *UpdateTestCaseInput) (
 		}
 
 		status := orDefault(in.Status, testStatusSaved)
-		base, _ := r.effective()
-
-		var cur *testCaseVersion
-		if status == testStatusPub {
-			cur = r.Published
-		} else {
-			cur = r.Saved
-		}
-
-		if cur == nil {
-			cur = base
-		}
-
-		v := cur.clone()
+		v := r.updateTarget(status).clone()
 		applyTestCaseUpdate(v, in)
 
 		_, region := b.scope(ctx)

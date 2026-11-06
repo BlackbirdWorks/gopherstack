@@ -161,40 +161,90 @@ func TestStartAttachedFileUploadValidation(t *testing.T) {
 		name string
 		code string
 	}{
-		{name: "bad extension", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.FileName = aws.String("run.exe")
-		}},
-		{name: "no extension", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.FileName = aws.String("README")
-		}},
-		{name: "too big", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.FileSizeInBytes = aws.Int64(30 * 1024 * 1024)
-		}},
-		{name: "zero size", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.FileSizeInBytes = aws.Int64(0)
-		}},
-		{name: "wrong use case", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.FileUseCaseType = types.FileUseCaseTypeVoiceRecording
-		}},
-		{name: "expiry out of range", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.UrlExpiryInSeconds = aws.Int32(3600)
-		}},
-		{name: "voice contact", code: "InvalidParameterException", mut: func(t *testing.T, e *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.AssociatedResourceArn = aws.String(e.contactARN(t, e.outbound(t, "+442071230001", true)))
-		}},
-		{name: "unknown contact", code: "ResourceNotFoundException", mut: func(_ *testing.T, e *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.AssociatedResourceArn = aws.String("arn:aws:connect:us-east-1:123456789012:instance/" + e.inst + "/contact/nope")
-		}},
-		{name: "not a resource", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.AssociatedResourceArn = aws.String("nonsense")
-		}},
-		{name: "both creators", code: "InvalidParameterException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.CreatedBy = &types.CreatedByInfoMemberConnectUserArn{Value: "arn:aws:connect:us-east-1:123456789012:instance/x/agent/y"}
-			in.FileName = aws.String("run.exe")
-		}},
-		{name: "unknown instance", code: "ResourceNotFoundException", mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
-			in.InstanceId = aws.String("missing")
-		}},
+		{
+			name: "bad extension",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.FileName = aws.String("run.exe")
+			},
+		},
+		{
+			name: "no extension",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.FileName = aws.String("README")
+			},
+		},
+		{
+			name: "too big",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.FileSizeInBytes = aws.Int64(30 * 1024 * 1024)
+			},
+		},
+		{
+			name: "zero size",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.FileSizeInBytes = aws.Int64(0)
+			},
+		},
+		{
+			name: "wrong use case",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.FileUseCaseType = types.FileUseCaseTypeVoiceRecording
+			},
+		},
+		{
+			name: "expiry out of range",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.UrlExpiryInSeconds = aws.Int32(3600)
+			},
+		},
+		{
+			name: "voice contact",
+			code: "InvalidParameterException",
+			mut: func(t *testing.T, e *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				t.Helper()
+
+				in.AssociatedResourceArn = aws.String(e.contactARN(t, e.outbound(t, "+442071230001", true)))
+			},
+		},
+		{
+			name: "unknown contact",
+			code: "ResourceNotFoundException",
+			mut: func(_ *testing.T, e *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.AssociatedResourceArn = aws.String(
+					"arn:aws:connect:us-east-1:123456789012:instance/" + e.inst + "/contact/nope",
+				)
+			},
+		},
+		{
+			name: "not a resource",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.AssociatedResourceArn = aws.String("nonsense")
+			},
+		},
+		{
+			name: "both creators",
+			code: "InvalidParameterException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.CreatedBy = &types.CreatedByInfoMemberConnectUserArn{
+					Value: "arn:aws:connect:us-east-1:123456789012:instance/x/agent/y",
+				}
+				in.FileName = aws.String("run.exe")
+			},
+		},
+		{
+			name: "unknown instance",
+			code: "ResourceNotFoundException",
+			mut: func(_ *testing.T, _ *contactEnv, in *sdk.StartAttachedFileUploadInput) {
+				in.InstanceId = aws.String("missing")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -203,8 +253,13 @@ func TestStartAttachedFileUploadValidation(t *testing.T) {
 
 			e := newContactEnv(t)
 			in := &sdk.StartAttachedFileUploadInput{
-				InstanceId: aws.String(e.inst), AssociatedResourceArn: aws.String(e.contactARN(t, e.task(t))),
-				FileName: aws.String("a.pdf"), FileSizeInBytes: aws.Int64(10), FileUseCaseType: types.FileUseCaseTypeAttachment,
+				InstanceId:            aws.String(e.inst),
+				AssociatedResourceArn: aws.String(e.contactARN(t, e.task(t))),
+				FileName: aws.String(
+					"a.pdf",
+				),
+				FileSizeInBytes: aws.Int64(10),
+				FileUseCaseType: types.FileUseCaseTypeAttachment,
 			}
 			tt.mut(t, e, in)
 
@@ -221,7 +276,11 @@ func TestStartAttachedFileUploadCases(t *testing.T) {
 	out, err := e.f.client.StartAttachedFileUpload(t.Context(), &sdk.StartAttachedFileUploadInput{
 		InstanceId:            aws.String(e.inst),
 		AssociatedResourceArn: aws.String("arn:aws:cases:us-east-1:123456789012:domain/d1/case/c1"),
-		FileName:              aws.String("photo.png"), FileSizeInBytes: aws.Int64(1), FileUseCaseType: types.FileUseCaseTypeAttachment,
+		FileName: aws.String(
+			"photo.png",
+		),
+		FileSizeInBytes:    aws.Int64(1),
+		FileUseCaseType:    types.FileUseCaseTypeAttachment,
 		CreatedBy:          &types.CreatedByInfoMemberAWSIdentityArn{Value: "arn:aws:iam::123456789012:user/me"},
 		UrlExpiryInSeconds: aws.Int32(60),
 	})
@@ -230,7 +289,11 @@ func TestStartAttachedFileUploadCases(t *testing.T) {
 	u, err := url.Parse(aws.ToString(out.UploadUrlMetadata.Url))
 	require.NoError(t, err)
 	assert.Equal(t, "put", u.Query().Get("op"))
-	assert.Equal(t, e.f.clock.now().Add(time.Minute).UTC().Format("2006-01-02T15:04:05.000Z"), aws.ToString(out.UploadUrlMetadata.UrlExpiry))
+	assert.Equal(
+		t,
+		e.f.clock.now().Add(time.Minute).UTC().Format("2006-01-02T15:04:05.000Z"),
+		aws.ToString(out.UploadUrlMetadata.UrlExpiry),
+	)
 
 	created, ok := out.CreatedBy.(*types.CreatedByInfoMemberAWSIdentityArn)
 	require.True(t, ok)
@@ -276,10 +339,14 @@ func TestCreateAttachedFileFromS3(t *testing.T) {
 	assert.Equal(t, []byte("RIFF"), body)
 
 	for name, mut := range map[string]func(*sdk.CreateAttachedFileInput){
-		"not s3":       func(in *sdk.CreateAttachedFileInput) { in.FileSourceUri = aws.String("https://x/y.wav") },
-		"use case":     func(in *sdk.CreateAttachedFileInput) { in.FileUseCaseType = types.FileUseCaseTypeAttachment },
-		"active":       func(in *sdk.CreateAttachedFileInput) { in.AssociatedResourceArn = aws.String(e.contactARN(t, e.outbound(t, "+442071230002", true))) },
-		"task contact": func(in *sdk.CreateAttachedFileInput) { in.AssociatedResourceArn = aws.String(e.contactARN(t, e.task(t))) },
+		"not s3":   func(in *sdk.CreateAttachedFileInput) { in.FileSourceUri = aws.String("https://x/y.wav") },
+		"use case": func(in *sdk.CreateAttachedFileInput) { in.FileUseCaseType = types.FileUseCaseTypeAttachment },
+		"active": func(in *sdk.CreateAttachedFileInput) {
+			in.AssociatedResourceArn = aws.String(e.contactARN(t, e.outbound(t, "+442071230002", true)))
+		},
+		"task contact": func(in *sdk.CreateAttachedFileInput) {
+			in.AssociatedResourceArn = aws.String(e.contactARN(t, e.task(t)))
+		},
 	} {
 		_, err = create(mut)
 		assert.Contains(t, []string{"InvalidParameterException", "InvalidRequestException"}, apiCode(err), name)
@@ -295,7 +362,10 @@ func TestAttachedFilesConfiguration(t *testing.T) {
 	e := newContactEnv(t)
 	inst := aws.String(e.inst)
 
-	list, err := e.f.client.ListAttachedFilesConfigurations(t.Context(), &sdk.ListAttachedFilesConfigurationsInput{InstanceId: inst})
+	list, err := e.f.client.ListAttachedFilesConfigurations(
+		t.Context(),
+		&sdk.ListAttachedFilesConfigurationsInput{InstanceId: inst},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.AttachedFilesConfigurations, 4)
 
@@ -319,7 +389,11 @@ func TestAttachedFilesConfiguration(t *testing.T) {
 	again, err := e.f.client.DescribeAttachedFilesConfiguration(t.Context(),
 		&sdk.DescribeAttachedFilesConfigurationInput{InstanceId: inst, AttachmentScope: types.AttachmentScopeTask})
 	require.NoError(t, err)
-	assert.Equal(t, "zip", aws.ToString(again.AttachedFilesConfiguration.ExtensionConfiguration.AllowedExtensions[0].Extension))
+	assert.Equal(
+		t,
+		"zip",
+		aws.ToString(again.AttachedFilesConfiguration.ExtensionConfiguration.AllowedExtensions[0].Extension),
+	)
 
 	resource := e.contactARN(t, e.task(t))
 	_, err = e.f.client.StartAttachedFileUpload(t.Context(), &sdk.StartAttachedFileUploadInput{
@@ -337,13 +411,18 @@ func TestAttachedFilesConfiguration(t *testing.T) {
 	assert.Equal(t, "InvalidParameterException", apiCode(err))
 
 	for name, in := range map[string]*sdk.UpdateAttachedFilesConfigurationInput{
-		"empty":     {InstanceId: inst, AttachmentScope: types.AttachmentScopeChat},
-		"big":       {InstanceId: inst, AttachmentScope: types.AttachmentScopeChat, MaximumSizeLimitInBytes: aws.Int64(104857601)},
+		"empty": {InstanceId: inst, AttachmentScope: types.AttachmentScopeChat},
+		"big": {
+			InstanceId: inst, AttachmentScope: types.AttachmentScopeChat, MaximumSizeLimitInBytes: aws.Int64(104857601),
+		},
 		"zero":      {InstanceId: inst, AttachmentScope: types.AttachmentScopeChat, MaximumSizeLimitInBytes: aws.Int64(0)},
 		"bad scope": {InstanceId: inst, AttachmentScope: "VOICE", MaximumSizeLimitInBytes: aws.Int64(1)},
-		"bad ext": {InstanceId: inst, AttachmentScope: types.AttachmentScopeChat, ExtensionConfiguration: &types.ExtensionConfiguration{
-			AllowedExtensions: []types.AllowedExtension{{Extension: aws.String(".pdf")}},
-		}},
+		"bad ext": {
+			InstanceId: inst, AttachmentScope: types.AttachmentScopeChat,
+			ExtensionConfiguration: &types.ExtensionConfiguration{
+				AllowedExtensions: []types.AllowedExtension{{Extension: aws.String(".pdf")}},
+			},
+		},
 	} {
 		_, err = e.f.client.UpdateAttachedFilesConfiguration(t.Context(), in)
 		assert.Equal(t, "InvalidParameterException", apiCode(err), name)
@@ -370,7 +449,11 @@ func TestAttachedFilesSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = e.f.client.UpdateAttachedFilesConfiguration(t.Context(), &sdk.UpdateAttachedFilesConfigurationInput{
-		InstanceId: aws.String(e.inst), AttachmentScope: types.AttachmentScopeCase, MaximumSizeLimitInBytes: aws.Int64(7),
+		InstanceId: aws.String(
+			e.inst,
+		),
+		AttachmentScope:         types.AttachmentScopeCase,
+		MaximumSizeLimitInBytes: aws.Int64(7),
 	})
 	require.NoError(t, err)
 
@@ -381,8 +464,13 @@ func TestAttachedFilesSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.FileStatusTypeApproved, got.FileStatus)
 
-	cfg, err := r.client.DescribeAttachedFilesConfiguration(t.Context(),
-		&sdk.DescribeAttachedFilesConfigurationInput{InstanceId: aws.String(e.inst), AttachmentScope: types.AttachmentScopeCase})
+	cfg, err := r.client.DescribeAttachedFilesConfiguration(
+		t.Context(),
+		&sdk.DescribeAttachedFilesConfigurationInput{
+			InstanceId:      aws.String(e.inst),
+			AttachmentScope: types.AttachmentScopeCase,
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), aws.ToInt64(cfg.AttachedFilesConfiguration.MaximumSizeLimitInBytes))
 

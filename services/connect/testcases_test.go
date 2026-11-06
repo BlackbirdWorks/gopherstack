@@ -19,12 +19,22 @@ func (e *contactEnv) chatEntry() *types.TestCaseEntryPoint {
 	}
 }
 
-func (e *contactEnv) newTestCase(t *testing.T, name string, mut func(*sdk.CreateTestCaseInput)) *sdk.CreateTestCaseOutput {
+func (e *contactEnv) newTestCase(
+	t *testing.T,
+	name string,
+	mut func(*sdk.CreateTestCaseInput),
+) *sdk.CreateTestCaseOutput {
 	t.Helper()
 
 	in := &sdk.CreateTestCaseInput{
-		InstanceId: aws.String(e.inst), Name: aws.String(name), Content: aws.String(testCaseBody), Description: aws.String("d"),
-		EntryPoint: e.chatEntry(), Tags: map[string]string{"suite": "smoke"},
+		InstanceId: aws.String(
+			e.inst,
+		),
+		Name:        aws.String(name),
+		Content:     aws.String(testCaseBody),
+		Description: aws.String("d"),
+		EntryPoint:  e.chatEntry(),
+		Tags:        map[string]string{"suite": "smoke"},
 	}
 	if mut != nil {
 		mut(in)
@@ -45,14 +55,17 @@ func TestTestCaseVersions(t *testing.T) {
 	assert.Contains(t, aws.ToString(created.TestCaseArn), "/test-case/"+aws.ToString(created.TestCaseId))
 
 	describe := func(status types.TestCaseStatus) (*sdk.DescribeTestCaseOutput, error) {
-		return e.f.client.DescribeTestCase(t.Context(), &sdk.DescribeTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId, Status: status})
+		return e.f.client.DescribeTestCase(
+			t.Context(),
+			&sdk.DescribeTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId, Status: status},
+		)
 	}
 
 	saved, err := describe("")
 	require.NoError(t, err)
 	tc := saved.TestCase
 	assert.Equal(t, types.TestCaseStatusSaved, tc.Status)
-	assert.Equal(t, testCaseBody, aws.ToString(tc.Content))
+	assert.JSONEq(t, testCaseBody, aws.ToString(tc.Content))
 	assert.Equal(t, "d", aws.ToString(tc.Description))
 	assert.Equal(t, map[string]string{"suite": "smoke"}, tc.Tags)
 	assert.Len(t, aws.ToString(tc.TestCaseSha256), 64)
@@ -77,11 +90,14 @@ func TestTestCaseVersions(t *testing.T) {
 
 	old, err := describe(types.TestCaseStatusSaved)
 	require.NoError(t, err)
-	assert.Equal(t, testCaseBody, aws.ToString(old.TestCase.Content), "the saved version is untouched")
+	assert.JSONEq(t, testCaseBody, aws.ToString(old.TestCase.Content), "the saved version is untouched")
 	assert.True(t, def.TestCase.LastModifiedTime.After(*old.TestCase.LastModifiedTime))
 
 	_, err = e.f.client.UpdateTestCase(t.Context(), &sdk.UpdateTestCaseInput{
-		InstanceId: inst, TestCaseId: created.TestCaseId, Name: aws.String("login v2"), Description: aws.String("changed"),
+		InstanceId:  inst,
+		TestCaseId:  created.TestCaseId,
+		Name:        aws.String("login v2"),
+		Description: aws.String("changed"),
 	})
 	require.NoError(t, err)
 
@@ -90,13 +106,19 @@ func TestTestCaseVersions(t *testing.T) {
 	assert.Equal(t, "login v2", aws.ToString(renamed.TestCase.Name))
 	assert.Equal(t, "changed", aws.ToString(renamed.TestCase.Description))
 
-	_, err = e.f.client.DeleteTestCase(t.Context(), &sdk.DeleteTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId})
+	_, err = e.f.client.DeleteTestCase(
+		t.Context(),
+		&sdk.DeleteTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId},
+	)
 	require.NoError(t, err)
 
 	_, err = describe("")
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 
-	_, err = e.f.client.DeleteTestCase(t.Context(), &sdk.DeleteTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId})
+	_, err = e.f.client.DeleteTestCase(
+		t.Context(),
+		&sdk.DeleteTestCaseInput{InstanceId: inst, TestCaseId: created.TestCaseId},
+	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 
@@ -108,32 +130,77 @@ func TestCreateTestCaseValidation(t *testing.T) {
 		name string
 		code string
 	}{
-		{name: "saved needs no entry point", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.EntryPoint = nil }},
-		{name: "saved content is not validated", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Content = aws.String("not json") }},
-		{name: "published needs entry point", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.Status, in.EntryPoint = types.TestCaseStatusPublished, nil
-		}},
-		{name: "published needs json content", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.Status, in.Content = types.TestCaseStatusPublished, aws.String("not json")
-		}},
-		{name: "published ok", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Status = types.TestCaseStatusPublished }},
-		{name: "empty content", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Content = aws.String("") }},
-		{name: "bad init data", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.InitializationData = aws.String("{")
-		}},
-		{name: "voice entry without params", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.EntryPoint = &types.TestCaseEntryPoint{Type: types.TestCaseEntryPointTypeVoiceCall}
-		}},
-		{name: "chat entry without params", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.EntryPoint = &types.TestCaseEntryPoint{Type: types.TestCaseEntryPointTypeChat}
-		}},
-		{name: "unknown flow", code: "ResourceNotFoundException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.EntryPoint.ChatEntryPointParameters.FlowId = aws.String("nope")
-		}},
-		{name: "bad status", code: "InvalidParameterException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Status = "DRAFT" }},
-		{name: "unknown instance", code: "ResourceNotFoundException", mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
-			in.InstanceId = aws.String("missing")
-		}},
+		{
+			name: "saved needs no entry point",
+			mut:  func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.EntryPoint = nil },
+		},
+		{
+			name: "saved content is not validated",
+			mut:  func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Content = aws.String("not json") },
+		},
+		{
+			name: "published needs entry point",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.Status, in.EntryPoint = types.TestCaseStatusPublished, nil
+			},
+		},
+		{
+			name: "published needs json content",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.Status, in.Content = types.TestCaseStatusPublished, aws.String("not json")
+			},
+		},
+		{
+			name: "published ok",
+			mut:  func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Status = types.TestCaseStatusPublished },
+		},
+		{
+			name: "empty content",
+			code: "InvalidParameterException",
+			mut:  func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Content = aws.String("") },
+		},
+		{
+			name: "bad init data",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.InitializationData = aws.String("{")
+			},
+		},
+		{
+			name: "voice entry without params",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.EntryPoint = &types.TestCaseEntryPoint{Type: types.TestCaseEntryPointTypeVoiceCall}
+			},
+		},
+		{
+			name: "chat entry without params",
+			code: "InvalidParameterException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.EntryPoint = &types.TestCaseEntryPoint{Type: types.TestCaseEntryPointTypeChat}
+			},
+		},
+		{
+			name: "unknown flow",
+			code: "ResourceNotFoundException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.EntryPoint.ChatEntryPointParameters.FlowId = aws.String("nope")
+			},
+		},
+		{
+			name: "bad status",
+			code: "InvalidParameterException",
+			mut:  func(_ *contactEnv, in *sdk.CreateTestCaseInput) { in.Status = "DRAFT" },
+		},
+		{
+			name: "unknown instance",
+			code: "ResourceNotFoundException",
+			mut: func(_ *contactEnv, in *sdk.CreateTestCaseInput) {
+				in.InstanceId = aws.String("missing")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -142,7 +209,12 @@ func TestCreateTestCaseValidation(t *testing.T) {
 
 			e := newContactEnv(t)
 			in := &sdk.CreateTestCaseInput{
-				InstanceId: aws.String(e.inst), Name: aws.String("t"), Content: aws.String(testCaseBody), EntryPoint: e.chatEntry(),
+				InstanceId: aws.String(
+					e.inst,
+				),
+				Name:       aws.String("t"),
+				Content:    aws.String(testCaseBody),
+				EntryPoint: e.chatEntry(),
 			}
 			tt.mut(e, in)
 
@@ -187,7 +259,10 @@ func TestListAndSearchTestCases(t *testing.T) {
 		in.Description = aws.String("covers the checkout")
 	})
 
-	list, err := e.f.client.ListTestCases(t.Context(), &sdk.ListTestCasesInput{InstanceId: aws.String(e.inst), MaxResults: aws.Int32(2)})
+	list, err := e.f.client.ListTestCases(
+		t.Context(),
+		&sdk.ListTestCasesInput{InstanceId: aws.String(e.inst), MaxResults: aws.Int32(2)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.TestCaseSummaryList, 2)
 	require.NotNil(t, list.NextToken)
@@ -204,18 +279,28 @@ func TestListAndSearchTestCases(t *testing.T) {
 	}
 
 	byName := search(&sdk.SearchTestCasesInput{SearchCriteria: &types.TestCaseSearchCriteria{
-		StringCondition: &types.StringCondition{FieldName: aws.String("name"), Value: aws.String("amm"), ComparisonType: types.StringComparisonTypeContains},
+		StringCondition: &types.StringCondition{
+			FieldName:      aws.String("name"),
+			Value:          aws.String("amm"),
+			ComparisonType: types.StringComparisonTypeContains,
+		},
 	}})
 	require.Len(t, byName, 1)
 	assert.Equal(t, "gamma", aws.ToString(byName[0].Name))
 
-	published := search(&sdk.SearchTestCasesInput{SearchCriteria: &types.TestCaseSearchCriteria{StatusCondition: types.TestCaseStatusPublished}})
+	published := search(
+		&sdk.SearchTestCasesInput{
+			SearchCriteria: &types.TestCaseSearchCriteria{StatusCondition: types.TestCaseStatusPublished},
+		},
+	)
 	require.Len(t, published, 1)
 	assert.Equal(t, "alpha", aws.ToString(published[0].Name))
 
-	byTag := search(&sdk.SearchTestCasesInput{SearchFilter: &types.TestCaseSearchFilter{TagFilter: &types.ControlPlaneTagFilter{
-		TagCondition: &types.TagCondition{TagKey: aws.String("suite"), TagValue: aws.String("full")},
-	}}})
+	byTag := search(
+		&sdk.SearchTestCasesInput{SearchFilter: &types.TestCaseSearchFilter{TagFilter: &types.ControlPlaneTagFilter{
+			TagCondition: &types.TagCondition{TagKey: aws.String("suite"), TagValue: aws.String("full")},
+		}}},
+	)
 	require.Len(t, byTag, 1)
 
 	assert.Len(t, search(&sdk.SearchTestCasesInput{}), 3)
@@ -228,11 +313,17 @@ func TestTestCasesSurviveRestore(t *testing.T) {
 	created := e.newTestCase(t, "persisted", nil)
 
 	r := e.f.restored(t)
-	got, err := r.client.DescribeTestCase(t.Context(), &sdk.DescribeTestCaseInput{InstanceId: aws.String(e.inst), TestCaseId: created.TestCaseId})
+	got, err := r.client.DescribeTestCase(
+		t.Context(),
+		&sdk.DescribeTestCaseInput{InstanceId: aws.String(e.inst), TestCaseId: created.TestCaseId},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "persisted", aws.ToString(got.TestCase.Name))
 
-	tags, err := r.client.ListTagsForResource(t.Context(), &sdk.ListTagsForResourceInput{ResourceArn: created.TestCaseArn})
+	tags, err := r.client.ListTagsForResource(
+		t.Context(),
+		&sdk.ListTagsForResourceInput{ResourceArn: created.TestCaseArn},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"suite": "smoke"}, tags.Tags)
 }

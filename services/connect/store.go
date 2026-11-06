@@ -131,32 +131,32 @@ func (f family[V]) findARN(resourceARN string) *map[string]string {
 
 // Backend holds all Amazon Connect state behind one coarse lock.
 type Backend struct {
+	apps            Integrations
+	mailer          Mailer
+	resolvers       Resolvers
+	phoneNumbers    *store.Table[phoneNumberRec]
+	now             func() time.Time
+	registry        *store.Registry
+	instances       *store.Table[instanceRec]
+	mu              *lockmetrics.RWMutex
+	hierarchyLevels *store.Table[hierarchyStructureRec]
 	extras
-	modules          family[moduleRec]
-	hierarchyGroups  family[hierarchyGroupRec]
-	integrations     family[integrationRec]
-	contacts         family[contactRec]
-	prompts          family[promptRec]
 	agentStatuses    family[agentStatusRec]
-	securityProfiles family[securityProfileRec]
-	flows            family[flowRec]
-	routingProfiles  family[routingProfileRec]
-	users            family[userRec]
-	hours            family[hoursRec]
+	contacts         family[contactRec]
 	queues           family[queueRec]
 	quickConnects    family[quickConnectRec]
-	apps             Integrations
-	resolvers        Resolvers
-	mailer           Mailer
-	hierarchyLevels  *store.Table[hierarchyStructureRec]
-	mu               *lockmetrics.RWMutex
-	instances        *store.Table[instanceRec]
-	registry         *store.Registry
-	now              func() time.Time
-	phoneNumbers     *store.Table[phoneNumberRec]
-	urlSecret        []byte
+	users            family[userRec]
+	routingProfiles  family[routingProfileRec]
+	flows            family[flowRec]
+	securityProfiles family[securityProfileRec]
+	prompts          family[promptRec]
+	hours            family[hoursRec]
+	integrations     family[integrationRec]
+	hierarchyGroups  family[hierarchyGroupRec]
+	modules          family[moduleRec]
 	region           string
 	accountID        string
+	urlSecret        []byte
 	delay            time.Duration
 }
 

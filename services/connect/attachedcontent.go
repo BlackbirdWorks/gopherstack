@@ -58,15 +58,21 @@ func (b *Backend) sign(op, inst, fileID string, expires int64) string {
 }
 
 // contentURL builds a pre-signed URL of the emulator's attachment endpoint.
-func (b *Backend) contentURL(ctx context.Context, op, inst, fileID string, ttl time.Duration) *UrlMetadata {
+func (b *Backend) contentURL(ctx context.Context, op, inst, fileID string, ttl time.Duration) *URLMetadata {
 	expires := b.now().Add(ttl)
 	q := url.Values{
 		"op": {op}, "expires": {strconv.FormatInt(expires.Unix(), 10)},
 		"signature": {b.sign(op, inst, fileID, expires.Unix())},
 	}
 
-	return &UrlMetadata{
-		URL:              b.baseURL(ctx) + attachedContentPath + url.PathEscape(inst) + "/" + url.PathEscape(fileID) + "?" + q.Encode(),
+	return &URLMetadata{
+		URL: b.baseURL(
+			ctx,
+		) + attachedContentPath + url.PathEscape(
+			inst,
+		) + "/" + url.PathEscape(
+			fileID,
+		) + "?" + q.Encode(),
 		URLExpiry:        isoTime(expires),
 		HeadersToInclude: map[string]string{},
 	}

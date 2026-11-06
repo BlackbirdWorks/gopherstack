@@ -53,8 +53,13 @@ func (b *Backend) registerViewTables() {
 		func(v *notificationRec) string { return v.Arn },
 		func(v *notificationRec) *map[string]string { return &v.Tags },
 	)
-	b.pushRegistrations = newFamily(r, "pushRegistrations", labelPushRegistration,
-		func(v *pushRegistrationRec) string { return v.InstanceID }, func(v *pushRegistrationRec) string { return v.ID })
+	b.pushRegistrations = newFamily(
+		r,
+		"pushRegistrations",
+		labelPushRegistration,
+		func(v *pushRegistrationRec) string { return v.InstanceID },
+		func(v *pushRegistrationRec) string { return v.ID },
+	)
 	b.authSessions = newFamily(r, "authSessions", labelSession,
 		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
 	b.testCases = newFamily(r, "testCases", labelTestCase,

@@ -3,6 +3,7 @@ package connect
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
@@ -41,10 +42,10 @@ type AuthScope struct {
 
 // CreateAuthCodeInput is the CreateAuthCode request.
 type CreateAuthCodeInput struct {
-	Scope                            *AuthScope
-	MaxSessionDurationMinutes        *int32
-	SessionInactivityDurationMinutes int32
+	Scope                     *AuthScope
+	MaxSessionDurationMinutes *int32
 	instPath
+	SessionInactivityDurationMinutes int32
 }
 
 type authCodeOut struct {
@@ -61,7 +62,11 @@ type sessionRef struct {
 
 func checkAuthDurations(inactivity int32, maxSession *int32) error {
 	if inactivity < minSessionMinutes || inactivity > maxInactivityMinutes {
-		return invalidParamErr("SessionInactivityDurationMinutes must be %d-%d", minSessionMinutes, maxInactivityMinutes)
+		return invalidParamErr(
+			"SessionInactivityDurationMinutes must be %d-%d",
+			minSessionMinutes,
+			maxInactivityMinutes,
+		)
 	}
 
 	if maxSession == nil {
@@ -99,7 +104,11 @@ func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) 
 
 	code := make([]byte, authCodeBytes)
 	if _, err := rand.Read(code); err != nil {
-		return nil, apiErr(500, "InternalServiceException", "an authorization code could not be generated")
+		return nil, apiErr(
+			http.StatusInternalServerError,
+			"InternalServiceException",
+			"an authorization code could not be generated",
+		)
 	}
 
 	return writeInstance(b, "CreateAuthCode", in.InstanceID, func(inst string) (*authCodeOut, error) {
@@ -116,9 +125,17 @@ func (b *Backend) CreateAuthCode(in *CreateAuthCodeInput) (*authCodeOut, error) 
 
 		now := b.now()
 		rec := &authSessionRec{
-			InstanceID: inst, SessionID: newID(), EntityType: sc.EntityType, EntityID: sc.EntityID, DomainName: sc.DomainName,
-			SecurityProfileIDs: append([]string(nil), sc.SecurityProfileIDs...), InactivityMinutes: in.SessionInactivityDurationMinutes,
-			CreatedAt: awstime.NewEpochTime(now), ExpiresAt: awstime.NewEpochTime(now.Add(minutesDuration(minutes))),
+			InstanceID: inst,
+			SessionID:  newID(),
+			EntityType: sc.EntityType,
+			EntityID:   sc.EntityID,
+			DomainName: sc.DomainName,
+			SecurityProfileIDs: append(
+				[]string(nil),
+				sc.SecurityProfileIDs...),
+			InactivityMinutes: in.SessionInactivityDurationMinutes,
+			CreatedAt:         awstime.NewEpochTime(now),
+			ExpiresAt:         awstime.NewEpochTime(now.Add(minutesDuration(minutes))),
 		}
 		b.authSessions.put(rec)
 

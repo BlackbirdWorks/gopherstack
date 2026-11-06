@@ -20,19 +20,33 @@ func scoredFormItems() []types.EvaluationFormItem {
 	return []types.EvaluationFormItem{&types.EvaluationFormItemMemberSection{Value: types.EvaluationFormSection{
 		RefId: aws.String("sec"), Title: aws.String("Service"), Items: []types.EvaluationFormItem{
 			&types.EvaluationFormItemMemberQuestion{Value: types.EvaluationFormQuestion{
-				RefId: aws.String("greet"), Title: aws.String("Greeting"), QuestionType: types.EvaluationFormQuestionTypeSingleselect,
+				RefId: aws.String(
+					"greet",
+				),
+				Title:        aws.String("Greeting"),
+				QuestionType: types.EvaluationFormQuestionTypeSingleselect,
 				QuestionTypeProperties: &types.EvaluationFormQuestionTypePropertiesMemberSingleSelect{
-					Value: types.EvaluationFormSingleSelectQuestionProperties{Options: []types.EvaluationFormSingleSelectQuestionOption{
-						pick("yes", 5, false), pick("no", 0, false), pick("rude", 0, true),
-					}},
+					Value: types.EvaluationFormSingleSelectQuestionProperties{
+						Options: []types.EvaluationFormSingleSelectQuestionOption{
+							pick("yes", 5, false), pick("no", 0, false), pick("rude", 0, true),
+						},
+					},
 				},
 			}},
 			&types.EvaluationFormItemMemberQuestion{Value: types.EvaluationFormQuestion{
-				RefId: aws.String("wait"), Title: aws.String("Wait seconds"), QuestionType: types.EvaluationFormQuestionTypeNumeric,
+				RefId: aws.String(
+					"wait",
+				),
+				Title:        aws.String("Wait seconds"),
+				QuestionType: types.EvaluationFormQuestionTypeNumeric,
 				QuestionTypeProperties: &types.EvaluationFormQuestionTypePropertiesMemberNumeric{
-					Value: types.EvaluationFormNumericQuestionProperties{MinValue: 0, MaxValue: 600, Options: []types.EvaluationFormNumericQuestionOption{
-						{MinValue: 0, MaxValue: 60, Score: 5}, {MinValue: 61, MaxValue: 600, Score: 0},
-					}},
+					Value: types.EvaluationFormNumericQuestionProperties{
+						MinValue: 0,
+						MaxValue: 600,
+						Options: []types.EvaluationFormNumericQuestionOption{
+							{MinValue: 0, MaxValue: 60, Score: 5}, {MinValue: 61, MaxValue: 600, Score: 0},
+						},
+					},
 				},
 			}},
 			textQuestion("comment"),
@@ -51,12 +65,22 @@ func newEvalEnv(t *testing.T, active bool) *evalEnv {
 
 	e := newContactEnv(t)
 	form, err := e.f.client.CreateEvaluationForm(t.Context(), &sdk.CreateEvaluationFormInput{
-		InstanceId: aws.String(e.inst), Title: aws.String("QA"), Items: scoredFormItems(), AsDraft: !active,
-		ScoringStrategy: &types.EvaluationFormScoringStrategy{Mode: types.EvaluationFormScoringModeQuestionOnly, Status: types.EvaluationFormScoringStatusEnabled},
+		InstanceId: aws.String(e.inst),
+		Title:      aws.String("QA"),
+		Items:      scoredFormItems(),
+		AsDraft:    !active,
+		ScoringStrategy: &types.EvaluationFormScoringStrategy{
+			Mode:   types.EvaluationFormScoringModeQuestionOnly,
+			Status: types.EvaluationFormScoringStatusEnabled,
+		},
 	})
 	require.NoError(t, err)
 
-	return &evalEnv{contactEnv: e, form: aws.ToString(form.EvaluationFormId), contact: e.outbound(t, "+442071230001", true)}
+	return &evalEnv{
+		contactEnv: e,
+		form:       aws.ToString(form.EvaluationFormId),
+		contact:    e.outbound(t, "+442071230001", true),
+	}
 }
 
 func (e *evalEnv) start(t *testing.T) *sdk.StartContactEvaluationOutput {
@@ -105,10 +129,13 @@ func TestContactEvaluationLifecycle(t *testing.T) {
 	assert.Nil(t, draft.Evaluation.Metadata.Score)
 
 	_, err := e.f.client.UpdateContactEvaluation(t.Context(), &sdk.UpdateContactEvaluationInput{
-		InstanceId: inst, EvaluationId: started.EvaluationId,
-		Answers: map[string]types.EvaluationAnswerInput{"greet": str("yes")},
-		Notes:   map[string]types.EvaluationNote{"greet": {Value: aws.String("friendly")}},
-		UpdatedBy: &types.EvaluatorUserUnionMemberConnectUserArn{Value: "arn:aws:connect:us-east-1:123456789012:instance/x/agent/y"},
+		InstanceId:   inst,
+		EvaluationId: started.EvaluationId,
+		Answers:      map[string]types.EvaluationAnswerInput{"greet": str("yes")},
+		Notes:        map[string]types.EvaluationNote{"greet": {Value: aws.String("friendly")}},
+		UpdatedBy: &types.EvaluatorUserUnionMemberConnectUserArn{
+			Value: "arn:aws:connect:us-east-1:123456789012:instance/x/agent/y",
+		},
 	})
 	require.NoError(t, err)
 
@@ -134,24 +161,38 @@ func TestContactEvaluationLifecycle(t *testing.T) {
 	assert.Len(t, done.Evaluation.Answers, 3)
 
 	_, err = e.f.client.UpdateContactEvaluation(t.Context(), &sdk.UpdateContactEvaluationInput{
-		InstanceId: inst, EvaluationId: started.EvaluationId, Answers: map[string]types.EvaluationAnswerInput{"comment": str("late")},
+		InstanceId:   inst,
+		EvaluationId: started.EvaluationId,
+		Answers:      map[string]types.EvaluationAnswerInput{"comment": str("late")},
 	})
 	assert.Equal(t, "InvalidRequestException", apiCode(err), "submitted evaluations are locked")
 
-	list, err := e.f.client.ListContactEvaluations(t.Context(), &sdk.ListContactEvaluationsInput{InstanceId: inst, ContactId: aws.String(e.contact)})
+	list, err := e.f.client.ListContactEvaluations(
+		t.Context(),
+		&sdk.ListContactEvaluationsInput{InstanceId: inst, ContactId: aws.String(e.contact)},
+	)
 	require.NoError(t, err)
 	require.Len(t, list.EvaluationSummaryList, 1)
 	assert.Equal(t, "QA", aws.ToString(list.EvaluationSummaryList[0].EvaluationFormTitle))
 	assert.Equal(t, types.EvaluationStatusSubmitted, list.EvaluationSummaryList[0].Status)
 
-	other, err := e.f.client.ListContactEvaluations(t.Context(), &sdk.ListContactEvaluationsInput{InstanceId: inst, ContactId: aws.String("other")})
+	other, err := e.f.client.ListContactEvaluations(
+		t.Context(),
+		&sdk.ListContactEvaluationsInput{InstanceId: inst, ContactId: aws.String("other")},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, other.EvaluationSummaryList)
 
-	_, err = e.f.client.DeleteContactEvaluation(t.Context(), &sdk.DeleteContactEvaluationInput{InstanceId: inst, EvaluationId: started.EvaluationId})
+	_, err = e.f.client.DeleteContactEvaluation(
+		t.Context(),
+		&sdk.DeleteContactEvaluationInput{InstanceId: inst, EvaluationId: started.EvaluationId},
+	)
 	require.NoError(t, err)
 
-	_, err = e.f.client.DescribeContactEvaluation(t.Context(), &sdk.DescribeContactEvaluationInput{InstanceId: inst, EvaluationId: started.EvaluationId})
+	_, err = e.f.client.DescribeContactEvaluation(
+		t.Context(),
+		&sdk.DescribeContactEvaluationInput{InstanceId: inst, EvaluationId: started.EvaluationId},
+	)
 	assert.Equal(t, "ResourceNotFoundException", apiCode(err))
 }
 
@@ -166,9 +207,28 @@ func TestContactEvaluationScoring(t *testing.T) {
 		max     int32
 		fail    bool
 	}{
-		{name: "half", answers: map[string]types.EvaluationAnswerInput{"greet": str("yes"), "wait": num(300)}, percent: 50, earned: 5, max: 10},
-		{name: "zero", answers: map[string]types.EvaluationAnswerInput{"greet": str("no"), "wait": num(300)}, percent: 0, earned: 0, max: 10},
-		{name: "automatic fail", answers: map[string]types.EvaluationAnswerInput{"greet": str("rude"), "wait": num(1)}, percent: 0, earned: 5, max: 10, fail: true},
+		{
+			name:    "half",
+			answers: map[string]types.EvaluationAnswerInput{"greet": str("yes"), "wait": num(300)},
+			percent: 50,
+			earned:  5,
+			max:     10,
+		},
+		{
+			name:    "zero",
+			answers: map[string]types.EvaluationAnswerInput{"greet": str("no"), "wait": num(300)},
+			percent: 0,
+			earned:  0,
+			max:     10,
+		},
+		{
+			name:    "automatic fail",
+			answers: map[string]types.EvaluationAnswerInput{"greet": str("rude"), "wait": num(1)},
+			percent: 0,
+			earned:  5,
+			max:     10,
+			fail:    true,
+		},
 		{
 			name: "not applicable", percent: 100, earned: 5, max: 5,
 			answers: map[string]types.EvaluationAnswerInput{
@@ -218,20 +278,28 @@ func TestContactEvaluationValidation(t *testing.T) {
 	}
 
 	for name, answers := range map[string]map[string]types.EvaluationAnswerInput{
-		"unknown question":   {"nope": str("x")},
-		"unknown option":     {"greet": str("maybe")},
+		"unknown question":     {"nope": str("x")},
+		"unknown option":       {"greet": str("maybe")},
 		"numeric out of range": {"wait": num(601)},
-		"numeric as string":  {"wait": str("5")},
-		"text without value": {"comment": str("")},
+		"numeric as string":    {"wait": str("5")},
+		"text without value":   {"comment": str("")},
 	} {
 		assert.Equal(t, "InvalidParameterException", apiCode(update(answers, nil)), name)
 	}
 
-	assert.Equal(t, "InvalidParameterException", apiCode(update(nil, map[string]types.EvaluationNote{"nope": {Value: aws.String("x")}})))
+	assert.Equal(
+		t,
+		"InvalidParameterException",
+		apiCode(update(nil, map[string]types.EvaluationNote{"nope": {Value: aws.String("x")}})),
+	)
 	require.NoError(t, update(map[string]types.EvaluationAnswerInput{"greet": str("yes")}, nil))
 
 	bad := func(mut func(*sdk.StartContactEvaluationInput)) error {
-		in := &sdk.StartContactEvaluationInput{InstanceId: aws.String(e.inst), ContactId: aws.String(e.contact), EvaluationFormId: aws.String(e.form)}
+		in := &sdk.StartContactEvaluationInput{
+			InstanceId:       aws.String(e.inst),
+			ContactId:        aws.String(e.contact),
+			EvaluationFormId: aws.String(e.form),
+		}
 		mut(in)
 
 		_, err := e.f.client.StartContactEvaluation(t.Context(), in)
@@ -239,12 +307,24 @@ func TestContactEvaluationValidation(t *testing.T) {
 		return err
 	}
 
-	assert.Equal(t, "ContactNotFoundException", apiCode(bad(func(in *sdk.StartContactEvaluationInput) { in.ContactId = aws.String("nope") })))
-	assert.Equal(t, "ResourceNotFoundException", apiCode(bad(func(in *sdk.StartContactEvaluationInput) { in.EvaluationFormId = aws.String("nope") })))
+	assert.Equal(
+		t,
+		"ContactNotFoundException",
+		apiCode(bad(func(in *sdk.StartContactEvaluationInput) { in.ContactId = aws.String("nope") })),
+	)
+	assert.Equal(
+		t,
+		"ResourceNotFoundException",
+		apiCode(bad(func(in *sdk.StartContactEvaluationInput) { in.EvaluationFormId = aws.String("nope") })),
+	)
 
 	draftForm := newEvalEnv(t, false)
 	_, err := draftForm.f.client.StartContactEvaluation(t.Context(), &sdk.StartContactEvaluationInput{
-		InstanceId: aws.String(draftForm.inst), ContactId: aws.String(draftForm.contact), EvaluationFormId: aws.String(draftForm.form),
+		InstanceId: aws.String(
+			draftForm.inst,
+		),
+		ContactId:        aws.String(draftForm.contact),
+		EvaluationFormId: aws.String(draftForm.form),
 	})
 	assert.Equal(t, "InvalidRequestException", apiCode(err), "draft forms cannot be evaluated against")
 }
@@ -261,7 +341,10 @@ func TestContactEvaluationsSurviveRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.EvaluationStatusDraft, got.Evaluation.Status)
 
-	tags, err := r.client.ListTagsForResource(t.Context(), &sdk.ListTagsForResourceInput{ResourceArn: started.EvaluationArn})
+	tags, err := r.client.ListTagsForResource(
+		t.Context(),
+		&sdk.ListTagsForResourceInput{ResourceArn: started.EvaluationArn},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"batch": "1"}, tags.Tags)
 }

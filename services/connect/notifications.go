@@ -91,8 +91,8 @@ type CreateNotificationInput struct {
 	ClientToken              string
 	Priority                 string
 	PredefinedNotificationID string `json:"PredefinedNotificationId"`
-	Recipients               []string
 	instPath
+	Recipients []string
 }
 
 type notificationRef struct {
@@ -142,7 +142,7 @@ type pushRegistrationCreated struct {
 // DeletePushNotificationRegistrationInput is the DeletePushNotificationRegistration request.
 type DeletePushNotificationRegistrationInput struct {
 	RegistrationID string `json:"-" path:"RegistrationId"`
-	ContactID      string `json:"-" query:"contactId"`
+	ContactID      string `json:"-"                       query:"contactId"`
 	instPath
 }
 
@@ -168,7 +168,7 @@ func (r *notificationRec) view() Notification {
 	}
 }
 
-// parseRecipient splits a recipient ARN of the instance into whether it is the instance itself and the user ID otherwise.
+// parseRecipient reports whether a recipient ARN names the instance itself, or else its user ID.
 func parseRecipient(inst, recipient string) (bool, string, bool) {
 	_, rest, ok := strings.Cut(recipient, ":instance/")
 	if !ok || !strings.HasPrefix(rest, inst) {
@@ -248,9 +248,19 @@ func (b *Backend) CreateNotification(ctx context.Context, in *CreateNotification
 		_, region := b.scope(ctx)
 		created, exp := awstime.NewEpochTime(now), awstime.NewEpochTime(expires)
 		rec := &notificationRec{
-			InstanceID: inst, ID: id, Arn: b.buildARN(ctx, "instance/"+inst+"/notification/"+id),
-			Content: cloneTags(in.Content), Priority: orDefault(in.Priority, notifPriorityLow), Recipients: slices.Clone(in.Recipients),
-			CreatedAt: &created, LastModified: &created, ExpiresAt: &exp, LastModifiedRegion: region, Tags: cloneTags(in.Tags),
+			InstanceID: inst,
+			ID:         id,
+			Arn:        b.buildARN(ctx, "instance/"+inst+"/notification/"+id),
+			Content: cloneTags(
+				in.Content,
+			),
+			Priority:           orDefault(in.Priority, notifPriorityLow),
+			Recipients:         slices.Clone(in.Recipients),
+			CreatedAt:          &created,
+			LastModified:       &created,
+			ExpiresAt:          &exp,
+			LastModifiedRegion: region,
+			Tags:               cloneTags(in.Tags),
 		}
 		b.notifications.put(rec)
 
@@ -323,7 +333,10 @@ func (b *Backend) ListNotifications(inst, token string, maxResults int32) ([]Not
 
 	all, err := readInstance(b, "ListNotifications", inst, func(inst string) ([]Notification, error) {
 		recs := b.notifications.in(inst)
-		slices.SortStableFunc(recs, func(a, c *notificationRec) int { return c.CreatedAt.Time.Compare(a.CreatedAt.Time) })
+		slices.SortStableFunc(
+			recs,
+			func(a, c *notificationRec) int { return c.CreatedAt.Time.Compare(a.CreatedAt.Time) },
+		)
 
 		out := make([]Notification, 0, len(recs))
 		for _, r := range recs {
@@ -378,7 +391,10 @@ func sortedValues(m map[string]string) []string {
 }
 
 // ListUserNotifications lists the unexpired notifications addressed to a user with the user's status.
-func (b *Backend) ListUserNotifications(inst, userID, token string, maxResults int32) ([]UserNotificationSummary, string, error) {
+func (b *Backend) ListUserNotifications(
+	inst, userID, token string,
+	maxResults int32,
+) ([]UserNotificationSummary, string, error) {
 	if maxResults > maxUserNotifPage {
 		return nil, "", invalidParamErr("maxResults must be 1-%d", maxUserNotifPage)
 	}
@@ -390,7 +406,10 @@ func (b *Backend) ListUserNotifications(inst, userID, token string, maxResults i
 		}
 
 		recs := b.notifications.in(inst)
-		slices.SortStableFunc(recs, func(a, c *notificationRec) int { return c.CreatedAt.Time.Compare(a.CreatedAt.Time) })
+		slices.SortStableFunc(
+			recs,
+			func(a, c *notificationRec) int { return c.CreatedAt.Time.Compare(a.CreatedAt.Time) },
+		)
 
 		out := make([]UserNotificationSummary, 0, len(recs))
 
@@ -411,9 +430,15 @@ func (b *Backend) ListUserNotifications(inst, userID, token string, maxResults i
 
 func userNotification(r *notificationRec, userID string) UserNotificationSummary {
 	return UserNotificationSummary{
-		CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, Content: cloneTags(r.Content), InstanceID: r.InstanceID,
-		NotificationID: r.ID, NotificationStatus: orDefault(r.UserStatus[userID], notifStatusUnread), Priority: r.Priority,
-		RecipientID: userID, Source: notifSourceCustomer,
+		CreatedAt:          r.CreatedAt,
+		ExpiresAt:          r.ExpiresAt,
+		Content:            cloneTags(r.Content),
+		InstanceID:         r.InstanceID,
+		NotificationID:     r.ID,
+		NotificationStatus: orDefault(r.UserStatus[userID], notifStatusUnread),
+		Priority:           r.Priority,
+		RecipientID:        userID,
+		Source:             notifSourceCustomer,
 	}
 }
 
@@ -479,8 +504,13 @@ func (b *Backend) CreatePushNotificationRegistration(
 			}
 
 			rec := &pushRegistrationRec{
-				InstanceID: inst, ID: newID(), PinpointAppArn: in.PinpointAppArn, DeviceToken: in.DeviceToken,
-				DeviceType: in.DeviceType, ContactID: cc.ContactID, ParticipantRole: orDefault(cc.ParticipantRole, "CUSTOMER"),
+				InstanceID:        inst,
+				ID:                newID(),
+				PinpointAppArn:    in.PinpointAppArn,
+				DeviceToken:       in.DeviceToken,
+				DeviceType:        in.DeviceType,
+				ContactID:         cc.ContactID,
+				ParticipantRole:   orDefault(cc.ParticipantRole, "CUSTOMER"),
 				IncludeRawMessage: cc.IncludeRawMessage,
 			}
 			b.pushRegistrations.put(rec)

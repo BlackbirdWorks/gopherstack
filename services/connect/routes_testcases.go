@@ -7,7 +7,10 @@ import (
 )
 
 func testCaseRoutes() []restroute.Route {
-	const one = "/test-cases/{InstanceId}/{TestCaseId}"
+	const (
+		evalByID = "/contact-evaluations/{InstanceId}/{EvaluationId}"
+		one      = "/test-cases/{InstanceId}/{TestCaseId}"
+	)
 
 	return []restroute.Route{
 		{Method: http.MethodPut, Path: "/test-cases/{InstanceId}", Op: "CreateTestCase"},
@@ -17,9 +20,25 @@ func testCaseRoutes() []restroute.Route {
 		{Method: http.MethodGet, Path: "/test-cases-summary/{InstanceId}", Op: "ListTestCases"},
 		{Method: http.MethodPut, Path: "/contact-evaluations/{InstanceId}", Op: "StartContactEvaluation"},
 		{Method: http.MethodGet, Path: "/contact-evaluations/{InstanceId}", Op: "ListContactEvaluations"},
-		{Method: http.MethodGet, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "DescribeContactEvaluation"},
-		{Method: http.MethodPost, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "UpdateContactEvaluation"},
-		{Method: http.MethodDelete, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}", Op: "DeleteContactEvaluation"},
-		{Method: http.MethodPost, Path: "/contact-evaluations/{InstanceId}/{EvaluationId}/submit", Op: "SubmitContactEvaluation"},
+		{
+			Method: http.MethodGet,
+			Path:   evalByID,
+			Op:     "DescribeContactEvaluation",
+		},
+		{
+			Method: http.MethodPost,
+			Path:   evalByID,
+			Op:     "UpdateContactEvaluation",
+		},
+		{
+			Method: http.MethodDelete,
+			Path:   evalByID,
+			Op:     "DeleteContactEvaluation",
+		},
+		{
+			Method: http.MethodPost,
+			Path:   "/contact-evaluations/{InstanceId}/{EvaluationId}/submit",
+			Op:     "SubmitContactEvaluation",
+		},
 	}
 }

@@ -9,21 +9,25 @@ import (
 )
 
 const (
-	dimAgent       = "AGENT"
-	dimInitiation  = "INITIATION_METHOD"
-	dimDisconnect  = "DISCONNECT_REASON"
-	periodTotal    = "TOTAL"
-	maxV2Filters   = 5
-	maxV2Values    = 100
-	maxV2Groupings = 4
-	maxV2Results   = 100
-	maxThreshold   = 604800
-	maxServiceLvl  = 20
-	maxShortSpan   = 3 * 24 * time.Hour
-	maxLongSpan    = 35 * 24 * time.Hour
-	cmpLT          = "LT"
-	cmpLTE         = "LTE"
-	notExists      = "NOT_EXISTS"
+	dimAgent        = "AGENT"
+	dimInitiation   = "INITIATION_METHOD"
+	dimDisconnect   = "DISCONNECT_REASON"
+	periodTotal     = "TOTAL"
+	maxV2Filters    = 5
+	maxV2Values     = 100
+	maxV2Groupings  = 4
+	maxV2Results    = 100
+	maxThreshold    = 604800
+	maxServiceLvl   = 20
+	maxShortSpan    = 3 * 24 * time.Hour
+	maxLongSpan     = 35 * 24 * time.Hour
+	cmpLT           = "LT"
+	cmpLTE          = "LTE"
+	notExists       = "NOT_EXISTS"
+	metricAbandoned = "CONTACTS_ABANDONED"
+	daysPerWeek     = 7
+	minutesQuarter  = 15
+	minutesHalf     = 30
 )
 
 // FilterV2 narrows GetMetricDataV2 contacts by one key.
@@ -118,9 +122,12 @@ type v2Spec struct {
 
 func v2Specs() map[string]v2Spec {
 	return map[string]v2Spec{
-		"CONTACTS_CREATED": {metricFilters: []string{dimInitiation}, eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-			return countWhere(cs, func(c *contactRec) bool { return w.has(c.Contact.InitiationTimestamp) })
-		}},
+		"CONTACTS_CREATED": {
+			metricFilters: []string{dimInitiation},
+			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
+				return countWhere(cs, func(c *contactRec) bool { return w.has(c.Contact.InitiationTimestamp) })
+			},
+		},
 		"CONTACTS_QUEUED": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			return countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) })
 		}},
@@ -130,16 +137,22 @@ func v2Specs() map[string]v2Spec {
 				return countWhere(cs, func(c *contactRec) bool { return w.has(connected(c)) })
 			},
 		},
-		"CONTACTS_ABANDONED": {
+		metricAbandoned: {
 			metricFilters: []string{dimInitiation},
 			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
-				return countWhere(cs, func(c *contactRec) bool { return abandoned(c) && w.has(c.Contact.DisconnectTimestamp) })
+				return countWhere(
+					cs,
+					func(c *contactRec) bool { return abandoned(c) && w.has(c.Contact.DisconnectTimestamp) },
+				)
 			},
 		},
 		"ABANDONMENT_RATE": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			queued := countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) })
 
-			return percent(countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) && abandoned(c) }), queued)
+			return percent(
+				countWhere(cs, func(c *contactRec) bool { return w.has(enqueued(c)) && abandoned(c) }),
+				queued,
+			)
 		}},
 		"AVG_HANDLE_TIME": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			return meanOf(cs, func(c *contactRec) (float64, bool) {
@@ -148,7 +161,11 @@ func v2Specs() map[string]v2Spec {
 		}},
 		"AVG_CONTACT_DURATION": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 			return meanOf(cs, func(c *contactRec) (float64, bool) {
-				return span(c.Contact.InitiationTimestamp, c.Contact.DisconnectTimestamp, w.has(c.Contact.DisconnectTimestamp))
+				return span(
+					c.Contact.InitiationTimestamp,
+					c.Contact.DisconnectTimestamp,
+					w.has(c.Contact.DisconnectTimestamp),
+				)
 			})
 		}},
 		"AVG_QUEUE_ANSWER_TIME": {eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
@@ -160,7 +177,11 @@ func v2Specs() map[string]v2Spec {
 			metricFilters: []string{dimInitiation},
 			eval: func(cs []*contactRec, w window, _ *ThresholdV2) float64 {
 				return meanOf(cs, func(c *contactRec) (float64, bool) {
-					return span(enqueued(c), c.Contact.DisconnectTimestamp, abandoned(c) && w.has(c.Contact.DisconnectTimestamp))
+					return span(
+						enqueued(c),
+						c.Contact.DisconnectTimestamp,
+						abandoned(c) && w.has(c.Contact.DisconnectTimestamp),
+					)
 				})
 			},
 		},
@@ -168,7 +189,11 @@ func v2Specs() map[string]v2Spec {
 			var most float64
 
 			for _, c := range cs {
-				if v, ok := span(enqueued(c), firstNonNil(connected(c), c.Contact.DisconnectTimestamp), w.has(enqueued(c))); ok {
+				if v, ok := span(
+					enqueued(c),
+					firstNonNil(connected(c), c.Contact.DisconnectTimestamp),
+					w.has(enqueued(c)),
+				); ok {
 					most = max(most, v)
 				}
 			}
@@ -255,11 +280,13 @@ func percent(part, whole float64) float64 {
 		return 0
 	}
 
-	return part / whole * 100
+	return part / whole * pctScale
 }
 
 // v2Dims are the filter keys and groupings the emulator computes from stored contacts.
-var v2Dims = []string{dimQueue, dimProfile, dimAgent, dimChannel, dimInitiation, dimDisconnect} //nolint:gochecknoglobals // immutable catalogue
+func v2Dims() []string {
+	return []string{dimQueue, dimProfile, dimAgent, dimChannel, dimInitiation, dimDisconnect}
+}
 
 func idTail(v string) string {
 	if _, after, ok := strings.CutLast(v, "/"); ok {
@@ -376,6 +403,22 @@ func validatePeriod(in *GetMetricDataV2Input) (string, *time.Location, error) {
 	return period, loc, nil
 }
 
+func checkFilterValues(f FilterV2) error {
+	if f.StringCondition != nil {
+		if f.StringCondition.Comparison != notExists || len(f.FilterValues) > 0 {
+			return invalidParamErr("StringCondition NOT_EXISTS needs empty FilterValues")
+		}
+
+		return nil
+	}
+
+	if len(f.FilterValues) == 0 {
+		return invalidParamErr("FilterValues is required for %q", f.FilterKey)
+	}
+
+	return nil
+}
+
 func validateV2Filters(fs []FilterV2) error {
 	if len(fs) == 0 || len(fs) > maxV2Filters {
 		return invalidParamErr("Filters must hold 1-%d items", maxV2Filters)
@@ -385,8 +428,12 @@ func validateV2Filters(fs []FilterV2) error {
 	seen := map[string]bool{}
 
 	for _, f := range fs {
-		if !slices.Contains(v2Dims, f.FilterKey) {
-			return invalidParamErr("FilterKey %q is not supported; supported keys: %s", f.FilterKey, strings.Join(v2Dims, ", "))
+		if !slices.Contains(v2Dims(), f.FilterKey) {
+			return invalidParamErr(
+				"FilterKey %q is not supported; supported keys: %s",
+				f.FilterKey,
+				strings.Join(v2Dims(), ", "),
+			)
 		}
 
 		if seen[f.FilterKey] {
@@ -395,12 +442,8 @@ func validateV2Filters(fs []FilterV2) error {
 
 		seen[f.FilterKey] = true
 
-		if f.StringCondition != nil {
-			if f.StringCondition.Comparison != notExists || len(f.FilterValues) > 0 {
-				return invalidParamErr("StringCondition NOT_EXISTS needs empty FilterValues")
-			}
-		} else if len(f.FilterValues) == 0 {
-			return invalidParamErr("FilterValues is required for %q", f.FilterKey)
+		if err := checkFilterValues(f); err != nil {
+			return err
 		}
 
 		if f.FilterKey != dimChannel {
@@ -466,7 +509,8 @@ func checkThreshold(m MetricV2, spec v2Spec) error {
 		return invalidParamErr("Threshold.Comparison must be LT or LTE")
 	}
 
-	if th.ThresholdValue < 1 || th.ThresholdValue > maxThreshold || th.ThresholdValue != float64(int64(th.ThresholdValue)) {
+	if th.ThresholdValue < 1 || th.ThresholdValue > maxThreshold ||
+		th.ThresholdValue != float64(int64(th.ThresholdValue)) {
 		return invalidParamErr("Threshold.ThresholdValue must be a whole number from 1 to %d", maxThreshold)
 	}
 
@@ -486,14 +530,8 @@ func (b *Backend) validateMetricDataV2(inst string, in *GetMetricDataV2Input) er
 		return err
 	}
 
-	if len(in.Groupings) > maxV2Groupings {
-		return invalidParamErr("Groupings can hold at most %d items", maxV2Groupings)
-	}
-
-	for _, g := range in.Groupings {
-		if !slices.Contains(v2Dims, g) {
-			return invalidParamErr("grouping %q is not supported; supported groupings: %s", g, strings.Join(v2Dims, ", "))
-		}
+	if err := validateV2Groupings(in.Groupings); err != nil {
+		return err
 	}
 
 	if len(in.Metrics) == 0 {
@@ -504,9 +542,31 @@ func (b *Backend) validateMetricDataV2(inst string, in *GetMetricDataV2Input) er
 		return invalidParamErr("MaxResults must be 1-%d", maxV2Results)
 	}
 
+	return b.validateV2Metrics(inst, in.Metrics)
+}
+
+func validateV2Groupings(groupings []string) error {
+	if len(groupings) > maxV2Groupings {
+		return invalidParamErr("Groupings can hold at most %d items", maxV2Groupings)
+	}
+
+	for _, g := range groupings {
+		if !slices.Contains(v2Dims(), g) {
+			return invalidParamErr(
+				"grouping %q is not supported; supported groupings: %s",
+				g,
+				strings.Join(v2Dims(), ", "),
+			)
+		}
+	}
+
+	return nil
+}
+
+func (b *Backend) validateV2Metrics(inst string, metrics []MetricV2) error {
 	specs, levels := v2Specs(), 0
 
-	for _, m := range in.Metrics {
+	for _, m := range metrics {
 		if err := b.validateV2Metric(inst, m, specs); err != nil {
 			return err
 		}
@@ -533,15 +593,15 @@ func intervalWindows(start, end time.Time, period string, loc *time.Location) []
 	step := func(t time.Time) time.Time {
 		switch period {
 		case "FIFTEEN_MIN":
-			return t.Add(15 * time.Minute)
+			return t.Add(minutesQuarter * time.Minute)
 		case "THIRTY_MIN":
-			return t.Add(30 * time.Minute)
+			return t.Add(minutesHalf * time.Minute)
 		case "HOUR":
 			return t.Add(time.Hour)
 		case "DAY":
 			return t.In(loc).AddDate(0, 0, 1)
 		default:
-			return t.In(loc).AddDate(0, 0, 7)
+			return t.In(loc).AddDate(0, 0, daysPerWeek)
 		}
 	}
 
@@ -621,7 +681,8 @@ func (b *Backend) v2Groups(inst string, contacts []*contactRec, dims []string) [
 			g[i] = b.contactDim(inst, c, d)
 		}
 
-		if !slices.Contains(g, "") && !slices.ContainsFunc(groups, func(o []string) bool { return slices.Equal(o, g) }) {
+		if !slices.Contains(g, "") &&
+			!slices.ContainsFunc(groups, func(o []string) bool { return slices.Equal(o, g) }) {
 			groups = append(groups, g)
 		}
 	}
