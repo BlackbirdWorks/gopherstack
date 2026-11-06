@@ -453,7 +453,13 @@ func (t *samTranslator) resolveStringParam(v any) any {
 }
 
 func (t *samTranslator) resProps(section string, r map[string]any) map[string]any {
-	return mergeSAMGlobals(t.globalsFor(section, r), asMap(r[samKeyProps]))
+	local := asMap(r[samKeyProps])
+	merged := mergeSAMGlobals(t.globalsFor(section, r), local)
+	if arch, has := local["Architectures"]; has && section == samKeyFunction {
+		merged["Architectures"] = arch
+	}
+
+	return merged
 }
 
 // globalsFor is the section's Globals minus what the resource's IgnoreGlobals attribute drops.

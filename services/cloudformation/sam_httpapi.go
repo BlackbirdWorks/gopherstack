@@ -370,6 +370,9 @@ func (a *samHTTPAPI) v2Tags() map[string]any {
 	if a.props["DefinitionUri"] != nil {
 		return nil
 	}
+	if body, ok := a.props["DefinitionBody"].(map[string]any); ok && isSAMIntrinsic(body) && a.needsNoEditor() {
+		return nil
+	}
 	tags := maps.Clone(asMap(a.props[samKeyTags]))
 	if tags == nil {
 		tags = map[string]any{}
