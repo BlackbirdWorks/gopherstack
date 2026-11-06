@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -207,46 +206,6 @@ func (b *Backend) RemovePassword(id, keyID string) error {
 	return nil
 }
 
-// AddKey registers a key credential. The key material is validated but not retained.
-func (b *Backend) AddKey(id string, in KeyCredential) (KeyCredential, error) {
-	if in.Key == nil {
-		return KeyCredential{}, badRequest("A value is required for property 'key' of resource 'KeyCredential'.")
-	}
-
-	if _, err := base64.StdEncoding.DecodeString(*in.Key); err != nil {
-		return KeyCredential{}, badRequest("Invalid value specified for property 'key' of resource 'KeyCredential'.")
-	}
-
-	if in.Type != "AsymmetricX509Cert" && in.Type != "X509CertAndPassword" {
-		return KeyCredential{}, badRequest("Invalid value specified for property 'type' of resource 'KeyCredential'.")
-	}
-
-	if in.Usage != "Verify" && in.Usage != "Sign" {
-		return KeyCredential{}, badRequest("Invalid value specified for property 'usage' of resource 'KeyCredential'.")
-	}
-
-	b.mu.Lock("AddKey")
-	defer b.mu.Unlock()
-
-	start, end, err := b.credWindow(in.StartDateTime, in.EndDateTime)
-	if err != nil {
-		return KeyCredential{}, err
-	}
-
-	_, keys, err := b.credHolder(id)
-	if err != nil {
-		return KeyCredential{}, err
-	}
-
-	cred := KeyCredential{
-		KeyID: newID(), Type: in.Type, Usage: in.Usage, DisplayName: in.DisplayName,
-		CustomKeyIdentifier: in.CustomKeyIdentifier, StartDateTime: start, EndDateTime: end,
-	}
-	*keys = append(slices.Clone(*keys), cred)
-
-	return cred, nil
-}
-
 // RemoveKey deletes a key credential.
 func (b *Backend) RemoveKey(id, keyID string) error {
 	b.mu.Lock("RemoveKey")
@@ -262,6 +221,7 @@ func (b *Backend) RemoveKey(id, keyID string) error {
 		return badRequest("No key credential found with keyId '%s'.", keyID)
 	}
 
+	delete(b.keyMaterial, (*keys)[i].KeyID)
 	*keys = slices.Delete(slices.Clone(*keys), i, i+1)
 
 	return nil
@@ -277,6 +237,54 @@ type ClientAuthError struct {
 
 func (e *ClientAuthError) Error() string { return e.Name + ": " + e.Description }
 
+// clientObjects resolves the service principal and application of a client ID. Both nil means the directory does
+// not know the client; a non-nil error is the AADSTS failure for an application without an enabled service principal.
+func (b *Backend) clientObjects(clientID string) (*ServicePrincipal, *Application, *ClientAuthError) {
+	var (
+		sp  *ServicePrincipal
+		app *Application
+	)
+
+	for _, s := range b.sps.all() {
+		if strings.EqualFold(s.AppID, clientID) {
+			sp = s
+
+			break
+		}
+	}
+
+	for _, a := range b.apps.all() {
+		if strings.EqualFold(a.AppID, clientID) {
+			app = a
+
+			break
+		}
+	}
+
+	switch {
+	case sp == nil && app == nil:
+		return nil, nil, nil
+	case sp == nil:
+		return nil, app, &ClientAuthError{
+			Status: http.StatusBadRequest,
+			Code:   aadsNoServicePrincipal,
+			Name:   "invalid_client",
+			Description: fmt.Sprintf(
+				"AADSTS7000229: The client application %s is missing service principal in the tenant %s.",
+				clientID,
+				b.cfg.TenantID,
+			),
+		}
+	case !sp.AccountEnabled:
+		return sp, app, &ClientAuthError{
+			Status: http.StatusBadRequest, Code: aadsAppDisabled, Name: "unauthorized_client",
+			Description: fmt.Sprintf("AADSTS7000112: Application '%s' is disabled.", clientID),
+		}
+	}
+
+	return sp, app, nil
+}
+
 // AuthenticateClient checks a client-credentials request against the registered applications. known is false for
 // a client ID no application or service principal uses, leaving the caller free to apply its own policy. On
 // success objectID is the service principal's object ID, the token's oid claim.
@@ -288,48 +296,13 @@ func (b *Backend) AuthenticateClient(clientID, secret string) (string, bool, err
 		return devClientSPID, true, nil
 	}
 
-	var sp *ServicePrincipal
-
-	for _, s := range b.sps.all() {
-		if strings.EqualFold(s.AppID, clientID) {
-			sp = s
-
-			break
-		}
-	}
-
-	var app *Application
-
-	for _, a := range b.apps.all() {
-		if strings.EqualFold(a.AppID, clientID) {
-			app = a
-
-			break
-		}
-	}
-
-	if sp == nil && app == nil {
-		return "", false, nil
+	sp, app, cerr := b.clientObjects(clientID)
+	if cerr != nil {
+		return "", true, cerr
 	}
 
 	if sp == nil {
-		return "", true, &ClientAuthError{
-			Status: http.StatusBadRequest,
-			Code:   aadsNoServicePrincipal,
-			Name:   "invalid_client",
-			Description: fmt.Sprintf(
-				"AADSTS7000229: The client application %s is missing service principal in the tenant %s.",
-				clientID,
-				b.cfg.TenantID,
-			),
-		}
-	}
-
-	if !sp.AccountEnabled {
-		return "", true, &ClientAuthError{
-			Status: http.StatusBadRequest, Code: aadsAppDisabled, Name: "unauthorized_client",
-			Description: fmt.Sprintf("AADSTS7000112: Application '%s' is disabled.", clientID),
-		}
+		return "", false, nil
 	}
 
 	creds := slices.Clone(sp.PasswordCredentials)

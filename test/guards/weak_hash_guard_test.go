@@ -23,6 +23,9 @@ func allowedWeakHashFiles() map[string]string {
 		"services/cloudformation/sam_hash.go": "SAM LogicalIdGenerator SHA-1 logical id suffix parity",
 		// SPARQL 1.1 defines MD5() and SHA1() as query builtins over caller-supplied literals; never credentials.
 		"services/neptune/sparql/funcs_hash.go": "SPARQL 1.1 MD5()/SHA1() builtin functions",
+		// Entra identifies certificates by SHA-1 thumbprint (JWS x5t, RFC 7515 4.1.7; keyCredential.customKeyIdentifier); an
+		// identifier match, never a credential.
+		"services/azuregraph/certauth.go": "Entra x5t / customKeyIdentifier SHA-1 certificate thumbprint parity",
 		// Azure Blob Content-MD5 headers are the base64 MD5 of the body; integrity checksum, never a credential.
 		"services/azureblob/handler_cond.go": "Azure Blob Content-MD5 header parity",
 		// npm dist.shasum is the SHA-1 of the tarball; content checksum, never a credential.

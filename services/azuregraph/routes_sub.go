@@ -50,13 +50,13 @@ func (h *Handler) subRoutes() map[string]subRoute {
 		"removekey": {kinds: appOrSPKinds(), serve: leaf(func(h *Handler, c *echo.Context, id string) error {
 			return h.removeCred(c, id, b.RemoveKey)
 		})},
-		"owners": {
+		propOwners: {
 			kinds: []string{kindApplication, kindServicePrincipal, kindGroup},
 			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
 				return h.refs(c, id, tail, refOps{add: b.AddOwner, remove: b.RemoveOwner, load: b.Owners})
 			},
 		},
-		"members": {
+		propMembers: {
 			kinds: []string{kindGroup},
 			serve: func(h *Handler, c *echo.Context, id string, tail []string) error {
 				return h.refs(c, id, tail, refOps{add: b.AddMember, remove: b.RemoveMember, load: b.Members})
@@ -81,7 +81,8 @@ func (h *Handler) subRoutes() map[string]subRoute {
 				return h.assignments(c, id, true, tail)
 			},
 		},
-		"oauth2permissiongrants": {kinds: []string{kindServicePrincipal}, serve: leaf((*Handler).clientGrants)},
+		"federatedidentitycredentials": {kinds: []string{kindApplication}, serve: (*Handler).federatedCredentials},
+		"oauth2permissiongrants":       {kinds: []string{kindServicePrincipal}, serve: leaf((*Handler).clientGrants)},
 	}
 }
 
@@ -147,7 +148,14 @@ func (h *Handler) addKey(c *echo.Context, id string) error {
 		return h.writeErr(c, badRequest("A value is required for property 'keyCredential' of resource 'Application'."))
 	}
 
-	cred, err := h.Backend.AddKey(id, in)
+	var proof string
+	if raw := body["proof"]; len(raw) > 0 && string(raw) != jsonNull {
+		if err = json.Unmarshal(raw, &proof); err != nil {
+			return h.writeErr(c, badRequest("Invalid value specified for property 'proof'."))
+		}
+	}
+
+	cred, err := h.Backend.AddKey(id, in, proof)
 	if err != nil {
 		return h.writeErr(c, err)
 	}
@@ -323,4 +331,60 @@ func (h *Handler) clientGrants(c *echo.Context, id string) error {
 	}
 
 	return h.list(c, "oauth2PermissionGrants", "OAuth2PermissionGrant", fieldsOf[OAuth2PermissionGrant](), items)
+}
+
+func (h *Handler) federatedCredentials(c *echo.Context, id string, tail []string) error {
+	r, b := c.Request(), h.Backend
+	ctx := "applications('" + id + "')/federatedIdentityCredentials"
+
+	switch {
+	case len(tail) == 0 && r.Method == http.MethodGet:
+		list, err := b.ListFederatedCredentials(id)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return h.list(c, ctx, "FederatedIdentityCredential", fieldsOf[FederatedCredential](), mapAll(list))
+	case len(tail) == 0 && r.Method == http.MethodPost:
+		body, err := readJSON(c)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		f, err := b.CreateFederatedCredential(id, body)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return h.entity(c, http.StatusCreated, ctx, toMap(f))
+	case len(tail) == 1:
+		return h.federatedCredential(c, id, tail[0], ctx)
+	}
+
+	return h.writeErr(c, segmentErr(strings.Join(tail, "/")))
+}
+
+func (h *Handler) federatedCredential(c *echo.Context, id, key, ctx string) error {
+	b := h.Backend
+
+	switch c.Request().Method {
+	case http.MethodGet:
+		f, err := b.GetFederatedCredential(id, key)
+		if err != nil {
+			return h.writeErr(c, err)
+		}
+
+		return h.entity(c, http.StatusOK, ctx, toMap(f))
+	case http.MethodPatch:
+		body, err := readJSON(c)
+		if err == nil {
+			err = b.UpdateFederatedCredential(id, key, body)
+		}
+
+		return h.noContent(c, err)
+	case http.MethodDelete:
+		return h.noContent(c, b.DeleteFederatedCredential(id, key))
+	}
+
+	return h.methodNotAllowed(c)
 }

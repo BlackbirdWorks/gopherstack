@@ -213,3 +213,87 @@ func TestRoleAssignmentPrincipalDirectory(t *testing.T) {
 		})
 	}
 }
+
+type fakeAssertionClients struct {
+	fakeClients
+	gotAudiences *[]string
+}
+
+func (f fakeAssertionClients) AuthenticateAssertion(
+	clientID, assertion string, audiences []string,
+) (string, bool, error) {
+	*f.gotAudiences = audiences
+
+	if clientID != "registered" {
+		return "", false, nil
+	}
+
+	if assertion == "good" {
+		return "oid-assertion", true, nil
+	}
+
+	return "", true, &azurearm.ClientAuthError{
+		Name:        "invalid_client",
+		Status:      http.StatusUnauthorized,
+		Code:        700027,
+		Description: "AADSTS700027: bad assertion",
+	}
+}
+
+func TestTokenEndpointClientAssertion(t *testing.T) {
+	t.Parallel()
+
+	const assertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+
+	tests := []struct {
+		name      string
+		assertion string
+		kind      string
+		wantOID   string
+		status    int
+	}{
+		{"valid assertion", "good", assertionType, "oid-assertion", 200},
+		{"rejected assertion", "bad", assertionType, "", 401},
+		{"other assertion type falls back to secret check", "good", "urn:other", "", 401},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var audiences []string
+
+			h := newTestHandler(t)
+			h.SetClientAuthenticator(fakeAssertionClients{gotAudiences: &audiences})
+
+			form := url.Values{
+				"grant_type": {
+					"client_credentials",
+				},
+				"client_id":             {"registered"},
+				"scope":                 {"https://graph.microsoft.com/.default"},
+				"client_assertion":      {tt.assertion},
+				"client_assertion_type": {tt.kind},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/tenant1/oauth2/v2.0/token", strings.NewReader(form.Encode()))
+			req.Host = "host:10006"
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			rec := httptest.NewRecorder()
+			newEchoServer(h).ServeHTTP(rec, req)
+			require.Equal(t, tt.status, rec.Code, rec.Body.String())
+
+			if tt.wantOID == "" {
+				return
+			}
+
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+			claims, err := h.Issuer.Parse(body["access_token"].(string)) //nolint:forcetypeassert // status asserted
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantOID, claims["oid"])
+			assert.Contains(t, audiences, "https://host:10006/tenant1/oauth2/v2.0/token")
+		})
+	}
+}
