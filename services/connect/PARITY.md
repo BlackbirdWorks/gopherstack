@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 334 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 68 are unrouted and listed in items_still_open.
+overall: B            # 343 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 59 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -37,6 +37,16 @@ ops:
   DescribeAttachedFilesConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "never-updated scopes answer the emulator defaults (20 MiB, csv doc docx gif jpeg jpg pdf png ppt pptx tif tiff txt wav xls xlsx), which are unverified; LastModifiedTime only after an update"}
   ListAttachedFilesConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "one summary per scope EMAIL, CHAT, CASE, TASK"}
   UpdateAttachedFilesConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaximumSizeLimitInBytes 1-104857600, extensions 1-10 alphanumeric, hyphen or underscore characters (case-folded, no dot); either member may be sent alone"}
+  CreateNotification: {wire: ok, errors: ok, state: ok, persist: ok, note: "Content 1+ locales of 1-250 characters; Recipients 1-200 user ARNs of the instance (must exist) or the instance ARN; Priority HIGH or LOW (default LOW, unverified); ExpiresAt must be in the future and defaults to a week (docs); PredefinedNotificationId (deprecated) becomes the ID and conflicts raise DuplicateResourceException; ClientToken replays; tags join the tag model. Shape: schemas.go CreateNotification; docs API_CreateNotification"}
+  DescribeNotification: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNotificationContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "replaces the whole content map (up to 500 characters per locale, per the SDK docs) and refreshes LastModifiedTime/Region"}
+  DeleteNotification: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNotifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "newest first; MaxResults 1-100"}
+  SearchNotifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "StringCondition fields NotificationId/Id and MessageContent/Content (all locales joined; the real field names are unverified), tag filter, And/Or conditions"}
+  ListUserNotifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "unexpired notifications addressed to the user directly or through the instance ARN; Source is always CUSTOMER (no rules or system notifications exist); status defaults to UNREAD; MaxResults 1-1000"}
+  UpdateUserNotificationStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "READ, UNREAD or HIDDEN for a recipient; the x-amz-last-modified-time/region replication headers are not read (the REST framework does not expose request headers)"}
+  CreatePushNotificationRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "active chat contact of the instance, ParticipantRole CUSTOMER only, DeviceType GCM|APNS|APNS_SANDBOX, PinpointAppArn shape-checked as a mobiletargeting apps ARN (existence in the Pinpoint emulator is not checked); ClientToken replays"}
+  DeletePushNotificationRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contactId query must be the contact the registration was created for, else ResourceNotFoundException"}
   DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
@@ -361,7 +371,7 @@ items_still_open:
   - "Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
   - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
-  - "Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed"
+  - "Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated"
   - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
   - "AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked"
   - "Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed"

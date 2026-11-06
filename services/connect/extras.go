@@ -47,6 +47,14 @@ func (b *Backend) registerViewTables() {
 	)
 	b.attachedConfigs = newFamily(r, "attachedFilesConfigurations", labelAttachedConfig,
 		func(v *attachedConfigRec) string { return v.InstanceID }, func(v *attachedConfigRec) string { return v.Scope })
+	b.notifications = newFamily(r, "notifications", labelNotification,
+		func(v *notificationRec) string { return v.InstanceID }, func(v *notificationRec) string { return v.ID })
+	b.notifications.taggable(
+		func(v *notificationRec) string { return v.Arn },
+		func(v *notificationRec) *map[string]string { return &v.Tags },
+	)
+	b.pushRegistrations = newFamily(r, "pushRegistrations", labelPushRegistration,
+		func(v *pushRegistrationRec) string { return v.InstanceID }, func(v *pushRegistrationRec) string { return v.ID })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -124,6 +132,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.workspaces.findARN,
 		b.metricDefs.findARN,
 		b.attachedFiles.findARN,
+		b.notifications.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -148,5 +157,7 @@ func (b *Backend) dropExtras(inst string) {
 	b.metricDefs.dropInstance(inst)
 	b.attachedFiles.dropInstance(inst)
 	b.attachedConfigs.dropInstance(inst)
+	b.notifications.dropInstance(inst)
+	b.pushRegistrations.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

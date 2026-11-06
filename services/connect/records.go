@@ -174,6 +174,8 @@ type extras struct {
 	metricDefs        family[metricRec]
 	attachedFiles     family[attachedFileRec]
 	attachedConfigs   family[attachedConfigRec]
+	notifications     family[notificationRec]
+	pushRegistrations family[pushRegistrationRec]
 }
 
 func (b *Backend) registerTables() {

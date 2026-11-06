@@ -72,6 +72,7 @@ func (b *Backend) TaggedResources(ctx context.Context) []TaggedEntry {
 	b.workspaces.collectTagged(owns, &out)
 	b.metricDefs.collectTagged(owns, &out)
 	b.attachedFiles.collectTagged(owns, &out)
+	b.notifications.collectTagged(owns, &out)
 	b.trafficGroups.collectTagged(owns, &out)
 
 	b.collectUseCaseTags(owns, &out)
