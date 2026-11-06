@@ -178,3 +178,48 @@ func TestSDKResource(t *testing.T) {
 	_, err = e.api.DeleteSdk(t.Context(), apigateway.DeleteSdkRequest{SdkId: created.Id})
 	require.NoError(t, err)
 }
+
+func TestGetApiContentRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		rng    string
+		want   string
+		status int
+	}{
+		{name: "first bytes", rng: "bytes=0-3", want: petsYAML[:4], status: http.StatusPartialContent},
+		{name: "open ended", rng: "bytes=5-", want: petsYAML[5:], status: http.StatusPartialContent},
+		{name: "suffix", rng: "bytes=-6", want: petsYAML[len(petsYAML)-6:], status: http.StatusPartialContent},
+		{name: "multiple ranges ignored", rng: "bytes=0-1,3-4", want: petsYAML, status: http.StatusOK},
+		{name: "unsatisfiable", rng: "bytes=99999-", status: http.StatusRequestedRangeNotSatisfiable},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := newEnv(t, envOpts{})
+			created := e.mkAPI(t, "pets", petsYAML)
+
+			resp, err := e.api.GetApiContent(
+				t.Context(), apigateway.GetApiContentRequest{ApiId: created.Id, Range: new(tt.rng)},
+			)
+			if tt.status == http.StatusRequestedRangeNotSatisfiable {
+				require.Error(t, err)
+				assert.Equal(t, tt.status, svcErr(t, err).GetHTTPStatusCode())
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			defer resp.Content.Close()
+
+			raw, err := io.ReadAll(resp.Content)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, string(raw))
+			assert.Equal(t, tt.status, resp.RawResponse.StatusCode)
+		})
+	}
+}

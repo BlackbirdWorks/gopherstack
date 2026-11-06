@@ -494,8 +494,12 @@ func (h *Handler) getAPIContent(q *req) error {
 	q.header("etag", etag)
 	q.header("x-content-sha256", sum)
 	q.header("Content-Type", "application/octet-stream")
-	q.w.WriteHeader(http.StatusOK)
-	_, _ = q.w.Write([]byte(content))
+
+	if strings.Contains(q.r.Header.Get("Range"), ",") {
+		q.r.Header.Del("Range")
+	}
+
+	http.ServeContent(q.w, q.r, "", time.Time{}, strings.NewReader(content))
 
 	return nil
 }

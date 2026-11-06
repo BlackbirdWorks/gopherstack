@@ -163,6 +163,18 @@ func TestCursorTypes(t *testing.T) {
 			assert.Equal(t, tt.want, values(getMsgs(t, c, s, cur, 0).Items))
 		})
 	}
+}
+
+func TestCursorLimitAndNextCursor(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, envOpts{})
+	s := e.mkStream(t, "cursors-limit", 1)
+	c := e.msgs(t, s)
+
+	for _, v := range []string{"m0", "m1", "m2", "m3"} {
+		putOne(t, c, s, "", v)
+	}
 
 	cur := plainCursor(t, c, s, "0", streaming.CreateCursorDetailsTypeTrimHorizon, nil)
 	limited := getMsgs(t, c, s, cur, 2)

@@ -6,14 +6,17 @@ import (
 )
 
 const (
-	maxRequestBytes   = 1 << 20
-	maxKeyBytes       = 256
-	maxPartitionBytes = 1 << 20
-	maxGetLimit       = 10000
-	tailOne           = 1
-	tailTwo           = 2
-	tailThree         = 3
-	hashMask          = 0x7fffffff
+	maxRequestBytes    = 1 << 20
+	maxKeyBytes        = 256
+	maxPartitionBytes  = 1 << 20
+	maxGetLimit        = 10000
+	maxGetsPerSecond   = 5
+	maxGroupsPerStream = 50
+	maxGetWindows      = 1024
+	tailOne            = 1
+	tailTwo            = 2
+	tailThree          = 3
+	hashMask           = 0x7fffffff
 )
 
 type putEntryIn struct {
