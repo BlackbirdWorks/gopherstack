@@ -216,6 +216,10 @@ func loopSpecOf(s *Step) (*loopSpec, error) {
 
 			spec.times, spec.hasTimes = n, true
 		case modUntil:
+			if len(m.Args) == 0 {
+				return nil, invalidArg("until() requires an argument")
+			}
+
 			spec.until, _ = m.Args[0].(*Traversal)
 			spec.preUntil, spec.postUntil = m.Pre, !m.Pre
 		case modEmit:

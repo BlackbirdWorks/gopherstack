@@ -176,7 +176,7 @@ func values(ts []*trav) []any {
 func rootTrav() []*trav { return []*trav{{}} }
 
 func argTraversal(s *Step, i int) (*Traversal, error) {
-	if i < len(s.Args) {
+	if i >= 0 && i < len(s.Args) {
 		if tr, ok := s.Args[i].(*Traversal); ok {
 			return tr, nil
 		}
@@ -186,7 +186,7 @@ func argTraversal(s *Step, i int) (*Traversal, error) {
 }
 
 func argInt(s *Step, i int) (int, error) {
-	if i < len(s.Args) && isInt(s.Args[i]) {
+	if i >= 0 && i < len(s.Args) && isInt(s.Args[i]) {
 		return int(toInt(s.Args[i])), nil
 	}
 
