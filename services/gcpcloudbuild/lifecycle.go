@@ -43,7 +43,7 @@ func (b *InMemoryBackend) finishLocked(
 			rec.pb.Timing = map[string]*cloudbuildpb.TimeSpan{}
 		}
 
-		if rec.pb.Timing["BUILD"] == nil {
+		if rec.pb.GetTiming()["BUILD"] == nil {
 			rec.pb.Timing["BUILD"] = &cloudbuildpb.TimeSpan{StartTime: rec.pb.GetStartTime(), EndTime: now}
 		}
 	}

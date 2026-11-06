@@ -181,7 +181,10 @@ func (r *runner) uploadArtifacts(_ context.Context, res *cloudbuildpb.Results) *
 	res.ArtifactTiming = &cloudbuildpb.TimeSpan{StartTime: start, EndTime: r.b.ts()}
 
 	r.b.update(r.ref, func(pb *cloudbuildpb.Build) {
-		pb.GetArtifacts().GetObjects().Timing = &cloudbuildpb.TimeSpan{StartTime: start, EndTime: res.ArtifactTiming.GetEndTime()}
+		pb.GetArtifacts().GetObjects().Timing = &cloudbuildpb.TimeSpan{
+			StartTime: start,
+			EndTime:   res.ArtifactTiming.GetEndTime(),
+		}
 	})
 
 	return nil

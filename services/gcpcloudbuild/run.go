@@ -21,20 +21,19 @@ const (
 
 // runner executes one build.
 type runner struct {
-	b        *InMemoryBackend
-	rt       Runtime
-	build    *cloudbuildpb.Build
-	log      *buildLog
-	timedOut *atomic.Bool
-	fail     atomic.Pointer[stepFailure]
-	svc      Services
-	secrets  map[string]string
-	// stepImages and stepOutputs are indexed by step; each step writes only its own slot.
-	stepImages  []string
-	stepOutputs [][]byte
+	rt          Runtime
+	secrets     map[string]string
+	build       *cloudbuildpb.Build
+	log         *buildLog
+	timedOut    *atomic.Bool
+	fail        atomic.Pointer[stepFailure]
+	b           *InMemoryBackend
+	svc         Services
+	ref         ref
 	srcDir      string
 	work        string
-	ref         ref
+	stepImages  []string
+	stepOutputs [][]byte
 }
 
 // stepFailure is the first failure that decided the build's outcome.
@@ -192,7 +191,7 @@ func (r *runner) prepare(ctx context.Context) *stepFailure {
 		}
 	}
 
-	if err := r.resolveSecrets(); err != nil {
+	if err = r.resolveSecrets(); err != nil {
 		return &stepFailure{
 			status: cloudbuildpb.Build_FAILURE,
 			detail: "failed to resolve secrets: " + err.Error(),
@@ -209,11 +208,11 @@ func (r *runner) conclude(ctx context.Context, failure *stepFailure) {
 
 	if failure != nil {
 		r.b.update(r.ref, func(pb *cloudbuildpb.Build) {
-			if pb.Results == nil {
+			if pb.GetResults() == nil {
 				pb.Results = &cloudbuildpb.Results{}
 			}
 
-			r.addStepResults(pb.Results)
+			r.addStepResults(pb.GetResults())
 		})
 	}
 

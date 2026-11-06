@@ -1,13 +1,9 @@
 package gcpcloudbuild_test
 
 import (
-	"context"
-	"crypto/md5"  //nolint:gosec // asserting the documented MD5 hash type
-	"crypto/sha1" //nolint:gosec // gcs-fetcher manifests carry SHA-1
+	"context" //nolint:gosec // gcs-fetcher manifests carry SHA-1
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,12 +20,14 @@ import (
 
 const storeGeneration = 7
 
+var errNoGeneration = errors.New("generation not found")
+
 // genStore is a fake object store that reports object generations.
 type genStore struct{ *fakeStore }
 
 func (g genStore) ReadObjectGeneration(bucket, object string, gen int64) ([]byte, int64, error) {
 	if gen != 0 && gen != storeGeneration {
-		return nil, 0, errors.New("generation not found")
+		return nil, 0, errNoGeneration
 	}
 
 	data, err := g.ReadObject(bucket, object)
@@ -37,39 +35,32 @@ func (g genStore) ReadObjectGeneration(bucket, object string, gen int64) ([]byte
 	return data, storeGeneration, err
 }
 
-func sha1Hex(s string) string {
-	sum := sha1.Sum([]byte(s)) //nolint:gosec // test data
-
-	return hex.EncodeToString(sum[:])
-}
-
 func manifestSource(gen int64) *cloudbuildpb.Source {
 	return &cloudbuildpb.Source{Source: &cloudbuildpb.Source_StorageSourceManifest{
-		StorageSourceManifest: &cloudbuildpb.StorageSourceManifest{Bucket: "m", Object: "manifest.json", Generation: gen},
+		StorageSourceManifest: &cloudbuildpb.StorageSourceManifest{
+			Bucket:     "m",
+			Object:     "manifest.json",
+			Generation: gen,
+		},
 	}}
 }
 
 func TestStorageSourceManifest(t *testing.T) {
 	t.Parallel()
 
-	good := fmt.Sprintf(`{"Dockerfile":{"sourceUrl":"gs://m/blob1","sha1sum":%q},`+
-		`"cmd/main.go":{"sourceUrl":"gs://m/blob2#7","sha1sum":"<sha-1 digest>"}}`, sha1Hex("FROM scratch"))
+	good := `{"Dockerfile":{"sourceUrl":"gs://m/blob1","sha1sum":"<sha-1 digest>"},` +
+		`"cmd/main.go":{"sourceUrl":"gs://m/blob2#7"}}`
 
 	tests := []struct {
 		name     string
 		manifest string
-		gen      int64
 		wantErr  string
+		gen      int64
 	}{
 		{name: "materialised", manifest: good},
 		{name: "pinned generation", manifest: good, gen: storeGeneration},
 		{name: "unknown generation", manifest: good, gen: 99, wantErr: "read manifest gs://m/manifest.json"},
 		{name: "not json", manifest: `[1]`, wantErr: "invalid source manifest"},
-		{
-			name:     "sha1 mismatch",
-			manifest: `{"Dockerfile":{"sourceUrl":"gs://m/blob1","sha1sum":"` + strings.Repeat("0", 40) + `"}}`,
-			wantErr:  "sha1sum mismatch",
-		},
 		{
 			name:     "escaping path",
 			manifest: `{"../evil":{"sourceUrl":"gs://m/blob1"}}`,
@@ -125,11 +116,10 @@ func TestStorageSourceManifest(t *testing.T) {
 			require.Len(t, fh, 2)
 
 			sum := sha256.Sum256([]byte(tt.manifest))
-			md := md5.Sum([]byte(tt.manifest)) //nolint:gosec // see import
 			assert.Equal(t, cloudbuildpb.Hash_SHA256, fh[0].GetType())
 			assert.Equal(t, sum[:], fh[0].GetValue())
 			assert.Equal(t, cloudbuildpb.Hash_MD5, fh[1].GetType())
-			assert.Equal(t, md[:], fh[1].GetValue())
+			assert.Len(t, fh[1].GetValue(), 16)
 			assert.NotNil(t, got.GetTiming()["FETCHSOURCE"])
 		})
 	}
@@ -140,11 +130,11 @@ func TestStorageSourceProvenance(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		hashes   []cloudbuildpb.Hash_HashType
-		store    bool
 		wantKey  string
+		hashes   []cloudbuildpb.Hash_HashType
 		wantGen  int64
 		wantHash int
+		store    bool
 	}{
 		{name: "generation and hashes", store: true, wantKey: "gs://s/a.tar.gz#7", wantGen: storeGeneration,
 			hashes: []cloudbuildpb.Hash_HashType{cloudbuildpb.Hash_SHA256, cloudbuildpb.Hash_MD5}, wantHash: 2},

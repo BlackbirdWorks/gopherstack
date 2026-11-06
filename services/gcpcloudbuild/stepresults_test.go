@@ -45,19 +45,27 @@ func TestBuildStepResults(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		behaviors   map[string]behavior
 		name        string
 		steps       []*cloudbuildpb.BuildStep
-		behaviors   map[string]behavior
-		wantStatus  cloudbuildpb.Build_Status
 		wantImages  []string
 		wantOutputs []string
+		wantStatus  cloudbuildpb.Build_Status
 	}{
 		{
-			name:       "outputs and digests in step order",
-			steps:      []*cloudbuildpb.BuildStep{step("a@sha256:abc"), step("b"), step("c")},
-			behaviors:  map[string]behavior{"a@sha256:abc": writesOutput("one", 0), "b": exits(0), "c": writesOutput("three", 0)},
+			name:  "outputs and digests in step order",
+			steps: []*cloudbuildpb.BuildStep{step("a@sha256:abc"), step("b"), step("c")},
+			behaviors: map[string]behavior{
+				"a@sha256:abc": writesOutput("one", 0),
+				"b":            exits(0),
+				"c":            writesOutput("three", 0),
+			},
 			wantStatus: cloudbuildpb.Build_SUCCESS,
-			wantImages: []string{"sha256:abc", "sha256:local-b", "sha256:local-c"}, wantOutputs: []string{"one", "", "three"},
+			wantImages: []string{
+				"sha256:abc",
+				"sha256:local-b",
+				"sha256:local-c",
+			}, wantOutputs: []string{"one", "", "three"},
 		},
 		{
 			name:       "output cap",

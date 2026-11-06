@@ -92,7 +92,9 @@ func (r *runner) outputDir(i int) (string, error) {
 
 // collectOutput keeps the first 50KB a step wrote to $BUILDER_OUTPUT/output.
 func (r *runner) collectOutput(i int) {
-	f, err := os.Open(filepath.Join(r.auxDir(), "outputs", "step-"+strconv.Itoa(i), outputFile)) //nolint:gosec // build-owned dir
+	f, err := os.Open(
+		filepath.Join(r.auxDir(), "outputs", "step-"+strconv.Itoa(i), outputFile),
+	) //nolint:gosec // build-owned dir
 	if err != nil {
 		return
 	}

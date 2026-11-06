@@ -39,6 +39,9 @@ func allowedWeakHashFiles() map[string]string {
 		// GCS objects carry an md5Hash field and X-Goog-Hash md5= value defined as the
 		// base64 MD5 of the content; integrity checksum, never a credential.
 		"services/gcpstorage/store.go": "GCS Object.md5Hash parity, verified",
+		// Cloud Build SourceProvenance.file_hashes offers Hash_MD5 beside SHA256 (cloudbuildpb Hash_HashType);
+		// source-integrity digest, never a credential.
+		"services/gcpcloudbuild/filehash.go": "Cloud Build Hash_MD5 source provenance digest parity",
 		// V2 signed URLs with an HMAC key are defined as base64 HMAC-SHA1 of the string to sign (storage signed-urls V2).
 		"services/gcpstorage/signing.go": "GCS V2 HMAC signed URL verification, SHA-1 mandated by the scheme",
 		// OCI Object Storage md5/opc-multipart-md5 headers are base64 MD5 of the content, and API key

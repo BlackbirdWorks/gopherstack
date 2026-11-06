@@ -32,7 +32,11 @@ func TestDockerRuntime_ImageDigest(t *testing.T) {
 		wantDigest string
 	}{
 		{name: "digest", api: &digestAPI{mockAPI: &mockAPI{}, digest: "sha256:abc"}, wantDigest: "sha256:abc"},
-		{name: "inspect failure", api: &digestAPI{mockAPI: &mockAPI{}, err: errInspectFailed}, wantErr: errInspectFailed},
+		{
+			name:    "inspect failure",
+			api:     &digestAPI{mockAPI: &mockAPI{}, err: errInspectFailed},
+			wantErr: errInspectFailed,
+		},
 		{name: "client cannot inspect", api: &mockAPI{}, wantErr: container.ErrPushUnsupported},
 	}
 

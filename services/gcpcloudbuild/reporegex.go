@@ -92,7 +92,7 @@ func checkRevision(rev string) error {
 }
 
 func readRefNames(file, pfx string) ([]string, error) {
-	f, err := os.Open(file) //nolint:gosec // written by the build's own git helper
+	f, err := os.Open(file)
 	if err != nil {
 		return nil, fmt.Errorf("read refs: %w", err)
 	}

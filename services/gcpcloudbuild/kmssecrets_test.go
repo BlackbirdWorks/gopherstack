@@ -43,9 +43,9 @@ func TestKMSSecrets(t *testing.T) {
 	tests := []struct {
 		mut     func(*cloudbuildpb.Build)
 		name    string
-		noKMS   bool
 		wantErr string
 		wantEnv string
+		noKMS   bool
 	}{
 		{
 			name: "inline",
@@ -57,7 +57,9 @@ func TestKMSSecrets(t *testing.T) {
 		{
 			name: "deprecated secrets field",
 			mut: func(b *cloudbuildpb.Build) {
-				b.Secrets = []*cloudbuildpb.Secret{{KmsKeyName: kmsKey, SecretEnv: map[string][]byte{"TOKEN": []byte("enc:old")}}}
+				b.Secrets = []*cloudbuildpb.Secret{
+					{KmsKeyName: kmsKey, SecretEnv: map[string][]byte{"TOKEN": []byte("enc:old")}},
+				}
 			},
 			wantEnv: "TOKEN=old",
 		},
@@ -90,7 +92,9 @@ func TestKMSSecrets(t *testing.T) {
 			name: "duplicate env",
 			mut: func(b *cloudbuildpb.Build) {
 				b.AvailableSecrets = inline(kmsKey, map[string][]byte{"TOKEN": []byte("enc:a")})
-				b.Secrets = []*cloudbuildpb.Secret{{KmsKeyName: kmsKey, SecretEnv: map[string][]byte{"TOKEN": []byte("enc:b")}}}
+				b.Secrets = []*cloudbuildpb.Secret{
+					{KmsKeyName: kmsKey, SecretEnv: map[string][]byte{"TOKEN": []byte("enc:b")}},
+				}
 			},
 			wantErr: "defined more than once",
 		},
@@ -150,9 +154,9 @@ func TestAutomapSubstitutions(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		automap bool
 		want    []string
 		notWant []string
+		automap bool
 	}{
 		{
 			name: "enabled", automap: true,

@@ -45,14 +45,9 @@ type ImageDigester interface {
 	ImageDigest(ctx context.Context, image string) (string, error)
 }
 
-// DigestAPIClient is implemented by clients that can inspect a local image's digest.
-type DigestAPIClient interface {
-	ImageDigest(ctx context.Context, ref string) (string, error)
-}
-
 // ImageDigest returns the digest of the local image ref.
 func (r *DockerRuntime) ImageDigest(ctx context.Context, ref string) (string, error) {
-	api, ok := r.docker.(DigestAPIClient)
+	api, ok := r.docker.(ImageDigester)
 	if !ok {
 		return "", ErrPushUnsupported
 	}

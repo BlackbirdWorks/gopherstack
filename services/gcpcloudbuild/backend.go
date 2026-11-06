@@ -25,10 +25,9 @@ const (
 type buildRec struct {
 	pb     *cloudbuildpb.Build
 	orig   *cloudbuildpb.Build
+	left   chan struct{}
 	ref    ref
 	opName string
-	// left closes when the build leaves the queue (started, finished or approved); nil when no expiry timer runs.
-	left chan struct{}
 }
 
 // InMemoryBackend holds builds, triggers and worker pools under one lock and runs builds as containers.

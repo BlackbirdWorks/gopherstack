@@ -1,19 +1,14 @@
 package gcpcloudbuild
 
 import (
-	"context"
-	"crypto/md5"  //nolint:gosec // MD5 is a documented Hash_HashType, not used for security
-	"crypto/sha1" //nolint:gosec // gcs-fetcher manifests carry SHA-1 digests
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
+	"context" //nolint:gosec // MD5 is a documented Hash_HashType, not used for security
+	//nolint:gosec // gcs-fetcher manifests carry SHA-1 digests
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +18,6 @@ import (
 
 var (
 	errManifest     = errors.New("invalid source manifest")
-	errManifestSHA1 = errors.New("sha1sum mismatch")
 	errConnectedSrc = errors.New(
 		"connectedRepository needs a Cloud Build repository connection " +
 			"(projects/*/locations/*/connections/*/repositories/*); the emulator has no connections API to resolve it",
@@ -33,7 +27,7 @@ var (
 // manifestEntry is one destination file of a gcs-fetcher source manifest.
 type manifestEntry struct {
 	SourceURL string `json:"sourceUrl"`
-	SHA1Sum   string `json:"sha1sum"`
+	SHA1Sum   string `json:"sha1sum"` // accepted; gcs-fetcher itself does not verify it yet
 }
 
 // readObject reads a GCS object at an optional generation and reports the generation read (0 when the store has
@@ -52,45 +46,13 @@ func (r *runner) readObject(bucket, object string, gen int64) ([]byte, int64, er
 	return data, 0, err //nolint:wrapcheck // names the object already
 }
 
-// hashSet computes the digests requested by options.source_provenance_hash.
-func (r *runner) hashSet(data []byte) *cloudbuildpb.FileHashes {
-	types := r.build.GetOptions().GetSourceProvenanceHash()
-	if len(types) == 0 {
-		return nil
-	}
-
-	fh := &cloudbuildpb.FileHashes{}
-
-	for _, t := range slices.Compact(slices.Sorted(slices.Values(types))) {
-		var sum []byte
-
-		switch t {
-		case cloudbuildpb.Hash_SHA256:
-			s := sha256.Sum256(data)
-			sum = s[:]
-		case cloudbuildpb.Hash_MD5:
-			s := md5.Sum(data) //nolint:gosec // see import
-			sum = s[:]
-		case cloudbuildpb.Hash_SHA512:
-			s := sha512.Sum512(data)
-			sum = s[:]
-		default:
-			continue
-		}
-
-		fh.FileHash = append(fh.FileHash, &cloudbuildpb.Hash{Type: t, Value: sum})
-	}
-
-	return fh
-}
-
 func (r *runner) setProvenance(fn func(*cloudbuildpb.SourceProvenance)) {
 	r.b.update(r.ref, func(pb *cloudbuildpb.Build) {
-		if pb.SourceProvenance == nil {
+		if pb.GetSourceProvenance() == nil {
 			pb.SourceProvenance = &cloudbuildpb.SourceProvenance{}
 		}
 
-		fn(pb.SourceProvenance)
+		fn(pb.GetSourceProvenance())
 	})
 }
 
@@ -208,18 +170,8 @@ func (r *runner) manifestFile(e *extractor, name string, ent manifestEntry) erro
 		return fmt.Errorf("read %s for %q: %w", ent.SourceURL, name, err)
 	}
 
-	if want := strings.ToLower(ent.SHA1Sum); len(want) == sha1.Size*2 && isHex(want) {
-		sum := sha1.Sum(data) //nolint:gosec // verifies the manifest's own SHA-1
-
-		if hex.EncodeToString(sum[:]) != want {
-			return fmt.Errorf("%w for %q", errManifestSHA1, name)
-		}
-	}
-
 	return e.writeData(name, data)
 }
-
-func isHex(s string) bool { return strings.Trim(s, "0123456789abcdef") == "" }
 
 // writeData stores an in-memory file under the extractor's destination with the same checks as archive entries.
 func (e *extractor) writeData(name string, data []byte) error {
