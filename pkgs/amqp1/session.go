@@ -90,7 +90,7 @@ func (s *session) handle(p Performative) bool {
 
 // clampWindow resolves a wrapped window: a peer advertising a huge incoming window (the .NET SDKs send 2^32-1)
 // means "effectively unlimited", while a wrapped small window means the peer is behind and gets none.
-func clampWindow(w, advertised uint32) uint32 {
+func clampWindow(advertised uint32) uint32 {
 	if advertised > math.MaxInt32 {
 		return math.MaxInt32
 	}
@@ -104,7 +104,7 @@ func (s *session) onFlow(f *Flow) {
 	if f.NextIncomingID != nil {
 		w := *f.NextIncomingID + f.IncomingWindow - s.nextOutgoingID
 		if w > math.MaxInt32 {
-			w = clampWindow(w, f.IncomingWindow)
+			w = clampWindow(f.IncomingWindow)
 		}
 
 		s.remoteWindow = int64(w)

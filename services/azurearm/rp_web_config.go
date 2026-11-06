@@ -298,7 +298,8 @@ func (p *WebProvider) putAppSettings(s *storedWebSite, props map[string]any, mer
 func (p *WebProvider) putWebConfig(s *storedWebSite, props map[string]any) error {
 	cur := mergeWebConfig(s.Configs[webConfigWeb], props)
 
-	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb]), siteAppConfig(s.Kind, cur)
+	flex := mapOf(s.Extra[webFieldFlexConfig])
+	oldCfg, newCfg := siteAppConfig(s.Kind, s.Configs[webConfigWeb], flex), siteAppConfig(s.Kind, cur, flex)
 
 	if oldCfg != newCfg {
 		if _, err := p.dataPlane.PutApp(s.dpName(), newCfg); err != nil {

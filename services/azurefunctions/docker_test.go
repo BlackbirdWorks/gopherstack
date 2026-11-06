@@ -160,10 +160,24 @@ func TestDocker_NodeAuthLevels(t *testing.T) {
 		token, tokErr := e.backend.AdminToken("real")
 		require.NoError(t, tokErr)
 
-		r, _ := e.do(t, http.MethodGet, host, "/admin/functions", nil, map[string]string{"Authorization": "Bearer " + token})
+		r, _ := e.do(
+			t,
+			http.MethodGet,
+			host,
+			"/admin/functions",
+			nil,
+			map[string]string{"Authorization": "Bearer " + token},
+		)
 		assert.Equal(t, http.StatusOK, r.StatusCode)
 
-		r, _ = e.do(t, http.MethodGet, host, "/admin/functions", nil, map[string]string{"Authorization": "Bearer " + token + "x"})
+		r, _ = e.do(
+			t,
+			http.MethodGet,
+			host,
+			"/admin/functions",
+			nil,
+			map[string]string{"Authorization": "Bearer " + token + "x"},
+		)
 		assert.Equal(t, http.StatusUnauthorized, r.StatusCode, "a tampered token is rejected")
 	})
 

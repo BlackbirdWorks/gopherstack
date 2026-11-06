@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-
 // packageURL returns the http(s) URL WEBSITE_RUN_FROM_PACKAGE points at; "1", "0" and other values mean the
 // deployed package is used.
 func packageURL(settings map[string]string) (string, bool) {
@@ -24,7 +23,11 @@ func packageURL(settings map[string]string) (string, bool) {
 }
 
 // sitePackage is the zip a host runs: the one WEBSITE_RUN_FROM_PACKAGE names by URL, else the deployed zip.
-func (b *InMemoryBackend) sitePackage(ctx context.Context, settings map[string]string, deployed []byte) ([]byte, error) {
+func (b *InMemoryBackend) sitePackage(
+	ctx context.Context,
+	settings map[string]string,
+	deployed []byte,
+) ([]byte, error) {
 	raw, ok := packageURL(settings)
 	if !ok {
 		return deployed, nil

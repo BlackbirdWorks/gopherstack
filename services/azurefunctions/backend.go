@@ -77,17 +77,17 @@ type app struct {
 
 // InMemoryBackend holds all function apps under one lock.
 type InMemoryBackend struct {
-	now            func() time.Time
-	mu             *lockmetrics.RWMutex
-	runCtx         context.Context //nolint:containedctx // workload lifetime, set by the worker
+	runCtx         context.Context
+	ports          PortPool
+	apps           map[string]*app
 	runtime        func() (Runner, error)
 	onClose        func()
-	ports          PortPool
-	network        Network
+	mu             *lockmetrics.RWMutex
 	transport      *http.Transport
 	wg             *sync.WaitGroup
-	apps           map[string]*app
+	now            func() time.Time
 	domain         string
+	network        Network
 	startupTimeout time.Duration
 	port           int
 }

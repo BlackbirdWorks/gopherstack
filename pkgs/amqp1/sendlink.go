@@ -39,7 +39,7 @@ func (l *sendLink) onFlow(f *Flow) {
 
 		credit := peerCount + *f.LinkCredit - l.count
 		if credit > math.MaxInt32 {
-			credit = clampWindow(credit, *f.LinkCredit)
+			credit = clampWindow(*f.LinkCredit)
 		}
 
 		l.credit = credit

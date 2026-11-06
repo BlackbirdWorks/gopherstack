@@ -73,7 +73,7 @@ func toDeploymentJSON(r *http.Request, name string, d Deployment, active bool) d
 	return out
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func writeJSON(w http.ResponseWriter, v any) {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -82,7 +82,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
 }
 
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) kuduDeploy(w http.ResponseWriter, r *http.Request, nam
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toDeploymentJSON(r, name, d, true))
+	writeJSON(w, toDeploymentJSON(r, name, d, true))
 }
 
 func (b *InMemoryBackend) kuduDownload(w http.ResponseWriter, r *http.Request, name string) {
@@ -215,7 +215,7 @@ func (b *InMemoryBackend) kuduList(w http.ResponseWriter, r *http.Request, name 
 		out = append(out, toDeploymentJSON(r, name, d, i == len(ds)-1))
 	}
 
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, out)
 }
 
 func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, id string) {
@@ -228,7 +228,7 @@ func (b *InMemoryBackend) kuduGet(w http.ResponseWriter, r *http.Request, name, 
 
 	for i, d := range slices.Backward(ds) {
 		if id == kuduLatest && i == len(ds)-1 || d.ID == id {
-			writeJSON(w, http.StatusOK, toDeploymentJSON(r, name, d, i == len(ds)-1))
+			writeJSON(w, toDeploymentJSON(r, name, d, i == len(ds)-1))
 
 			return
 		}

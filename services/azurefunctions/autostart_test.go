@@ -16,32 +16,33 @@ func TestAutoStart(t *testing.T) {
 	timer := func(disabled string) map[string]string {
 		return map[string]string{
 			"host.json": `{"version":"2.0"}`,
-			"tick/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t","schedule":"0 */5 * * * *"}]` +
+			"tick/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t",` +
+				`"schedule":"0 */5 * * * *"}]` +
 				disabled + `}`,
 		}
 	}
 
 	tests := []struct {
-		name     string
 		files    map[string]string
+		name     string
 		wantHost bool
 	}{
-		{"timer trigger starts the host", timer(""), true},
-		{"disabled timer stays down", timer(`,"disabled":true`), false},
+		{timer(""), "timer trigger starts the host", true},
+		{timer(`,"disabled":true`), "disabled timer stays down", false},
 		{
-			"http only waits for a request",
 			map[string]string{
-				"host.json": `{"version":"2.0"}`,
+				"host.json":       `{"version":"2.0"}`,
 				"h/function.json": `{"bindings":[{"type":"httpTrigger","direction":"in","name":"r","authLevel":"anonymous"}]}`,
 			},
+			"http only waits for a request",
 			false,
 		},
 		{
-			"queue trigger starts the host",
 			map[string]string{
-				"host.json": `{"version":"2.0"}`,
+				"host.json":       `{"version":"2.0"}`,
 				"q/function.json": `{"bindings":[{"type":"queueTrigger","direction":"in","name":"m","queueName":"q"}]}`,
 			},
+			"queue trigger starts the host",
 			true,
 		},
 	}

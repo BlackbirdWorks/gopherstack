@@ -28,12 +28,12 @@ var errVFSConflict = errors.New("path conflicts with an existing file or directo
 
 type vfsEntry struct {
 	Name  string `json:"name"`
-	Size  int64  `json:"size"`
 	MTime string `json:"mtime"`
 	CTime string `json:"crtime"`
 	MIME  string `json:"mime"`
 	Href  string `json:"href"`
 	Path  string `json:"path"`
+	Size  int64  `json:"size"`
 }
 
 type zipFile struct {
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) vfsGet(w http.ResponseWriter, r *http.Request, name, r
 	}
 
 	if listing, found := vfsList(r, files, rel); found {
-		writeJSON(w, http.StatusOK, listing)
+		writeJSON(w, listing)
 
 		return
 	}

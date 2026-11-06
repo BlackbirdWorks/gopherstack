@@ -3,6 +3,7 @@ package azurefunctions
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -394,6 +395,10 @@ func (b *InMemoryBackend) runStart(name string, claim startClaim) (int, error) {
 
 	if !still {
 		return 0, ErrAppNotFound
+	}
+
+	if errors.Is(launchErr, errStale) {
+		b.autoStart(name)
 	}
 
 	return x.port, launchErr

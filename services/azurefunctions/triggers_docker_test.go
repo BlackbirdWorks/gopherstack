@@ -2,8 +2,8 @@ package azurefunctions_test
 
 import (
 	"context"
-	"net"
 	"encoding/base64"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -41,20 +41,33 @@ func triggersZip(t *testing.T) []byte {
 	return zipOf(t, map[string]string{
 		"host.json": `{"version":"2.0","extensionBundle":{"id":"Microsoft.Azure.Functions.ExtensionBundle",` +
 			`"version":"[4.*, 5.0.0)"}}`,
-		"ticker/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t","schedule":"*/3 * * * * *"},` +
-			queueOut("timer-out") + `]}`,
+		"ticker/function.json": `{"bindings":[{"type":"timerTrigger","direction":"in","name":"t",` +
+			`"schedule":"*/3 * * * * *"},` +
+			queueOut(
+				"timer-out",
+			) + `]}`,
 		"ticker/index.js": `module.exports = async function (context) { context.bindings.out = "tick"; };`,
 		"fromqueue/function.json": `{"bindings":[{"type":"queueTrigger","direction":"in","name":"msg","queueName":"qin",` +
-			`"connection":"AzureWebJobsStorage"},` + queueOut("qout") + `]}`,
+			`"connection":"AzureWebJobsStorage"},` + queueOut(
+			"qout",
+		) + `]}`,
 		"fromqueue/index.js": `module.exports = async function (context, msg) { context.bindings.out = "got:" + msg; };`,
 		"fromsb/function.json": `{"bindings":[{"type":"serviceBusTrigger","direction":"in","name":"msg","queueName":"sbq",` +
-			`"connection":"SB_CONN"},` + queueOut("sb-out") + `]}`,
+			`"connection":"SB_CONN"},` + queueOut(
+			"sb-out",
+		) + `]}`,
 		"fromsb/index.js": `module.exports = async function (context, msg) { context.bindings.out = "sb:" + msg; };`,
-		"fromeh/function.json": `{"bindings":[{"type":"eventHubTrigger","direction":"in","name":"events","eventHubName":"hub1",` +
-			`"connection":"EH_CONN","cardinality":"one","consumerGroup":"$Default"},` + queueOut("eh-out") + `]}`,
+		"fromeh/function.json": `{"bindings":[{"type":"eventHubTrigger","direction":"in","name":"events",` +
+			`"eventHubName":"hub1",` +
+			`"connection":"EH_CONN","cardinality":"one","consumerGroup":"$Default"},` + queueOut(
+			"eh-out",
+		) + `]}`,
 		"fromeh/index.js": `module.exports = async function (context, ev) { context.bindings.out = "eh:" + ev; };`,
-		"fromblob/function.json": `{"bindings":[{"type":"blobTrigger","direction":"in","name":"blob","path":"blobin/{name}",` +
-			`"connection":"AzureWebJobsStorage"},` + queueOut("blob-out") + `]}`,
+		"fromblob/function.json": `{"bindings":[{"type":"blobTrigger","direction":"in","name":"blob",` +
+			`"path":"blobin/{name}",` +
+			`"connection":"AzureWebJobsStorage"},` + queueOut(
+			"blob-out",
+		) + `]}`,
 		"fromblob/index.js": `module.exports = async function (context, blob) { context.bindings.out = ` +
 			`"blob:" + context.bindingData.name + ":" + blob.toString(); };`,
 	})
@@ -119,7 +132,10 @@ func TestDocker_BackgroundTriggers(t *testing.T) {
 	ehB := azureeventhubs.NewInMemoryBackend()
 	ehH := azureeventhubs.NewHandler(ehB)
 	require.NoError(t, ehB.EnsureNamespace("ns1"))
-	_, err = ehB.CreateHub(azureeventhubs.HubRef{Namespace: "ns1", Hub: "hub1"}, azureeventhubs.HubConfig{PartitionCount: 2})
+	_, err = ehB.CreateHub(
+		azureeventhubs.HubRef{Namespace: "ns1", Hub: "hub1"},
+		azureeventhubs.HubConfig{PartitionCount: 2},
+	)
 	require.NoError(t, err)
 
 	ehLn, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", ":0")

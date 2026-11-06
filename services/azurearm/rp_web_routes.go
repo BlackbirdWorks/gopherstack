@@ -18,6 +18,8 @@ const (
 	webSubKeysSeg     = "keys"
 	webHostSeg        = "host"
 	webFunctionsSeg   = "functions"
+	webAdminSeg       = "admin"
+	webTokenSeg       = "token"
 	webConfigSeg      = "config"
 	webListSeg        = "list"
 	webListKeysSeg    = "listkeys"
@@ -149,7 +151,7 @@ func webSubRoutes() []webSubRoute {
 		newWebSubRoute(get, []string{webFunctionsSeg}, (*Handler).webListFunctions),
 		newWebSubRoute(get, []string{webFunctionsSeg, "*"}, (*Handler).webGetFunction),
 		newWebSubRoute(del, []string{webFunctionsSeg, "*"}, (*Handler).webDeleteFunction),
-		newWebSubRoute(get, []string{webFunctionsSeg, "admin", "token"}, (*Handler).webFunctionsAdminToken),
+		newWebSubRoute(get, []string{webFunctionsSeg, webAdminSeg, webTokenSeg}, (*Handler).webFunctionsAdminToken),
 		newWebSubRoute(post, []string{"syncfunctiontriggers"}, (*Handler).webSyncFunctionTriggers),
 		newWebSubRoute(post, []string{webFunctionsSeg, "*", webListKeysSeg}, (*Handler).webFunctionKeys),
 		newWebSubRoute(post, []string{webFunctionsSeg, "*", "listsecrets"}, (*Handler).webFunctionSecrets),

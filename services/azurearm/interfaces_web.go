@@ -139,6 +139,8 @@ func (noopFunctionApps) DeleteFunction(context.Context, string, string) error {
 
 func (noopFunctionApps) AdminToken(string) (string, error) { return "", ErrWebFunctionsUnavailable }
 
-func (noopFunctionApps) SyncTriggers(context.Context, string) error { return ErrWebFunctionsUnavailable }
+func (noopFunctionApps) SyncTriggers(context.Context, string) error {
+	return ErrWebFunctionsUnavailable
+}
 
 var _ FunctionApps = noopFunctionApps{}

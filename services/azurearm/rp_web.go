@@ -315,11 +315,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 		return nil, ErrWebPlanNotFound
 	}
 
-	if err := p.checkSitePlan(kind, farm); err != nil {
-		return nil, err
-	}
-
-	flex, err := p.checkFlexSite(kind, farm, props)
+	flex, err := p.checkSiteHosting(kind, farm, props)
 	if err != nil {
 		return nil, err
 	}
@@ -332,11 +328,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	rec := &storedWebSite{
 		Name: name, ResourceGroup: id.ResourceGroup, Location: DefaultLocation, Kind: kind, Created: time.Now().UTC(),
 		Tags: stringTags(body[fieldTags]), Managed: ident, Configs: map[string]map[string]any{},
-		Extra: webSiteExtra(props),
-	}
-
-	if flex != nil {
-		rec.Extra[webFieldFlexConfig] = flex
+		Extra: siteExtraWithFlex(props, flex),
 	}
 
 	if exists {
@@ -352,12 +344,7 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	cfgWeb := mergeWebConfig(rec.Configs[webConfigWeb], siteCfg)
 	rec.Configs[webConfigWeb] = cfgWeb
 
-	appCfg := siteAppConfig(kind, cfgWeb)
-	if flex != nil {
-		appCfg.LinuxFx, appCfg.Flex = flexLinuxFx(flex), true
-	}
-
-	info, err := p.dataPlane.PutApp(name, appCfg)
+	info, err := p.dataPlane.PutApp(name, siteAppConfig(kind, cfgWeb, flex))
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -373,12 +360,17 @@ func (p *WebProvider) putSite(ctx context.Context, id ResourceID, body map[strin
 	return p.siteBody(ctx, id, rec, info), nil
 }
 
-func siteAppConfig(kind string, cfg map[string]any) FunctionAppConfig {
+func siteAppConfig(kind string, cfg, flex map[string]any) FunctionAppConfig {
 	fx, _ := cfg[webFieldLinuxFx].(string)
 	cmd, _ := cfg[webFieldAppCmd].(string)
 	health, _ := cfg[webFieldHealthCheck].(string)
 
-	return FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
+	out := FunctionAppConfig{Kind: kind, LinuxFx: fx, AppCommandLine: cmd, HealthCheckPath: health}
+	if len(flex) > 0 {
+		out.LinuxFx, out.Flex = flexLinuxFx(flex), true
+	}
+
+	return out
 }
 
 // mergeWebConfig overlays the request's siteConfig (minus appSettings, which the data plane owns) on cur.

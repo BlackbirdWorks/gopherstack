@@ -14,6 +14,10 @@ const (
 	flexMaxInstancesDefault = 100
 	flexMaxInstancesMax     = 1000
 	flexMemoryDefault       = 2048
+
+	flexRuntimeCustom = "custom"
+	flexFieldVersion  = "version"
+	flexFieldHTTP     = "http"
 )
 
 var (
@@ -35,11 +39,11 @@ func flexRuntimeVersions() map[string][]string {
 		"node":            {"22", "24"},
 		"powershell":      {"7.4", "7.6"},
 		"python":          {"3.10", "3.11", "3.12", "3.13", "3.14"},
-		"custom":          nil,
+		flexRuntimeCustom: nil,
 	}
 }
 
-var flexMemorySizes = []int{512, 2048, 4096}
+func flexMemorySizes() []int { return []int{512, 2048, 4096} }
 
 func flexErr(base error, format string, args ...any) error {
 	return fmt.Errorf("%w: %w: %s", ErrWebInvalidSiteConfig, base, fmt.Sprintf(format, args...))
@@ -73,18 +77,21 @@ func validateFlexRuntime(cfg map[string]any) (map[string]any, error) {
 	versions, known := flexRuntimeVersions()[name]
 
 	if !known {
-		return nil, flexErr(errFlexRuntime, "name must be one of dotnet-isolated, node, java, powershell, python, custom")
+		return nil, flexErr(
+			errFlexRuntime,
+			"name must be one of dotnet-isolated, node, java, powershell, python, custom",
+		)
 	}
 
-	version, _ := rt["version"].(string)
+	version, _ := rt[flexFieldVersion].(string)
 	version = normalizeFlexVersion(name, version)
 
-	if name != "custom" && !slices.Contains(versions, version) {
+	if name != flexRuntimeCustom && !slices.Contains(versions, version) {
 		return nil, flexErr(errFlexRuntime, "%s version %q is not supported; supported: %s",
 			name, version, strings.Join(versions, ", "))
 	}
 
-	return map[string]any{fieldName: name, "version": version}, nil
+	return map[string]any{fieldName: name, flexFieldVersion: version}, nil
 }
 
 func validateFlexStorage(cfg map[string]any) (map[string]any, error) {
@@ -95,35 +102,18 @@ func validateFlexStorage(cfg map[string]any) (map[string]any, error) {
 	}
 
 	raw, _ := storage[fieldValue].(string)
-	if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
-		strings.Trim(u.Path, "/") == "" {
+	if !validContainerURL(raw) {
 		return nil, flexErr(errFlexStorage, "value must be the blob container URL")
 	}
 
-	auth := mapOf(storage["authentication"])
-	authType, _ := auth[fieldType].(string)
-	connName, _ := auth["storageAccountConnectionStringName"].(string)
-	identity, _ := auth["userAssignedIdentityResourceId"].(string)
-
-	switch authType {
-	case "StorageAccountConnectionString":
-		if connName == "" || identity != "" {
-			return nil, flexErr(errFlexAuth, "StorageAccountConnectionString needs storageAccountConnectionStringName only")
-		}
-	case "UserAssignedIdentity":
-		if identity == "" || connName != "" {
-			return nil, flexErr(errFlexAuth, "UserAssignedIdentity needs userAssignedIdentityResourceId only")
-		}
-	case "SystemAssignedIdentity":
-		if identity != "" || connName != "" {
-			return nil, flexErr(errFlexAuth, "SystemAssignedIdentity takes no other authentication property")
-		}
-	default:
-		return nil, flexErr(errFlexAuth,
-			"type must be StorageAccountConnectionString, SystemAssignedIdentity or UserAssignedIdentity")
+	auth, err := validateFlexAuth(mapOf(storage["authentication"]))
+	if err != nil {
+		return nil, err
 	}
 
-	return map[string]any{"storage": map[string]any{fieldType: "blobContainer", fieldValue: raw, "authentication": auth}}, nil
+	return map[string]any{
+		"storage": map[string]any{fieldType: "blobContainer", fieldValue: raw, "authentication": auth},
+	}, nil
 }
 
 func validateFlexScale(cfg map[string]any) (map[string]any, error) {
@@ -132,7 +122,7 @@ func validateFlexScale(cfg map[string]any) (map[string]any, error) {
 
 	if _, set := sc["instanceMemoryMB"]; set {
 		v, ok := fnAppInt(sc, "instanceMemoryMB")
-		if !ok || !slices.Contains(flexMemorySizes, v) {
+		if !ok || !slices.Contains(flexMemorySizes(), v) {
 			return nil, flexErr(errFlexScale, "instanceMemoryMB must be 512, 2048 or 4096")
 		}
 
@@ -164,13 +154,13 @@ func validateFlexScale(cfg map[string]any) (map[string]any, error) {
 
 	out := map[string]any{"instanceMemoryMB": memory, "maximumInstanceCount": maxCount, "alwaysReady": ready}
 
-	if http := mapOf(mapOf(sc["triggers"])["http"]); len(http) > 0 {
+	if http := mapOf(mapOf(sc["triggers"])[flexFieldHTTP]); len(http) > 0 {
 		c, ok := fnAppInt(http, "perInstanceConcurrency")
 		if !ok || c < 1 {
 			return nil, flexErr(errFlexScale, "triggers.http.perInstanceConcurrency must be at least 1")
 		}
 
-		out["triggers"] = map[string]any{"http": map[string]any{"perInstanceConcurrency": c}}
+		out["triggers"] = map[string]any{flexFieldHTTP: map[string]any{"perInstanceConcurrency": c}}
 	}
 
 	return out, nil
@@ -210,9 +200,9 @@ func validateFlexConfig(raw map[string]any) (map[string]any, error) {
 func flexLinuxFx(cfg map[string]any) string {
 	rt := mapOf(cfg["runtime"])
 	name, _ := rt[fieldName].(string)
-	version, _ := rt["version"].(string)
+	version, _ := rt[flexFieldVersion].(string)
 
-	if name == "custom" || version == "" {
+	if name == flexRuntimeCustom || version == "" {
 		return name
 	}
 
@@ -237,7 +227,7 @@ func (p *WebProvider) planIsFlex(serverFarmID string) bool {
 }
 
 // checkFlexSite validates properties.functionAppConfig against the site's plan and returns the normalized value
-// (nil when the site is not a Flex app).
+// (empty when the site is not a Flex app).
 func (p *WebProvider) checkFlexSite(kind, farm string, props map[string]any) (map[string]any, error) {
 	raw, present := props[webFieldFlexConfig].(map[string]any)
 	flexPlan := farm != "" && p.planIsFlex(farm)
@@ -246,7 +236,7 @@ func (p *WebProvider) checkFlexSite(kind, farm string, props map[string]any) (ma
 	case !present && flexPlan:
 		return nil, badWebRequest(fmt.Errorf("%w: %w", ErrWebInvalidSiteConfig, errFlexNoConfig))
 	case !present:
-		return nil, nil
+		return map[string]any{}, nil
 	case !isFunctionAppKind(kind) || !isLinuxKind(kind):
 		return nil, badWebRequest(fmt.Errorf("%w: %w", ErrWebInvalidSiteConfig, errFlexKind))
 	case !flexPlan:
@@ -261,9 +251,65 @@ func (p *WebProvider) checkFlexSite(kind, farm string, props map[string]any) (ma
 	return cfg, nil
 }
 
-
 func flexSlice(v any) []any {
 	s, _ := v.([]any)
 
 	return s
+}
+
+func validateFlexAuth(auth map[string]any) (map[string]any, error) {
+	authType, _ := auth[fieldType].(string)
+	connName, _ := auth["storageAccountConnectionStringName"].(string)
+	identity, _ := auth["userAssignedIdentityResourceId"].(string)
+
+	switch authType {
+	case "StorageAccountConnectionString":
+		if connName == "" || identity != "" {
+			return nil, flexErr(
+				errFlexAuth,
+				"StorageAccountConnectionString needs storageAccountConnectionStringName only",
+			)
+		}
+	case "UserAssignedIdentity":
+		if identity == "" || connName != "" {
+			return nil, flexErr(errFlexAuth, "UserAssignedIdentity needs userAssignedIdentityResourceId only")
+		}
+	case "SystemAssignedIdentity":
+		if identity != "" || connName != "" {
+			return nil, flexErr(errFlexAuth, "SystemAssignedIdentity takes no other authentication property")
+		}
+	default:
+		return nil, flexErr(errFlexAuth,
+			"type must be StorageAccountConnectionString, SystemAssignedIdentity or UserAssignedIdentity")
+	}
+
+	return auth, nil
+}
+
+// checkSiteHosting validates the site's plan and its functionAppConfig; the returned map is empty for non-Flex sites.
+func (p *WebProvider) checkSiteHosting(kind, farm string, props map[string]any) (map[string]any, error) {
+	if err := p.checkSitePlan(kind, farm); err != nil {
+		return nil, err
+	}
+
+	return p.checkFlexSite(kind, farm, props)
+}
+
+// siteExtraWithFlex is the stored extra site properties, with the normalized functionAppConfig when present.
+func siteExtraWithFlex(props, flex map[string]any) map[string]any {
+	out := webSiteExtra(props)
+	if len(flex) > 0 {
+		out[webFieldFlexConfig] = flex
+	}
+
+	return out
+}
+
+func validContainerURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || strings.Trim(u.Path, "/") == "" {
+		return false
+	}
+
+	return u.Scheme == flexFieldHTTP || u.Scheme == acaSchemeHTTPS
 }

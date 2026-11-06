@@ -41,7 +41,11 @@ func TestErrorResponses_CarryErrorCodeHeader(t *testing.T) {
 			}
 
 			assert.Empty(t, rec.Body.String())
-			assert.Empty(t, rec.Header().Get("Content-Length"), "a HEAD error must not advertise a body the SDK then tries to parse")
+			assert.Empty(
+				t,
+				rec.Header().Get("Content-Length"),
+				"a HEAD error must not advertise a body the SDK then tries to parse",
+			)
 		})
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
 )
 
 const (
@@ -162,4 +161,3 @@ func (b *InMemoryBackend) DeleteFunction(ctx context.Context, name, fn string) e
 
 	return nil
 }
-

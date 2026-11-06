@@ -30,7 +30,8 @@ type Selector struct {
 }
 
 var selectorRe = regexp.MustCompile(
-	`^\s*amqp\.annotation\.x-opt-(offset|sequence-number|enqueued-time)\s*(>=|>)\s*(?:'([^']{0,64})'|([^\s']{1,64}))\s*$`)
+	`^\s*amqp\.annotation\.x-opt-(offset|sequence-number|enqueued-time)\s*(>=|>)\s*(?:'([^']{0,64})'|([^\s']{1,64}))\s*$`,
+)
 
 // ParseSelector parses an `amqp.annotation.x-opt-* > 'v'` filter expression; the .NET SDKs send the value unquoted.
 func ParseSelector(expr string) (Selector, error) {

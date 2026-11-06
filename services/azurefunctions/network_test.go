@@ -25,7 +25,11 @@ func TestNetwork_ContainerEnv(t *testing.T) {
 			"DefaultEndpointsProtocol=http;AccountName=a;AccountKey=k;BlobEndpoint=http://172.17.9.1:10000/a;",
 		},
 		{"localhost url", "http://localhost:5000/x", "http://172.17.9.1:5000/x"},
-		{"service bus", "Endpoint=sb://localhost;SharedAccessKeyName=k", "Endpoint=sb://172.17.9.1;SharedAccessKeyName=k"},
+		{
+			"service bus",
+			"Endpoint=sb://localhost;SharedAccessKeyName=k",
+			"Endpoint=sb://172.17.9.1;SharedAccessKeyName=k",
+		},
 		{"other host untouched", "http://example.com/localhost", "http://example.com/localhost"},
 		{"plain value", "hello", "hello"},
 		{
@@ -44,7 +48,9 @@ func TestNetwork_ContainerEnv(t *testing.T) {
 			t.Parallel()
 
 			e := newEnv(t, true)
-			e.backend.SetNetwork(azurefunctions.Network{Host: "172.17.9.1", BlobPort: 10000, QueuePort: 10001, TablePort: 10002})
+			e.backend.SetNetwork(
+				azurefunctions.Network{Host: "172.17.9.1", BlobPort: 10000, QueuePort: 10001, TablePort: 10002},
+			)
 			e.backend.PutApp("app", azurefunctions.AppConfig{LinuxFx: "NODE|20"})
 			require.NoError(t, e.backend.SetSettings("app", map[string]string{"CONN": tt.setting}))
 			_, err := e.backend.Deploy("app", helloZip(t), "t", "m")

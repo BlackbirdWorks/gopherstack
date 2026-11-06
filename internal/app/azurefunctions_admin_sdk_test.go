@@ -26,7 +26,10 @@ func flexSDKConfig() *armappservice.FunctionAppConfig {
 				Type: new(armappservice.AuthenticationTypeSystemAssignedIdentity),
 			},
 		}},
-		Runtime:             &armappservice.FunctionsRuntime{Name: new(armappservice.RuntimeNameNode), Version: new("22")},
+		Runtime: &armappservice.FunctionsRuntime{
+			Name:    new(armappservice.RuntimeNameNode),
+			Version: new("22"),
+		},
 		ScaleAndConcurrency: &armappservice.FunctionsScaleAndConcurrency{InstanceMemoryMB: new(int32(2048))},
 	}
 }
@@ -82,7 +85,9 @@ func TestAzureFunctionsARMSDK_Flex(t *testing.T) {
 			"unsupported node version", http.StatusBadRequest},
 		{func(c *armappservice.FunctionAppConfig) { c.ScaleAndConcurrency.InstanceMemoryMB = new(int32(1024)) },
 			"bad memory size", http.StatusBadRequest},
-		{func(c *armappservice.FunctionAppConfig) { c.ScaleAndConcurrency.MaximumInstanceCount = new(int32(1001)) },
+		{func(c *armappservice.FunctionAppConfig) {
+			c.ScaleAndConcurrency.MaximumInstanceCount = new(int32(1001))
+		},
 			"too many instances", http.StatusBadRequest},
 		{func(c *armappservice.FunctionAppConfig) { c.Deployment.Storage.Value = new("not a url") },
 			"bad storage url", http.StatusBadRequest},
@@ -125,7 +130,12 @@ func TestAzureFunctionsARMSDK_Flex(t *testing.T) {
 
 			info, ok := s.backend.App("flexapp")
 			require.True(t, ok)
-			assert.Equal(t, "mcr.microsoft.com/azure-functions/node:4-node22", info.Image, "runtime.version picks the image")
+			assert.Equal(
+				t,
+				"mcr.microsoft.com/azure-functions/node:4-node22",
+				info.Image,
+				"runtime.version picks the image",
+			)
 		})
 	}
 

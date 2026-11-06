@@ -42,14 +42,10 @@ func (b *InMemoryBackend) autoStart(name string) {
 
 	ctx := b.runCtx
 
-	b.wg.Add(1)
-
-	go func() {
-		defer b.wg.Done()
-
+	b.wg.Go(func() {
 		if _, err := b.ensureStarted(ctx, name); err != nil {
 			logger.Load(ctx).DebugContext(ctx, "azurefunctions: background trigger host did not start",
 				"app", name, "error", err)
 		}
-	}()
+	})
 }
