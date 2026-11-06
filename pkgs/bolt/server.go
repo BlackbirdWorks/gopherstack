@@ -170,13 +170,19 @@ func (c *conn) step(ctx context.Context) error {
 	return nil
 }
 
-func (c *conn) guardedDispatch(ctx context.Context, tag byte, fields []any) (err error) {
-	defer logger.Recover(ctx, "bolt.message", func(any) {
-		c.w.Reset(c.nc)
-		err = c.fail(&Error{Code: CodeDatabaseError, Message: "internal server error"})
-	})
+func (c *conn) guardedDispatch(ctx context.Context, tag byte, fields []any) error {
+	var err error
 
-	return c.dispatch(ctx, tag, fields)
+	func() {
+		defer logger.Recover(ctx, "bolt.message", func(any) {
+			c.w.Reset(c.nc)
+			err = c.fail(&Error{Code: CodeDatabaseError, Message: "internal server error"})
+		})
+
+		err = c.dispatch(ctx, tag, fields)
+	}()
+
+	return err
 }
 
 func parseMessage(raw []byte) (byte, []any, error) {

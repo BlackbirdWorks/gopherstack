@@ -202,8 +202,20 @@ func (h *authHook) OnDisconnect(cl *mqtt.Client, _ error, _ bool) {
 	})
 }
 
-func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) (ok bool) {
-	defer logger.Recover(context.Background(), "iot.authenticate", func(any) { ok = false })
+func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	ok := false
+
+	func() {
+		defer logger.Recover(context.Background(), "iot.authenticate", nil)
+
+		ok = h.authenticate(cl, pk)
+	}()
+
+	return ok
+}
+
+func (h *authHook) authenticate(cl *mqtt.Client, pk packets.Packet) bool {
+	var ok bool
 
 	if principal, _, _ := h.broker.principalOf(cl); principal == "" {
 		ok = h.connectCustom(cl, pk)
@@ -218,9 +230,19 @@ func (h *authHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) (ok
 	return ok
 }
 
-func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) (ok bool) {
-	defer logger.Recover(context.Background(), "iot.acl", func(any) { ok = false })
+func (h *authHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool {
+	ok := false
 
+	func() {
+		defer logger.Recover(context.Background(), "iot.acl", nil)
+
+		ok = h.aclAllowed(cl, topic, write)
+	}()
+
+	return ok
+}
+
+func (h *authHook) aclAllowed(cl *mqtt.Client, topic string, write bool) bool {
 	switch {
 	case write:
 		return h.allowed(cl, "iot:Publish", "topic/"+topic)

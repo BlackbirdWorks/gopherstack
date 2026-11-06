@@ -194,23 +194,33 @@ func parseJSONRequest(body []byte, c codec) (*message, error) {
 
 func (s *Server) handleFrame(
 	ctx context.Context, conn *websocket.Conn, mt int, data []byte, owned map[string]struct{},
-) (werr error) {
+) error {
 	msg := &message{id: uuid.Nil.String(), codec: codecV3}
 
-	defer logger.Recover(ctx, "gremlin.frame", func(any) {
-		werr = writeResult(conn, msg, nil, &Error{
-			Code: CodeInternal, Status: StatusServerError, Detail: "An internal error occurred while processing the request.",
+	var werr error
+
+	func() {
+		defer logger.Recover(ctx, "gremlin.frame", func(any) {
+			werr = writeResult(conn, msg, nil, &Error{
+				Code: CodeInternal, Status: StatusServerError, Detail: "An internal error occurred.",
+			})
 		})
-	})
 
+		werr = s.processFrame(ctx, conn, mt, data, owned, msg)
+	}()
+
+	return werr
+}
+
+func (s *Server) processFrame(
+	ctx context.Context, conn *websocket.Conn, mt int, data []byte, owned map[string]struct{}, msg *message,
+) error {
 	parsed, err := parseFrame(mt, data)
-	if err == nil {
-		msg = parsed
-	}
-
 	if err != nil {
 		return writeResult(conn, msg, nil, err)
 	}
+
+	*msg = *parsed
 
 	if sid, ok := msg.args["session"].(string); ok && sid != "" {
 		owned[sid] = struct{}{}

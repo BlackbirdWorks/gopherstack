@@ -39,8 +39,9 @@ func TestStreamHandlerPanicReturnsInternal(t *testing.T) {
 
 			t.Cleanup(srv.Stop)
 
+			dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }
 			cc, err := grpc.NewClient("passthrough:///bufnet",
-				grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) }),
+				grpc.WithContextDialer(dialer),
 				grpc.WithTransportCredentials(insecure.NewCredentials()))
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = cc.Close() })

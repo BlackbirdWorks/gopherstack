@@ -18,20 +18,35 @@ func RecoverOptions() []grpc.ServerOption {
 	}
 }
 
-func recoverUnary(
-	ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler,
-) (resp any, err error) {
-	defer logger.Recover(ctx, "grpc.unary "+info.FullMethod, func(any) {
-		resp, err = nil, status.Error(codes.Internal, "internal server error")
-	})
+func recoverUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+	var (
+		resp any
+		err  error
+	)
 
-	return next(ctx, req)
+	func() {
+		defer logger.Recover(ctx, "grpc.unary "+info.FullMethod, func(any) {
+			resp, err = nil, status.Error(codes.Internal, errInternal)
+		})
+
+		resp, err = next(ctx, req)
+	}()
+
+	return resp, err
 }
 
-func recoverStream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) (err error) {
-	defer logger.Recover(ss.Context(), "grpc.stream "+info.FullMethod, func(any) {
-		err = status.Error(codes.Internal, "internal server error")
-	})
+func recoverStream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+	var err error
 
-	return next(srv, ss)
+	func() {
+		defer logger.Recover(ss.Context(), "grpc.stream "+info.FullMethod, func(any) {
+			err = status.Error(codes.Internal, errInternal)
+		})
+
+		err = next(srv, ss)
+	}()
+
+	return err
 }
+
+const errInternal = "internal server error"
