@@ -32,6 +32,7 @@ type emailAddressRec struct {
 	Modified    string            `json:"modified"`
 	AliasOf     string            `json:"aliasOf,omitempty"`
 	Aliases     []string          `json:"aliases,omitempty"`
+	Sent        []emailMessageRec `json:"sent,omitempty"`
 }
 
 // EmailAddress is the DescribeEmailAddress response.

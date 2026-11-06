@@ -11,7 +11,19 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
+	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 )
+
+// connectMailer delivers Connect outbound email through SES.
+type connectMailer struct{ ses *sesbackend.InMemoryBackend }
+
+func (m connectMailer) SendEmail(_ context.Context, msg connectbackend.EmailMessage) error {
+	_, err := m.ses.SendEmail(sesbackend.SendEmailInput{
+		From: msg.From, To: msg.To, Cc: msg.Cc, Subject: msg.Subject, BodyHTML: msg.HTML, BodyText: msg.Text,
+	})
+
+	return err
+}
 
 // connectResolvers checks Lambda functions and S3 objects named by Connect configuration.
 type connectResolvers struct {
@@ -107,6 +119,12 @@ func wireConnectIntegrations(byName map[string]service.Registerable) {
 
 	if ai != nil {
 		cn.Backend.SetIntegrations(connectIntegrations{ai: ai.Backend})
+	}
+
+	if sesH, ok := byName["SES"].(*sesbackend.Handler); ok {
+		if bk, bkOK := sesH.Backend.(*sesbackend.InMemoryBackend); bkOK {
+			cn.Backend.SetMailer(connectMailer{ses: bk})
+		}
 	}
 
 	lambdaH, lok := byName["Lambda"].(*lambdabackend.Handler)

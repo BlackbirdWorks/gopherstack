@@ -555,8 +555,49 @@ type Campaign struct {
 	CampaignID string `json:"CampaignId,omitempty"`
 }
 
+// RecordingInfo describes one recording of a contact.
+type RecordingInfo struct {
+	StartTimestamp  *awstime.EpochTime `json:"StartTimestamp,omitempty"`
+	StopTimestamp   *awstime.EpochTime `json:"StopTimestamp,omitempty"`
+	Location        string             `json:"Location,omitempty"`
+	MediaStreamType string             `json:"MediaStreamType,omitempty"`
+	ParticipantType string             `json:"ParticipantType,omitempty"`
+	Status          string             `json:"Status,omitempty"`
+	StorageType     string             `json:"StorageType,omitempty"`
+}
+
+// ChatContactMetrics holds the contact-level chat metrics.
+type ChatContactMetrics struct {
+	ConversationCloseTimeInMillis *int64 `json:"ConversationCloseTimeInMillis,omitempty"`
+	MultiParty                    *bool  `json:"MultiParty,omitempty"`
+}
+
+// ChatMetrics holds the metrics of a chat contact.
+type ChatMetrics struct {
+	ChatContactMetrics *ChatContactMetrics `json:"ChatContactMetrics,omitempty"`
+}
+
+// EmailRecipient is one recipient of an email contact.
+type EmailRecipient struct {
+	Address     string `json:"Address,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+}
+
+// AdditionalEmailRecipients lists the To and Cc recipients of an email contact.
+type AdditionalEmailRecipients struct {
+	CcList []EmailRecipient `json:"CcList,omitempty"`
+	ToList []EmailRecipient `json:"ToList,omitempty"`
+}
+
 // Contact is a customer interaction.
 type Contact struct {
+	AdditionalEmailRecipients   *AdditionalEmailRecipients `json:"AdditionalEmailRecipients,omitempty"`
+	LastPausedTimestamp         *awstime.EpochTime `json:"LastPausedTimestamp,omitempty"`
+	LastResumedTimestamp        *awstime.EpochTime `json:"LastResumedTimestamp,omitempty"`
+	ChatMetrics                 *ChatMetrics       `json:"ChatMetrics,omitempty"`
+	Recordings                  []RecordingInfo    `json:"Recordings,omitempty"`
+	TotalPauseCount             int32              `json:"TotalPauseCount,omitempty"`
+	TotalPauseDurationInSeconds int32              `json:"TotalPauseDurationInSeconds,omitempty"`
 	InitiationTimestamp *awstime.EpochTime `json:"InitiationTimestamp,omitempty"`
 	LastUpdateTimestamp *awstime.EpochTime `json:"LastUpdateTimestamp,omitempty"`
 	DisconnectTimestamp *awstime.EpochTime `json:"DisconnectTimestamp,omitempty"`

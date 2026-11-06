@@ -3,8 +3,28 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 296 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 106 are unrouted and listed in items_still_open.
+overall: B            # 316 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 86 are unrouted and listed in items_still_open.
 ops:
+  AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
+  BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
+  CreateContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "VOICE (TRANSFER), EMAIL (OUTBOUND, AGENT_REPLY, FLOW) and TASK (API) only, per API_CreateContact; InitiateAs COMPLETED is TASK-only; UserInfo required for EMAIL OUTBOUND/AGENT_REPLY and CONNECTED_TO_USER; ExpiryDurationInMinutes is stored as the connect:ContactExpiry segment attribute and is not enforced by a timer"}
+  CreateParticipant: {wire: ok, errors: ok, state: ok, persist: ok, note: "active chat contacts only, role CUSTOM_BOT only (API_CreateParticipant); WebRTC voice does not exist in the emulator; credentials expiry is 25h after creation (unverified)"}
+  CreatePersistentContactAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "FROM_SEGMENT uses the ended source chat contact, ENTIRE_PAST_SESSION the most recently ended chat contact of the session whose initial contact is SourceContactId; sets PreviousContactId on the current contact"}
+  MonitorContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "needs an active voice/chat contact connected to an agent; creates a MONITOR contact for the user (RelatedContactId = monitored contact, which is unverified) that ends when the monitored contact ends; capabilities SILENT_MONITOR/BARGE are stored"}
+  PauseContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "active TASK contacts only (API_PauseContact); ConflictException when already paused; feeds LastPausedTimestamp, TotalPauseCount, TotalPauseDurationInSeconds"}
+  ResumeContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "ConflictException when not paused; stopping a paused contact accounts the open pause"}
+  ResumeContactRecording: {wire: ok, errors: ok, state: ok, persist: ok, note: "suspended -> recording; ContactRecordingType defaults to AGENT"}
+  SendOutboundEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "CAMPAIGN traffic only with SourceCampaign.CampaignId (API_SendOutboundEmail); From must be an instance email address; RAW messages only (TEMPLATE needs Wisdom message templates, not emulated); recorded on the From address and delivered through SES when wired (best effort: a rejected send is recorded as FAILED, like an asynchronous bounce)"}
+  StartContactMediaProcessing: {wire: ok, errors: ok, state: ok, persist: ok, note: "active chat contacts; ProcessorArn is a Lambda ARN checked against the Lambda emulator when wired; a second start is rejected. No messages flow through the processor (no chat message plane)"}
+  StartContactRecording: {wire: ok, errors: ok, state: ok, persist: ok, note: "active voice contacts, InitialContactId must match; a one-time action per recording type (AGENT from VoiceRecordingTrack, IVR from IvrRecordingTrack); adds a Contact.Recordings entry (Location from the CALL_RECORDINGS S3 storage config when set); no audio is captured"}
+  StartContactStreaming: {wire: ok, errors: ok, state: ok, persist: ok, note: "active chat contacts, MESSAGE_STREAMING instance attribute enabled, SNS topic ARN; returns a StreamingId. No chat messages are published (no message plane)"}
+  StartEmailContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "DestinationEmailAddress must be an instance email address; RAW message with text/plain or text/html; at most 50 attachments; RelatedContactId copies and overlays attributes; creates an INBOUND EMAIL contact with customer/system email endpoints and AdditionalEmailRecipients"}
+  StartOutboundEmailContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "contact must be an active OUTBOUND or AGENT_REPLY EMAIL contact that has not sent yet; From must be an instance address (defaults to the contact system endpoint); RAW only; delivered through SES when wired, best effort"}
+  StopContactMediaProcessing: {wire: ok, errors: ok, state: ok, persist: ok}
+  StopContactRecording: {wire: ok, errors: ok, state: ok, persist: ok, note: "recording or suspended -> stopped and not restartable; ending the contact stops open recordings"}
+  StopContactStreaming: {wire: ok, errors: ok, state: ok, persist: ok}
+  SuspendContactRecording: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListRoutingProfileManualAssignmentQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "reads the profile manual assignment configs; also fixes Create/AssociateRoutingProfileQueues rejecting ManualAssignmentQueueConfigs for lacking Priority/Delay, members the SDK type does not have"}
   ActivateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateBot: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -323,22 +343,21 @@ items_still_open:
   - "Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases are not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
   - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
-  - "Email: SendOutboundEmail StartEmailContact StartOutboundEmailContact are not routed"
   - "Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed"
   - "Metrics definitions: CreateMetric DeleteMetric DescribeMetric GetContactMetrics ListMetrics UpdateMetricContent UpdateMetricMetadata are not routed"
   - "AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed"
   - "Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed"
   - "UserProficiencies and contacts of users: DismissUserContact are not routed"
-  - "Contact media and call control: MonitorContact PauseContact ResumeContact ResumeContactRecording StartAssistantContact StartContactMediaProcessing StartContactRecording StartContactStreaming StartScreenSharing StartWebRTCContact StopContactMediaProcessing StopContactRecording StopContactStreaming SuspendContactRecording TransferContact are not routed"
-  - "Contact data and participants: AssociateContactWithUser BatchPutContact CreateAuthCode CreateContact CreateParticipant CreatePersistentContactAssociation DeleteContactData DeleteSession GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed"
+  - "Contact media and call control: StartAssistantContact StartScreenSharing StartWebRTCContact TransferContact are not routed (no media plane)"
+  - "Contact data and participants: CreateAuthCode DeleteContactData DeleteSession GetFederationToken ListAssociatedContacts ListContactReferences ListRealtimeContactAnalysisSegmentsV2 SendChatIntegrationEvent StartOutboundChatContact UpdateContactRoutingData UpdateContactSchedule UpdateParticipantAuthentication UpdateParticipantRoleConfig are not routed"
   - "Instance extras: GetCrossRegionRouting ReplicateInstance UpdateCrossRegionRouting are not routed"
-  - "PhoneNumber import: ImportPhoneNumber are not routed"
-  - "Routing profile and queue extras: ListRoutingProfileManualAssignmentQueues are not routed"
   - "Extraction/Push/Auth: CreateExtractionDefinition DeleteExtractionDefinition DescribeAuthenticationProfile DescribeExtractionDefinition ListAuthenticationProfiles ListExtractionDefinitions UpdateAuthenticationProfile UpdateExtractionDefinition are not routed"
   - "Other: GetMetricDataV2 are not routed"
-  - "Contact.Recordings, QualityMetrics, ChatMetrics, DisconnectDetails and the other contact analytics members are never populated"
+  - "PhoneNumber import: ImportPhoneNumber needs an AWS End User Messaging phone-number inventory that the emulator does not have; a number could only be fabricated"
+  - "Contact expiry (ExpiryDurationInMinutes / connect:ContactExpiry), SES-wired email delivery status readback and TEMPLATE outbound email (Wisdom message templates) are not modeled"
+  - "Contact.QualityMetrics, DisconnectDetails, Customer, CustomerVoiceActivity, ContactEvaluations, NextContacts, QueuePriority and the other contact analytics members are never populated; Recordings (start/stop times, no audio), ChatMetrics (conversation close time and MultiParty only: there is no chat message plane for message counts) and the pause fields are populated"
   - "ListQueues QueueTypes=AGENT: per-agent queues are not modeled"
-  - "CreateInstance quota (2 per Region) is not enforced"
+  - "CreateInstance quota: API_CreateInstance documents only a 30-day create/delete limit and ServiceQuotaExceededException (402), not the per-Region count; no instance limit is enforced"
   - "CloudFormation: AWS::Connect::AWSManagedView, ContactFlowVersion, ContactFlowModuleVersion, ContactFlowModuleAlias, DataLakeAssociation, DataTableRecord, Metric, Notification, TestCase and UserHierarchyStructure are not provisioned; Pages, Media and Associations of Workspace, HoursOfOperationOverrides, ParentHoursOfOperations and ChildHoursOfOperations of HoursOfOperation, ManualAssignmentQueueConfigs of RoutingProfile, AdditionalEmailAddresses of Queue and SourcePhoneNumberArn of PhoneNumber are rejected"
   - "Lex bot associations are shape-checked only: no Lex service exists in the emulator"
 structural_gaps:

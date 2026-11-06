@@ -478,6 +478,7 @@ func (b *Backend) DescribeContact(inst, id string) (*Contact, error) {
 
 	out := c.Contact
 	out.Attributes, out.Tags = cloneTags(out.Attributes), cloneTags(out.Tags)
+	out.Recordings = slices.Clone(out.Recordings)
 
 	return &out, nil
 }
@@ -504,6 +505,7 @@ func (b *Backend) StopContact(in *ContactRefInput) (*empty, error) {
 		c.Contact.DisconnectReason = in.DisconnectReason.Code
 	}
 
+	b.finishContactLocked(c, t)
 	b.touch(c)
 
 	return &empty{}, nil
