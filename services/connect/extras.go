@@ -33,6 +33,10 @@ func (b *Backend) registerViewTables() {
 	b.workspaces.taggable(
 		func(v *workspaceRec) string { return v.Workspace.Arn },
 		func(v *workspaceRec) *map[string]string { return &v.Workspace.Tags })
+	b.metricDefs = newFamily(r, "metricDefinitions", labelMetric,
+		func(v *metricRec) string { return v.InstanceID }, func(v *metricRec) string { return v.Metric.ID })
+	b.metricDefs.taggable(
+		func(v *metricRec) string { return v.Metric.Arn }, func(v *metricRec) *map[string]string { return &v.Metric.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -108,6 +112,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.dataTables.findARN,
 		b.emails.findARN,
 		b.workspaces.findARN,
+		b.metricDefs.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -129,5 +134,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.dataTables.dropInstance(inst)
 	b.emails.dropInstance(inst)
 	b.workspaces.dropInstance(inst)
+	b.metricDefs.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

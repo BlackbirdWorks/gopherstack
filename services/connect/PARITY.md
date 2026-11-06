@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 316 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 86 are unrouted and listed in items_still_open.
+overall: B            # 323 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 79 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -25,6 +25,13 @@ ops:
   StopContactStreaming: {wire: ok, errors: ok, state: ok, persist: ok}
   SuspendContactRecording: {wire: ok, errors: ok, state: ok, persist: ok}
   ListRoutingProfileManualAssignmentQueues: {wire: ok, errors: ok, state: ok, persist: ok, note: "reads the profile manual assignment configs; also fixes Create/AssociateRoutingProfileQueues rejecting ManualAssignmentQueueConfigs for lacking Priority/Delay, members the SDK type does not have"}
+  CreateMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "customer-managed metric definitions per API_CreateMetric: name unique case-insensitively, Unit INTEGER|DOUBLE|PERCENT|SECONDS, 1-5 components with unique aliases, each naming exactly one of MetricId/MetricName, every alias used in the formula and every formula identifier an alias or function call; component metric names and filters are NOT checked against the AWS-managed metric catalog (not published); Status defaults to SAVED and Category to CUSTOM (both unverified); ClientToken replays; tags join the tag model"}
+  DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
+  ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
+  SearchMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "string conditions on name and description, tag filter; boolean conditions are not applicable"}
+  UpdateMetricContent: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial update of calculation, unit and trend indicator; no versioning ($LATEST/$SAVED ARN qualifiers are not modeled)"}
+  UpdateMetricMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
   ActivateEvaluationForm: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateApprovedOrigin: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateBot: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -340,11 +347,11 @@ ops:
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases are not routed"
+  - "Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
   - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
   - "Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed"
-  - "Metrics definitions: CreateMetric DeleteMetric DescribeMetric GetContactMetrics ListMetrics UpdateMetricContent UpdateMetricMetadata are not routed"
+  - "Metrics definitions: GetContactMetrics is not routed; the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
   - "AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed"
   - "Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed"
   - "UserProficiencies and contacts of users: DismissUserContact are not routed"

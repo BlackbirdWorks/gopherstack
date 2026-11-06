@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 332 (332 ok) |
+| PARITY entries audited | 339 (339 ok) |
 | Known gaps | 20 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
@@ -15,11 +15,11 @@
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations SearchMetrics SearchNotifications SearchTestCases are not routed
+- Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed
 - EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed
 - TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed
 - Notifications: CreateNotification CreatePushNotificationRegistration DeleteNotification DeletePushNotificationRegistration DescribeNotification ListNotifications ListUserNotifications SendOutboundWebNotification UpdateNotificationContent UpdateUserNotificationStatus are not routed
-- Metrics definitions: CreateMetric DeleteMetric DescribeMetric GetContactMetrics ListMetrics UpdateMetricContent UpdateMetricMetadata are not routed
+- Metrics definitions: GetContactMetrics is not routed; the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
 - AttachedFiles: BatchGetAttachedFileMetadata CompleteAttachedFileUpload CreateAttachedFile DeleteAttachedFile DescribeAttachedFilesConfiguration GetAttachedFile GetPromptFile ListAttachedFilesConfigurations StartAttachedFileUpload UpdateAttachedFilesConfiguration are not routed
 - Analytics: AssociateAnalyticsDataSet BatchAssociateAnalyticsDataSet BatchDisassociateAnalyticsDataSet DisassociateAnalyticsDataSet ListAnalyticsDataAssociations ListAnalyticsDataLakeDataSets StartContactConversationalAnalyticsJob are not routed
 - UserProficiencies and contacts of users: DismissUserContact are not routed

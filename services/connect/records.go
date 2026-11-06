@@ -171,6 +171,7 @@ type extras struct {
 	dataTables        family[dataTableRec]
 	emails            family[emailAddressRec]
 	workspaces        family[workspaceRec]
+	metricDefs        family[metricRec]
 }
 
 func (b *Backend) registerTables() {
