@@ -332,8 +332,8 @@ func (t *samTranslator) eventBridgeDLQ(
 
 func (t *samTranslator) scheduleEvent(ev *samEventCtx, name string, props map[string]any) error {
 	id := ev.id + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKRuleName, "Input", samKeyEnabled, samKeyState, attrNameName,
-		samKeyDesc, "DeadLetterConfig", "RetryPolicy")); err != nil {
+	if err := rejectUnknown(id, props, keySet("Schedule", samKRuleName, "Input", samKeyEnabled, samKeyState,
+		attrNameName, samKeyDesc, "DeadLetterConfig", "RetryPolicy")); err != nil {
 		return err
 	}
 	if props["Schedule"] == nil {

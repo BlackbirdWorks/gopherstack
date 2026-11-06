@@ -248,7 +248,8 @@ func eventAuth(fnID, name string, props map[string]any) (string, *bool, any, err
 	if err := rejectUnknown(
 		fnID+name,
 		auth,
-		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy", samKeyOverrideAuth),
+		keySet("Authorizer", "ApiKeyRequired", "AuthorizationScopes", "InvokeRole", "ResourcePolicy",
+			samKeyOverrideAuth),
 	); err != nil {
 		return "", nil, nil, err
 	}
