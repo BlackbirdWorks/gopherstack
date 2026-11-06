@@ -150,6 +150,11 @@ func (b *InMemoryBackend) insertNetwork(
 	}
 
 	n.SelfLinkWithId = globalLink(project, "networks", strconv.FormatUint(n.Id, 10))
+
+	if err := b.setupULALocked(n, in); err != nil {
+		return nil, err
+	}
+
 	b.networks[key(project, n.Name)] = n
 
 	if n.AutoCreateSubnetworks {
@@ -240,7 +245,7 @@ func (b *InMemoryBackend) networkRefsLocked(project string, n *computeapi.Networ
 		}
 	}
 
-	return ""
+	return b.vpnGatewayUserLocked(n)
 }
 
 func isSystemRoute(r *computeapi.Route) bool {

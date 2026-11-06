@@ -334,18 +334,24 @@ func (b *InMemoryBackend) updateNetworkInterface(
 		return nil, errPrecondition("Supplied fingerprint does not match current fingerprint.")
 	}
 
-	if in.StackType != "" && in.StackType != stackIPv4Only {
-		return nil, errField("networkInterface.stackType", in.StackType, "Only IPV4_ONLY is supported.")
-	}
-
 	next := clone(nic)
 
+	if err = b.updateNICStackLocked(r, next, in, nicName); err != nil {
+		return nil, err
+	}
+
 	if _, ok := raw["aliasIpRanges"]; ok {
-		if err = b.validAliasRangesLocked(nic.Subnetwork, in.AliasIpRanges); err != nil {
-			return nil, err
+		sub := b.subnetBySelfLinkLocked(nic.Subnetwork)
+		if sub == nil {
+			return nil, errNotFound(trimURL(nic.Subnetwork))
 		}
 
-		next.AliasIpRanges = in.AliasIpRanges
+		aliases, aerr := b.resolveAliasRangesLocked(sub, nic, in.AliasIpRanges, in.AliasIpv6Ranges)
+		if aerr != nil {
+			return nil, aerr
+		}
+
+		next.AliasIpRanges = aliases
 	}
 
 	if err = b.moveNICLocked(project, zone, r, next, in, raw); err != nil {
@@ -432,30 +438,42 @@ func (b *InMemoryBackend) moveNICLocked(
 	return nil
 }
 
-func (b *InMemoryBackend) validAliasRangesLocked(subnetLink string, ranges []*computeapi.AliasIpRange) *APIError {
-	var sub *computeapi.Subnetwork
-
-	for _, s := range b.subnets {
-		if s.SelfLink == subnetLink {
-			sub = s
-		}
+// updateNICStackLocked moves a nic between IPV4_ONLY and IPV4_IPV6, allocating or releasing its IPv6 address.
+func (b *InMemoryBackend) updateNICStackLocked(
+	r *instRec, next, in *computeapi.NetworkInterface, nicName string,
+) *APIError {
+	if in.StackType == "" || in.StackType == next.StackType || in.StackType == stackIPv4Only && next.StackType == "" {
+		return nil
 	}
 
-	for _, a := range ranges {
-		if _, perr := netip.ParsePrefix(a.IpCidrRange); perr != nil {
-			if _, aerr := netip.ParseAddr(a.IpCidrRange); aerr != nil {
-				return errField("aliasIpRanges.ipCidrRange", a.IpCidrRange, "Must be a CIDR range or an IP address.")
-			}
-		}
+	if in.StackType == stackIPv6Only || next.StackType == stackIPv6Only {
+		return errField("networkInterface.stackType", in.StackType, "IPV6_ONLY interfaces cannot be changed.")
+	}
 
-		if a.SubnetworkRangeName == "" || sub == nil {
-			continue
-		}
+	sub := b.subnetBySelfLinkLocked(next.Subnetwork)
+	if sub == nil {
+		return errNotFound(trimURL(next.Subnetwork))
+	}
 
-		if !slices.ContainsFunc(sub.SecondaryIpRanges, func(s *computeapi.SubnetworkSecondaryRange) bool {
-			return s.RangeName == a.SubnetworkRangeName
-		}) {
-			return errField("aliasIpRanges.subnetworkRangeName", a.SubnetworkRangeName, "No such secondary range.")
+	tmp := &computeapi.NetworkInterface{}
+	req := &computeapi.NetworkInterface{
+		StackType: in.StackType, Ipv6Address: in.Ipv6Address, Ipv6AccessConfigs: in.Ipv6AccessConfigs,
+	}
+
+	if err := b.buildNICIPv6Locked(sub, req, tmp, nicIndex(r.Inst, nicName)); err != nil {
+		return err
+	}
+
+	next.StackType, next.Ipv6Address, next.Ipv6AccessConfigs = tmp.StackType, tmp.Ipv6Address, tmp.Ipv6AccessConfigs
+	next.Ipv6AccessType, next.InternalIpv6PrefixLength = tmp.Ipv6AccessType, tmp.InternalIpv6PrefixLength
+
+	return nil
+}
+
+func (b *InMemoryBackend) subnetBySelfLinkLocked(link string) *computeapi.Subnetwork {
+	for _, s := range b.subnets {
+		if s.SelfLink == link {
+			return s
 		}
 	}
 

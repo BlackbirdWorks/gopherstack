@@ -43,6 +43,14 @@ type backendSnapshot struct {
 	SSLCerts        map[string]*computeapi.SslCertificate       `json:"sslCertificates"`
 	SSLPolicies     map[string]*computeapi.SslPolicy            `json:"sslPolicies"`
 	FwdRules        map[string]*computeapi.ForwardingRule       `json:"forwardingRules"`
+	TargetPools     map[string]*computeapi.TargetPool           `json:"targetPools"`
+	TargetInstances map[string]*computeapi.TargetInstance       `json:"targetInstances"`
+	HTTPHealths     map[string]*computeapi.HttpHealthCheck      `json:"httpHealthChecks"`
+	HTTPSHealths    map[string]*computeapi.HttpsHealthCheck     `json:"httpsHealthChecks"`
+	VPNGateways     map[string]*computeapi.VpnGateway           `json:"vpnGateways"`
+	TargetVPNs      map[string]*computeapi.TargetVpnGateway     `json:"targetVpnGateways"`
+	VPNTunnels      map[string]*computeapi.VpnTunnel            `json:"vpnTunnels"`
+	ExternalVPNs    map[string]*computeapi.ExternalVpnGateway   `json:"externalVpnGateways"`
 	NEGs            map[string]*computeapi.NetworkEndpointGroup `json:"networkEndpointGroups"`
 	NEGEndpoints    map[string][]*computeapi.NetworkEndpoint    `json:"networkEndpoints"`
 	SecPolicies     map[string]*computeapi.SecurityPolicy       `json:"securityPolicies"`
@@ -67,6 +75,9 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		HTTPProxies: b.httpProxies, HTTPSProxies: b.httpsProxies, TCPProxies: b.tcpProxies,
 		SSLProxies: b.sslProxies, SSLCerts: b.sslCerts, SSLPolicies: b.sslPolicies, FwdRules: b.fwdRules,
 		NEGs: b.negs, NEGEndpoints: b.negEndpoints, SecPolicies: b.secPolicies, ResPolicies: b.resPolicies,
+		TargetPools: b.targetPools, TargetInstances: b.targetInstances, HTTPHealths: b.httpHealths,
+		HTTPSHealths: b.httpsHealths, VPNGateways: b.vpnGateways, TargetVPNs: b.targetVPNs,
+		VPNTunnels: b.vpnTunnels, ExternalVPNs: b.externalVPNs,
 	})
 }
 
@@ -119,7 +130,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		copyNonNil(b.sslProxies, snap.SSLProxies), copyNonNil(b.sslCerts, snap.SSLCerts),
 		copyNonNil(b.sslPolicies, snap.SSLPolicies), copyNonNil(b.fwdRules, snap.FwdRules),
 		copyNonNil(b.negs, snap.NEGs), copyNonNil(b.secPolicies, snap.SecPolicies),
-		copyNonNil(b.resPolicies, snap.ResPolicies),
+		copyNonNil(b.resPolicies, snap.ResPolicies), copyNonNil(b.targetPools, snap.TargetPools),
+		copyNonNil(b.targetInstances, snap.TargetInstances), copyNonNil(b.httpHealths, snap.HTTPHealths),
+		copyNonNil(b.httpsHealths, snap.HTTPSHealths), copyNonNil(b.vpnGateways, snap.VPNGateways),
+		copyNonNil(b.targetVPNs, snap.TargetVPNs), copyNonNil(b.vpnTunnels, snap.VPNTunnels),
+		copyNonNil(b.externalVPNs, snap.ExternalVPNs),
 	} {
 		if err != nil {
 			b.resetMaps()

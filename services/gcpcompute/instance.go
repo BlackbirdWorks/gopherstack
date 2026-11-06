@@ -378,6 +378,7 @@ func (b *InMemoryBackend) buildDisksLocked(
 	out := make([]*computeapi.AttachedDisk, 0, len(in.Disks))
 	devices := map[string]bool{}
 	sources := map[string]bool{}
+	scratch := 0
 
 	for i, ad := range in.Disks {
 		if i > 0 && ad.Boot {
@@ -387,24 +388,44 @@ func (b *InMemoryBackend) buildDisksLocked(
 			)
 		}
 
-		att, err := b.resolveAttachedLocked(project, zone, in.Name, i, ad, created)
+		att, err := b.buildDiskLocked(project, zone, in.Name, i, ad, &scratch, created)
 		if err != nil {
 			return nil, err
 		}
 
-		if devices[att.DeviceName] || sources[att.Source] {
+		if devices[att.DeviceName] || att.Source != "" && sources[att.Source] {
 			return nil, errInvalid("Invalid value for field 'resource.disks[%d]': duplicate device name or source.", i)
 		}
 
-		if by := b.diskWriterLocked(att, ""); by != "" {
-			return nil, errInUse("disk", trimURL(att.Source), by)
+		if att.Source != "" {
+			if by := b.diskWriterLocked(att, ""); by != "" {
+				return nil, errInUse("disk", trimURL(att.Source), by)
+			}
+
+			sources[att.Source] = true
 		}
 
-		devices[att.DeviceName], sources[att.Source] = true, true
+		devices[att.DeviceName] = true
 		out = append(out, att)
 	}
 
+	if err := checkLocalSSDCount(in.MachineType, scratch); err != nil {
+		return nil, err
+	}
+
 	return out, nil
+}
+
+func (b *InMemoryBackend) buildDiskLocked(
+	project, zone, instName string, idx int, ad *computeapi.AttachedDisk, scratch *int, created *[]string,
+) (*computeapi.AttachedDisk, *APIError) {
+	if ad.Type != diskScratch {
+		return b.resolveAttachedLocked(project, zone, instName, idx, ad, created)
+	}
+
+	*scratch++
+
+	return scratchDisk(idx, *scratch-1, ad)
 }
 
 // diskWriterLocked returns an instance that blocks attaching ad (a read-write holder, or any holder for a
@@ -551,49 +572,36 @@ func (b *InMemoryBackend) buildNICLocked(
 		return nil, err
 	}
 
-	p := netip.MustParsePrefix(s.IpCidrRange)
-	used := b.usedInternalLocked(s.SelfLink)
+	nic := &computeapi.NetworkInterface{
+		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
+		Fingerprint: newFingerprint(), NicType: in.NicType,
+	}
 
-	var ip netip.Addr
+	if err = b.buildNICIPv6Locked(s, in, nic, idx); err != nil {
+		return nil, err
+	}
 
-	if in.NetworkIP == "" {
-		for a := range taken {
-			used[a] = true
-		}
-
-		var ok bool
-		if ip, ok = nextFree(p, used); !ok {
-			return nil, errInvalid("No free IP addresses are available in subnetwork '%s'.", s.Name)
-		}
-	} else {
-		parsed, perr := netip.ParseAddr(in.NetworkIP)
-		first, last := usableRange(p)
-
-		if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
-			return nil, errField(
-				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
-				in.NetworkIP,
-				"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
+	if nic.StackType == stackIPv6Only {
+		if in.NetworkIP != "" || len(in.AccessConfigs) > 0 || len(in.AliasIpRanges) > 0 {
+			return nil, errInvalid(
+				"Invalid value for field '%s': an IPV6_ONLY interface takes no IPv4 settings.",
+				nicField(idx),
 			)
 		}
 
-		if used[parsed] && !b.reservedFreeLocked(s.SelfLink, in.NetworkIP) {
-			return nil, errField(
-				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
-				in.NetworkIP,
-				"The IP address is already in use.",
-			)
-		}
+		return nic, nil
+	}
 
-		ip = parsed
+	ip, err := b.pickNICIPv4Locked(s, idx, in, taken)
+	if err != nil {
+		return nil, err
 	}
 
 	taken[ip] = true
+	nic.NetworkIP = ip.String()
 
-	nic := &computeapi.NetworkInterface{
-		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
-		NetworkIP: ip.String(), StackType: stackIPv4Only, Fingerprint: newFingerprint(), NicType: in.NicType,
-		AliasIpRanges: in.AliasIpRanges,
+	if nic.AliasIpRanges, err = b.resolveAliasRangesLocked(s, nic, in.AliasIpRanges, in.AliasIpv6Ranges); err != nil {
+		return nil, err
 	}
 
 	for _, ac := range in.AccessConfigs {
@@ -610,6 +618,47 @@ func (b *InMemoryBackend) buildNICLocked(
 	}
 
 	return nic, nil
+}
+
+func (b *InMemoryBackend) pickNICIPv4Locked(
+	s *computeapi.Subnetwork, idx int, in *computeapi.NetworkInterface, taken map[netip.Addr]bool,
+) (netip.Addr, *APIError) {
+	p := netip.MustParsePrefix(s.IpCidrRange)
+	used := b.usedInternalLocked(s.SelfLink)
+
+	if in.NetworkIP == "" {
+		for a := range taken {
+			used[a] = true
+		}
+
+		ip, ok := nextFree(p, used)
+		if !ok {
+			return netip.Addr{}, errInvalid("No free IP addresses are available in subnetwork '%s'.", s.Name)
+		}
+
+		return ip, nil
+	}
+
+	parsed, perr := netip.ParseAddr(in.NetworkIP)
+	first, last := usableRange(p)
+
+	if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
+		return netip.Addr{}, errField(
+			"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+			in.NetworkIP,
+			"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
+		)
+	}
+
+	if used[parsed] && !b.reservedFreeLocked(s.SelfLink, in.NetworkIP) {
+		return netip.Addr{}, errField(
+			"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+			in.NetworkIP,
+			"The IP address is already in use.",
+		)
+	}
+
+	return parsed, nil
 }
 
 // reservedFreeLocked reports whether ip is held only by a reserved internal address object (usable by an instance).
@@ -952,13 +1001,24 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 		return nil, err
 	}
 
-	if st := r.status(b.now().UTC(), b.timing); st == stSuspended || st == stSuspending {
-		return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name),
+	d, err := b.startLocked(project, zone, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.newOpLocked("start", instTarget(project, zone, r.Inst), d), nil
+}
+
+// startLocked starts a stopped instance and returns how long the operation takes.
+func (b *InMemoryBackend) startLocked(project, zone string, r *instRec) (time.Duration, *APIError) {
+	st := r.status(b.now().UTC(), b.timing)
+	if st == stSuspended || st == stSuspending {
+		return 0, errNotReady(relPath(project, scopeZone, zone, "instances", r.Inst.Name),
 			"the instance is suspended; use instances.resume")
 	}
 
-	if r.status(b.now().UTC(), b.timing) != stTerminated {
-		return b.newOpLocked("start", instTarget(project, zone, r.Inst), b.timing.Pending), nil
+	if st != stTerminated {
+		return b.timing.Pending, nil
 	}
 
 	region := regionOfZone(zone)
@@ -973,7 +1033,7 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 
 			ip, aerr := b.allocExternalLocked(region, pending...)
 			if aerr != nil {
-				return nil, aerr
+				return 0, aerr
 			}
 
 			pending, ac.NatIP = append(pending, ip), ip
@@ -985,7 +1045,7 @@ func (b *InMemoryBackend) startInstance(project, zone, name string) (*computeapi
 	r.Inst.LastStartTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
 
-	return b.newOpLocked("start", instTarget(project, zone, r.Inst), b.timing.Stage), nil
+	return b.timing.Stage, nil
 }
 
 func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.Operation, error) {
@@ -997,9 +1057,14 @@ func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.
 		return nil, err
 	}
 
+	return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.stopLocked(r)), nil
+}
+
+// stopLocked stops an instance and returns how long the operation takes.
+func (b *InMemoryBackend) stopLocked(r *instRec) time.Duration {
 	st := r.status(b.now().UTC(), b.timing)
 	if st == stTerminated || st == stStopping {
-		return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.timing.Pending), nil
+		return b.timing.Pending
 	}
 
 	for _, nic := range r.Inst.NetworkInterfaces {
@@ -1015,7 +1080,7 @@ func (b *InMemoryBackend) stopInstance(project, zone, name string) (*computeapi.
 	r.Inst.LastStopTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
 
-	return b.newOpLocked("stop", instTarget(project, zone, r.Inst), b.timing.Stop), nil
+	return b.timing.Stop
 }
 
 func (b *InMemoryBackend) resetInstance(project, zone, name string) (*computeapi.Operation, error) {

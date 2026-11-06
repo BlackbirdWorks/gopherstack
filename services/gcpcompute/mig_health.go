@@ -210,7 +210,7 @@ func (b *InMemoryBackend) healthJobsLocked(rec *migRec) []probeJob {
 
 	var jobs []probeJob
 
-	for _, m := range liveMembers(rec) {
+	for _, m := range activeMembers(rec) {
 		r, ok := b.instances[key(rec.Project, m.Zone, m.Name)]
 		if !ok || !instRunning(r, now, b.timing) {
 			continue

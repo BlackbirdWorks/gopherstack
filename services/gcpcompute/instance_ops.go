@@ -246,28 +246,40 @@ func (b *InMemoryBackend) suspendInstance(project, zone, name string) (*computea
 		return nil, err
 	}
 
-	path := relPath(project, scopeZone, zone, "instances", name)
+	if err = b.suspendCheckLocked(project, zone, r); err != nil {
+		return nil, err
+	}
+
+	b.suspendLocked(r)
+
+	return b.newOpLocked("suspend", instTarget(project, zone, r.Inst), b.timing.Stop), nil
+}
+
+func (b *InMemoryBackend) suspendCheckLocked(project, zone string, r *instRec) *APIError {
+	path := relPath(project, scopeZone, zone, "instances", r.Inst.Name)
 
 	if r.status(b.now().UTC(), b.timing) != stRunning {
-		return nil, errNotReady(path, "the instance must be RUNNING to be suspended")
+		return errNotReady(path, "the instance must be RUNNING to be suspended")
 	}
 
 	if s := r.Inst.Scheduling; s != nil && (s.Preemptible || s.ProvisioningModel == provSpot) {
-		return nil, errInvalid("Invalid value for field 'resource.scheduling': Spot and preemptible instances " +
+		return errInvalid("Invalid value for field 'resource.scheduling': Spot and preemptible instances " +
 			"cannot be suspended.")
 	}
 
 	if len(r.Inst.GuestAccelerators) > 0 {
-		return nil, errInvalid("Invalid value for field 'resource.guestAccelerators': instances with GPUs " +
+		return errInvalid("Invalid value for field 'resource.guestAccelerators': instances with GPUs " +
 			"cannot be suspended.")
 	}
 
+	return nil
+}
+
+func (b *InMemoryBackend) suspendLocked(r *instRec) {
 	now := b.now().UTC()
 	r.Phase, r.Since = phaseSuspend, now
 	r.Inst.LastSuspendedTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
-
-	return b.newOpLocked("suspend", instTarget(project, zone, r.Inst), b.timing.Stop), nil
 }
 
 func (b *InMemoryBackend) resumeInstance(project, zone, name string) (*computeapi.Operation, error) {
@@ -279,17 +291,29 @@ func (b *InMemoryBackend) resumeInstance(project, zone, name string) (*computeap
 		return nil, err
 	}
 
+	if err = b.resumeCheckLocked(project, zone, r); err != nil {
+		return nil, err
+	}
+
+	b.resumeLocked(r)
+
+	return b.newOpLocked("resume", instTarget(project, zone, r.Inst), b.timing.Stage), nil
+}
+
+func (b *InMemoryBackend) resumeCheckLocked(project, zone string, r *instRec) *APIError {
 	if r.status(b.now().UTC(), b.timing) != stSuspended {
-		return nil, errNotReady(relPath(project, scopeZone, zone, "instances", name),
+		return errNotReady(relPath(project, scopeZone, zone, "instances", r.Inst.Name),
 			"the instance must be SUSPENDED to be resumed")
 	}
 
+	return nil
+}
+
+func (b *InMemoryBackend) resumeLocked(r *instRec) {
 	now := b.now().UTC()
 	r.Phase, r.Since = phaseStart, now
 	r.Inst.LastStartTimestamp = now.Format(timeLayout)
 	b.touchLocked(r)
-
-	return b.newOpLocked("resume", instTarget(project, zone, r.Inst), b.timing.Stage), nil
 }
 
 func (b *InMemoryBackend) serialPortOutput(

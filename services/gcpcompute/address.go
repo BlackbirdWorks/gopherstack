@@ -69,6 +69,12 @@ func (b *InMemoryBackend) usedExternalLocked() map[string]bool {
 		}
 	}
 
+	for _, g := range b.vpnGateways {
+		for _, vi := range g.VpnInterfaces {
+			used[vi.IpAddress], used[vi.Ipv6Address] = true, true
+		}
+	}
+
 	return used
 }
 
@@ -118,6 +124,8 @@ func (b *InMemoryBackend) usedInternalLocked(subnetLink string) map[netip.Addr]b
 			if a, err := netip.ParseAddr(nic.NetworkIP); err == nil {
 				used[a] = true
 			}
+
+			markPrimaryAliases(used, nic)
 		}
 	}
 
@@ -172,6 +180,14 @@ func (b *InMemoryBackend) addressUsersLocked(a *computeapi.Address) []string {
 
 func addressUsedBy(a *computeapi.Address, inst *computeapi.Instance) bool {
 	for _, nic := range inst.NetworkInterfaces {
+		if a.IpVersion == ipv6 {
+			if usesV6(a, nic) {
+				return true
+			}
+
+			continue
+		}
+
 		if a.AddressType == addrInternal {
 			if nic.Subnetwork == a.Subnetwork && nic.NetworkIP == a.Address {
 				return true
@@ -245,7 +261,7 @@ func (b *InMemoryBackend) buildAddressLocked(
 func (b *InMemoryBackend) buildAddressKindLocked(project, region string, in, a *computeapi.Address) *APIError {
 	switch {
 	case in.IpVersion == ipv6:
-		return b.buildIPv6Locked(region, in, a)
+		return b.buildIPv6Locked(project, region, in, a)
 	case a.AddressType == addrExternal:
 		return b.buildExternalLocked(region, in, a)
 	case a.AddressType == addrInternal && region == "":

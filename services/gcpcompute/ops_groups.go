@@ -185,6 +185,7 @@ func (h *Handler) registerMIGActions(scope string) {
 	})
 
 	h.registerMIGMemberOps(scope)
+	h.registerMIGStateOps(scope)
 }
 
 func (h *Handler) registerMIGMemberOps(scope string) {

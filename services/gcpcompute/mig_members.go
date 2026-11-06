@@ -112,7 +112,7 @@ func (b *InMemoryBackend) deleteMIGInstances(
 ) (*computeapi.Operation, error) {
 	return b.memberOp(project, scope, loc, name, verb, in, func(rec *migRec, ms []*memberRec) *APIError {
 		for _, m := range ms {
-			b.markDeletingLocked(project, m)
+			b.markDeletingLocked(project, rec, m)
 		}
 
 		return b.shrinkTarget(rec, len(ms))

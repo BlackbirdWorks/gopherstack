@@ -45,7 +45,8 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	src.done(t, op, err)
 
 	op, err = src.routers(t).
-		Insert(t.Context(), &computepb.InsertRouterRequest{Project: project, Region: region,
+		Insert(t.Context(), &computepb.InsertRouterRequest{
+			Project: project, Region: region,
 			RouterResource: &computepb.Router{
 				Name:    s("rtr"),
 				Network: s("global/networks/vpc"),
@@ -56,7 +57,8 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 						SourceSubnetworkIpRangesToNat: s("ALL_SUBNETWORKS_ALL_IP_RANGES"),
 					},
 				},
-			}})
+			},
+		})
 	src.done(t, op, err)
 
 	op, err = src.disks(t).CreateSnapshot(t.Context(), &computepb.CreateSnapshotDiskRequest{
