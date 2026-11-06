@@ -89,6 +89,12 @@ func (x *exec) evalCall(c callExpr, r row, grp []row) (any, error) {
 		return x.aggregate(c, grp)
 	}
 
+	if pe, ok := patternArg(c); ok {
+		n, err := x.countPattern(pe, r, false)
+
+		return int64(n), err
+	}
+
 	args := make([]any, len(c.args))
 
 	for i, a := range c.args {
@@ -786,4 +792,15 @@ func (x *exec) relEndpoint(name string, args []any) (any, error) {
 
 func null() (any, error) {
 	return nil, nil //nolint:nilnil // a null Cypher value is not an error
+}
+
+// patternArg reports a size(<pattern expression>) call, which counts the pattern's matches.
+func patternArg(c callExpr) (patternExpr, bool) {
+	if c.name != "size" || len(c.args) != 1 {
+		return patternExpr{}, false
+	}
+
+	pe, ok := c.args[0].(patternExpr)
+
+	return pe, ok
 }

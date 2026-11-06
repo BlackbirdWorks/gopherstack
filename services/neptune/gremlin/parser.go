@@ -336,6 +336,17 @@ func (p *parser) parseMapKeyOrValue() (any, error) {
 		return t.text, nil
 	}
 
+	if p.isPunct("(") {
+		p.pos++
+
+		k, err := p.parseValue()
+		if err != nil {
+			return nil, err
+		}
+
+		return k, p.expectPunct(")")
+	}
+
 	return p.parseValue()
 }
 

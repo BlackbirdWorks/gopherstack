@@ -11,6 +11,7 @@ import (
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 	"github.com/blackbirdworks/gopherstack/services/neptune/sparql"
 )
 
@@ -30,6 +31,7 @@ type rdfService struct {
 	store   *sparql.Store
 	queries *queryTracker
 	loader  *loaderState
+	graph   *opencypher.Graph
 	s3      func() S3Reader
 }
 

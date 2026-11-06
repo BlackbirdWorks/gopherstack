@@ -53,22 +53,32 @@ func (e *Engine) Bytecode(ctx context.Context, g *opencypher.Graph, tr *Traversa
 	return e.run(ctx, g, []Stmt{{Tr: tr, Term: "toList"}})
 }
 
+func (e *Engine) runStmts(ctx context.Context, st *opencypher.Store, stmts []Stmt) ([]any, error) {
+	var result []any
+
+	x := newExec(ctx, st, e.steps)
+
+	for _, s := range stmts {
+		out, err := x.run(s.Tr, rootTrav())
+		if err != nil {
+			return nil, err
+		}
+
+		result = detachAll(st, applyTerminal(s.Term, s.N, values(out)))
+	}
+
+	return result, nil
+}
+
 func (e *Engine) run(ctx context.Context, g *opencypher.Graph, stmts []Stmt) ([]any, error) {
 	var result []any
 
 	body := func(st *opencypher.Store) error {
-		x := newExec(ctx, st, e.steps)
+		var err error
 
-		for _, s := range stmts {
-			out, err := x.run(s.Tr, rootTrav())
-			if err != nil {
-				return err
-			}
+		result, err = e.runStmts(ctx, st, stmts)
 
-			result = detachAll(st, applyTerminal(s.Term, s.N, values(out)))
-		}
-
-		return nil
+		return err
 	}
 
 	var err error

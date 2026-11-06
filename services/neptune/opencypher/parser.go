@@ -19,6 +19,7 @@ func parse(src string) (*query, error) {
 
 	p := &parser{src: src, toks: toks}
 	q := &query{}
+	head, prevAll := q, false
 
 	for {
 		for p.accept(";") {
@@ -26,6 +27,17 @@ func parse(src string) (*query, error) {
 
 		if p.peek().kind == tkEOF {
 			break
+		}
+
+		if p.peek().is("UNION") {
+			next, all, uerr := p.unionBoundary(head, q, prevAll)
+			if uerr != nil {
+				return nil, uerr
+			}
+
+			q.union, q.unionAll, q, prevAll = next, all, next, all
+
+			continue
 		}
 
 		c, werr := p.parseClause()
@@ -45,7 +57,39 @@ func parse(src string) (*query, error) {
 		return nil, malformed("Query is empty")
 	}
 
-	return q, p.validate(q)
+	if err = p.validate(q); err != nil {
+		return nil, err
+	}
+
+	if head.union != nil {
+		for part := head; part != nil; part = part.union {
+			if part.write {
+				return nil, unsupported("UNION with an updating clause is not supported; only read-only queries can be combined")
+			}
+		}
+	}
+
+	return head, nil
+}
+
+// unionBoundary consumes UNION [ALL] after a finished RETURN-terminated part and starts the next part.
+func (p *parser) unionBoundary(head, cur *query, prevAll bool) (*query, bool, error) {
+	if len(cur.clauses) == 0 {
+		return nil, false, p.unexpected("a clause")
+	}
+
+	if _, ok := cur.clauses[len(cur.clauses)-1].(returnClause); !ok {
+		return nil, false, malformed("Each part of a UNION must end with RETURN")
+	}
+
+	p.pos++
+
+	all := p.accept("ALL")
+	if head != cur && all != prevAll {
+		return nil, false, malformed("Invalid combination of UNION and UNION ALL")
+	}
+
+	return &query{}, all, nil
 }
 
 func (p *parser) validate(q *query) error {
@@ -167,7 +211,7 @@ func (p *parser) parseClause() (clause, error) {
 		proj, err := p.parseProjection()
 
 		return returnClause{proj: proj}, err
-	case "CALL", "UNION", "FOREACH", "LOAD":
+	case "CALL", "FOREACH", "LOAD":
 		return nil, unsupported("%s is not supported by this openCypher implementation", strings.ToUpper(t.text))
 	default:
 		return nil, p.unexpected("a clause")
@@ -499,6 +543,11 @@ func (p *parser) parsePattern() (pattern, error) {
 	if p.peek().kind == tkIdent && p.peek2().is("=") {
 		pat.pathVar, _ = p.ident()
 		p.pos++
+	}
+
+	if t := p.peek(); t.kind == tkIdent && p.peek2().is("(") &&
+		(strings.EqualFold(t.text, "shortestPath") || strings.EqualFold(t.text, "allShortestPaths")) {
+		return pat, unsupported("%s() is not supported by Neptune openCypher", t.text)
 	}
 
 	n, err := p.parseNodePat()

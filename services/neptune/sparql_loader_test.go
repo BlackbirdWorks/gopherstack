@@ -232,7 +232,7 @@ func TestBulkLoaderRequestErrors(t *testing.T) {
 	}{
 		{"missing source", `{"format":"ntriples"}`, "MissingParameterException", ""},
 		{"bad format", `{"source":"s3://lake/x.nt","format":"jsonld"}`, "BadRequestException", "Invalid format"},
-		{"csv unsupported", `{"source":"s3://lake/x.nt","format":"csv"}`, "BadRequestException", "property-graph CSV"},
+		{"csv without files", `{"source":"s3://lake/none/","format":"csv"}`, "BadRequestException", "Failed to start"},
 		{
 			"missing bucket",
 			`{"source":"s3://nobucket/x.nt","format":"ntriples"}`,

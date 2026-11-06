@@ -276,13 +276,23 @@ func (p *parser) parseAtom() (expr, error) {
 
 func (p *parser) parsePunctAtom() (expr, error) {
 	switch {
-	case p.accept("("):
+	case p.peek().is("("):
+		if pe, ok := p.tryPatternExpr(); ok {
+			return pe, nil
+		}
+
+		p.pos++
+
 		e, err := p.parseExpr()
 		if err != nil {
 			return nil, err
 		}
 
 		return e, p.expect(")")
+	case p.peek().is("[") && p.isListComprehension():
+		p.pos++
+
+		return p.parseListComprehension()
 	case p.accept("["):
 		l := listExpr{}
 
@@ -310,6 +320,53 @@ func (p *parser) parsePunctAtom() (expr, error) {
 	default:
 		return nil, p.unexpected("an expression")
 	}
+}
+
+// tryPatternExpr reads a pattern predicate such as (a)-[:R]->(b); it backtracks when the text is a parenthesised
+// expression or a lone node.
+func (p *parser) tryPatternExpr() (expr, bool) {
+	start := p.pos
+
+	pat, err := p.parsePattern()
+	if err != nil || len(pat.rels) == 0 {
+		p.pos = start
+
+		return nil, false
+	}
+
+	return patternExpr{pat: pat}, true
+}
+
+func (p *parser) isListComprehension() bool {
+	return p.pos+2 < len(p.toks) && p.toks[p.pos+1].kind == tkIdent && p.toks[p.pos+2].is("IN") &&
+		!p.toks[p.pos+1].is("NOT")
+}
+
+// parseListComprehension reads [v IN src WHERE cond | proj] after the opening bracket.
+func (p *parser) parseListComprehension() (expr, error) {
+	v, _ := p.ident()
+	p.pos++
+
+	src, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+
+	lc := listCompExpr{v: v, src: src}
+
+	if p.accept("WHERE") {
+		if lc.where, err = p.parseExpr(); err != nil {
+			return nil, err
+		}
+	}
+
+	if p.accept("|") {
+		if lc.proj, err = p.parseExpr(); err != nil {
+			return nil, err
+		}
+	}
+
+	return lc, p.expect("]")
 }
 
 func (p *parser) parseIdentAtom() (expr, error) {

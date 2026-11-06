@@ -76,6 +76,8 @@ func startCypherFront(
 		rdf = newRDFService(nil)
 	}
 
+	rdf.graph = graph
+
 	f := &cypherFront{
 		port:    port,
 		auth:    auth,

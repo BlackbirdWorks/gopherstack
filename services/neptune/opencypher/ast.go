@@ -39,6 +39,13 @@ type (
 		e      expr
 		labels []string
 	}
+	patternExpr  struct{ pat pattern }
+	listCompExpr struct {
+		src   expr
+		where expr
+		proj  expr
+		v     string
+	}
 	caseExpr struct {
 		subject expr
 		els     expr
@@ -129,6 +136,8 @@ type projection struct {
 }
 
 type query struct {
-	clauses []clause
-	write   bool
+	union    *query
+	clauses  []clause
+	write    bool
+	unionAll bool
 }
