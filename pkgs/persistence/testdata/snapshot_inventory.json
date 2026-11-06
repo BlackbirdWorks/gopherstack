@@ -3644,7 +3644,7 @@
       "storedACAJob.EnvironmentID string `json:\"environmentId\"`",
       "storedACAJob.Executions []*storedACAExecution `json:\"executions,omitempty\"`",
       "storedACAJob.Identity resourceIdentity `json:\"identity\"`",
-      "storedACAJob.LastFire time.Time `json:\"lastFire,omitempty\"`",
+      "storedACAJob.LastFire time.Time `json:\"lastFire,omitzero\"`",
       "storedACAJob.Location string `json:\"location\"`",
       "storedACAJob.Modified time.Time `json:\"modified\"`",
       "storedACAJob.Name string `json:\"name\"`",
