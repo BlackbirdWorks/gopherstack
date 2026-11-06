@@ -3,6 +3,7 @@ package ecs
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -615,7 +616,14 @@ func (b *InMemoryBackend) taskWithLiveTagsLocked(t *Task) Task {
 	cp := *t
 	cp.Tags = copyTags(b.resourceTags[resourceTagKey(t.TaskArn)])
 	cp.Containers = append([]Container(nil), t.Containers...)
+	for i := range cp.Containers {
+		cp.Containers[i].NetworkInterfaces = slices.Clone(cp.Containers[i].NetworkInterfaces)
+	}
+
 	cp.Attachments = append([]TaskAttachment(nil), t.Attachments...)
+	for i := range cp.Attachments {
+		cp.Attachments[i].Details = slices.Clone(cp.Attachments[i].Details)
+	}
 
 	return cp
 }
