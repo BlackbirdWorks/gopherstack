@@ -555,31 +555,72 @@ type Campaign struct {
 	CampaignID string `json:"CampaignId,omitempty"`
 }
 
+// RecordingInfo describes one recording of a contact.
+type RecordingInfo struct {
+	StartTimestamp  *awstime.EpochTime `json:"StartTimestamp,omitempty"`
+	StopTimestamp   *awstime.EpochTime `json:"StopTimestamp,omitempty"`
+	Location        string             `json:"Location,omitempty"`
+	MediaStreamType string             `json:"MediaStreamType,omitempty"`
+	ParticipantType string             `json:"ParticipantType,omitempty"`
+	Status          string             `json:"Status,omitempty"`
+	StorageType     string             `json:"StorageType,omitempty"`
+}
+
+// ChatContactMetrics holds the contact-level chat metrics.
+type ChatContactMetrics struct {
+	ConversationCloseTimeInMillis *int64 `json:"ConversationCloseTimeInMillis,omitempty"`
+	MultiParty                    *bool  `json:"MultiParty,omitempty"`
+}
+
+// ChatMetrics holds the metrics of a chat contact.
+type ChatMetrics struct {
+	ChatContactMetrics *ChatContactMetrics `json:"ChatContactMetrics,omitempty"`
+}
+
+// EmailRecipient is one recipient of an email contact.
+type EmailRecipient struct {
+	Address     string `json:"Address,omitempty"`
+	DisplayName string `json:"DisplayName,omitempty"`
+}
+
+// AdditionalEmailRecipients lists the To and Cc recipients of an email contact.
+type AdditionalEmailRecipients struct {
+	CcList []EmailRecipient `json:"CcList,omitempty"`
+	ToList []EmailRecipient `json:"ToList,omitempty"`
+}
+
 // Contact is a customer interaction.
 type Contact struct {
-	InitiationTimestamp *awstime.EpochTime `json:"InitiationTimestamp,omitempty"`
-	LastUpdateTimestamp *awstime.EpochTime `json:"LastUpdateTimestamp,omitempty"`
-	DisconnectTimestamp *awstime.EpochTime `json:"DisconnectTimestamp,omitempty"`
-	ScheduledTimestamp  *awstime.EpochTime `json:"ScheduledTimestamp,omitempty"`
-	RingStartTimestamp  *awstime.EpochTime `json:"RingStartTimestamp,omitempty"`
-	QueueInfo           *ContactQueueInfo  `json:"QueueInfo,omitempty"`
-	AgentInfo           *ContactAgentInfo  `json:"AgentInfo,omitempty"`
-	CustomerEndpoint    *EndpointInfo      `json:"CustomerEndpoint,omitempty"`
-	SystemEndpoint      *EndpointInfo      `json:"SystemEndpoint,omitempty"`
-	Campaign            *Campaign          `json:"Campaign,omitempty"`
-	Attributes          map[string]string  `json:"Attributes,omitempty"`
-	Tags                map[string]string  `json:"Tags,omitempty"`
-	DisconnectReason    string             `json:"DisconnectReason,omitempty"`
-	Arn                 string             `json:"Arn"`
-	Channel             string             `json:"Channel"`
-	CustomerID          string             `json:"CustomerId,omitempty"`
-	Description         string             `json:"Description,omitempty"`
-	ID                  string             `json:"Id"`
-	InitialContactID    string             `json:"InitialContactId"`
-	InitiationMethod    string             `json:"InitiationMethod"`
-	Name                string             `json:"Name,omitempty"`
-	PreviousContactID   string             `json:"PreviousContactId,omitempty"`
-	RelatedContactID    string             `json:"RelatedContactId,omitempty"`
-	OutboundStrategy    json.RawMessage    `json:"OutboundStrategy,omitempty"`
-	SegmentAttributes   json.RawMessage    `json:"SegmentAttributes,omitempty"`
+	Campaign                    *Campaign                  `json:"Campaign,omitempty"`
+	Attributes                  map[string]string          `json:"Attributes,omitempty"`
+	LastResumedTimestamp        *awstime.EpochTime         `json:"LastResumedTimestamp,omitempty"`
+	ChatMetrics                 *ChatMetrics               `json:"ChatMetrics,omitempty"`
+	Tags                        map[string]string          `json:"Tags,omitempty"`
+	SystemEndpoint              *EndpointInfo              `json:"SystemEndpoint,omitempty"`
+	LastUpdateTimestamp         *awstime.EpochTime         `json:"LastUpdateTimestamp,omitempty"`
+	InitiationTimestamp         *awstime.EpochTime         `json:"InitiationTimestamp,omitempty"`
+	AdditionalEmailRecipients   *AdditionalEmailRecipients `json:"AdditionalEmailRecipients,omitempty"`
+	DisconnectTimestamp         *awstime.EpochTime         `json:"DisconnectTimestamp,omitempty"`
+	ScheduledTimestamp          *awstime.EpochTime         `json:"ScheduledTimestamp,omitempty"`
+	RingStartTimestamp          *awstime.EpochTime         `json:"RingStartTimestamp,omitempty"`
+	QueueInfo                   *ContactQueueInfo          `json:"QueueInfo,omitempty"`
+	AgentInfo                   *ContactAgentInfo          `json:"AgentInfo,omitempty"`
+	LastPausedTimestamp         *awstime.EpochTime         `json:"LastPausedTimestamp,omitempty"`
+	CustomerEndpoint            *EndpointInfo              `json:"CustomerEndpoint,omitempty"`
+	ID                          string                     `json:"Id"`
+	Description                 string                     `json:"Description,omitempty"`
+	RelatedContactID            string                     `json:"RelatedContactId,omitempty"`
+	DisconnectReason            string                     `json:"DisconnectReason,omitempty"`
+	Arn                         string                     `json:"Arn"`
+	Channel                     string                     `json:"Channel"`
+	PreviousContactID           string                     `json:"PreviousContactId,omitempty"`
+	CustomerID                  string                     `json:"CustomerId,omitempty"`
+	InitialContactID            string                     `json:"InitialContactId"`
+	Name                        string                     `json:"Name,omitempty"`
+	InitiationMethod            string                     `json:"InitiationMethod"`
+	Recordings                  []RecordingInfo            `json:"Recordings,omitempty"`
+	OutboundStrategy            json.RawMessage            `json:"OutboundStrategy,omitempty"`
+	SegmentAttributes           json.RawMessage            `json:"SegmentAttributes,omitempty"`
+	TotalPauseDurationInSeconds int32                      `json:"TotalPauseDurationInSeconds,omitempty"`
+	TotalPauseCount             int32                      `json:"TotalPauseCount,omitempty"`
 }

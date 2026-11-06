@@ -90,13 +90,51 @@ type promptRec struct {
 }
 
 type contactRec struct {
-	InstanceID       string          `json:"instanceId"`
-	ParticipantID    string          `json:"participantId,omitempty"`
-	ParticipantToken string          `json:"participantToken,omitempty"`
-	FlowID           string          `json:"flowId,omitempty"`
-	TaskTemplateID   string          `json:"taskTemplateId,omitempty"`
-	Contact          Contact         `json:"contact"`
-	References       json.RawMessage `json:"references,omitempty"`
+	PausedAt         *awstime.EpochTime   `json:"pausedAt,omitempty"`
+	MediaProcessor   *mediaProcessor      `json:"mediaProcessor,omitempty"`
+	Recording        map[string]*recState `json:"recording,omitempty"`
+	Streams          map[string]string    `json:"streams,omitempty"`
+	InstanceID       string               `json:"instanceId"`
+	ParticipantID    string               `json:"participantId,omitempty"`
+	ParticipantToken string               `json:"participantToken,omitempty"`
+	FlowID           string               `json:"flowId,omitempty"`
+	TaskTemplateID   string               `json:"taskTemplateId,omitempty"`
+	References       json.RawMessage      `json:"references,omitempty"`
+	Participants     []participantRec     `json:"participants,omitempty"`
+	Emails           []emailMessageRec    `json:"emails,omitempty"`
+	MonitorCaps      []string             `json:"monitorCapabilities,omitempty"`
+	Contact          Contact              `json:"contact"`
+}
+
+type emailMessageRec struct {
+	Sent        awstime.EpochTime  `json:"sent"`
+	Headers     map[string]string  `json:"headers,omitempty"`
+	From        EmailAddressInfo   `json:"from"`
+	To          EmailAddressInfo   `json:"to"`
+	Direction   string             `json:"direction"`
+	Subject     string             `json:"subject"`
+	ContentType string             `json:"contentType"`
+	Body        string             `json:"body"`
+	Delivery    string             `json:"delivery,omitempty"`
+	Cc          []EmailAddressInfo `json:"cc,omitempty"`
+	Attachments []EmailAttachment  `json:"attachments,omitempty"`
+}
+
+type recState struct {
+	State string `json:"state"`
+	Index int    `json:"index"`
+}
+
+type mediaProcessor struct {
+	ProcessorArn string `json:"processorArn"`
+	FailureMode  string `json:"failureMode,omitempty"`
+}
+
+type participantRec struct {
+	ID          string `json:"id"`
+	Role        string `json:"role"`
+	DisplayName string `json:"displayName"`
+	Token       string `json:"token"`
 }
 
 type integrationRec struct {
@@ -133,6 +171,7 @@ type extras struct {
 	dataTables        family[dataTableRec]
 	emails            family[emailAddressRec]
 	workspaces        family[workspaceRec]
+	metricDefs        family[metricRec]
 }
 
 func (b *Backend) registerTables() {

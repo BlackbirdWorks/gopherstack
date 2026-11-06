@@ -145,6 +145,7 @@ type Backend struct {
 	quickConnects    family[quickConnectRec]
 	apps             Integrations
 	resolvers        Resolvers
+	mailer           Mailer
 	hierarchyLevels  *store.Table[hierarchyStructureRec]
 	mu               *lockmetrics.RWMutex
 	instances        *store.Table[instanceRec]

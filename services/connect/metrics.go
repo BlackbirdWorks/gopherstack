@@ -667,9 +667,9 @@ func historicalSample(name string, c *contactRec, from, to time.Time) (float64, 
 	case metricHandled:
 		return 1, in(conn)
 	case "CONTACTS_HANDLED_OUTBOUND":
-		return 1, in(conn) && c.Contact.InitiationMethod == "OUTBOUND"
+		return 1, in(conn) && c.Contact.InitiationMethod == methodOutbound
 	case "API_CONTACTS_HANDLED":
-		return 1, in(conn) && c.Contact.InitiationMethod == "API"
+		return 1, in(conn) && c.Contact.InitiationMethod == methodAPI
 	case "CONTACTS_ABANDONED":
 		return 1, conn == nil && in(c.Contact.DisconnectTimestamp)
 	case "QUEUED_TIME":

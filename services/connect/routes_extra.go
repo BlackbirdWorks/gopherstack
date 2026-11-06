@@ -24,6 +24,7 @@ func extraRoutes() []restroute.Route {
 		securityExtraRoutes(),
 		dataTableRoutes(),
 		emailRoutes(),
+		metricDefinitionRoutes(),
 		workspaceRoutes(),
 	)
 }
@@ -183,6 +184,7 @@ func searchOps() map[string]string {
 		"SearchWorkspaces":                "/search-workspaces",
 		"SearchEvaluationForms":           "/search-evaluation-forms",
 		"SearchHoursOfOperationOverrides": "/search-hours-of-operation-overrides",
+		"SearchMetrics":                   "/search-metrics",
 		"SearchHoursOfOperations":         "/search-hours-of-operations",
 		"SearchPredefinedAttributes":      "/search-predefined-attributes",
 		"SearchPrompts":                   "/search-prompts",
