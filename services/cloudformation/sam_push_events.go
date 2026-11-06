@@ -40,6 +40,11 @@ func (t *samTranslator) s3Event(ev *samEventCtx, name string, props map[string]a
 	if len(events) == 0 {
 		return samErr(ev.id, "Event [%s] of type S3 is missing required property 'Events'.", name)
 	}
+	for _, e := range events {
+		if _, isStr := e.(string); !isStr {
+			return samErr(ev.id+name, "Type of property 'Events' is invalid.")
+		}
+	}
 	perm := lambdaPermission(ev.target(), "s3.amazonaws.com", nil)
 	asMap(perm[samKeyProps])["SourceAccount"] = samRef("AWS::AccountId")
 	permID := samPermissionID(ev.id+name, "")
@@ -76,6 +81,9 @@ func (t *samTranslator) finalizeS3Events() error {
 		if b[samKeyType] != samTypeBucket {
 			return samErr(id, "S3 event Bucket must reference an AWS::S3::Bucket resource in this template.")
 		}
+		if err := validateBucketShape(id, b); err != nil {
+			return err
+		}
 		props := maps.Clone(asMap(b[samKeyProps]))
 		if props == nil {
 			props = map[string]any{}
@@ -93,6 +101,11 @@ func (t *samTranslator) finalizeS3Events() error {
 		nc[samKeyLambdaCfg] = existing
 		props[samKeyNotifCfg] = nc
 		if tags := t.bucketTags[id]; len(tags) > 0 {
+			if cur, has := props[samKeyTags]; has && cur != nil {
+				if _, isList := cur.([]any); !isList {
+					return samErr(id, "Property 'Tags' should be a list.")
+				}
+			}
 			props[samKeyTags] = plainTagList(tags)
 		}
 		nb := maps.Clone(b)
@@ -496,6 +509,11 @@ func (t *samTranslator) cognitoEvent(ev *samEventCtx, name string, props map[str
 		return err
 	}
 	for _, trig := range triggers {
+		if _, isStr := trig.(string); !isStr {
+			return samErr(id, "Type of property 'Trigger' is invalid.")
+		}
+	}
+	for _, trig := range triggers {
 		key, _ := trig.(string)
 		t.cognito[pool] = append(t.cognito[pool], samCognitoTrigger{event: name, trigger: key, arn: ev.fnArn()})
 	}
@@ -519,6 +537,11 @@ func (t *samTranslator) finalizeCognito() error {
 		props := maps.Clone(asMap(pool[samKeyProps]))
 		if props == nil {
 			props = map[string]any{}
+		}
+		if raw, has := props["LambdaConfig"]; has && raw != nil {
+			if _, isMap := raw.(map[string]any); !isMap {
+				return samErr(id, "Property 'LambdaConfig' should be a map.")
+			}
 		}
 		lambdaCfg := maps.Clone(asMap(props["LambdaConfig"]))
 		if lambdaCfg == nil {

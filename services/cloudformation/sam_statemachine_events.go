@@ -211,6 +211,11 @@ func (t *samTranslator) smAPIEvent(smID, targetID, name string, props map[string
 		return err
 	}
 
+	if v, has := props[samUnescapeFlag]; has && v != nil {
+		if _, isBool := v.(bool); !isBool {
+			return samErr(id, "Type of property '%s' is invalid.", samUnescapeFlag)
+		}
+	}
 	unescape, _ := props[samUnescapeFlag].(bool)
 	api.addRoute(
 		samRoute{

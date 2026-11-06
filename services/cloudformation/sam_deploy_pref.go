@@ -37,7 +37,7 @@ func (t *samTranslator) deploymentPreference(id string, r, props map[string]any)
 		return err
 	}
 	pref := &samDeployPref{fnID: id, dp: dp, tags: maps.Clone(t.curTags)}
-	if pass, _ := t.paramDefault(dp["PassthroughCondition"]).(bool); pass {
+	if pass, _ := dp["PassthroughCondition"].(bool); pass {
 		pref.condition = asString(r[samKeyCondition])
 	}
 	t.deploys = append(t.deploys, pref)
@@ -85,6 +85,13 @@ func (t *samTranslator) readDeploymentPreference(id string, props map[string]any
 	}
 	if props[samKeyAutoPublish] == nil {
 		return nil, false, samErr(id, "'DeploymentPreference' requires AutoPublishAlias property to be specified.")
+	}
+	if v, has := dp["PassthroughCondition"]; has && v != nil {
+		pass, err := t.passthroughCondition(id, v)
+		if err != nil {
+			return nil, false, err
+		}
+		dp["PassthroughCondition"] = pass
 	}
 
 	return dp, true, nil

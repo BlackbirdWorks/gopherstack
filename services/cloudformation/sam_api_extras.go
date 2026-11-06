@@ -182,6 +182,9 @@ func (a *samAPI) addGatewayResponses(doc map[string]any) error {
 				return samErr(a.id, "Invalid property '%s' in 'GatewayResponses' property '%s'.", k, typ)
 			}
 		}
+		if err := validateGatewayResponse(a.id, typ, resp); err != nil {
+			return err
+		}
 		params := map[string]any{}
 		prefixes := map[string]string{samKeyHeaders: "header.", "Paths": "path.", samKQueryStrings: "querystring."}
 		for prop, prefix := range prefixes {

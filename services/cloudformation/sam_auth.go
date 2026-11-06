@@ -49,6 +49,9 @@ func (t *samTranslator) parseAPIAuth(apiID string, props map[string]any) (*samAu
 	}
 	authorizers := asMap(raw["Authorizers"])
 	for _, name := range slices.Sorted(maps.Keys(authorizers)) {
+		if err := validateAuthorizerShape(apiID, name, authorizers[name]); err != nil {
+			return nil, err
+		}
 		def, perm, err := samAuthorizer(apiID, name, authorizers[name])
 		if err != nil {
 			return nil, err

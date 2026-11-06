@@ -67,6 +67,11 @@ func (t *samTranslator) pullEvent(ev *samEventCtx, name, kind string, props map[
 			return samErr(ev.id, "Event [%s] is missing required property '%s'.", name, k)
 		}
 	}
+	if v, has := props[samKeySAC]; has && v != nil {
+		if _, isList := v.([]any); !isList {
+			return samErr(id, "Type of property '%s' is invalid.", samKeySAC)
+		}
+	}
 	if err := validatePullProps(ev.id, name, kind, props); err != nil {
 		return err
 	}

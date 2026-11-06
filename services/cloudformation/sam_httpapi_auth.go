@@ -86,6 +86,9 @@ func (a *samHTTPAPI) newAuthorizer(name string, cfg map[string]any) (*samHTTPAut
 	if err := az.validateRequired(a.id); err != nil {
 		return nil, err
 	}
+	if err := validateHTTPIdentity(a.id, name, cfg["Identity"]); err != nil {
+		return nil, err
+	}
 
 	return az, nil
 }

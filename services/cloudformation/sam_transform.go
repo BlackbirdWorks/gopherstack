@@ -103,6 +103,7 @@ type samTranslator struct {
 	out        map[string]any
 	pass       map[string]any
 	conditions map[string]any
+	mappings   map[string]any
 	bucketTags map[string]map[string]any
 	owner      map[string]string
 	curTags    map[string]any
@@ -151,6 +152,10 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		}
 	}()
 
+	if err = validateSAMDocument(doc); err != nil {
+		return err
+	}
+
 	t := &samTranslator{
 		out:        map[string]any{},
 		globals:    map[string]map[string]any{},
@@ -163,6 +168,7 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		refs:       map[string]string{},
 		params:     map[string]any{},
 		conditions: map[string]any{},
+		mappings:   asMap(doc["Mappings"]),
 		bucketTags: map[string]map[string]any{},
 		owner:      map[string]string{},
 	}
@@ -172,6 +178,9 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		}
 	}
 	if err = t.readGlobals(asMap(doc["Globals"])); err != nil {
+		return err
+	}
+	if err = t.validateSubVariables(doc["Resources"]); err != nil {
 		return err
 	}
 	delete(doc, "Globals")
@@ -197,6 +206,9 @@ func (t *samTranslator) readGlobals(g map[string]any) error {
 	for section, v := range g {
 		switch section {
 		case samKeyFunction, "Api", "HttpApi", "SimpleTable":
+			if err := validateGlobalsSection(section, asMap(v)); err != nil {
+				return err
+			}
 			t.globals[section] = asMap(v)
 		default:
 			return fmt.Errorf("%w. Globals section [%s] is not supported", ErrSAMTransform, section)

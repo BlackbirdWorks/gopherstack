@@ -22,12 +22,16 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 	}
 	key, typ := "id", samTypeString
 	if pk := asMap(props["PrimaryKey"]); pk != nil {
-		if n, ok := pk["Name"].(string); ok {
-			key = n
+		n, hasName := pk["Name"]
+		ty, hasType := pk["Type"]
+		switch {
+		case !hasName || n == nil:
+			return samErr(id, "Property 'PrimaryKey.Name' is required.")
+		case !hasType || ty == nil:
+			return samErr(id, "Property 'PrimaryKey.Type' is required.")
 		}
-		if ty, ok := pk["Type"].(string); ok {
-			typ = ty
-		}
+		key, _ = n.(string)
+		typ, _ = ty.(string)
 	}
 	attrType := map[string]string{samTypeString: "S", "Number": "N", "Binary": "B"}[typ]
 	if attrType == "" {

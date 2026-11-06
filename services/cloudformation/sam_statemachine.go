@@ -102,6 +102,9 @@ func smDefinition(id string, props, sm map[string]any) error {
 	case def != nil && uri != nil:
 		return samErr(id, "Specify either 'Definition' or 'DefinitionUri' property and not both.")
 	case def != nil:
+		if _, isMap := def.(map[string]any); !isMap {
+			return samErr(id, "Property 'Definition' should be a map.")
+		}
 		doc, err := deepCopyAny(def)
 		if err != nil {
 			return samErr(id, "Definition is not valid JSON: %v", err)
@@ -124,6 +127,9 @@ func smDefinition(id string, props, sm map[string]any) error {
 		}
 		sm["DefinitionString"] = map[string]any{samFnJoin: []any{"\n", list}}
 	case uri != nil:
+		if m, isMap := uri.(map[string]any); isMap && (m["Bucket"] == nil || m[samKeyKey] == nil) {
+			return samErr(id, "'DefinitionUri' requires Bucket and Key properties to be specified.")
+		}
 		loc, err := s3Location(id, "DefinitionUri", uri, "Bucket", "Key", "Version")
 		if err != nil {
 			return err

@@ -3,6 +3,7 @@ package cloudformation
 import (
 	"maps"
 	"slices"
+	"strings"
 )
 
 const (
@@ -248,6 +249,16 @@ func (t *samTranslator) prepareAuth(a *samAPI) error {
 			(a.auth == nil || a.auth.defs[n] == nil) {
 			return samErr(rt.fnID, "Authorizer '%s' is not defined in Auth.Authorizers of API [%s].", n, a.id)
 		}
+		if rt.authorizer == samAuthNone && (a.auth == nil || a.auth.defaultAuth == "") {
+			return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set Authorizer on API method [%s] for "+
+				"path [%s] because 'NONE' is only a valid value when a DefaultAuthorizer on the API is specified.",
+				rt.fnID, strings.ToLower(rt.method), rt.path)
+		}
+		if rt.apiKey != nil && !*rt.apiKey && asMap(a.props[samAuthKey])["ApiKeyRequired"] == nil {
+			return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set ApiKeyRequired [False] on API method "+
+				"[%s] for path [%s] because the related API does not specify any ApiKeyRequired.",
+				rt.fnID, strings.ToLower(rt.method), rt.path)
+		}
 	}
 	perms := a.authPerms()
 	for _, id := range slices.Sorted(maps.Keys(perms)) {
@@ -288,6 +299,11 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	doc, err := a.baseDocument()
 	if err != nil {
 		return nil, err
+	}
+	if a.props["DefinitionBody"] != nil {
+		if err = a.validateSwaggerDocument(doc); err != nil {
+			return nil, err
+		}
 	}
 	paths, isMap := doc["paths"].(map[string]any)
 	if doc["paths"] != nil && !isMap {
@@ -515,6 +531,21 @@ func samRESTStageID(apiID, stage string) string {
 }
 
 func validateAPIProps(id string, props map[string]any) error {
+	if body, has := props["DefinitionBody"]; has && body != nil {
+		m, isMap := body.(map[string]any)
+		if !isMap {
+			return samErr(id, "Property 'DefinitionBody' should be a map.")
+		}
+		if isSAMIntrinsic(m) && props["DisableExecuteApiEndpoint"] != nil {
+			return samInvalid("Invalid Swagger document or the Swagger document is not explicitly defined in " +
+				"'DefinitionBody'.")
+		}
+	}
+	if v, has := props["FailOnWarnings"]; has {
+		if _, isBool := v.(bool); !isBool && !isSAMIntrinsic(asMap(v)) {
+			return samErr(id, "Type of property 'FailOnWarnings' is invalid.")
+		}
+	}
 	if props["DefinitionUri"] != nil && props["DefinitionBody"] != nil {
 		return samErr(id, "Specify either 'DefinitionUri' or 'DefinitionBody' property and not both.")
 	}

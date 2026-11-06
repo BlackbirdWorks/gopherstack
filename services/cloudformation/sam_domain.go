@@ -163,6 +163,11 @@ func (t *samTranslator) putRecordSets(apiID string, domain map[string]any, domai
 	if zone == nil {
 		return samErr(apiID, "HostedZoneId or HostedZoneName is required to enable Route53 support on Custom Domains.")
 	}
+	if v, has := cfg["SeparateRecordSetGroup"]; has && v != nil {
+		if _, isBool := v.(bool); !isBool {
+			return samErr(apiID, "Property 'Domain.Route53.SeparateRecordSetGroup' should be a boolean.")
+		}
+	}
 	records := recordSetsFor(domain, cfg, domainID, endpoint)
 	groupID := "RecordSetGroup" + samLogicalID("", zone)
 	if cfg["SeparateRecordSetGroup"] == true {

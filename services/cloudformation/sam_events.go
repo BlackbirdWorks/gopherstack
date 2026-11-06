@@ -241,6 +241,11 @@ func eventAuth(fnID, name string, props map[string]any) (string, *bool, any, err
 		return "", nil, nil, err
 	}
 	a, _ := auth["Authorizer"].(string)
+	if v, has := auth["Authorizer"]; has && v != nil && a == "" {
+		return "", nil, nil, samErr(fnID, "Event with id [%s] is invalid. Unable to set Authorizer [%v] on API method "+
+			"[%v] for path [%v]. The method authorizer must be a string with a corresponding dict entry in the api "+
+			"authorizer.", name, v, props["Method"], props["Path"])
+	}
 	var apiKey *bool
 	if v, ok := auth["ApiKeyRequired"]; ok {
 		b, isBool := v.(bool)
