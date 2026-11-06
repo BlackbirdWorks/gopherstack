@@ -23,7 +23,9 @@ func TestReceivedMessage_NotAliasedToReReceive(t *testing.T) {
 	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "body"})
 	require.NoError(t, err)
 
-	first, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1, VisibilityTimeout: 5})
+	first, err := b.ReceiveMessage(
+		&sqs.ReceiveMessageInput{QueueURL: qURL, MaxNumberOfMessages: 1, VisibilityTimeout: 5},
+	)
 	require.NoError(t, err)
 	require.Len(t, first.Messages, 1)
 
