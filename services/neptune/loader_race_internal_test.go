@@ -19,7 +19,7 @@ type gatedS3Reader struct {
 }
 
 func (g *gatedS3Reader) ListObjectsV2(
-	_ context.Context, in *sdk_s3.ListObjectsV2Input,
+	_ context.Context, _ *sdk_s3.ListObjectsV2Input,
 ) (*sdk_s3.ListObjectsV2Output, error) {
 	out := &sdk_s3.ListObjectsV2Output{}
 	for k := range g.files {
