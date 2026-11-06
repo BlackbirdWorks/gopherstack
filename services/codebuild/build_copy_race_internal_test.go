@@ -21,7 +21,7 @@ func TestBuildCopy_NotAliasedToRunProgress(t *testing.T) {
 		name    string
 	}{
 		{
-			name: "logs",
+			name:  "logs",
 			setup: func(*InMemoryBackend, string) {},
 			advance: func(r *buildRunner, _ *InMemoryBackend, _ string) {
 				r.initLogs()
@@ -51,11 +51,15 @@ func TestBuildCopy_NotAliasedToRunProgress(t *testing.T) {
 
 			b := NewInMemoryBackend("000000000000", "us-east-1")
 			_, err := b.CreateProject(ProjectConfig{
-				Name:        "proj",
-				Source:      &ProjectSource{Type: "NO_SOURCE"},
-				Artifacts:   &ProjectArtifacts{Type: "NO_ARTIFACTS"},
-				Environment: &ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"},
-				LogsConfig:  &LogsConfig{CloudWatchLogs: CloudWatchLogsConfig{Status: "ENABLED", GroupName: "g"}},
+				Name:      "proj",
+				Source:    &ProjectSource{Type: "NO_SOURCE"},
+				Artifacts: &ProjectArtifacts{Type: "NO_ARTIFACTS"},
+				Environment: &ProjectEnvironment{
+					Type:        "LINUX_CONTAINER",
+					Image:       "img",
+					ComputeType: "BUILD_GENERAL1_SMALL",
+				},
+				LogsConfig: &LogsConfig{CloudWatchLogs: CloudWatchLogsConfig{Status: "ENABLED", GroupName: "g"}},
 			})
 			require.NoError(t, err)
 
