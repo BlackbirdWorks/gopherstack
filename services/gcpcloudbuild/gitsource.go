@@ -60,8 +60,6 @@ func (r *runner) fetchGit(ctx context.Context, src *cloudbuildpb.Source) error {
 		return err
 	}
 
-	r.log.system(fmt.Sprintf("Fetching git source: %s %s", t.url, t.revision))
-
 	if err = os.MkdirAll(r.auxDir(), workDirPerm); err != nil {
 		return fmt.Errorf("create aux dir: %w", err)
 	}
@@ -69,6 +67,12 @@ func (r *runner) fetchGit(ctx context.Context, src *cloudbuildpb.Source) error {
 	if err = os.Chmod(r.auxDir(), workDirPerm); err != nil {
 		return fmt.Errorf("create aux dir: %w", err)
 	}
+
+	if t, err = r.resolveRefRegex(ctx, t); err != nil {
+		return err
+	}
+
+	r.log.system(fmt.Sprintf("Fetching git source: %s %s", t.url, t.revision))
 
 	if err = r.runHelper(ctx, fetchLabel, r.gitSpec(t)); err != nil {
 		return err
@@ -248,5 +252,7 @@ func (r *runner) recordProvenance(t gitTarget, commit string) {
 		prov.ResolvedGitSource = &cloudbuildpb.GitSource{Url: gs.GetUrl(), Dir: t.dir, Revision: commit}
 	}
 
-	r.b.update(r.ref, func(pb *cloudbuildpb.Build) { pb.SourceProvenance = prov })
+	r.setProvenance(func(p *cloudbuildpb.SourceProvenance) {
+		p.ResolvedRepoSource, p.ResolvedGitSource = prov.GetResolvedRepoSource(), prov.GetResolvedGitSource()
+	})
 }
