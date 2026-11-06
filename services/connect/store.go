@@ -3,6 +3,7 @@ package connect
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"maps"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ const (
 	maxTagKeyLen    = 128
 	maxTagValueLen  = 256
 	defaultDelay    = time.Second
+	urlSecretLen    = 32
 )
 
 // Resolvers lets Connect validate references to resources of sibling services.
@@ -152,6 +154,7 @@ type Backend struct {
 	registry         *store.Registry
 	now              func() time.Time
 	phoneNumbers     *store.Table[phoneNumberRec]
+	urlSecret        []byte
 	region           string
 	accountID        string
 	delay            time.Duration
@@ -167,6 +170,8 @@ func NewBackend(accountID, region string) *Backend {
 		region:    region,
 		delay:     defaultDelay,
 	}
+	b.urlSecret = make([]byte, urlSecretLen)
+	_, _ = rand.Read(b.urlSecret)
 	b.registerTables()
 
 	return b

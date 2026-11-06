@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"io"
 
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -47,6 +48,17 @@ func (r connectResolvers) ObjectExists(ctx context.Context, bucket, key string) 
 	_, err := r.s3.HeadObject(ctx, &awss3.HeadObjectInput{Bucket: &bucket, Key: &key})
 
 	return err == nil
+}
+
+func (r connectResolvers) ReadObject(ctx context.Context, bucket, key string) ([]byte, error) {
+	out, err := r.s3.GetObject(ctx, &awss3.GetObjectInput{Bucket: &bucket, Key: &key})
+	if err != nil {
+		return nil, err
+	}
+
+	defer out.Body.Close()
+
+	return io.ReadAll(out.Body)
 }
 
 // connectIntegrations registers Connect integration associations with AppIntegrations.

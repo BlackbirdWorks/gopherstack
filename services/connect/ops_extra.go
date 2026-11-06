@@ -23,6 +23,7 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 	h.dataTableOps(ops)
 	h.emailOps(ops)
 	h.metricDefinitionOps(ops)
+	h.attachedFileOps(ops)
 	h.workspaceOps(ops)
 }
 

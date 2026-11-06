@@ -25,6 +25,7 @@ func extraRoutes() []restroute.Route {
 		dataTableRoutes(),
 		emailRoutes(),
 		metricDefinitionRoutes(),
+		attachedFileRoutes(),
 		workspaceRoutes(),
 	)
 }
