@@ -331,6 +331,11 @@ func (a *samHTTPAPI) apiProps(t *samTranslator) (map[string]any, error) {
 
 		return out, nil
 	}
+	if body, ok := a.props["DefinitionBody"].(map[string]any); ok && isSAMIntrinsic(body) && a.needsNoEditor() {
+		out["Body"] = body
+
+		return out, nil
+	}
 	doc, err := a.openAPI(t)
 	if err != nil {
 		return nil, err
@@ -603,4 +608,19 @@ func (a *samHTTPAPI) applyConditions(t *samTranslator, ed *samOpenAPI) {
 			paths[path] = samIf(t.combinedOrSingle(conds, samPathConditionName(a.id, path)), paths[path])
 		}
 	}
+}
+
+// needsNoEditor reports whether nothing has to be merged into a DefinitionBody given as an intrinsic.
+func (a *samHTTPAPI) needsNoEditor() bool {
+	if len(a.routes) > 0 {
+		return false
+	}
+	for _, k := range []string{samKeyCorsProp, samKeyCors, samAuthKey, attrNameName, samKeyDesc,
+		"DisableExecuteApiEndpoint"} {
+		if a.props[k] != nil {
+			return false
+		}
+	}
+
+	return true
 }

@@ -208,7 +208,7 @@ func expandSAMDocument(doc map[string]any, region string) (err error) {
 func (t *samTranslator) readGlobals(g map[string]any) error {
 	for section, v := range g {
 		switch section {
-		case samKeyFunction, "Api", "HttpApi", "SimpleTable", "StateMachine", "LayerVersion":
+		case samKeyFunction, "Api", "HttpApi", "SimpleTable", "StateMachine", "LayerVersion", "WebSocketApi":
 			if err := validateGlobalsSection(section, asMap(v)); err != nil {
 				return err
 			}
@@ -289,6 +289,8 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 		return t.translateWithTags("StateMachine", r, func() error { return t.translateStateMachine(id, r) })
 	case samResPrefix + "Application":
 		return t.translateApplication(id, r)
+	case samResPrefix + "WebSocketApi":
+		return t.translateWebSocketApi(id, r)
 	case samResPrefix + "Api", samResPrefix + "HttpApi", samTypeConnector:
 		return nil
 	}
@@ -322,7 +324,7 @@ func (t *samTranslator) put(id string, r map[string]any) error {
 //nolint:gochecknoglobals // read-only table
 var samReplacedTypes = map[string][]string{
 	samTypeFunction: {samResPrefix + samKeyFunction}, samTypeLayer: {samResPrefix + "LayerVersion"},
-	samTypeRestAPI: {samResPrefix + "Api"}, samTypeHTTPAPI: {samResPrefix + "HttpApi"},
+	samTypeRestAPI: {samResPrefix + "Api"}, samTypeHTTPAPI: {samResPrefix + "HttpApi", samResPrefix + "WebSocketApi"},
 	samTypeBucket: {samTypeBucket}, resTypeSNSTopic: {resTypeSNSTopic},
 	resTypeDynamoDBTable: {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
 	samTypeUserPool: {samTypeUserPool}, samTypeV1Domain: {samTypeV1Domain},

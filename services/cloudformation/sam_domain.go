@@ -78,17 +78,22 @@ func mutualTLS(domain map[string]any) map[string]any {
 }
 
 func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
-	if a.props[samDomainKey] == nil {
+	return t.emitV2Domain(a.id, a.props[samDomainKey], a.v2Tags(), true)
+}
+
+// emitV2Domain writes the ApiGatewayV2 custom domain, API mappings and Route53 records of an HTTP or WebSocket API.
+func (t *samTranslator) emitV2Domain(apiID string, raw any, tags map[string]any, merge bool) error {
+	if raw == nil {
 		return nil
 	}
-	domain, err := samDomainConfig(a.id, t.resolveParamRefs(a.props[samDomainKey]))
+	domain, err := samDomainConfig(apiID, t.resolveParamRefs(raw))
 	if err != nil {
 		return err
 	}
 	endpoint := samEndpointRegional
 	if e, ok := domain[samKeyEndpointConfig]; ok {
 		if endpoint, _ = t.paramDefault(e).(string); endpoint != samEndpointRegional {
-			return samErr(a.id, "EndpointConfiguration for Custom Domains must be one of [REGIONAL].")
+			return samErr(apiID, "EndpointConfiguration for Custom Domains must be one of [REGIONAL].")
 		}
 	}
 	domainID := "ApiGatewayDomainNameV2" + samLogicalID("", domain[samKeyDomainName])
@@ -101,7 +106,7 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	props := map[string]any{
 		samKeyDomainName: domain[samKeyDomainName], "DomainNameConfigurations": []any{cfg},
 	}
-	if tags := a.v2Tags(); tags != nil {
+	if tags != nil {
 		props[samKeyTags] = tags
 	}
 	if m := mutualTLS(domain); m != nil {
@@ -110,28 +115,29 @@ func (t *samTranslator) emitHTTPDomain(a *samHTTPAPI) error {
 	if err = t.put(domainID, map[string]any{samKeyType: samTypeV2Domain, samKeyProps: props}); err != nil {
 		return err
 	}
-	if err = t.putHTTPMappings(a, domain, domainID); err != nil {
+	t.refs[apiID+".DomainName"] = domainID
+	if err = t.putHTTPMappings(apiID, domain, domainID); err != nil {
 		return err
 	}
 
-	return t.putRecordSets(a.id, domain, domainID, endpoint)
+	return t.putRecordSets(apiID, domain, domainID, endpoint, merge)
 }
 
-func (t *samTranslator) putHTTPMappings(a *samHTTPAPI, domain map[string]any, domainID string) error {
+func (t *samTranslator) putHTTPMappings(apiID string, domain map[string]any, domainID string) error {
 	paths := samDomainBasePaths(domain)
 	if paths == nil {
-		return t.put(a.id+"ApiMapping", httpMapping(a.id, domainID, ""))
+		return t.put(apiID+"ApiMapping", httpMapping(apiID, domainID, ""))
 	}
 	for _, p := range paths {
 		path, ok := p.(string)
 		if !ok {
-			return samErr(a.id, "Basepath must be a string.")
+			return samErr(apiID, "Basepath must be a string.")
 		}
 		if samInvalidBasePath.MatchString(path) {
-			return samErr(a.id, "Invalid Basepath name provided.")
+			return samErr(apiID, "Invalid Basepath name provided.")
 		}
-		id := a.id + strings.NewReplacer("-", "", "_", "", "/", "").Replace(path) + "ApiMapping"
-		if err := t.put(id, httpMapping(a.id, domainID, strings.Trim(path, "/"))); err != nil {
+		id := apiID + strings.NewReplacer("-", "", "_", "", "/", "").Replace(path) + "ApiMapping"
+		if err := t.put(id, httpMapping(apiID, domainID, strings.Trim(path, "/"))); err != nil {
 			return err
 		}
 	}
@@ -151,7 +157,7 @@ func httpMapping(apiID, domainID, key string) map[string]any {
 
 // putRecordSets adds the Route53 alias records for a Domain.Route53 block, merging into one
 // RecordSetGroup per hosted zone like SAM does.
-func (t *samTranslator) putRecordSets(apiID string, domain map[string]any, domainID, endpoint string) error {
+func (t *samTranslator) putRecordSets(apiID string, domain map[string]any, domainID, endpoint string, merge bool) error {
 	r53 := domain["Route53"]
 	if r53 == nil {
 		return nil
@@ -179,7 +185,7 @@ func (t *samTranslator) putRecordSets(apiID string, domain map[string]any, domai
 
 		return t.put(groupID, recordGroup(cfg, records))
 	}
-	if existing := asMap(t.out[groupID]); existing != nil {
+	if existing := asMap(t.out[groupID]); existing != nil && merge {
 		props := asMap(existing[samKeyProps])
 		props["RecordSets"] = slices.Concat(asList(props["RecordSets"]), records)
 
@@ -282,7 +288,7 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 		return err
 	}
 
-	return t.putRecordSets(a.id, domain, domainID, endpoint)
+	return t.putRecordSets(a.id, domain, domainID, endpoint, true)
 }
 
 func (t *samTranslator) emitPrivateRESTDomain(a *samAPI, domain map[string]any) error {
@@ -325,7 +331,7 @@ func (t *samTranslator) emitPrivateRESTDomain(a *samAPI, domain map[string]any) 
 		return err
 	}
 
-	return t.putRecordSets(a.id, domain, domainID, samEndpointPrivate)
+	return t.putRecordSets(a.id, domain, domainID, samEndpointPrivate, true)
 }
 
 func (t *samTranslator) putRESTMappings(a *samAPI, domain map[string]any, domainID string) error {
