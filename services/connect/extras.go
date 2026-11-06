@@ -57,6 +57,10 @@ func (b *Backend) registerViewTables() {
 		func(v *pushRegistrationRec) string { return v.InstanceID }, func(v *pushRegistrationRec) string { return v.ID })
 	b.authSessions = newFamily(r, "authSessions", labelSession,
 		func(v *authSessionRec) string { return v.InstanceID }, func(v *authSessionRec) string { return v.SessionID })
+	b.testCases = newFamily(r, "testCases", labelTestCase,
+		func(v *testCaseRec) string { return v.InstanceID }, func(v *testCaseRec) string { return v.ID })
+	b.testCases.taggable(
+		func(v *testCaseRec) string { return v.Arn }, func(v *testCaseRec) *map[string]string { return &v.Tags })
 	b.evalForms.taggable(
 		func(v *evalFormRec) string { return v.Arn }, func(v *evalFormRec) *map[string]string { return &v.Tags })
 	b.trafficGroups = newFamily(r, "trafficDistributionGroups", "TrafficDistributionGroup",
@@ -135,6 +139,7 @@ func (b *Backend) extraFinders() []func(string) *map[string]string {
 		b.metricDefs.findARN,
 		b.attachedFiles.findARN,
 		b.notifications.findARN,
+		b.testCases.findARN,
 		b.trafficGroups.findARN,
 	}
 }
@@ -162,5 +167,6 @@ func (b *Backend) dropExtras(inst string) {
 	b.notifications.dropInstance(inst)
 	b.pushRegistrations.dropInstance(inst)
 	b.authSessions.dropInstance(inst)
+	b.testCases.dropInstance(inst)
 	b.viewSnapshots.dropInstance(inst)
 }

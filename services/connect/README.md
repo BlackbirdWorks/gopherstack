@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 362 (362 ok) |
+| PARITY entries audited | 368 (368 ok) |
 | Known gaps | 20 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
@@ -15,9 +15,9 @@
 
 ### Known gaps
 
-- Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed
+- Search*: SearchContactEvaluations is not routed
 - EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed
-- TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed
+- TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated
 - Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated
 - Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)
 - AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked

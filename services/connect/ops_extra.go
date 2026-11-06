@@ -25,6 +25,7 @@ func (h *Handler) extraOps(ops map[string]restroute.OpFunc) {
 	h.metricDefinitionOps(ops)
 	h.attachedFileOps(ops)
 	h.notificationOps(ops)
+	h.testCaseOps(ops)
 	h.workspaceOps(ops)
 }
 
@@ -286,6 +287,7 @@ func (h *Handler) searchOps(ops map[string]restroute.OpFunc) {
 		"SearchHoursOfOperationOverrides": b.SearchHoursOfOperationOverrides,
 		"SearchMetrics":                   b.SearchMetrics,
 		"SearchNotifications":             b.SearchNotifications,
+		"SearchTestCases":                 b.SearchTestCases,
 		"SearchHoursOfOperations":         b.SearchHoursOfOperations,
 		"SearchPredefinedAttributes":      b.SearchPredefinedAttributes,
 		"SearchPrompts":                   b.SearchPrompts,

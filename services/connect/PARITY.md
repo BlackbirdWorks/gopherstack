@@ -3,7 +3,7 @@ service: connect
 sdk_module: aws-sdk-go-v2/service/connect@v1.205.0
 last_audit_commit: 88c2622c4
 last_audit_date: 2026-10-18
-overall: B            # 345 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 57 are unrouted and listed in items_still_open.
+overall: B            # 351 of 402 SDK operations are routed and backed by real state, verified through the SDK client in-package; the remaining 51 are unrouted and listed in items_still_open.
 ops:
   AssociateContactWithUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contact must be active and queued (QueueInfo, no agent); the user is an ID or ARN; sets AgentInfo. Shape: schemas.go AssociateContactWithUser; docs API_AssociateContactWithUser"}
   BatchPutContact: {wire: ok, errors: ok, state: ok, persist: ok, note: "1-25 items, each succeeds or fails alone with FailureReasonCode (MISSING_CUSTOMER_ENDPOINT, INVALID_CUSTOMER_ENDPOINT, INVALID_SYSTEM_ENDPOINT, MISSING_QUEUE_ID_AND_SYSTEM_ENDPOINT, INVALID_QUEUE, INVALID_ATTRIBUTE_KEY, INVALID_OUTBOUND_STRATEGY, MISSING_CAMPAIGN, IDEMPOTENCY_EXCEPTION for a repeated RequestIdentifier); creates OUTBOUND voice contacts; the outbound-campaigns-only principal restriction is not enforced; item-level reason precedence is unverified"}
@@ -49,6 +49,12 @@ ops:
   DeletePushNotificationRegistration: {wire: ok, errors: ok, state: ok, persist: ok, note: "the contactId query must be the contact the registration was created for, else ResourceNotFoundException"}
   CreateAuthCode: {wire: ok, errors: ok, state: ok, persist: ok, note: "Scope.EntityType CUSTOMER_PROFILE only (the one SDK enum value), at most 10 security profiles that must exist; SessionInactivityDurationMinutes 1440-20160, MaxSessionDurationMinutes 1440-43200 (default 400 days) and not below the inactivity window; returns a random 256-bit URL-safe code and the id of a recorded session. Nothing consumes the code (no federation endpoint exists), sessions end only through DeleteSession and do not expire. Shape: schemas.go CreateAuthCode; docs API_CreateAuthCode"}
   DeleteSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "removes a session recorded by CreateAuthCode; unknown ids raise ResourceNotFoundException"}
+  CreateTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "a SAVED or PUBLISHED version; Content, InitializationData (JSON) and an optional EntryPoint (VOICE_CALL or CHAT with its parameters; the FlowId must be a flow of the instance) are stored; PUBLISHED validates that Content is a JSON object and requires an EntryPoint, SAVED does no content validation (SDK docs); names unique per instance case-insensitively (unverified); TestCaseSha256 is the SHA-256 of Content (unverified); the x-amz-resource-id and replication headers are not read. Shape: schemas.go CreateTestCase; docs API_CreateTestCase"}
+  DescribeTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "Status selects the version; by default the published one when it exists, else the saved one (SDK docs)"}
+  UpdateTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "partial update of the version named by Status (default SAVED, seeded from the other version when missing); renames apply to the test case; same validation as create"}
+  DeleteTestCase: {wire: ok, errors: ok, state: ok, persist: ok, note: "removes both versions"}
+  ListTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "sorted by name; Status is the published status when published; MaxResults 1-1000"}
+  SearchTestCases: {wire: ok, errors: ok, state: ok, persist: ok, note: "StringCondition on name and description, StatusCondition, tag filter, And/Or conditions"}
   DeleteMetric: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetric: {wire: ok, errors: ok, state: ok, persist: ok, note: "only customer-managed metrics exist; AWS-managed metric IDs answer ResourceNotFoundException; CreatedUser/LastModifiedUser are not returned (the caller identity is unknown)"}
   ListMetrics: {wire: ok, errors: ok, state: ok, persist: ok, note: "type=AWS_MANAGED lists nothing (catalog not modeled); CUSTOMER_MANAGED or no filter lists the customer-managed metrics sorted by name"}
@@ -370,9 +376,9 @@ ops:
 families:
 gaps: []
 items_still_open:
-  - "Search*: SearchContactEvaluations SearchNotifications SearchTestCases are not routed"
+  - "Search*: SearchContactEvaluations is not routed"
   - "EvaluationForms (contact evaluations and AI form versions): DeleteContactEvaluation DescribeContactEvaluation ListContactEvaluations ListEvaluationFormAIVersions StartContactEvaluation SubmitContactEvaluation UpdateContactEvaluation are not routed"
-  - "TestCases: CreateTestCase DeleteTestCase DescribeTestCase GetTestCaseExecutionSummary ListTestCaseExecutionRecords ListTestCaseExecutions ListTestCases StartTestCaseExecution StopTestCaseExecution UpdateTestCase are not routed"
+  - "TestCases: StartTestCaseExecution StopTestCaseExecution ListTestCaseExecutions ListTestCaseExecutionRecords GetTestCaseExecutionSummary are not routed: the emulator has no flow test runner, so an execution outcome could only be fabricated"
   - "Notifications: SendOutboundWebNotification is not routed (web widget delivery has no read-back state in the emulator); push registrations are stored but no push is ever sent; notifications from rules or the system are not generated"
   - "Metrics definitions: the AWS-managed metric catalog is not modeled (ListMetrics type=AWS_MANAGED is empty)"
   - "AttachedFiles: GetPromptFile is not routed; uploads and downloads use an emulator endpoint (/attached-files-content) rather than S3 pre-signed URLs, with no virus scan; Cases are not modeled so Cases ARNs are only shape-checked"

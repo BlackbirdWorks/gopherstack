@@ -177,6 +177,7 @@ type extras struct {
 	notifications     family[notificationRec]
 	pushRegistrations family[pushRegistrationRec]
 	authSessions      family[authSessionRec]
+	testCases         family[testCaseRec]
 }
 
 func (b *Backend) registerTables() {
