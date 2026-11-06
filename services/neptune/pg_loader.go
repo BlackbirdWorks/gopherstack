@@ -88,13 +88,13 @@ func pgFeedIsEdge(data []byte, cypher bool) (bool, bool) {
 }
 
 // pgOrder prefetches every feed and orders vertex feeds before edge feeds unless edgeOnlyLoad is set.
-func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) []int {
+func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) ([]int, map[string][]byte) {
 	order := make([]int, len(job.keys))
 	for i := range order {
 		order[i] = i
 	}
 
-	job.cache = make(map[string][]byte, len(job.keys))
+	cache := make(map[string][]byte, len(job.keys))
 
 	var edge []int
 
@@ -108,7 +108,7 @@ func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) []int {
 			continue
 		}
 
-		job.cache[job.keys[i]] = data
+		cache[job.keys[i]] = data
 
 		if isEdge, _ := pgFeedIsEdge(data, job.pg == pgOpenCypher); isEdge && !job.edgeOnly {
 			edge = append(edge, i)
@@ -119,10 +119,12 @@ func (rs *rdfService) pgOrder(ctx context.Context, job *loadJob) []int {
 		nodes = append(nodes, i)
 	}
 
-	return slices.Concat(nodes, edge)
+	return slices.Concat(nodes, edge), cache
 }
 
-func (rs *rdfService) readPGFeed(ctx context.Context, job *loadJob, uri, key string) feedResult {
+func (rs *rdfService) readPGFeed(
+	ctx context.Context, job *loadJob, cache map[string][]byte, uri, key string,
+) feedResult {
 	if rs.graph == nil {
 		return feedResult{
 			status: loadFailed, errs: []loadError{{Code: errCodeInternal, Message: errNoGraph.Error(), File: uri}},
@@ -130,7 +132,7 @@ func (rs *rdfService) readPGFeed(ctx context.Context, job *loadJob, uri, key str
 		}
 	}
 
-	data, ok := job.cache[key]
+	data, ok := cache[key]
 	if !ok {
 		var err error
 

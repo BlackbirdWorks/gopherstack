@@ -73,7 +73,6 @@ type loadJob struct {
 	endTime      time.Time
 	startTime    time.Time
 	cancel       context.CancelFunc
-	cache        map[string][]byte
 	status       string
 	id           string
 	graph        string
@@ -416,14 +415,15 @@ func (rs *rdfService) runLoad(ctx context.Context, job *loadJob) {
 		order[i] = i
 	}
 
+	var cache map[string][]byte
+
 	if job.pg != "" {
-		order = rs.pgOrder(ctx, job)
-		defer func() { job.cache = nil }()
+		order, cache = rs.pgOrder(ctx, job)
 	}
 
 	for _, i := range order {
 		key, feed := job.keys[i], job.feeds[i]
-		st := rs.loadFeed(ctx, job, feed, key)
+		st := rs.loadFeed(ctx, job, cache, feed, key)
 
 		if st != loadCompleted {
 			status = loadFailed
@@ -458,7 +458,9 @@ type feedResult struct {
 	parsing  int
 }
 
-func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed, key string) string {
+func (rs *rdfService) loadFeed(
+	ctx context.Context, job *loadJob, cache map[string][]byte, feed *loadFeed, key string,
+) string {
 	ls := rs.loader
 	start := time.Now()
 
@@ -466,7 +468,7 @@ func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed
 	feed.Start, feed.Status = start.Unix(), loadInProgress
 	ls.mu.Unlock()
 
-	res := rs.readFeed(ctx, job, feed.URI, key)
+	res := rs.readFeed(ctx, job, cache, feed.URI, key)
 
 	ls.mu.Lock("feedDone")
 	defer ls.mu.Unlock()
@@ -479,13 +481,15 @@ func (rs *rdfService) loadFeed(ctx context.Context, job *loadJob, feed *loadFeed
 	return res.status
 }
 
-func (rs *rdfService) readFeed(ctx context.Context, job *loadJob, uri, key string) feedResult {
+func (rs *rdfService) readFeed(
+	ctx context.Context, job *loadJob, cache map[string][]byte, uri, key string,
+) feedResult {
 	if ctx.Err() != nil {
 		return feedResult{status: loadCancelledUser}
 	}
 
 	if job.pg != "" {
-		return rs.readPGFeed(ctx, job, uri, key)
+		return rs.readPGFeed(ctx, job, cache, uri, key)
 	}
 
 	data, err := rs.readObject(ctx, job.bucket, key)
