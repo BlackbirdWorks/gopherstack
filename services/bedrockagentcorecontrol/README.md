@@ -9,21 +9,22 @@
 | --- | --- |
 | PARITY entries audited | 171 (171 ok) |
 | Feature families | 14 (14 ok) |
-| Known gaps | 12 |
+| Known gaps | 13 |
 | Structural gaps (can't be emulated) | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Gateway MCP endpoint: the gateway URL is generated but nothing serves MCP tool calls on it
+- Gateway MCP endpoint: Smithy model, API Gateway and connector targets expose no tools, and the SEMANTIC search tool is not served
+- Gateway targets: OAuth targets using AUTHORIZATION_CODE never reach a PENDING_AUTH status (their tool calls return an error result), and CreateGatewayTarget does not auto-synchronize MCP server targets (tools are discovered at tools/list or on SynchronizeGatewayTargets)
+- Authorizers: AWS_IAM verifies the SigV4 signature (secret from --sigv4-secret) but evaluates no IAM or resource policy, so every valid signature is authorized
+- Unverified against AgentCore documentation (recalled only): HTTP 401/403 split and WWW-Authenticate challenge text, AND semantics of allowedAudience, allowedClients, allowedScopes and customClaims, tools/list page size of 100, Lambda client-context member names and the text-content wrapping of Lambda results, OpenAPI flattening of parameters and body into one input schema, supported MCP protocol versions
 - Update semantics: UpdateAgentRuntime, UpdateGateway and UpdateGatewayTarget clear on omission only the members the pinned SDK documents as clearing (UpdateGatewayTarget certificateConfigurations, UpdateGateway exceptionLevel); every other optional member (description, environmentVariables, authorizerConfiguration, credentialProviderConfigurations and so on) is retained when omitted, pending verification against the service
 - Nested validation: only union exclusivity, enums, name patterns, ARN shapes and cross-resource references are checked; deeper member constraints (JWT claim rules, schema contents, VPC endpoint overrides) are accepted as sent
 - Cross-service references: ECR repositories, Lambda functions, Secrets Manager secrets and S3 objects are verified only when internal/app wiring is present; IAM roles and KMS keys are checked for ARN shape only
 - Failure states: CREATE_FAILED and UPDATE_FAILED are only reached by dataset S3 sources; no other asynchronous failure is modeled
-- Gateway targets: SynchronizeGatewayTargets only stamps lastSynchronizedAt; Lambda, OpenAPI and MCP tool discovery never runs and OAuth targets never reach a PENDING_AUTH status
 - Registry records: synchronizationConfiguration is stored but nothing synchronizes
-- Authorizers: JWT and IAM authorizer configuration is stored, not enforced
 - GetMemory: the view query parameter is accepted and ignored
 - Success status codes: 202 for asynchronous creates, updates and deletes comes from AWS documentation; the SDK does not encode it
 - Error statuses: ConflictException 409, ResourceNotFoundException 404, ServiceQuotaExceededException 402 and ValidationException 400 come from AWS documentation, not SDK evidence

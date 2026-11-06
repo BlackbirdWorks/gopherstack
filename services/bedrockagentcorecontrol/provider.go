@@ -1,6 +1,9 @@
 package bedrockagentcorecontrol
 
-import "github.com/blackbirdworks/gopherstack/pkgs/service"
+import (
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	dataplane "github.com/blackbirdworks/gopherstack/services/bedrockagentcore"
+)
 
 // Provider implements service.Provider for the Bedrock AgentCore control plane.
 type Provider struct{}
@@ -14,7 +17,13 @@ func (p *Provider) Name() string { return "BedrockAgentCoreControl" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID, region := service.AccountRegionOrDefault(ctx)
 
-	h := NewHandler(NewInMemoryBackend(accountID, region))
+	backend := NewInMemoryBackend(accountID, region)
+
+	if cp, ok := ctx.Config.(dataplane.ConfigProvider); ok {
+		backend.SetAllowExternalTargets(cp.GetAgentCoreSettings().AllowExternalGatewayTargets)
+	}
+
+	h := NewHandler(backend)
 	h.DefaultRegion = region
 
 	return h, nil

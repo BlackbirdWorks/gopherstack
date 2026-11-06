@@ -74,6 +74,10 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
+		if _, _, ok := gatewayRoute(r); ok {
+			return true
+		}
+
 		if !h.server.Router.Handles(restroute.EscapedPath(r)) {
 			return false
 		}
@@ -88,6 +92,10 @@ func (h *Handler) MatchPriority() int { return matchPriority }
 
 // ExtractOperation returns the operation name.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
+	if _, _, ok := gatewayRoute(c.Request()); ok {
+		return opGatewayMCP
+	}
+
 	op, _ := h.server.Operation(c.Request())
 	if op == "" {
 		return "Unknown"
@@ -98,6 +106,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the resource ARN or identifier the request addresses.
 func (h *Handler) ExtractResource(c *echo.Context) string {
+	if id, _, ok := gatewayRoute(c.Request()); ok {
+		return id
+	}
+
 	_, params := h.server.Operation(c.Request())
 
 	keys := []string{"resourceArn", keyAgentRuntimeID, keyGatewayIdentifier, "memoryId", keyHarnessID, keyDatasetID}
@@ -112,4 +124,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the echo handler.
-func (h *Handler) Handler() echo.HandlerFunc { return h.server.Handler() }
+func (h *Handler) Handler() echo.HandlerFunc {
+	api := h.server.Handler()
+
+	return func(c *echo.Context) error {
+		if id, region, ok := gatewayRoute(c.Request()); ok {
+			return h.serveGateway(c, id, region)
+		}
+
+		return api(c)
+	}
+}

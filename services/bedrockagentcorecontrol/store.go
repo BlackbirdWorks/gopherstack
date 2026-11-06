@@ -2,6 +2,7 @@ package bedrockagentcorecontrol
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
@@ -47,10 +48,14 @@ type InMemoryBackend struct {
 	idem      *idempotency.Memo
 	now       func() time.Time
 	refs      References
+	jwks      JWKSProvider
+	outbound  *http.Client
 	kinds     map[string]*kindSpec
 	accountID string
 	region    string
+	sigSecret string
 	dwell     time.Duration
+	external  bool
 }
 
 // NewInMemoryBackend creates an empty backend.
@@ -68,6 +73,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID: accountID,
 		region:    region,
 	}
+
+	b.outbound = newOutboundClient(b.externalAllowed)
 
 	for _, k := range kindTable() {
 		b.kinds[k.Name] = k
@@ -96,6 +103,37 @@ func (b *InMemoryBackend) SetReferences(r References) {
 	defer b.mu.Unlock()
 
 	b.refs = r
+}
+
+// SetJWKSProvider resolves signing keys of issuers hosted by the emulator (Cognito user pools).
+func (b *InMemoryBackend) SetJWKSProvider(p JWKSProvider) {
+	b.mu.Lock("SetJWKSProvider")
+	defer b.mu.Unlock()
+
+	b.jwks = p
+}
+
+// SetSigV4Secret sets the secret AWS_IAM gateways verify request signatures against.
+func (b *InMemoryBackend) SetSigV4Secret(secret string) {
+	b.mu.Lock("SetSigV4Secret")
+	defer b.mu.Unlock()
+
+	b.sigSecret = secret
+}
+
+// SetAllowExternalTargets lets gateway targets and JWKS fetches reach hosts outside loopback.
+func (b *InMemoryBackend) SetAllowExternalTargets(allow bool) {
+	b.mu.Lock("SetAllowExternalTargets")
+	defer b.mu.Unlock()
+
+	b.external = allow
+}
+
+func (b *InMemoryBackend) externalAllowed() bool {
+	b.mu.RLock("externalAllowed")
+	defer b.mu.RUnlock()
+
+	return b.external
 }
 
 // SetLifecycleDelay keeps resources in CREATING, UPDATING and DELETING for d; zero settles immediately.

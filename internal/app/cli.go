@@ -5071,6 +5071,7 @@ func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable, s
 
 	wireAppSyncSigV4(byName["AppSync"], sigV4Secret)
 	wireLambdaSigV4(byName["Lambda"], sigV4Secret)
+	wireAgentCoreAuth(byName, sigV4Secret)
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
