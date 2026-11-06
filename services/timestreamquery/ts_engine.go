@@ -3,6 +3,7 @@ package timestreamquery
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -37,6 +38,20 @@ func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`)
 
 // execute runs a SELECT, DESCRIBE or SHOW statement against the written records.
 func (b *InMemoryBackend) execute(
+	parent context.Context, query string, vars map[string]string,
+) (*resultSet, error) {
+	ctx, cancel := context.WithTimeout(parent, b.timeout())
+	defer cancel()
+
+	rs, err := b.executeStatement(ctx, query, vars)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		return nil, fmt.Errorf("%w: query execution exceeded the %s time limit", ErrQueryExecution, b.timeout())
+	}
+
+	return rs, err
+}
+
+func (b *InMemoryBackend) executeStatement(
 	ctx context.Context, query string, vars map[string]string,
 ) (*resultSet, error) {
 	query = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(query), ";"))
@@ -71,6 +86,7 @@ func (b *InMemoryBackend) execute(
 		return nil, err
 	}
 
+	applyBooleanTypes(rs, query)
 	rs.scanned = scanned
 	rs.tables = len(tables)
 

@@ -55,6 +55,7 @@ type InMemoryBackend struct {
 	nowFn                    func() time.Time
 	accountID                string
 	defaultRegion            string
+	queryTimeout             time.Duration
 }
 
 // TagWriteBackend is the seam into the Timestream Write backend, which
@@ -89,6 +90,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clientTokens:         newClientTokenCache(queryClientTokenTTL),
 		scheduledQueryTokens: newClientTokenCache(createScheduledQueryClientTokenTTL),
 		pageStore:            newNextTokenStore(),
+		queryTimeout:         DefaultQueryTimeout,
 	}
 	registerTimestreamFuncs()
 	registerAllTables(b)

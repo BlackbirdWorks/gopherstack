@@ -124,7 +124,7 @@ func encodeSeries(pts []seriesPoint) string {
 func encodeJSONScalar(v any) string {
 	switch x := v.(type) {
 	case nil:
-		return "null"
+		return kwNull
 	case int64:
 		return strconv.FormatInt(x, 10)
 	case float64:
