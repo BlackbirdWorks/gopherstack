@@ -8,12 +8,10 @@ import (
 
 	"cloud.google.com/go/artifactregistry/apiv1/artifactregistrypb"
 	"cloud.google.com/go/longrunning/autogen/longrunningpb"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -22,16 +20,9 @@ var mutableFields = []string{ //nolint:gochecknoglobals // immutable catalog
 	"vulnerability_scanning_config",
 }
 
-// done records an already finished operation under parent and returns it.
+// done records an operation under parent that finishes with resp.
 func (b *InMemoryBackend) done(parent string, resp proto.Message) (*longrunningpb.Operation, error) {
-	name := parent + "/operations/operation-" + uuid.NewString()
-
-	op, err := gcplro.Done(name, &artifactregistrypb.OperationMetadata{}, resp)
-	if err != nil {
-		return nil, errInternal(err)
-	}
-
-	return b.ops.Put(op), nil
+	return b.startOp(parent, metaOp(), false, func() (proto.Message, error) { return resp, nil })
 }
 
 func validateFormat(f artifactregistrypb.Repository_Format) error {
@@ -57,6 +48,12 @@ func validateRepository(in *artifactregistrypb.Repository) error {
 
 	if err := validateCleanupPolicies(in); err != nil {
 		return err
+	}
+
+	if in.GetFormat() == artifactregistrypb.Repository_KFP &&
+		in.GetMode() != artifactregistrypb.Repository_STANDARD_REPOSITORY &&
+		in.GetMode() != artifactregistrypb.Repository_MODE_UNSPECIFIED {
+		return errInvalid("KFP repositories are standard repositories only.")
 	}
 
 	if in.GetMode() == artifactregistrypb.Repository_VIRTUAL_REPOSITORY && in.GetVirtualRepositoryConfig() == nil {
@@ -354,19 +351,5 @@ func (b *InMemoryBackend) doneAny(parent, typeName string, msgs ...proto.Message
 		return nil, errInternal(err)
 	}
 
-	op, err := gcplroDone(parent, &artifactregistrypb.OperationMetadata{}, resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.ops.Put(op), nil
-}
-
-func gcplroDone(parent string, meta, resp proto.Message) (*longrunningpb.Operation, error) {
-	op, err := gcplro.Done(parent+"/operations/operation-"+uuid.NewString(), meta, resp)
-	if err != nil {
-		return nil, errInternal(err)
-	}
-
-	return op, nil
+	return b.doneWith(parent, metaOp(), resp)
 }

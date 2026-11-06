@@ -243,6 +243,11 @@ func releaseFile(dist string, entries []debEntry, date time.Time) []byte {
 	return []byte(sb.String())
 }
 
+const (
+	aptKeyBinary  = "apt-key.gpg"
+	aptKeyArmored = "apt-key.asc"
+)
+
 func padSize(n int) string {
 	s := strconv.Itoa(n)
 
@@ -259,20 +264,8 @@ func (b *InMemoryBackend) serveApt(w http.ResponseWriter, r *http.Request, rc re
 	entries := b.debEntries(rc)
 
 	switch {
-	case p == "dists/"+rc.ref.id+"/Release":
-		var date time.Time
-
-		for _, e := range entries {
-			if e.file.Updated.After(date) {
-				date = e.file.Updated
-			}
-		}
-
-		if date.IsZero() {
-			date = b.now()
-		}
-
-		writeBytes(w, "text/plain; charset=utf-8", releaseFile(rc.ref.id, entries, date))
+	case strings.HasPrefix(p, "dists/"+rc.ref.id+"/") && isAptSignedFile(strings.TrimPrefix(p, "dists/"+rc.ref.id+"/")):
+		b.serveAptRelease(w, rc, entries, strings.TrimPrefix(p, "dists/"+rc.ref.id+"/"))
 	case strings.HasPrefix(p, "dists/"+rc.ref.id+"/"+aptComponent+"/binary-"):
 		serveAptPackages(w, entries, strings.TrimPrefix(p, "dists/"+rc.ref.id+"/"+aptComponent+"/binary-"))
 	case strings.HasPrefix(p, "pool/"):
@@ -280,6 +273,72 @@ func (b *InMemoryBackend) serveApt(w http.ResponseWriter, r *http.Request, rc re
 	default:
 		writePlain(w, http.StatusNotFound, "Not found: "+p)
 	}
+}
+
+func isAptSignedFile(name string) bool {
+	switch name {
+	case "Release", "InRelease", "Release.gpg", aptKeyBinary, aptKeyArmored:
+		return true
+	default:
+		return false
+	}
+}
+
+// serveAptRelease serves the Release file, its signed forms and the public key that verifies them. The key paths
+// are the emulator's choice: Google documents no key URL for repositories other than its own.
+func (b *InMemoryBackend) serveAptRelease(w http.ResponseWriter, rc repoCtx, entries []debEntry, name string) {
+	var date time.Time
+
+	for _, e := range entries {
+		if e.file.Updated.After(date) {
+			date = e.file.Updated
+		}
+	}
+
+	if date.IsZero() {
+		date = b.now()
+	}
+
+	release := releaseFile(rc.ref.id, entries, date)
+
+	if name == "Release" {
+		writeBytes(w, "text/plain; charset=utf-8", release)
+
+		return
+	}
+
+	signer, err := b.signerFor(rc.ref)
+	if err != nil {
+		writePlain(w, http.StatusInternalServerError, "Signing key unavailable.")
+
+		return
+	}
+
+	var (
+		out  []byte
+		kind = "text/plain; charset=utf-8"
+	)
+
+	switch name {
+	case "InRelease":
+		out, err = signer.clearSigned(release)
+	case "Release.gpg":
+		out, err = signer.detached(release)
+	case aptKeyBinary:
+		out, err = signer.publicKey(false)
+		kind = "application/pgp-keys"
+	default:
+		out, err = signer.publicKey(true)
+		kind = "application/pgp-keys"
+	}
+
+	if err != nil {
+		writePlain(w, http.StatusInternalServerError, "Signing failed.")
+
+		return
+	}
+
+	writeBytes(w, kind, out)
 }
 
 func serveAptPackages(w http.ResponseWriter, entries []debEntry, tail string) {

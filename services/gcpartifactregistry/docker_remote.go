@@ -162,6 +162,10 @@ func (b *InMemoryBackend) pullDockerImage(ctx context.Context, rc repoCtx, repo,
 		return err
 	}
 
+	if ctx, err = b.withUpstreamAuth(ctx, rc, base); err != nil {
+		return err
+	}
+
 	name := image
 	if host == dockerHubHost && !strings.Contains(image, "/") {
 		name = "library/" + image
@@ -322,7 +326,7 @@ func (b *InMemoryBackend) anonymousToken(ctx context.Context, challenge string) 
 
 	realm.RawQuery = q.Encode()
 
-	data, code, _, err := b.fetchWith(ctx, realm.String(), "", "")
+	data, code, _, err := b.fetchWith(allowAuthHost(ctx, realm.Host), realm.String(), "", "")
 	if err != nil {
 		return "", err
 	}
@@ -368,6 +372,8 @@ func (b *InMemoryBackend) fetchWith(
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+
+	applyUpstreamAuth(ctx, req)
 
 	resp, err := b.upstreamClient().Do(req)
 	if err != nil {

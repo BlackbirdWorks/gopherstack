@@ -1,5 +1,7 @@
 package gcpartifactregistry
 
+import "time"
+
 // DefaultPort is the dedicated gRPC, REST and Docker Registry listener's default TCP port.
 const DefaultPort = 8134
 
@@ -8,9 +10,10 @@ const DefaultRegistryHost = "localhost"
 
 // Settings holds service-level configuration, embedded in the root CLI command as CLI.GCPArtifactRegistry.
 type Settings struct {
-	RegistryHost    string `json:"registryHost"    env:"GCP_ARTIFACTREGISTRY_REGISTRY_HOST"    name:"registry-host"    default:"localhost" help:"Host (without the port) advertised in a repository's registry_uri and docker image URIs."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	Port            int    `json:"port"            env:"GCP_ARTIFACTREGISTRY_PORT"             name:"port"             default:"8134"      help:"Fixed TCP port for the dedicated Artifact Registry gRPC, REST and Docker Registry listener; startup fails if it is unavailable."`                                                                     //nolint:lll // config struct tags are intentionally verbose
-	RemoteUpstreams bool   `json:"remoteUpstreams" env:"GCP_ARTIFACTREGISTRY_REMOTE_UPSTREAMS" name:"remote-upstreams" default:"false"     help:"Let remote repositories fetch from their upstream (Docker Hub, Maven Central, npmjs, PyPI, custom URIs) over the network and cache the result. Off by default: an uncached remote read answers 502."` //nolint:lll // config struct tags are intentionally verbose
+	RegistryHost    string        `json:"registryHost"    env:"GCP_ARTIFACTREGISTRY_REGISTRY_HOST"    name:"registry-host"    default:"localhost" help:"Host (without the port) advertised in a repository's registry_uri and docker image URIs."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	Port            int           `json:"port"            env:"GCP_ARTIFACTREGISTRY_PORT"             name:"port"             default:"8134"      help:"Fixed TCP port for the dedicated Artifact Registry gRPC, REST and Docker Registry listener; startup fails if it is unavailable."`                                                                     //nolint:lll // config struct tags are intentionally verbose
+	RemoteUpstreams bool          `json:"remoteUpstreams" env:"GCP_ARTIFACTREGISTRY_REMOTE_UPSTREAMS" name:"remote-upstreams" default:"false"     help:"Let remote repositories fetch from their upstream (Docker Hub, Maven Central, npmjs, PyPI, custom URIs) over the network and cache the result. Off by default: an uncached remote read answers 502."` //nolint:lll // config struct tags are intentionally verbose
+	OperationDelay  time.Duration `json:"operationDelay"  env:"GCP_ARTIFACTREGISTRY_OPERATION_DELAY"  name:"operation-delay"  default:"0s"        help:"How long long-running operations stay pending before they finish; 0 finishes them before the call returns."`                                                                                          //nolint:lll // config struct tags are intentionally verbose
 }
 
 // DefaultSettings returns the settings used when no ConfigProvider is available.

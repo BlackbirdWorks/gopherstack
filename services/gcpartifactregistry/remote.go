@@ -193,6 +193,15 @@ func (b *InMemoryBackend) serveRemote(w http.ResponseWriter, r *http.Request, rc
 		return
 	}
 
+	ctx, err := b.withUpstreamAuth(r.Context(), rc, base)
+	if err != nil {
+		writePlain(w, http.StatusBadGateway, "Remote repository: "+err.Error())
+
+		return
+	}
+
+	r = r.WithContext(ctx)
+
 	switch rc.pb.GetFormat() {
 	case artifactregistrypb.Repository_NPM:
 		b.remoteNPM(w, r, rc, base, p)

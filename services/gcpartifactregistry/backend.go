@@ -47,6 +47,12 @@ type InMemoryBackend struct {
 	ops      *gcplro.Store
 	celEnv   *cel.Env
 	sessions map[string]*uploadSession
+	pending  map[string]*pendingOp
+	signKeys map[string][]byte
+	secrets  SecretResolver
+	attach   map[string]*artifactregistrypb.Attachment
+	settleMu *lockmetrics.RWMutex
+	opDelay  time.Duration
 	objects  ObjectStore
 	remote   remoteOptions
 	ticker   TickerFunc
@@ -60,9 +66,14 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates an empty backend that keeps images in memory.
 func NewInMemoryBackend() *InMemoryBackend {
 	b := &InMemoryBackend{
-		now: time.Now, ctx: context.Background(), mu: lockmetrics.New("gcpartifactregistry"),
-		repos: map[string]*repoRec{}, ledger: ociregistry.Ledger{}, ops: gcplro.New("gcpartifactregistry"),
-		host: DefaultRegistryHost,
+		now:      time.Now,
+		ctx:      context.Background(),
+		mu:       lockmetrics.New("gcpartifactregistry"),
+		settleMu: lockmetrics.New("gcpartifactregistry.settle"),
+		repos:    map[string]*repoRec{},
+		ledger:   ociregistry.Ledger{},
+		ops:      gcplro.New("gcpartifactregistry"),
+		host:     DefaultRegistryHost,
 	}
 
 	b.celEnv, _ = newRuleEnv()
@@ -79,6 +90,9 @@ func (b *InMemoryBackend) resetExtras() {
 	b.settings = map[string]*artifactregistrypb.ProjectSettings{}
 	b.vpcsc = map[string]*artifactregistrypb.VPCSCConfig{}
 	b.sessions = map[string]*uploadSession{}
+	b.pending = map[string]*pendingOp{}
+	b.signKeys = map[string][]byte{}
+	b.attach = map[string]*artifactregistrypb.Attachment{}
 }
 
 // SetDataDir keeps image blobs and manifests under dir; empty keeps them in memory.

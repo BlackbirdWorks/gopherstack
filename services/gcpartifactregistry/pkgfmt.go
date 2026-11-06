@@ -23,6 +23,7 @@ const (
 	aptRoute    = "/apt/"
 	yumRoute    = "/yum/"
 	goRoute     = "/go/"
+	kfpRoute    = "/kfp/"
 	routeSegs   = 3
 	segProject  = "projects"
 	segRemote   = "remote"
@@ -36,18 +37,20 @@ type repoCtx struct {
 	ref  repoRef
 }
 
-var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven|apt|yum|go)\.pkg\.dev(:\d+)?$`)
+var pkgHostRe = regexp.MustCompile(`^([a-z0-9-]+)-(npm|python|maven|apt|yum|go|kfp)\.pkg\.dev(:\d+)?$`)
 
 var hostFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
 	"npm": artifactregistrypb.Repository_NPM, "python": artifactregistrypb.Repository_PYTHON,
 	"maven": artifactregistrypb.Repository_MAVEN, "apt": artifactregistrypb.Repository_APT,
 	"yum": artifactregistrypb.Repository_YUM, "go": artifactregistrypb.Repository_GO,
+	"kfp": artifactregistrypb.Repository_KFP,
 }
 
 var routeFormats = map[string]artifactregistrypb.Repository_Format{ //nolint:gochecknoglobals // immutable catalog
 	npmRoute: artifactregistrypb.Repository_NPM, pythonRoute: artifactregistrypb.Repository_PYTHON,
 	mavenRoute: artifactregistrypb.Repository_MAVEN, aptRoute: artifactregistrypb.Repository_APT,
 	yumRoute: artifactregistrypb.Repository_YUM, goRoute: artifactregistrypb.Repository_GO,
+	kfpRoute: artifactregistrypb.Repository_KFP,
 }
 
 // pkgHost parses <location>-<format>.pkg.dev[:port] into its location and format.
@@ -60,7 +63,7 @@ func pkgHost(host string) (string, artifactregistrypb.Repository_Format, bool) {
 	return m[1], hostFormats[m[2]], true
 }
 
-// PackageExtras routes the npm, Python, Maven, apt, yum and Go protocols on <location>-<format>.pkg.dev hosts,
+// PackageExtras routes the npm, Python, Maven, apt, yum, Go and KFP protocols on <location>-<format>.pkg.dev hosts,
 // where the path is /<project>/<repository>/... (apt and yum: /projects/<project>/..., yum remote:
 // /remote/<project>/<repository>/...), and at /<format>/... on any other host.
 func (b *InMemoryBackend) PackageExtras() gcprest.Extra {
@@ -187,6 +190,8 @@ func (b *InMemoryBackend) serveLocal(w http.ResponseWriter, r *http.Request, rc 
 		b.serveYum(w, r, rc, path)
 	case artifactregistrypb.Repository_GO:
 		b.serveGo(w, r, rc, path)
+	case artifactregistrypb.Repository_KFP:
+		b.serveKFP(w, r, rc, path)
 	default:
 		b.serveMaven(w, r, rc, path)
 	}
@@ -335,7 +340,7 @@ func (b *InMemoryBackend) untagLocked(versionName string) {
 		return
 	}
 
-	hadLatest := tags["latest"] == version
+	hadLatest := tags["latest"] == version && b.repoRepointsLatest(pkg)
 
 	for tag, v := range tags {
 		if v == version {
@@ -362,6 +367,16 @@ func (b *InMemoryBackend) untagLocked(versionName string) {
 	if len(tags) == 0 {
 		delete(b.pkgTags, pkg)
 	}
+}
+
+// repoRepointsLatest reports whether the repository of a package keeps latest on its newest version (npm); KFP
+// tags are only ever moved by uploads. Must hold b.mu.
+func (b *InMemoryBackend) repoRepointsLatest(pkg string) bool {
+	repo, _, _ := strings.Cut(pkg, "/packages/")
+
+	rec, ok := b.repos[repo]
+
+	return !ok || rec.pb.GetFormat() != artifactregistrypb.Repository_KFP
 }
 
 // versionFiles lists the versions of a package with their files, oldest first.
