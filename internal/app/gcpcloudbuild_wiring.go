@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strconv"
 
+	"cloud.google.com/go/kms/apiv1/kmspb"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	gcparbackend "github.com/blackbirdworks/gopherstack/services/gcpartifactregistry"
 	gcpcloudbuildbackend "github.com/blackbirdworks/gopherstack/services/gcpcloudbuild"
+	gcpkmsbackend "github.com/blackbirdworks/gopherstack/services/gcpkms"
 	gcploggingbackend "github.com/blackbirdworks/gopherstack/services/gcplogging"
 	gcppubsubbackend "github.com/blackbirdworks/gopherstack/services/gcppubsub"
 	gcpsecretmanagerbackend "github.com/blackbirdworks/gopherstack/services/gcpsecretmanager"
@@ -36,6 +38,29 @@ func (s cloudBuildStore) EnsureBucket(project, bucket string) error {
 	}
 
 	return nil
+}
+
+// ReadObjectGeneration reads an object at a generation (0 is the latest) and reports the generation read.
+func (s cloudBuildStore) ReadObjectGeneration(bucket, object string, gen int64) ([]byte, int64, error) {
+	o, err := s.b.GetObject(bucket, object, gen, gcpstoragebackend.Preconds{})
+	if err != nil {
+		return nil, 0, fmt.Errorf("read gs://%s/%s: %w", bucket, object, err)
+	}
+
+	return o.Data, o.Generation, nil
+}
+
+type cloudBuildKMS struct {
+	b *gcpkmsbackend.InMemoryBackend
+}
+
+func (k cloudBuildKMS) Decrypt(keyName string, ciphertext []byte) ([]byte, error) {
+	res, err := k.b.Decrypt(&kmspb.DecryptRequest{Name: keyName, Ciphertext: ciphertext})
+	if err != nil {
+		return nil, fmt.Errorf("kms decrypt: %w", err)
+	}
+
+	return res.GetPlaintext(), nil
 }
 
 // cloudBuildPublisher publishes build status messages to the project's cloud-builds topic, creating it on demand.
@@ -86,6 +111,10 @@ func cloudBuildServices(byName map[string]service.Registerable) gcpcloudbuildbac
 
 	if sm, ok := byName["GCPSecretManager"].(*gcpsecretmanagerbackend.Handler); ok {
 		svc.Secrets = cloudBuildSecrets{b: sm.Backend}
+	}
+
+	if kms, ok := byName["GCPKMS"].(*gcpkmsbackend.Handler); ok {
+		svc.KMS = cloudBuildKMS{b: kms.Backend}
 	}
 
 	if ar, ok := byName["GCPArtifactRegistry"].(*gcparbackend.Handler); ok {

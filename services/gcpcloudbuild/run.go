@@ -29,9 +29,12 @@ type runner struct {
 	fail     atomic.Pointer[stepFailure]
 	svc      Services
 	secrets  map[string]string
-	srcDir   string
-	work     string
-	ref      ref
+	// stepImages and stepOutputs are indexed by step; each step writes only its own slot.
+	stepImages  []string
+	stepOutputs [][]byte
+	srcDir      string
+	work        string
+	ref         ref
 }
 
 // stepFailure is the first failure that decided the build's outcome.
@@ -131,9 +134,16 @@ func (r *runner) run(ctx context.Context) {
 
 	r.log.system(fmt.Sprintf("starting build %q", r.ref.id))
 
+	n := len(r.build.GetSteps())
+	r.stepImages, r.stepOutputs = make([]string, n), make([][]byte, n)
+
 	failure := r.prepare(buildCtx)
 	if failure == nil {
+		start := r.b.ts()
+
 		r.runSteps(buildCtx)
+		r.setPhase(phaseBuild, start)
+
 		failure = r.fail.Load()
 	}
 
@@ -166,7 +176,14 @@ func (r *runner) prepare(ctx context.Context) *stepFailure {
 	r.logPool()
 	r.log.system("FETCHSOURCE")
 
-	if err := r.fetchSource(ctx); err != nil {
+	start := r.b.ts()
+	err := r.fetchSource(ctx)
+
+	if r.build.GetSource().GetSource() != nil {
+		r.setPhase(phaseFetchSource, start)
+	}
+
+	if err != nil {
 		return &stepFailure{
 			status: cloudbuildpb.Build_FAILURE, detail: "failed to fetch source: " + err.Error(),
 			info: &cloudbuildpb.Build_FailureInfo{
@@ -189,6 +206,16 @@ func (r *runner) prepare(ctx context.Context) *stepFailure {
 func (r *runner) conclude(ctx context.Context, failure *stepFailure) {
 	r.log.system("DONE")
 	r.uploadLog()
+
+	if failure != nil {
+		r.b.update(r.ref, func(pb *cloudbuildpb.Build) {
+			if pb.Results == nil {
+				pb.Results = &cloudbuildpb.Results{}
+			}
+
+			r.addStepResults(pb.Results)
+		})
+	}
 
 	if failure == nil {
 		r.b.finish(r.ref, cloudbuildpb.Build_SUCCESS, "", nil)

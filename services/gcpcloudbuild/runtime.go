@@ -31,6 +31,18 @@ type ObjectStore interface {
 	EnsureBucket(project, bucket string) error
 }
 
+// GenerationReader is implemented by object stores that expose object generations; without it generations are
+// ignored and resolved_storage_source carries none.
+type GenerationReader interface {
+	// ReadObjectGeneration reads the object at generation gen (0 is the latest) and reports the generation read.
+	ReadObjectGeneration(bucket, object string, gen int64) ([]byte, int64, error)
+}
+
+// KMSDecrypter decrypts ciphertext with a Cloud KMS crypto key ("projects/p/locations/l/keyRings/r/cryptoKeys/k").
+type KMSDecrypter interface {
+	Decrypt(keyName string, ciphertext []byte) ([]byte, error)
+}
+
 // Publisher publishes a message to a Pub/Sub topic of a project, creating the topic when missing.
 type Publisher interface {
 	Publish(project, topic string, data []byte, attrs map[string]string) error
@@ -46,7 +58,9 @@ type Services struct {
 	Store   ObjectStore
 	Pub     Publisher
 	Secrets SecretResolver
-	Logs    gcpserve.LogSink
+	// KMS decrypts secrets.inline and the deprecated secrets field.
+	KMS  KMSDecrypter
+	Logs gcpserve.LogSink
 	// RegistryAddr is the Artifact Registry emulator's host:port as the docker daemon reaches it.
 	RegistryAddr string
 	// Packages receives artifacts.maven_artifacts, python_packages, npm_packages and go_modules.

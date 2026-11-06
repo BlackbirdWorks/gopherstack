@@ -960,7 +960,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Artifact Registry](services/gcpartifactregistry/README.md) | B | 45 | 16 gaps |
 | [BigQuery](services/gcpbigquery/README.md) | B | 23 | 8 gaps |
 | [Cloud Bigtable](services/gcpbigtable/README.md) | B | 43 | 8 gaps |
-| [Cloud Build](services/gcpcloudbuild/README.md) | B | 20 | 11 gaps |
+| [Cloud Build](services/gcpcloudbuild/README.md) | B | 20 | 10 gaps |
 | [Cloud DNS](services/gcpdns/README.md) | B | — | 8 families; 5 gaps |
 | [Cloud Datastore](services/gcpdatastore/README.md) | B | 13 | 5 gaps |
 | [Cloud Functions](services/gcpfunctions/README.md) | B | 8 | 8 gaps |

@@ -27,6 +27,8 @@ type buildRec struct {
 	orig   *cloudbuildpb.Build
 	ref    ref
 	opName string
+	// left closes when the build leaves the queue (started, finished or approved); nil when no expiry timer runs.
+	left chan struct{}
 }
 
 // InMemoryBackend holds builds, triggers and worker pools under one lock and runs builds as containers.
@@ -136,6 +138,10 @@ func (b *InMemoryBackend) Reset() {
 
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, rec := range b.builds {
+		rec.stopQueueTimer()
+	}
 
 	b.builds = map[string]*buildRec{}
 	b.triggers = map[string]*cloudbuildpb.BuildTrigger{}
