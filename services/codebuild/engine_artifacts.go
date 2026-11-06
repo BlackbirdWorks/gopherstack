@@ -213,14 +213,9 @@ func (r *buildRunner) uploadOne(ctx context.Context, dir string, cfg ProjectArti
 
 	keys := artifactKeys(files, yamlTruthy(sa.DiscardPaths))
 
-	name := cfg.Name
-	if cfg.OverrideArtifactName && sa.Name != "" {
-		expanded, nerr := r.expandArtifactName(sa.Name)
-		if nerr != nil {
-			return nerr
-		}
-
-		name = expanded
+	name, err := r.artifactName(cfg, sa)
+	if err != nil {
+		return err
 	}
 
 	uuid := r.buildUUID()
@@ -315,4 +310,12 @@ func (r *buildRunner) expandArtifactName(name string) (string, error) {
 	}
 
 	return strings.TrimSpace(res.Stdout), nil
+}
+
+func (r *buildRunner) artifactName(cfg ProjectArtifacts, sa specArtifact) (string, error) {
+	if cfg.OverrideArtifactName && sa.Name != "" {
+		return r.expandArtifactName(sa.Name)
+	}
+
+	return cfg.Name, nil
 }

@@ -29,7 +29,9 @@ func (r *exportingRunner) RunBuild(_ context.Context, req codepipeline.BuildRequ
 	return "build:" + req.ProjectName, nil
 }
 
-func (r *exportingRunner) BuildStatus(context.Context, string) (string, error) { return "SUCCEEDED", nil }
+func (r *exportingRunner) BuildStatus(context.Context, string) (string, error) {
+	return "SUCCEEDED", nil
+}
 
 func (r *exportingRunner) BuildExportedVariables(context.Context, string) (map[string]string, error) {
 	return r.vars, nil
@@ -55,12 +57,12 @@ func TestCodeBuildExportedVariablesFlowIntoNamespace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		vars         map[string]string
-		name         string
-		namespace    string
-		downstream   string
-		wantProject  string
-		wantOutputs  map[string]string
+		name        string
+		namespace   string
+		downstream  string
+		wantProject string
+		vars        map[string]string
+		wantOutputs map[string]string
 	}{
 		{
 			name: "namespaced exported variable resolves downstream", namespace: "BuildVars",
