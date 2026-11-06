@@ -372,6 +372,7 @@ func (b *InMemoryBackend) lbUsersLocked(self string) []string {
 	lbCollectUsers(b, tcpProxySpec(), self, &users)
 	lbCollectUsers(b, sslProxySpec(), self, &users)
 	lbCollectUsers(b, fwdRuleSpec(), self, &users)
+	lbCollectUsers(b, targetPoolSpec(), self, &users)
 
 	for _, m := range b.migs {
 		for _, p := range m.Mgr.AutoHealingPolicies {

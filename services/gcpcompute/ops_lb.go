@@ -113,6 +113,7 @@ func (h *Handler) registerLBOps() {
 	h.registerCertOps()
 	h.registerRuleOps()
 	h.registerNEGOps()
+	h.registerPoolOps()
 }
 
 func (h *Handler) registerBackendOps() {
@@ -304,7 +305,7 @@ func (h *Handler) registerCertOps() {
 		scopes: []string{scopeGlobal, scopeRegion}, agg: globalAndRegions(),
 	})
 	registerLB(h, sslPolicySpec(), lbOpts[computeapi.SslPolicy]{
-		scopes: []string{scopeGlobal}, patch: true,
+		scopes: []string{scopeGlobal, scopeRegion}, agg: globalAndRegions(), patch: true,
 		get: func(h *Handler, rq *request) (any, error) {
 			if rq.rt.name == "listAvailableFeatures" {
 				return &computeapi.SslPoliciesListAvailableFeaturesResponse{
