@@ -934,7 +934,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Azure AI Search](services/azuresearch/README.md) | B | 19 | 9 gaps |
+| [Azure AI Search](services/azuresearch/README.md) | B | 19 | 8 gaps |
 | [Azure App Configuration](services/azureappconfig/README.md) | B | 14 | 13 gaps |
 | [Azure Blob Storage](services/azureblob/README.md) | C | 29 | 5 gaps; 3 deferred |
 | [Azure Cache for Redis](services/azureredis/README.md) | B | 11 | 13 gaps |

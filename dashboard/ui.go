@@ -55,6 +55,7 @@ import (
 	azurekeyvaultbackend "github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	azuremonitorbackend "github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
+	azuresearchbackend "github.com/blackbirdworks/gopherstack/services/azuresearch"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
@@ -141,6 +142,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lambdawebbackend "github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
@@ -662,6 +664,10 @@ type Config struct {
 	AzureEventGridOps *azureeventgridbackend.Handler
 	// AzureAppConfigOps is called in-process by the /dashboard/api/v1/azure/appconfig proxy.
 	AzureAppConfigOps *azureappconfigbackend.Handler
+	// AzureSearchOps is dispatched in-process by the /dashboard/api/v1/azure/search* proxies.
+	AzureSearchOps *azuresearchbackend.Handler
+	// LambdaWebOps is dispatched in-process by the /dashboard/api/v1/lambdaweb proxy.
+	LambdaWebOps *lambdawebbackend.Handler
 	// GCPSQLOps is dispatched in-process by the /dashboard/api/v1/gcp/sql proxy.
 	GCPSQLOps *gcpsqlbackend.Handler
 	// GCPLoggingOps is called in-process by the /dashboard/api/v1/gcp/logging proxy.

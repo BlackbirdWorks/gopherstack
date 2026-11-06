@@ -27,6 +27,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/azurekeyvault"
 	"github.com/blackbirdworks/gopherstack/services/azuremonitor"
 	"github.com/blackbirdworks/gopherstack/services/azurequeue"
+	"github.com/blackbirdworks/gopherstack/services/azuresearch"
 	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/azuretable"
 	"github.com/blackbirdworks/gopherstack/services/backup"
@@ -76,6 +77,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
 	"github.com/blackbirdworks/gopherstack/services/kms"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
+	"github.com/blackbirdworks/gopherstack/services/lambdaweb"
 	"github.com/blackbirdworks/gopherstack/services/ociapigateway"
 	"github.com/blackbirdworks/gopherstack/services/ociartifacts"
 	"github.com/blackbirdworks/gopherstack/services/ocicontainerengine"
@@ -337,6 +339,14 @@ func linkCloudExtras(conf *Config, cfg any) {
 
 	if p, ok := cfg.(interface{ GetAzureAppConfigHandler() service.Registerable }); ok {
 		conf.AzureAppConfigOps, _ = getHandler[*azureappconfig.Handler](p.GetAzureAppConfigHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetAzureSearchHandler() service.Registerable }); ok {
+		conf.AzureSearchOps, _ = getHandler[*azuresearch.Handler](p.GetAzureSearchHandler())
+	}
+
+	if p, ok := cfg.(interface{ GetLambdaWebHandler() service.Registerable }); ok {
+		conf.LambdaWebOps, _ = getHandler[*lambdaweb.Handler](p.GetLambdaWebHandler())
 	}
 
 	if p, ok := cfg.(interface{ GetGCPSQLHandler() service.Registerable }); ok {

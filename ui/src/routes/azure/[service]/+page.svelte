@@ -23,6 +23,7 @@
 	import ServiceBusDashboard from '#lib/components/azure/ServiceBusDashboard.svelte';
 	import TableDashboard from '#lib/components/azure/TableDashboard.svelte';
 	import LogicAppsDashboard from '#lib/components/azure/LogicAppsDashboard.svelte';
+	import SearchDashboard from '#lib/components/azure/SearchDashboard.svelte';
 	import NetworkingDashboard from '#lib/components/azure/NetworkingDashboard.svelte';
 	import VirtualMachinesDashboard from '#lib/components/azure/VirtualMachinesDashboard.svelte';
 	import { backendInfo, loadBackendInfo, servedAzureServices } from '#lib/cloud.svelte.ts';
@@ -81,6 +82,8 @@
 	<NetworkingDashboard />
 {:else if service?.id === 'logic'}
 	<LogicAppsDashboard />
+{:else if service?.id === 'search'}
+	<SearchDashboard />
 {:else if service?.id === 'entra'}
 	<EntraDashboard />
 {:else}

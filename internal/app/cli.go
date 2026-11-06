@@ -479,6 +479,8 @@ type CLI struct {
 	azureEventHubsHandler         service.Registerable
 	azureEventGridHandler         service.Registerable
 	azureAppConfigHandler         service.Registerable
+	azureSearchHandler            service.Registerable
+	lambdaWebHandler              service.Registerable
 	azureFunctionsHandler         service.Registerable
 	azureFileHandler              service.Registerable
 	gcpWorkflowsHandler           service.Registerable
