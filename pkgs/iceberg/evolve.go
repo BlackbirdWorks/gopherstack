@@ -193,3 +193,29 @@ func (m *TableMetadata) TrimMetadataLog(maxKeep int) []MetadataLogEntry {
 
 	return dropped
 }
+
+// WithMovedColumn returns s with the column moved first or after another column.
+func (m *TableMetadata) WithMovedColumn(s Schema, name string, first bool, after string) (Schema, error) {
+	i := s.index(name)
+	if i < 0 {
+		return s, fmt.Errorf("%w: %s", ErrColumnNotFound, name)
+	}
+
+	f := s.Fields[i]
+	rest := slices.Delete(slices.Clone(s.Fields), i, i+1)
+	at := 0
+
+	if !first {
+		j := slices.IndexFunc(rest, func(c Field) bool { return strings.EqualFold(c.Name, after) })
+		if j < 0 {
+			return s, fmt.Errorf("%w: %s", ErrColumnNotFound, after)
+		}
+
+		at = j + 1
+	}
+
+	out := s
+	out.Fields = slices.Insert(rest, at, f)
+
+	return out, nil
+}

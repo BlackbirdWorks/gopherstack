@@ -72,6 +72,7 @@ type writePlan struct {
 	table          string
 	ice            *icebergTable
 	target         *planTable
+	iceCTAS        bool
 	queryID        string
 	outputLocation string
 	location       string
@@ -172,6 +173,10 @@ func (p *writePlan) validate(b *InMemoryBackend) statementOutcome {
 
 func (p *writePlan) validateProps() statementOutcome {
 	props := p.stmt.props
+
+	if p.isIcebergCTAS() {
+		return p.validateIcebergCTAS()
+	}
 
 	for k := range props {
 		if !isWriteProp(k) {
@@ -324,6 +329,9 @@ func (p *writePlan) precheck(ctx context.Context) (statementOutcome, bool) {
 
 func (p *writePlan) ctasLocation() (string, error) {
 	loc := firstProp(p.stmt.props, "external_location")
+	if p.iceCTAS {
+		loc = firstProp(p.stmt.props, propLocation)
+	}
 
 	switch {
 	case loc != "":
@@ -424,6 +432,10 @@ func (p *writePlan) applyUnload(ctx context.Context, res *sqlResult, limits Engi
 }
 
 func (p *writePlan) applyCTAS(ctx context.Context, res *sqlResult, limits EngineLimits) statementOutcome {
+	if p.iceCTAS {
+		return p.applyIcebergCTAS(ctx, res, limits)
+	}
+
 	all := resultOutCols(res)
 	seen := map[string]bool{}
 

@@ -43,6 +43,20 @@ func (c *iceCatalog) CommitTableMetadata(db, name, expected, next string) error 
 	return nil
 }
 
+func (c *iceCatalog) SetTableColumns(db, name string, cols []athena.Column) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	d, ok := c.defs[db+"/"+name]
+	if !ok {
+		return athena.ErrCatalogEntityNotFound
+	}
+
+	d.Columns = cols
+
+	return nil
+}
+
 type stepClock struct {
 	t  time.Time
 	mu sync.Mutex

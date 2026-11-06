@@ -320,7 +320,11 @@ func (t *planTable) loadIceberg(ctx context.Context, conn *sql.Conn, l *tableLoa
 		return t.loadIcebergMetaTable(ctx, conn, l, tbl, snap, hasSnap)
 	}
 
-	schema := tbl.schemaFor(snap, hasSnap)
+	schema := tbl.meta.CurrentSchema()
+	if t.travel.kind != "" {
+		schema = tbl.schemaFor(snap, hasSnap)
+	}
+
 	t.loadedAt = tbl.location
 
 	cols, err := icebergColumns(schema, t.display)
