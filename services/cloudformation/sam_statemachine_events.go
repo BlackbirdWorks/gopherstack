@@ -90,7 +90,7 @@ func (t *samTranslator) smDLQ(smID, name string, props map[string]any, ruleARN a
 
 func (t *samTranslator) smScheduleEvent(smID, targetID, name string, props map[string]any, boundary any) error {
 	id := smID + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, "Name", samKeyDesc,
+	if err := rejectUnknown(id, props, keySet("Schedule", samKeyInput, samKeyEnabled, samKeyState, attrNameName, samKeyDesc,
 		samKeyDLC, samKeyRetry, samKeyRoleArn, samKeyTarget)); err != nil {
 		return err
 	}

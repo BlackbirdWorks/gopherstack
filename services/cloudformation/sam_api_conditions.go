@@ -8,20 +8,20 @@ import (
 )
 
 const (
-	samMaxOrConditions   = 10
-	samImplicitAPICond   = "ServerlessRestApiCondition"
+	samMaxOrConditions     = 10
+	samImplicitAPICond     = "ServerlessRestApiCondition"
 	samImplicitHTTPAPICond = "ServerlessHttpApiCondition"
-	samPathCondSuffix    = "PathCondition"
-	samDeletionRetain    = "Retain"
-	samDeletionDelete    = "Delete"
-	samDeletionSnapshot  = "Snapshot"
-	samMethodAny         = "any"
-	samKeySchema         = "schema"
-	samPathSlash         = "SLASH"
-	samPathOpenBrace     = "OB"
-	samPathCloseBrace    = "CB"
-	samMinCombineConds   = 2
-	samCondUnconditional = ""
+	samPathCondSuffix      = "PathCondition"
+	samDeletionRetain      = "Retain"
+	samDeletionDelete      = "Delete"
+	samDeletionSnapshot    = "Snapshot"
+	samMethodAny           = "any"
+	samKeySchema           = "schema"
+	samPathSlash           = "SLASH"
+	samPathOpenBrace       = "OB"
+	samPathCloseBrace      = "CB"
+	samMinCombineConds     = 2
+	samCondUnconditional   = ""
 )
 
 func samIf(cond string, then any) map[string]any {

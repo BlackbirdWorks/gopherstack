@@ -56,8 +56,8 @@ func addCorsPreflight(id string, paths map[string]any, cors any) error {
 				return samErr(id, "Value of '%s' path must be a dictionary according to Swagger spec.", path)
 			}
 			if opts, exists := item[samKOptions]; exists {
-				if err := validateOptionsResponses(path, opts); err != nil {
-					return err
+				if optErr := validateOptionsResponses(path, opts); optErr != nil {
+					return optErr
 				}
 
 				continue

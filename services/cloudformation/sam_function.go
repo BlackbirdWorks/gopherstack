@@ -310,7 +310,7 @@ func autoPublishDescription(desc any, sha string) any {
 
 // capacityProviderConfig nests SAM's flat CapacityProviderConfig under LambdaManagedInstancesCapacityProviderConfig.
 func capacityProviderConfig(cp map[string]any) map[string]any {
-	inner := map[string]any{"CapacityProviderArn": cp["Arn"]}
+	inner := map[string]any{"CapacityProviderArn": cp[attrNameArn]}
 	for _, k := range []string{"PerExecutionEnvironmentMaxConcurrency", "ExecutionEnvironmentMemoryGiBPerVCpu"} {
 		if v, ok := cp[k]; ok && v != nil {
 			inner[k] = v

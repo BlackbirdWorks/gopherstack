@@ -24,8 +24,8 @@ const (
 )
 
 func samHTTPAPIProps() map[string]bool {
-	return keySet(samKeyStageName, samKeyStageVars, samKeyCorsProp, samKeyCors, samKeyDesc, "DefaultRouteSettings",
-		samKeyRouteSetting, "AccessLogSettings", samKeyTags, "DisableExecuteApiEndpoint", "FailOnWarnings", "Name",
+	return keySet(samKeyStageName, samKeyStageVars, samKeyCorsProp, samKeyCors, samKeyDesc, samKeyDefaultRoute,
+		samKeyRouteSetting, samKeyAccessLog, samKeyTags, samKeyDisableEndpoint, "FailOnWarnings", attrNameName,
 		samAuthKey, "DefinitionBody", "DefinitionUri", samDomainKey, samKeyPropagateTags)
 }
 
@@ -70,13 +70,13 @@ func (r samHTTPRoute) docMethod() string {
 // samHTTPAPI accumulates one AWS::Serverless::HttpApi (or the implicit
 // ServerlessHttpApi) until every HttpApi event has been seen.
 type samHTTPAPI struct {
+	stageRaw  any
 	raw       map[string]any
 	props     map[string]any
+	added     map[string]bool
 	id        string
 	stageName string
-	stageRaw  any
 	routes    []samHTTPRoute
-	added     map[string]bool
 	managed   bool
 	plainRef  bool
 }
@@ -104,7 +104,7 @@ func (t *samTranslator) registerHTTPAPI(id string, r map[string]any) error {
 	if err := rejectUnknown(id, props, samHTTPAPIProps()); err != nil {
 		return err
 	}
-	if v, ok := props["DisableExecuteApiEndpoint"]; ok {
+	if v, ok := props[samKeyDisableEndpoint]; ok {
 		if _, isBool := v.(bool); !isBool && !isIntrinsicValue(v) {
 			return samErr(id, "Type of property 'DisableExecuteApiEndpoint' is invalid.")
 		}
@@ -346,8 +346,8 @@ func (a *samHTTPAPI) apiProps(t *samTranslator) (map[string]any, error) {
 }
 
 func (a *samHTTPAPI) disableEndpointFromProps(out map[string]any) {
-	if v, ok := a.props["DisableExecuteApiEndpoint"]; ok {
-		out["DisableExecuteApiEndpoint"] = v
+	if v, ok := a.props[samKeyDisableEndpoint]; ok {
+		out[samKeyDisableEndpoint] = v
 	}
 }
 
@@ -358,7 +358,7 @@ func (a *samHTTPAPI) checkURIOnly() error {
 			return samErr(a.id, "%s works only with inline OpenApi specified in the 'DefinitionBody' property.", k)
 		}
 	}
-	if a.props["DisableExecuteApiEndpoint"] != nil {
+	if a.props[samKeyDisableEndpoint] != nil {
 		return samErr(a.id, "DisableExecuteApiEndpoint works only within 'DefinitionBody' property.")
 	}
 
@@ -387,7 +387,7 @@ func (a *samHTTPAPI) stageProps() map[string]any {
 	if tags := a.v2Tags(); tags != nil {
 		stage[samKeyTags] = tags
 	}
-	for _, k := range []string{samKeyStageVars, "DefaultRouteSettings", "AccessLogSettings"} {
+	for _, k := range []string{samKeyStageVars, samKeyDefaultRoute, samKeyAccessLog} {
 		if v, ok := a.props[k]; ok {
 			stage[k] = v
 		}
@@ -521,10 +521,10 @@ func (a *samHTTPAPI) applyAPIProperties(ed *samOpenAPI) error {
 	if err := ed.addTags(tags); err != nil {
 		return err
 	}
-	if v, ok := a.props["DisableExecuteApiEndpoint"]; ok {
+	if v, ok := a.props[samKeyDisableEndpoint]; ok {
 		ed.addEndpointConfig(v)
 	}
-	if v, ok := a.props["Name"]; ok {
+	if v, ok := a.props[attrNameName]; ok {
 		if err := ed.setTitle(v); err != nil {
 			return err
 		}
@@ -561,7 +561,7 @@ func (t *samTranslator) implicitHTTPAttrs(a *samHTTPAPI) map[string]any {
 	if conds, all := a.routeConditions(); all {
 		out[samKeyCondition] = t.combinedOrSingle(conds, samImplicitHTTPAPICond)
 	}
-	var del, upd []string
+	del, upd := make([]string, 0, len(a.routes)), make([]string, 0, len(a.routes))
 	for _, rt := range a.routes {
 		del = append(del, asString(rt.pass[samKeyDelPolicy]))
 		upd = append(upd, asString(rt.pass[samKeyUpdPolicy]))
@@ -619,7 +619,7 @@ func (a *samHTTPAPI) needsNoEditor() bool {
 		return false
 	}
 	for _, k := range []string{samKeyCorsProp, samKeyCors, samAuthKey, attrNameName, samKeyDesc,
-		"DisableExecuteApiEndpoint"} {
+		samKeyDisableEndpoint} {
 		if a.props[k] != nil {
 			return false
 		}

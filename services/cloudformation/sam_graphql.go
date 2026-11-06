@@ -28,7 +28,6 @@ const (
 	samKeyMaxBatch         = "MaxBatchSize"
 	samKeyServiceRoleArn   = "ServiceRoleArn"
 	samKeyRoleName         = "RoleName"
-	samKeyAppSyncName      = "Name"
 	samKeyDefinition       = "Definition"
 	samGraphQLNone         = "none"
 
@@ -46,12 +45,12 @@ const samKeyDomainNameProp = "DomainName"
 
 // samGraphQL accumulates the state shared by the pieces of one AWS::Serverless::GraphQLApi.
 type samGraphQL struct {
-	t           *samTranslator
-	id          string
 	apiID       any
+	t           *samTranslator
 	attrs       map[string]any
 	dataSources map[string]any
 	functionIDs map[string]any
+	id          string
 	noneDS      bool
 }
 
@@ -95,9 +94,13 @@ func (t *samTranslator) translateGraphQLApi(id string, r map[string]any) error {
 		return err
 	}
 	for i, arn := range lambdaARNs {
-		src := map[string]any{samKeyType: samTypeAppSyncAPI, "Arn": samRef(id), "ResourceId": samGetAtt(id, samKeyAPIID)}
-		dst := map[string]any{samKeyType: samTypeFunction, "Arn": arn}
-		if err = g.connect(id+"ToLambdaAuthConnector"+strconv.Itoa(i+1), src, dst, []string{"Write"}); err != nil {
+		src := map[string]any{
+			samKeyType:   samTypeAppSyncAPI,
+			attrNameArn:  samRef(id),
+			"ResourceId": samGetAtt(id, samKeyAPIID),
+		}
+		dst := map[string]any{samKeyType: samTypeFunction, attrNameArn: arn}
+		if err = g.connect(id+"ToLambdaAuthConnector"+strconv.Itoa(i+1), src, dst, []string{samPermWrite}); err != nil {
 			return err
 		}
 	}
@@ -121,7 +124,7 @@ func (g *samGraphQL) putRest(props map[string]any, depends any) error {
 	}
 	if g.noneDS {
 		return g.put(g.id+"NoneDataSource", samTypeAppSyncDS, map[string]any{
-			samKeyAPIID: g.apiID, samKeyAppSyncName: g.id + "NoneDataSource", samKeyType: "NONE",
+			samKeyAPIID: g.apiID, attrNameName: g.id + "NoneDataSource", samKeyType: valueNone,
 		}, depends)
 	}
 
@@ -203,7 +206,7 @@ func (g *samGraphQL) authProperties(api, auth map[string]any) ([]any, error) {
 	}
 	if name != "" {
 		api[name] = cfg
-		if name == "LambdaAuthorizerConfig" {
+		if name == samKeyLambdaAuthCfg {
 			arns = append(arns, cfg["AuthorizerUri"])
 		}
 	}
@@ -217,7 +220,7 @@ func (g *samGraphQL) authProperties(api, auth map[string]any) ([]any, error) {
 		entry := map[string]any{"AuthenticationType": am[samKeyType]}
 		if name != "" {
 			entry[name] = cfg
-			if name == "LambdaAuthorizerConfig" {
+			if name == samKeyLambdaAuthCfg {
 				arns = append(arns, cfg["AuthorizerUri"])
 			}
 		}
@@ -240,7 +243,8 @@ func (g *samGraphQL) authorizerConfig(auth map[string]any, index int) (string, m
 		return "", nil, samErr(g.id, "'%s' has more than one authentication configuration defined.", keyPath)
 	}
 	for _, spec := range []struct{ typ, prop, cfg, msg string }{
-		{samAuthLambda, "LambdaAuthorizer", "LambdaAuthorizerConfig", "'LambdaAuthorizer' must be defined if type is 'AWS_LAMBDA'."},
+		{samAuthLambda, "LambdaAuthorizer", samKeyLambdaAuthCfg,
+			"'LambdaAuthorizer' must be defined if type is 'AWS_LAMBDA'."},
 		{samAuthOIDC, "OpenIDConnect", "OpenIDConnectConfig", "'OpenIDConnect' must be defined if type is 'OPENID_CONNECT'."},
 		{samAuthCognito, "UserPool", "UserPoolConfig",
 			"'UserPool' must be defined if type is 'AMAZON_COGNITO_USER_POOLS'."},
@@ -305,7 +309,14 @@ func (g *samGraphQL) putCache(props map[string]any, depends any) error {
 		return nil
 	}
 	out := map[string]any{samKeyAPIID: g.apiID}
-	for _, k := range []string{"ApiCachingBehavior", "Type", "Ttl", "AtRestEncryptionEnabled", "TransitEncryptionEnabled"} {
+	cacheKeys := []string{
+		"ApiCachingBehavior",
+		samKeyType,
+		"Ttl",
+		"AtRestEncryptionEnabled",
+		"TransitEncryptionEnabled",
+	}
+	for _, k := range cacheKeys {
 		if v := cache[k]; v != nil {
 			out[k] = v
 		}
@@ -320,7 +331,7 @@ func (g *samGraphQL) putDomain(props map[string]any, depends any) error {
 		return nil
 	}
 	out := map[string]any{}
-	for _, k := range []string{"CertificateArn", samKeyDomainNameProp, samKeyDesc} {
+	for _, k := range []string{samKeyCertArn, samKeyDomainNameProp, samKeyDesc} {
 		if v := domain[k]; v != nil {
 			out[k] = v
 		}
@@ -361,7 +372,7 @@ func (g *samGraphQL) putDynamoDBSource(rel string, ds map[string]any, depends an
 	if region == nil {
 		region = samRef("AWS::Region")
 	}
-	ddbCfg := map[string]any{"AwsRegion": region, "TableName": ds["TableName"]}
+	ddbCfg := map[string]any{"AwsRegion": region, samKeyTableName: ds[samKeyTableName]}
 	for _, k := range []string{"UseCallerCredentials", "Versioned"} {
 		if v := ds[k]; v != nil && v != false {
 			ddbCfg[k] = v
@@ -370,7 +381,7 @@ func (g *samGraphQL) putDynamoDBSource(rel string, ds map[string]any, depends an
 	if v := ds["DeltaSync"]; v != nil {
 		ddbCfg["DeltaSyncConfig"] = v
 	}
-	out := map[string]any{samKeyAPIID: g.apiID, samKeyAppSyncName: orString(ds[attrNameName], rel),
+	out := map[string]any{samKeyAPIID: g.apiID, attrNameName: orString(ds[attrNameName], rel),
 		samKeyType: "AMAZON_DYNAMODB", "DynamoDBConfig": ddbCfg}
 	if d := ds[samKeyDesc]; d != nil {
 		out[samKeyDesc] = d
@@ -393,20 +404,25 @@ func (g *samGraphQL) putDynamoDBSource(rel string, ds map[string]any, depends an
 	if table == nil {
 		table = map[string]any{samKeyFnSub: []any{
 			"arn:${AWS::Partition}:dynamodb:${__Region__}:${AWS::AccountId}:table/${__TableName__}",
-			map[string]any{"__TableName__": ds["TableName"], "__Region__": region},
+			map[string]any{"__TableName__": ds[samKeyTableName], "__Region__": region},
 		}}
 	}
-	perms := []string{"Read", "Write"}
+	perms := []string{"Read", samPermWrite}
 	if l, ok := ds["Permissions"].([]any); ok {
 		perms = perms[:0]
 		for _, p := range l {
 			perms = append(perms, asString(p))
 		}
 	}
-	src := map[string]any{samKeyType: samTypeAppSyncDS, "Arn": samGetAtt(id, "DataSourceArn"),
+	src := map[string]any{samKeyType: samTypeAppSyncDS, attrNameArn: samGetAtt(id, "DataSourceArn"),
 		samKeyRoleName: samRef(id + "Role")}
 
-	return g.connect(id+"ToTableConnector", src, map[string]any{samKeyType: resTypeDynamoDBTable, "Arn": table}, perms)
+	return g.connect(
+		id+"ToTableConnector",
+		src,
+		map[string]any{samKeyType: resTypeDynamoDBTable, attrNameArn: table},
+		perms,
+	)
 }
 
 func orString(v any, def string) any {
@@ -419,7 +435,7 @@ func orString(v any, def string) any {
 
 func (g *samGraphQL) putLambdaSource(rel string, ds map[string]any, depends any) error {
 	id := g.id + rel + "LambdaDataSource"
-	out := map[string]any{samKeyAPIID: g.apiID, samKeyAppSyncName: orString(ds[attrNameName], rel),
+	out := map[string]any{samKeyAPIID: g.apiID, attrNameName: orString(ds[attrNameName], rel),
 		samKeyType: "AWS_LAMBDA", "LambdaConfig": map[string]any{"LambdaFunctionArn": ds[samKeyFunctionArn]}}
 	if d := ds[samKeyDesc]; d != nil {
 		out[samKeyDesc] = d
@@ -438,11 +454,11 @@ func (g *samGraphQL) putLambdaSource(rel string, ds map[string]any, depends any)
 		map[string]any{samKeyAssumeRole: servicePrincipalTrust("appsync.amazonaws.com")}, depends); err != nil {
 		return err
 	}
-	src := map[string]any{samKeyType: samTypeAppSyncDS, "Arn": samGetAtt(id, "DataSourceArn"),
+	src := map[string]any{samKeyType: samTypeAppSyncDS, attrNameArn: samGetAtt(id, "DataSourceArn"),
 		samKeyRoleName: samRef(id + "Role")}
-	dst := map[string]any{samKeyType: samTypeFunction, "Arn": ds[samKeyFunctionArn]}
+	dst := map[string]any{samKeyType: samTypeFunction, attrNameArn: ds[samKeyFunctionArn]}
 
-	return g.connect(id+"ToLambdaConnector", src, dst, []string{"Write"})
+	return g.connect(id+"ToLambdaConnector", src, dst, []string{samPermWrite})
 }
 
 // connect expands a synthetic connector between two typed endpoints into the policies SAM generates.
@@ -504,32 +520,9 @@ func (g *samGraphQL) putFunctions(props map[string]any, depends any) error {
 
 			continue
 		}
-		inline, uri, err := graphQLCode(rel, fn)
+		out, err := g.functionConfig(rel, fn)
 		if err != nil {
 			return err
-		}
-		if inline == nil && uri == nil {
-			return samErr(rel, "One of 'InlineCode' or 'CodeUri' must be set.")
-		}
-		ds, err := g.dataSourceName(rel, fn)
-		if err != nil {
-			return err
-		}
-		runtime, err := graphQLRuntime(rel, fn)
-		if err != nil {
-			return err
-		}
-		out := map[string]any{samKeyAPIID: g.apiID, samKeyAppSyncName: orString(fn[attrNameName], rel),
-			"DataSourceName": ds, samKeyRuntime: runtime}
-		if inline != nil {
-			out["Code"] = inline
-		} else {
-			out["CodeS3Location"] = uri
-		}
-		for src, dst := range map[string]string{samKeyMaxBatch: samKeyMaxBatch, samKeyDesc: samKeyDesc, "Sync": "SyncConfig"} {
-			if v := fn[src]; v != nil {
-				out[dst] = v
-			}
 		}
 		fid := g.id + rel
 		g.functionIDs[rel] = samGetAtt(fid, "FunctionId")
@@ -539,6 +532,39 @@ func (g *samGraphQL) putFunctions(props map[string]any, depends any) error {
 	}
 
 	return nil
+}
+
+func (g *samGraphQL) functionConfig(rel string, fn map[string]any) (map[string]any, error) {
+	inline, uri, err := graphQLCode(rel, fn)
+	if err != nil {
+		return nil, err
+	}
+	if inline == nil && uri == nil {
+		return nil, samErr(rel, "One of 'InlineCode' or 'CodeUri' must be set.")
+	}
+	ds, err := g.dataSourceName(rel, fn)
+	if err != nil {
+		return nil, err
+	}
+	runtime, err := graphQLRuntime(rel, fn)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{samKeyAPIID: g.apiID, attrNameName: orString(fn[attrNameName], rel),
+		"DataSourceName": ds, samKeyRuntime: runtime}
+	if inline != nil {
+		out["Code"] = inline
+	} else {
+		out["CodeS3Location"] = uri
+	}
+	passthrough := map[string]string{samKeyMaxBatch: samKeyMaxBatch, samKeyDesc: samKeyDesc, "Sync": "SyncConfig"}
+	for src, dst := range passthrough {
+		if v := fn[src]; v != nil {
+			out[dst] = v
+		}
+	}
+
+	return out, nil
 }
 
 func (g *samGraphQL) putResolvers(props map[string]any, _ any) error {

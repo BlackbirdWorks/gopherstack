@@ -45,7 +45,7 @@ func samDomainConfig(id string, raw any) (map[string]any, error) {
 	if domain == nil {
 		return nil, samErr(id, "Domain must be a map.")
 	}
-	if domain[samKeyDomainName] == nil || domain["CertificateArn"] == nil {
+	if domain[samKeyDomainName] == nil || domain[samKeyCertArn] == nil {
 		return nil, samErr(id, "Custom Domains only works if both DomainName and CertificateArn are provided.")
 	}
 	if mtls := domain["MutualTlsAuthentication"]; mtls != nil {
@@ -97,7 +97,7 @@ func (t *samTranslator) emitV2Domain(apiID string, raw any, tags map[string]any,
 		}
 	}
 	domainID := "ApiGatewayDomainNameV2" + samLogicalID("", domain[samKeyDomainName])
-	cfg := map[string]any{"CertificateArn": domain["CertificateArn"], "EndpointType": endpoint}
+	cfg := map[string]any{samKeyCertArn: domain[samKeyCertArn], "EndpointType": endpoint}
 	for _, k := range []string{"OwnershipVerificationCertificateArn", samKSecurityPolicy} {
 		if domain[k] != nil {
 			cfg[k] = domain[k]
@@ -157,7 +157,12 @@ func httpMapping(apiID, domainID, key string) map[string]any {
 
 // putRecordSets adds the Route53 alias records for a Domain.Route53 block, merging into one
 // RecordSetGroup per hosted zone like SAM does.
-func (t *samTranslator) putRecordSets(apiID string, domain map[string]any, domainID, endpoint string, merge bool) error {
+func (t *samTranslator) putRecordSets(
+	apiID string,
+	domain map[string]any,
+	domainID, endpoint string,
+	merge bool,
+) error {
 	r53 := domain["Route53"]
 	if r53 == nil {
 		return nil
@@ -268,14 +273,14 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 	}
 	props := map[string]any{samKeyDomainName: domain[samKeyDomainName], samKeyEndpointConfig: cfg}
 	if endpoint == samEndpointRegional {
-		props["RegionalCertificateArn"] = domain["CertificateArn"]
+		props["RegionalCertificateArn"] = domain[samKeyCertArn]
 	} else {
-		props["CertificateArn"] = domain["CertificateArn"]
+		props[samKeyCertArn] = domain[samKeyCertArn]
 	}
 	if m := mutualTLS(domain); m != nil {
 		props["MutualTlsAuthentication"] = m
 	}
-	optional := []string{samKSecurityPolicy, "EndpointAccessMode", samKPolicy, "OwnershipVerificationCertificateArn"}
+	optional := []string{samKSecurityPolicy, samKeyAccessMode, samKPolicy, "OwnershipVerificationCertificateArn"}
 	for _, k := range optional {
 		if domain[k] != nil {
 			props[k] = domain[k]
@@ -303,9 +308,9 @@ func (t *samTranslator) emitPrivateRESTDomain(a *samAPI, domain map[string]any) 
 	}
 	props := map[string]any{
 		samKeyDomainName: domain[samKeyDomainName], samKeyEndpointConfig: cfg,
-		"CertificateArn": domain["CertificateArn"],
+		samKeyCertArn: domain[samKeyCertArn],
 	}
-	for _, k := range []string{samKSecurityPolicy, "EndpointAccessMode", samKPolicy} {
+	for _, k := range []string{samKSecurityPolicy, samKeyAccessMode, samKPolicy} {
 		if domain[k] != nil {
 			props[k] = domain[k]
 		}

@@ -67,11 +67,6 @@ func (t *samTranslator) pullEvent(ev *samEventCtx, name, kind string, props map[
 			return samErr(ev.id, "Event [%s] is missing required property '%s'.", name, k)
 		}
 	}
-	if v, has := props[samKeySAC]; has && v != nil {
-		if _, isList := v.([]any); !isList {
-			return samErr(id, "Type of property '%s' is invalid.", samKeySAC)
-		}
-	}
 	if err := validatePullProps(ev.id, name, kind, props); err != nil {
 		return err
 	}
@@ -114,7 +109,20 @@ func samPullDirect() map[string]bool {
 		"ProvisionedPollerConfig", "MetricsConfig", "LoggingConfig")
 }
 
+func checkSACType(id string, props map[string]any) error {
+	if v, has := props[samKeySAC]; has && v != nil {
+		if _, isList := v.([]any); !isList {
+			return samErr(id, "Type of property '%s' is invalid.", samKeySAC)
+		}
+	}
+
+	return nil
+}
+
 func validatePullProps(fnID, name, kind string, props map[string]any) error {
+	if err := checkSACType(fnID+name, props); err != nil {
+		return err
+	}
 	if fc := asMap(props["FilterCriteria"]); fc != nil && !isIntrinsicValue(fc) {
 		if !containsString(samFilterKinds(), kind) {
 			return samErr(fnID, "Event [%s] FilterCriteria is only available for DocumentDB, DynamoDB, Kinesis, MQ, "+
@@ -297,7 +305,7 @@ func (t *samTranslator) mskStatements(props map[string]any) []any {
 	}
 	for _, c := range asList(props[samKeySAC]) {
 		conf := asMap(c)
-		if conf["Type"] == "CLIENT_CERTIFICATE_TLS_AUTH" && conf[samKeyURI2] != nil {
+		if conf[samKeyType] == "CLIENT_CERTIFICATE_TLS_AUTH" && conf[samKeyURI2] != nil {
 			statements = append(statements, secretStatement(conf[samKeyURI2]))
 		}
 	}
@@ -434,7 +442,7 @@ func requiredSACURI(id, label string, props map[string]any, supported []string, 
 		if conf == nil {
 			return nil, samErr(id, "SourceAccessConfigurations[%d] must be a map.", i)
 		}
-		typ, ok := conf["Type"].(string)
+		typ, ok := conf[samKeyType].(string)
 		if !ok {
 			return nil, samErr(id, "SourceAccessConfigurations[%d].Type must be a string.", i)
 		}
@@ -546,7 +554,7 @@ func kafkaSecrets(id string, sac any) (any, any, bool, error) {
 }
 
 func (s *kafkaSAC) add(id string, conf map[string]any) error {
-	typ, _ := conf["Type"].(string)
+	typ, _ := conf[samKeyType].(string)
 	uri := conf[samKeyURI2]
 	switch {
 	case typ == "VPC_SUBNET", typ == "VPC_SECURITY_GROUP":

@@ -78,9 +78,9 @@ Resources:
 `
 
 	tests := []struct {
+		want   any
 		name   string
 		region string
-		want   any
 	}{
 		{name: "resolved", region: "eu-west-1", want: "eu-west-1"},
 		{name: "kept", region: "", want: map[string]any{"Ref": "AWS::Region"}},

@@ -25,8 +25,8 @@ func samSMAllowed() map[string]bool {
 		samKeyRolePath,
 		"DefinitionSubstitutions",
 		samKeyEvents,
-		"Name",
-		"Type",
+		attrNameName,
+		samKeyType,
 		samKeyTags,
 		"PropagateTags",
 		"Policies",
@@ -65,7 +65,7 @@ func (t *samTranslator) translateStateMachine(id string, r map[string]any) error
 			return err
 		}
 	}
-	for src, dst := range map[string]string{attrNameName: "StateMachineName", "Type": "StateMachineType",
+	for src, dst := range map[string]string{attrNameName: "StateMachineName", samKeyType: "StateMachineType",
 		"Logging": "LoggingConfiguration", "Tracing": "TracingConfiguration"} {
 		if props[src] != nil {
 			sm[dst] = props[src]
@@ -255,7 +255,7 @@ func (t *samTranslator) putSMAlias(id string, props map[string]any) (string, err
 	if err := t.put(
 		aliasID,
 		map[string]any{samKeyType: samTypeSFNAlias, samKeyProps: map[string]any{
-			"Name": name, "DeploymentPreference": pref,
+			attrNameName: name, "DeploymentPreference": pref,
 		}},
 	); err != nil {
 		return "", err

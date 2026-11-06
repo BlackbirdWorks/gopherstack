@@ -20,30 +20,20 @@ const (
 )
 
 func samWebSocketProps() map[string]bool {
-	return keySet("ApiKeySelectionExpression", "AccessLogSettings", samAuthKey, "DefaultRouteSettings", samKeyDesc,
-		"DisableExecuteApiEndpoint", samDomainKey, "DisableSchemaValidation", "FailOnWarnings", "IpAddressType",
+	return keySet("ApiKeySelectionExpression", samKeyAccessLog, samAuthKey, samKeyDefaultRoute, samKeyDesc,
+		samKeyDisableEndpoint, samDomainKey, "DisableSchemaValidation", "FailOnWarnings", "IpAddressType",
 		attrNameName, samKeyPropagateTags, "Routes", samKeyRouteSetting, "RouteSelectionExpression",
 		samKeyStageName, samKeyStageVars, samKeyTags)
 }
 
-func (t *samTranslator) translateWebSocketApi(id string, r map[string]any) error {
+func (t *samTranslator) translateWebSocketAPI(id string, r map[string]any) error {
 	props := t.resProps("WebSocketApi", r)
 	if err := rejectUnknown(id, props, samWebSocketProps()); err != nil {
 		return err
 	}
 	routes := asMap(t.resolveParamRefs(props["Routes"]))
-	if len(routes) == 0 {
-		if props["Routes"] == nil {
-			return samErr(id, "Missing required property 'Routes'.")
-		}
-
-		return samErr(id, "WebSocket API must have at least one route.")
-	}
-	selection, isStr := props["RouteSelectionExpression"].(string)
-	if !isStr || selection == "" {
-		return samErr(id, "Missing required property 'RouteSelectionExpression'.")
-	}
-	if err := validateWebSocketShape(id, props); err != nil {
+	selection, err := validateWebSocketRequired(id, props, routes)
+	if err != nil {
 		return err
 	}
 	auth := asMap(t.resolveParamRefs(props[samAuthKey]))
@@ -75,31 +65,51 @@ func (t *samTranslator) translateWebSocketApi(id string, r map[string]any) error
 		samKeyType:  samTypeHTTPAPI,
 	}
 	carryAttrs(r, api)
-	if err := t.put(id, api); err != nil {
+	if err = t.put(id, api); err != nil {
 		return err
 	}
-	if err := t.emitV2Domain(id, props[samDomainKey], stageTags, false); err != nil {
+	if err = t.emitV2Domain(id, props[samDomainKey], stageTags, false); err != nil {
 		return err
 	}
 	routeIDs, authorizer, err := t.putWSRoutes(id, routes, auth, stage)
 	if err != nil {
 		return err
 	}
+	if err = t.putWSStage(id, stage, stageTags, props, routeIDs); err != nil {
+		return err
+	}
+
+	return t.putWSAuthorizer(id, auth, authorizer)
+}
+
+func validateWebSocketRequired(id string, props, routes map[string]any) (string, error) {
+	if len(routes) == 0 {
+		if props["Routes"] == nil {
+			return "", samErr(id, "Missing required property 'Routes'.")
+		}
+
+		return "", samErr(id, "WebSocket API must have at least one route.")
+	}
+	selection, isStr := props["RouteSelectionExpression"].(string)
+	if !isStr || selection == "" {
+		return "", samErr(id, "Missing required property 'RouteSelectionExpression'.")
+	}
+
+	return selection, validateWebSocketShape(id, props)
+}
+
+func (t *samTranslator) putWSStage(id string, stage any, tags, props map[string]any, routeIDs []any) error {
 	stageID := id + stageSuffix(stage) + "Stage"
 	if stage == samWSDefaultStage {
 		stageID = id + "DefaultStage"
 	}
 	t.refs[id+".Stage"] = stageID
-	sprops := wsStageProps(id, stage, stageTags, props)
-	res := map[string]any{samKeyType: samTypeHTTPStage, samKeyProps: sprops}
+	res := map[string]any{samKeyType: samTypeHTTPStage, samKeyProps: wsStageProps(id, stage, tags, props)}
 	if props[samKeyRouteSetting] != nil && len(routeIDs) > 0 {
 		res[samKeyDependsOn] = routeIDs
 	}
-	if err = t.put(stageID, res); err != nil {
-		return err
-	}
 
-	return t.putWSAuthorizer(id, auth, authorizer)
+	return t.put(stageID, res)
 }
 
 func stageSuffix(stage any) string {
@@ -123,7 +133,9 @@ func validateWebSocketShape(id string, props map[string]any) error {
 	return nil
 }
 
-func (t *samTranslator) wsAPIProps(id string, props map[string]any, selection string, tags map[string]any) map[string]any {
+func (t *samTranslator) wsAPIProps(
+	id string, props map[string]any, selection string, tags map[string]any,
+) map[string]any {
 	out := map[string]any{
 		attrNameName: id, "ProtocolType": "WEBSOCKET", "RouteSelectionExpression": selection,
 		samKeyTags: tags,
@@ -131,7 +143,7 @@ func (t *samTranslator) wsAPIProps(id string, props map[string]any, selection st
 	if n, has := props[attrNameName]; has && n != nil {
 		out[attrNameName] = n
 	}
-	for _, k := range []string{"ApiKeySelectionExpression", samKeyDesc, "DisableExecuteApiEndpoint",
+	for _, k := range []string{"ApiKeySelectionExpression", samKeyDesc, samKeyDisableEndpoint,
 		"DisableSchemaValidation", "IpAddressType"} {
 		if v, has := props[k]; has && v != nil {
 			out[k] = v
@@ -143,8 +155,8 @@ func (t *samTranslator) wsAPIProps(id string, props map[string]any, selection st
 
 func wsStageProps(apiID string, stage any, tags map[string]any, props map[string]any) map[string]any {
 	out := map[string]any{samKeyAPIID: samRef(apiID), "AutoDeploy": true, samKeyStageName: stage, samKeyTags: tags}
-	for src, dst := range map[string]string{"AccessLogSettings": "AccessLogSettings",
-		"DefaultRouteSettings": "DefaultRouteSettings", samKeyRouteSetting: samKeyRouteSetting,
+	for src, dst := range map[string]string{samKeyAccessLog: samKeyAccessLog,
+		samKeyDefaultRoute: samKeyDefaultRoute, samKeyRouteSetting: samKeyRouteSetting,
 		samKeyStageVars: samKeyStageVars} {
 		if v, has := props[src]; has && v != nil {
 			out[dst] = v
@@ -207,12 +219,12 @@ func (t *samTranslator) putWSRoutes(
 			integ["TimeoutInMillis"] = v
 		}
 		for _, res := range []struct {
+			p   map[string]any
 			id  string
 			typ string
-			p   map[string]any
 		}{
-			{routeID, samTypeWSRoute, route}, {integID, samTypeWSIntegration, integ},
-			{permID, samTypePerm, wsPermission(apiID, key, fn, stage)},
+			{id: routeID, typ: samTypeWSRoute, p: route}, {id: integID, typ: samTypeWSIntegration, p: integ},
+			{id: permID, typ: samTypePerm, p: wsPermission(apiID, key, fn, stage)},
 		} {
 			if err = t.put(res.id, map[string]any{samKeyType: res.typ, samKeyProps: res.p}); err != nil {
 				return nil, nil, err
@@ -250,13 +262,13 @@ func validateWSAuth(apiID string, auth map[string]any) error {
 	switch {
 	case typ == "":
 		return samErr(apiID, "AuthType must be specified for additional auth configurations.")
-	case !slices.Contains([]string{"NONE", samWSAuthIAM, samWSAuthCustom}, typ):
+	case !slices.Contains([]string{valueNone, samWSAuthIAM, samWSAuthCustom}, typ):
 		return samErr(apiID, "AuthType '%s' is not one of AWS_IAM, CUSTOM or NONE.", typ)
 	case typ == samWSAuthCustom && auth[samKeyAuthArn] == nil:
 		return samErr(apiID, "AuthArn must be specified if AuthType is CUSTOM.")
 	case typ == samWSAuthIAM && len(auth) > 1:
 		return samErr(apiID, "No additional configurations supported for AuthType AWS_IAM.")
-	case typ == "NONE" && len(auth) > 1:
+	case typ == valueNone && len(auth) > 1:
 		return samErr(apiID, "No additional configurations supported for AuthType NONE.")
 	}
 
@@ -289,7 +301,7 @@ func wsApplyAuth(apiID string, auth, route map[string]any) map[string]any {
 	case samWSAuthIAM:
 		route["AuthorizationType"] = samWSAuthIAM
 	default:
-		route["AuthorizationType"] = "NONE"
+		route["AuthorizationType"] = valueNone
 	}
 
 	return nil
@@ -307,7 +319,7 @@ func (t *samTranslator) putWSAuthorizer(apiID string, auth, authorizer map[strin
 		return nil
 	}
 	perm := lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: []any{
-		"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/authorizers/*",
+		samAuthorizersSourceARN,
 		map[string]any{samAPIIDMarker: samRef(apiID)},
 	}})
 	asMap(perm[samKeyProps])[samKeyFnName] = auth[samKeyAuthArn]

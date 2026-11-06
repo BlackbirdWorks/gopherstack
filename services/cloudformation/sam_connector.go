@@ -380,8 +380,8 @@ func (t *samTranslator) connectorRef(id string, obj, connecting map[string]any) 
 		}
 
 		return samConnRef{
-			resType: samConnCFNType(typ), arn: obj["Arn"], roleName: obj["RoleName"], queueURL: obj["QueueUrl"],
-			resourceID: obj["ResourceId"], name: obj["Name"], qualifier: obj[samKeyQualifier],
+			resType: samConnCFNType(typ), arn: obj[attrNameArn], roleName: obj["RoleName"], queueURL: obj["QueueUrl"],
+			resourceID: obj["ResourceId"], name: obj[attrNameName], qualifier: obj[samKeyQualifier],
 		}, nil
 	}
 
@@ -404,8 +404,8 @@ func (t *samTranslator) connectorRef(id string, obj, connecting map[string]any) 
 	}
 	outs := asMap(cfn)
 	ref := samConnRef{
-		logicalID: lid, resType: typ, arn: outs["Arn"], queueURL: outs["Url"],
-		resourceID: outs["Id"], name: outs["Name"], qualifier: outs[samKeyQualifier],
+		logicalID: lid, resType: typ, arn: outs[attrNameArn], queueURL: outs["Url"],
+		resourceID: outs["Id"], name: outs[attrNameName], qualifier: outs[samKeyQualifier],
 		roleName: connectorRoleName(typ, connecting, asMap(res[samKeyProps])),
 	}
 	if q, has := obj[samKeyQualifier]; has {
@@ -438,9 +438,9 @@ func eventsRuleRole(connecting, props map[string]any) any {
 	cid, _ := connecting[samKeyID].(string)
 	for _, tg := range asList(props["Targets"]) {
 		target := asMap(tg)
-		tid := logicalIDFromIntrinsic(target["Arn"])
+		tid := logicalIDFromIntrinsic(target[attrNameArn])
 		if (tid != "" && tid == cid) ||
-			(connecting["Arn"] != nil && fmt.Sprint(target["Arn"]) == fmt.Sprint(connecting["Arn"])) {
+			(connecting[attrNameArn] != nil && fmt.Sprint(target[attrNameArn]) == fmt.Sprint(connecting[attrNameArn])) {
 			return target["RoleArn"]
 		}
 	}

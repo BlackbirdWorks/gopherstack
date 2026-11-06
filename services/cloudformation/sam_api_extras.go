@@ -24,8 +24,8 @@ var samSwaggerVersionRe = regexp.MustCompile(`\A[2-3](\.\d)(\.\d)?$`)
 
 // samAPIRestKeys are the Api properties copied onto the RestApi besides the handled ones.
 func samAPIRestKeys() []string {
-	return []string{attrNameName, samKeyDesc, "BinaryMediaTypes", "MinimumCompressionSize", "ApiKeySourceType",
-		"FailOnWarnings", samKMode, samKPolicy, samKSecurityPolicy, "EndpointAccessMode"}
+	return []string{attrNameName, samKeyDesc, samKeyBinaryTypes, "MinimumCompressionSize", "ApiKeySourceType",
+		"FailOnWarnings", samKMode, samKPolicy, samKSecurityPolicy, samKeyAccessMode}
 }
 
 func samAPIStageKeys() []string {
@@ -66,14 +66,14 @@ func (a *samAPI) endpointConfiguration(rest map[string]any) error {
 		return nil
 	}
 	cfg, isMap := ep.(map[string]any)
-	if !isMap || cfg["Type"] == nil {
+	if !isMap || cfg[samKeyType] == nil {
 		rest["EndpointConfiguration"] = map[string]any{samKTypes: []any{ep}}
 		rest["Parameters"] = map[string]any{"endpointConfigurationTypes": ep}
 
 		return nil
 	}
-	rest["Parameters"] = map[string]any{"endpointConfigurationTypes": cfg["Type"]}
-	out := map[string]any{samKTypes: []any{cfg["Type"]}}
+	rest["Parameters"] = map[string]any{"endpointConfigurationTypes": cfg[samKeyType]}
+	out := map[string]any{samKTypes: []any{cfg[samKeyType]}}
 	if cfg["VPCEndpointIds"] != nil && cfg["VpcEndpointIds"] != nil {
 		return samErr(a.id, "'VPCEndpointIds' and 'VpcEndpointIds' cannot be used together in EndpointConfiguration.")
 	}
@@ -161,7 +161,7 @@ func samGatewayResponseKeys() []string {
 }
 
 func (a *samAPI) addGatewayResponses(doc map[string]any) error {
-	gw := asMap(a.props["GatewayResponses"])
+	gw := asMap(a.props[samKeyGWResponses])
 	if gw == nil {
 		return nil
 	}
@@ -318,7 +318,7 @@ func (a *samAPI) parseUsagePlan() (samUsagePlanSpec, bool, error) {
 	switch mode {
 	case "":
 		return samUsagePlanSpec{}, false, samErr(a.id, "'CreateUsagePlan' is a required field for UsagePlan.")
-	case "NONE":
+	case valueNone:
 		return samUsagePlanSpec{}, false, nil
 	case "PER_API", samKSHARED:
 		return samUsagePlanSpec{props: plan, mode: mode}, true, nil

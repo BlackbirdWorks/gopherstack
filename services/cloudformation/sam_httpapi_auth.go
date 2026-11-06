@@ -174,7 +174,7 @@ func httpIdentitySources(id map[string]any) []any {
 	out := []any{}
 	for _, p := range []struct{ key, prefix string }{
 		{samKeyHeaders, "$request.header."}, {samKQueryStrings, "$request.querystring."},
-		{samKeyStageVars, "$stageVariables."}, {"Context", "$context."},
+		{samKeyStageVars, "$stageVariables."}, {samKeyContext, "$context."},
 	} {
 		for _, v := range asList(id[p.key]) {
 			if s, ok := v.(string); ok {
@@ -344,7 +344,7 @@ func (t *samTranslator) putHTTPAuthorizerPermissions(a *samHTTPAPI) error {
 			continue
 		}
 		perm := lambdaPermission("", "apigateway.amazonaws.com", map[string]any{samKeyFnSub: []any{
-			"arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${__ApiId__}/authorizers/*",
+			samAuthorizersSourceARN,
 			map[string]any{samAPIIDMarker: samRef(a.id)},
 		}})
 		asMap(perm[samKeyProps])[samKeyFnName] = az.cfg["FunctionArn"]

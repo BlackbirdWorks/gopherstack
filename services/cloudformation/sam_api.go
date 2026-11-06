@@ -20,7 +20,7 @@ func samAPIPassthrough() map[string]bool {
 			samAPIRestKeys(),
 			samAPIStageKeys(),
 			[]string{"EndpointConfiguration", samKModels, "MergeDefinitions",
-				"GatewayResponses", "DisableExecuteApiEndpoint", samKeyTags, "PropagateTags"},
+				samKeyGWResponses, samKeyDisableEndpoint, samKeyTags, "PropagateTags"},
 		)...)
 }
 
@@ -30,19 +30,21 @@ func samAPIHandled() map[string]bool {
 }
 
 type samRoute struct {
-	target                         string
-	timeout                        any
-	scopes                         any
-	auth                           map[string]any
-	apiKey                         *bool
-	fnID, path, method, authorizer string
-	// roleID is set for state machine routes: the API Gateway invoke role.
-	roleID    string
-	condition string
-	streaming bool
-	model     *samRequestModel
-	params    []samReqParam
-	unescape  bool
+	timeout    any
+	scopes     any
+	model      *samRequestModel
+	auth       map[string]any
+	apiKey     *bool
+	path       string
+	target     string
+	method     string
+	authorizer string
+	roleID     string
+	condition  string
+	fnID       string
+	params     []samReqParam
+	streaming  bool
+	unescape   bool
 }
 
 // samAPI accumulates one AWS::Serverless::Api (or the implicit
@@ -121,7 +123,7 @@ func (t *samTranslator) registerAPI(id string, r map[string]any) error {
 
 // resolveAPIParams replaces template parameter Refs in the Api properties SAM resolves up front.
 func (t *samTranslator) resolveAPIParams(props map[string]any) {
-	for _, k := range []string{samAuthKey, "BinaryMediaTypes"} {
+	for _, k := range []string{samAuthKey, samKeyBinaryTypes} {
 		if v, has := props[k]; has {
 			props[k] = t.resolveParamRefs(v)
 		}
@@ -250,19 +252,8 @@ func (t *samTranslator) prepareAuth(a *samAPI) error {
 		return err
 	}
 	for _, rt := range a.routes {
-		if n := rt.authorizer; n != "" && n != samAuthNone && n != samSecIAM &&
-			(a.auth == nil || a.auth.defs[n] == nil) {
-			return samErr(rt.fnID, "Authorizer '%s' is not defined in Auth.Authorizers of API [%s].", n, a.id)
-		}
-		if rt.authorizer == samAuthNone && (a.auth == nil || a.auth.defaultAuth == "") {
-			return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set Authorizer on API method [%s] for "+
-				"path [%s] because 'NONE' is only a valid value when a DefaultAuthorizer on the API is specified.",
-				rt.fnID, strings.ToLower(rt.method), rt.path)
-		}
-		if rt.apiKey != nil && !*rt.apiKey && asMap(a.props[samAuthKey])["ApiKeyRequired"] == nil {
-			return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set ApiKeyRequired [False] on API method "+
-				"[%s] for path [%s] because the related API does not specify any ApiKeyRequired.",
-				rt.fnID, strings.ToLower(rt.method), rt.path)
+		if err = a.checkRouteAuth(rt); err != nil {
+			return err
 		}
 	}
 	perms := a.authPerms()
@@ -270,6 +261,25 @@ func (t *samTranslator) prepareAuth(a *samAPI) error {
 		if err = t.put(id, perms[id]); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// checkRouteAuth rejects an event whose authorizer or ApiKeyRequired the API cannot honour.
+func (a *samAPI) checkRouteAuth(rt samRoute) error {
+	if n := rt.authorizer; n != "" && n != samAuthNone && n != samSecIAM && (a.auth == nil || a.auth.defs[n] == nil) {
+		return samErr(rt.fnID, "Authorizer '%s' is not defined in Auth.Authorizers of API [%s].", n, a.id)
+	}
+	if rt.authorizer == samAuthNone && (a.auth == nil || a.auth.defaultAuth == "") {
+		return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set Authorizer on API method [%s] for "+
+			"path [%s] because 'NONE' is only a valid value when a DefaultAuthorizer on the API is specified.",
+			rt.fnID, strings.ToLower(rt.method), rt.path)
+	}
+	if rt.apiKey != nil && !*rt.apiKey && asMap(a.props[samAuthKey])["ApiKeyRequired"] == nil {
+		return samErr(rt.fnID, "Event with id [%s] is invalid. Unable to set ApiKeyRequired [False] on API method "+
+			"[%s] for path [%s] because the related API does not specify any ApiKeyRequired.",
+			rt.fnID, strings.ToLower(rt.method), rt.path)
 	}
 
 	return nil
@@ -323,7 +333,7 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 	if len(paths) > 0 || doc["paths"] != nil || a.props["DefinitionBody"] == nil {
 		doc["paths"] = paths
 	}
-	if err = a.decorate(t, doc, paths); err != nil {
+	if err = a.decorate(doc, paths); err != nil {
 		return nil, err
 	}
 	a.applyConditions(t, paths)
@@ -343,7 +353,7 @@ func (a *samAPI) body(t *samTranslator) (map[string]any, error) {
 }
 
 // decorate adds Cors, Auth and the document-level Api properties to the document.
-func (a *samAPI) decorate(t *samTranslator, doc, paths map[string]any) error {
+func (a *samAPI) decorate(doc, paths map[string]any) error {
 	if cors, ok := a.props[samKeyCorsProp]; ok {
 		if err := addCorsPreflight(a.id, paths, cors); err != nil {
 			return err
@@ -354,7 +364,7 @@ func (a *samAPI) decorate(t *samTranslator, doc, paths map[string]any) error {
 		return err
 	}
 
-	return a.addDocExtensions(t, doc)
+	return a.addDocExtensions(doc)
 }
 
 // baseDocument is the user's DefinitionBody (copied) or SAM's skeleton.
@@ -373,8 +383,8 @@ func (a *samAPI) baseDocument() (map[string]any, error) {
 }
 
 // addDocExtensions applies the Api properties that live in the swagger document.
-func (a *samAPI) addDocExtensions(t *samTranslator, doc map[string]any) error {
-	if m := a.props["BinaryMediaTypes"]; m != nil && asList(m) != nil {
+func (a *samAPI) addDocExtensions(doc map[string]any) error {
+	if m := a.props[samKeyBinaryTypes]; m != nil && asList(m) != nil {
 		addBinaryMediaTypes(doc, m)
 	}
 	if err := a.addGatewayResponses(doc); err != nil {
@@ -383,7 +393,7 @@ func (a *samAPI) addDocExtensions(t *samTranslator, doc map[string]any) error {
 	if err := a.addModels(doc); err != nil {
 		return err
 	}
-	if v, ok := a.props["DisableExecuteApiEndpoint"]; ok {
+	if v, ok := a.props[samKeyDisableEndpoint]; ok {
 		addDisableExecuteEndpoint(doc, v)
 	}
 
@@ -544,13 +554,13 @@ func samRESTStageID(apiID, stage string) string {
 	return samLogicalID(apiID+samDeploymentStub, stage)
 }
 
-func validateAPIProps(id string, props map[string]any) error {
+func validateAPIBodyType(id string, props map[string]any) error {
 	if body, has := props["DefinitionBody"]; has && body != nil {
 		m, isMap := body.(map[string]any)
 		if !isMap {
 			return samErr(id, "Property 'DefinitionBody' should be a map.")
 		}
-		if isSAMIntrinsic(m) && props["DisableExecuteApiEndpoint"] != nil {
+		if isSAMIntrinsic(m) && props[samKeyDisableEndpoint] != nil {
 			return samInvalid("Invalid Swagger document or the Swagger document is not explicitly defined in " +
 				"'DefinitionBody'.")
 		}
@@ -560,16 +570,24 @@ func validateAPIProps(id string, props map[string]any) error {
 			return samErr(id, "Type of property 'FailOnWarnings' is invalid.")
 		}
 	}
+
+	return nil
+}
+
+func validateAPIProps(id string, props map[string]any) error {
+	if err := validateAPIBodyType(id, props); err != nil {
+		return err
+	}
 	if props["DefinitionUri"] != nil && props["DefinitionBody"] != nil {
 		return samErr(id, "Specify either 'DefinitionUri' or 'DefinitionBody' property and not both.")
 	}
 	if props["DefinitionUri"] != nil {
-		for _, k := range []string{samKeyCorsProp, samAuthKey, "GatewayResponses", samKModels} {
+		for _, k := range []string{samKeyCorsProp, samAuthKey, samKeyGWResponses, samKModels} {
 			if props[k] != nil {
 				return samErr(id, "%s works only with inline Swagger specified in 'DefinitionBody' property.", k)
 			}
 		}
-		if props["DisableExecuteApiEndpoint"] != nil {
+		if props[samKeyDisableEndpoint] != nil {
 			return samErr(id, "DisableExecuteApiEndpoint works only within 'DefinitionBody' property.")
 		}
 	}

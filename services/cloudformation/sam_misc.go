@@ -22,8 +22,8 @@ func (t *samTranslator) translateSimpleTable(id string, r map[string]any) error 
 	}
 	key, typ := "id", samTypeString
 	if pk := asMap(props["PrimaryKey"]); pk != nil {
-		n, hasName := pk["Name"]
-		ty, hasType := pk["Type"]
+		n, hasName := pk[attrNameName]
+		ty, hasType := pk[samKeyType]
 		switch {
 		case !hasName || n == nil:
 			return samErr(id, "Property 'PrimaryKey.Name' is required.")

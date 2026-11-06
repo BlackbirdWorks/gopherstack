@@ -635,12 +635,17 @@ func TestSAMTransform_ApiCors(t *testing.T) {
 const samAuthFn = "  AuthFn:\n    Type: AWS::Serverless::Function\n    Properties:\n" + samFnHeader
 
 func samAuthTemplate(authBlock, secureAuth string) string {
+	publicAuth := ""
+	if strings.Contains(authBlock, "DefaultAuthorizer") {
+		publicAuth = "            Auth:\n              Authorizer: NONE\n"
+	}
+
 	return samHeader + "Resources:\n  Api:\n    Type: AWS::Serverless::Api\n    Properties:\n      StageName: Prod\n" +
 		authBlock + samAuthFn + "  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n" + samFnHeader +
 		"      Events:\n        Secure:\n          Type: Api\n          Properties:\n            Path: /secure\n" +
 		"            Method: get\n            RestApiId: !Ref Api\n" + secureAuth +
 		"        Public:\n          Type: Api\n          Properties:\n            Path: /public\n" +
-		"            Method: get\n            RestApiId: !Ref Api\n            Auth:\n              Authorizer: NONE\n"
+		"            Method: get\n            RestApiId: !Ref Api\n" + publicAuth
 }
 
 func TestSAMTransform_ApiAuth(t *testing.T) {

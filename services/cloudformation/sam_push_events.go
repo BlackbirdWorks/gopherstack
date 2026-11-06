@@ -100,19 +100,28 @@ func (t *samTranslator) finalizeS3Events() error {
 		}
 		nc[samKeyLambdaCfg] = existing
 		props[samKeyNotifCfg] = nc
-		if tags := t.bucketTags[id]; len(tags) > 0 {
-			if cur, has := props[samKeyTags]; has && cur != nil {
-				if _, isList := cur.([]any); !isList {
-					return samErr(id, "Property 'Tags' should be a list.")
-				}
-			}
-			props[samKeyTags] = plainTagList(tags)
+		if err := setBucketTags(id, props, t.bucketTags[id]); err != nil {
+			return err
 		}
 		nb := maps.Clone(b)
 		nb[samKeyProps] = props
 		t.dependOnPermissions(nb, t.s3Perms[id])
 		t.out[id] = nb
 	}
+
+	return nil
+}
+
+func setBucketTags(id string, props, tags map[string]any) error {
+	if len(tags) == 0 {
+		return nil
+	}
+	if cur, has := props[samKeyTags]; has && cur != nil {
+		if _, isList := cur.([]any); !isList {
+			return samErr(id, "Property 'Tags' should be a list.")
+		}
+	}
+	props[samKeyTags] = plainTagList(tags)
 
 	return nil
 }
@@ -323,7 +332,7 @@ func (t *samTranslator) eventBridgeDLQ(
 
 func (t *samTranslator) scheduleEvent(ev *samEventCtx, name string, props map[string]any) error {
 	id := ev.id + name
-	if err := rejectUnknown(id, props, keySet("Schedule", samKRuleName, "Input", samKeyEnabled, samKeyState, "Name",
+	if err := rejectUnknown(id, props, keySet("Schedule", samKRuleName, "Input", samKeyEnabled, samKeyState, attrNameName,
 		samKeyDesc, "DeadLetterConfig", "RetryPolicy")); err != nil {
 		return err
 	}

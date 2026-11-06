@@ -14,18 +14,36 @@ func samInvalid(format string, args ...any) error {
 	return fmt.Errorf("%w. Structure of the SAM template is invalid. %s", ErrSAMTransform, fmt.Sprintf(format, args...))
 }
 
-func samGlobalsApiKeys() []string {
-	return []string{"Auth", "Name", "DefinitionUri", "CacheClusterEnabled", "CacheClusterSize", "MergeDefinitions",
-		"Variables", "EndpointConfiguration", "MethodSettings", "BinaryMediaTypes", "MinimumCompressionSize", "Cors",
-		"GatewayResponses", "AccessLogSetting", "CanarySetting", "TracingEnabled", "OpenApiVersion", "Domain",
-		"AlwaysDeploy", "PropagateTags", "SecurityPolicy", "EndpointAccessMode"}
+func samGlobalsAPIKeys() []string {
+	return []string{
+		"Auth",
+		attrNameName,
+		"DefinitionUri",
+		"CacheClusterEnabled",
+		"CacheClusterSize",
+		"MergeDefinitions",
+		"Variables",
+		"EndpointConfiguration",
+		"MethodSettings",
+		samKeyBinaryTypes,
+		"MinimumCompressionSize",
+		"Cors",
+		samKeyGWResponses,
+		"AccessLogSetting",
+		"CanarySetting",
+		"TracingEnabled",
+		"OpenApiVersion",
+		"Domain",
+		"AlwaysDeploy",
+		"PropagateTags",
+		"SecurityPolicy",
+		samKeyAccessMode,
+	}
 }
 
 // validateSAMDocument checks the template-level structure the SAM translator insists on.
 func validateSAMDocument(doc map[string]any) error {
-	if res, has := doc["Resources"]; !has || res == nil {
-		return samInvalid("'Resources' section is required")
-	} else if _, isMap := res.(map[string]any); !isMap {
+	if res, isMap := doc["Resources"].(map[string]any); !isMap || res == nil {
 		return samInvalid("'Resources' section is required")
 	}
 	for _, k := range []string{"Mappings", "Parameters"} {
@@ -40,7 +58,11 @@ func validateSAMDocument(doc map[string]any) error {
 			return fmt.Errorf("%w. 'Globals' section is invalid. It must be a non-empty dictionary", ErrSAMTransform)
 		}
 	}
-	res := asMap(doc["Resources"])
+
+	return validateResourceDecls(asMap(doc["Resources"]))
+}
+
+func validateResourceDecls(res map[string]any) error {
 	for _, id := range slices.Sorted(maps.Keys(res)) {
 		r := asMap(res[id])
 		if cond, has := r[samKeyCondition]; has {
@@ -61,7 +83,7 @@ func validateGlobalsSection(section string, v map[string]any) error {
 		return nil
 	}
 	for _, k := range slices.Sorted(maps.Keys(v)) {
-		if !slices.Contains(samGlobalsApiKeys(), k) {
+		if !slices.Contains(samGlobalsAPIKeys(), k) {
 			return fmt.Errorf("%w. 'Globals' section is invalid. '%s' is not a supported property of 'Api'",
 				ErrSAMTransform, k)
 		}
@@ -74,17 +96,8 @@ func validateGlobalsSection(section string, v map[string]any) error {
 func (t *samTranslator) validateSubVariables(v any) error {
 	switch val := v.(type) {
 	case map[string]any:
-		if sub, ok := val[samKeyFnSub]; ok && len(val) == 1 {
-			s, _ := sub.(string)
-			if l, isList := sub.([]any); isList && len(l) > 0 {
-				s, _ = l[0].(string)
-			}
-			for _, m := range samSubVarPattern.FindAllStringSubmatch(s, -1) {
-				if _, isList := t.params[m[1]].([]any); isList {
-					return samInvalid("Invalid Fn::Sub variable value %v. Fn::Sub expects all variables to be strings.",
-						t.params[m[1]])
-				}
-			}
+		if err := t.checkSubCall(val); err != nil {
+			return err
 		}
 		for _, k := range slices.Sorted(maps.Keys(val)) {
 			if err := t.validateSubVariables(val[k]); err != nil {
@@ -96,6 +109,25 @@ func (t *samTranslator) validateSubVariables(v any) error {
 			if err := t.validateSubVariables(e); err != nil {
 				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+func (t *samTranslator) checkSubCall(val map[string]any) error {
+	sub, ok := val[samKeyFnSub]
+	if !ok || len(val) != 1 {
+		return nil
+	}
+	s, _ := sub.(string)
+	if l, isList := sub.([]any); isList && len(l) > 0 {
+		s, _ = l[0].(string)
+	}
+	for _, m := range samSubVarPattern.FindAllStringSubmatch(s, -1) {
+		if _, isList := t.params[m[1]].([]any); isList {
+			return samInvalid("Invalid Fn::Sub variable value %v. Fn::Sub expects all variables to be strings.",
+				t.params[m[1]])
 		}
 	}
 
@@ -118,6 +150,17 @@ func isStringList(v any) bool {
 
 // validateFunctionShape applies the type checks SAM's Function model makes before translating anything.
 func (t *samTranslator) validateFunctionShape(id string, props map[string]any) error {
+	if err := validateFunctionTypes(id, props); err != nil {
+		return err
+	}
+	if err := validateFunctionPackage(id, props); err != nil {
+		return err
+	}
+
+	return validateTenancy(id, props)
+}
+
+func validateFunctionTypes(id string, props map[string]any) error {
 	if role, has := props["Role"]; has && role != nil {
 		switch role.(type) {
 		case string, map[string]any:
@@ -142,11 +185,8 @@ func (t *samTranslator) validateFunctionShape(id string, props map[string]any) e
 			return samErr(id, "AutoPublishCodeSha256 must be a string")
 		}
 	}
-	if err := validateFunctionPackage(id, props); err != nil {
-		return err
-	}
 
-	return validateTenancy(id, props)
+	return nil
 }
 
 func validateFunctionPackage(id string, props map[string]any) error {
@@ -224,7 +264,7 @@ func (a *samAPI) validateSwaggerDocument(doc map[string]any) error {
 }
 
 func (a *samAPI) validateEndpointConfig(doc map[string]any) error {
-	if a.props["DisableExecuteApiEndpoint"] == nil {
+	if a.props[samKeyDisableEndpoint] == nil {
 		return nil
 	}
 	if v, has := doc[samKeyEndpointExt]; has {
@@ -252,7 +292,7 @@ func (a *samAPI) validatePathItem(path string, item map[string]any) error {
 	for _, method := range slices.Sorted(maps.Keys(item)) {
 		switch {
 		case method == "parameters", method == "summary", method == "description", method == "servers",
-			method == "$ref", strings.HasPrefix(method, "x-") && method != samAnyMethodKey:
+			method == samKeyDollarRef, strings.HasPrefix(method, "x-") && method != samAnyMethodKey:
 			continue
 		}
 		if _, isMap := item[method].(map[string]any); !isMap {
@@ -269,27 +309,37 @@ func validateBucketShape(id string, b map[string]any) error {
 		if !isMap {
 			return samErr(id, "Properties should be a map.")
 		}
-		if nc, hasNC := props[samKeyNotifCfg]; hasNC && nc != nil {
-			ncm, ncMap := nc.(map[string]any)
-			if !ncMap {
-				return samErr(id, "Property 'NotificationConfiguration' should be a map.")
-			}
-			if lc, hasLC := ncm[samKeyLambdaCfg]; hasLC && lc != nil {
-				if _, isList := lc.([]any); !isList {
-					return samErr(id, "Invalid type for LambdaConfigurations. Must be a list.")
-				}
-			}
+		if err := validateBucketNotifications(id, props); err != nil {
+			return err
 		}
 	}
-	if deps, has := b[samKeyDependsOn]; has {
-		switch d := deps.(type) {
-		case string:
-		case []any:
-			if !isStringList(d) {
-				return samErr(id, "Invalid type for field 'DependsOn'. Expected a string or list of strings.")
-			}
-		default:
-			return samErr(id, "Invalid type for field 'DependsOn'. Expected a string or list of strings.")
+	if deps, has := b[samKeyDependsOn]; has && !validDependsOn(deps) {
+		return samErr(id, "Invalid type for field 'DependsOn'. Expected a string or list of strings.")
+	}
+
+	return nil
+}
+
+func validDependsOn(v any) bool {
+	if _, isStr := v.(string); isStr {
+		return true
+	}
+
+	return isStringList(v)
+}
+
+func validateBucketNotifications(id string, props map[string]any) error {
+	nc, has := props[samKeyNotifCfg]
+	if !has || nc == nil {
+		return nil
+	}
+	ncm, isMap := nc.(map[string]any)
+	if !isMap {
+		return samErr(id, "Property 'NotificationConfiguration' should be a map.")
+	}
+	if lc, hasLC := ncm[samKeyLambdaCfg]; hasLC && lc != nil {
+		if _, isList := lc.([]any); !isList {
+			return samErr(id, "Invalid type for LambdaConfigurations. Must be a list.")
 		}
 	}
 
@@ -330,8 +380,11 @@ func validateAuthorizerShape(apiID, name string, v any) error {
 	cfg := asMap(v)
 	if id, has := cfg["Identity"]; has && id != nil {
 		if _, isMap := id.(map[string]any); !isMap {
-			return samErr(apiID, "Auth.Authorizers.<Authorizer>.Identity must be a dict (LambdaTokenAuthorizationIdentity, "+
-				"LambdaRequestAuthorizationIdentity or CognitoAuthorizationIdentity).")
+			return samErr(
+				apiID,
+				"Auth.Authorizers.<Authorizer>.Identity must be a dict (LambdaTokenAuthorizationIdentity, "+
+					"LambdaRequestAuthorizationIdentity or CognitoAuthorizationIdentity).",
+			)
 		}
 	}
 	if sc, has := cfg["AuthorizationScopes"]; has && sc != nil {
@@ -373,7 +426,7 @@ func validateHTTPIdentity(apiID, name string, identity any) error {
 	if !isMap {
 		return samErr(apiID, "Property 'Authorizers.%s.Identity' should be a map.", name)
 	}
-	for _, k := range []string{samKeyHeaders, samKQueryStrings, samKeyStageVars, "Context"} {
+	for _, k := range []string{samKeyHeaders, samKQueryStrings, samKeyStageVars, samKeyContext} {
 		v, has := id[k]
 		if !has {
 			continue
@@ -417,9 +470,9 @@ func passthroughBool(id string, v any) (bool, error) {
 		return b, nil
 	case string:
 		switch strings.ToLower(b) {
-		case "true":
+		case boolTrue:
 			return true, nil
-		case "false":
+		case boolFalseText:
 			return false, nil
 		}
 	}

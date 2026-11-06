@@ -417,7 +417,7 @@ func normalizeYAMLNodeValue(node *yaml.Node) (any, error) {
 				return nil, err
 			}
 			child := node.Content[i+1]
-			if key == "OpenApiVersion" && child.Kind == yaml.ScalarNode && child.Tag == "!!float" {
+			if isYAMLVersionFloat(key, child) {
 				m[key] = child.Value
 
 				continue
@@ -454,6 +454,11 @@ func normalizeYAMLNodeValue(node *yaml.Node) (any, error) {
 		// this branch is defensive-only and should be unreachable in practice.
 		return nil, fmt.Errorf("%w: kind %v", errUnexpectedYAMLNodeKind, node.Kind)
 	}
+}
+
+// isYAMLVersionFloat reports an OpenApiVersion given as a YAML float: 3.0 must stay "3.0", not the number 3.
+func isYAMLVersionFloat(key string, n *yaml.Node) bool {
+	return key == "OpenApiVersion" && n.Kind == yaml.ScalarNode && n.Tag == "!!float"
 }
 
 // wrapYAMLIntrinsic builds the long-form map representation for a short-form
