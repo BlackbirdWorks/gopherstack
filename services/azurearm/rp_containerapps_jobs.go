@@ -3,6 +3,7 @@ package azurearm
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -17,21 +18,32 @@ const (
 	acaCronFields         = 5
 	acaExecStopped        = "Stopped"
 	acaExecUnknown        = "Unknown"
+
+	acaDefaultMaxExecutions = 100
+	acaJobHistoryLimit      = 100
+	acaDefaultJobPolling    = 30
 )
 
 type storedACAExecution struct {
-	Start    time.Time      `json:"start"`
-	End      *time.Time     `json:"end,omitempty"`
-	Template map[string]any `json:"template"`
-	Name     string         `json:"name"`
-	Status   string         `json:"status,omitempty"`
-	Replicas int            `json:"replicas"`
-	Stopped  bool           `json:"stopped,omitempty"`
+	Start      time.Time      `json:"start"`
+	End        *time.Time     `json:"end,omitempty"`
+	Template   map[string]any `json:"template"`
+	Name       string         `json:"name"`
+	Status     string         `json:"status,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	Attempts   []int          `json:"attempts,omitempty"`
+	Replicas   int            `json:"replicas"`
+	Need       int            `json:"need,omitempty"`
+	RetryLimit int            `json:"retryLimit,omitempty"`
+	TimeoutSec int            `json:"timeoutSec,omitempty"`
+	Stopped    bool           `json:"stopped,omitempty"`
+	Done       bool           `json:"done,omitempty"`
 }
 
 type storedACAJob struct {
 	Created         time.Time             `json:"created"`
 	Modified        time.Time             `json:"modified"`
+	LastFire        time.Time             `json:"lastFire,omitempty"`
 	Tags            map[string]string     `json:"tags,omitempty"`
 	Config          map[string]any        `json:"config"`
 	Template        map[string]any        `json:"template"`
@@ -106,13 +118,18 @@ func acaCheckJobTrigger(cfg map[string]any, trigger string) error {
 		tc = mapOf(cfg["manualTriggerConfig"])
 	case acaJobTriggerSchedule:
 		tc = mapOf(cfg["scheduleTriggerConfig"])
-		if len(strings.Fields(strOf(tc, "cronExpression"))) != acaCronFields {
-			return acaBad("scheduleTriggerConfig.cronExpression must be a five-field cron expression.")
+		if _, err := parseACACron(strOf(tc, "cronExpression")); err != nil {
+			return acaBad("scheduleTriggerConfig.cronExpression '%s' is not a valid five-field cron expression: %v.",
+				strOf(tc, "cronExpression"), err)
 		}
 	case acaJobTriggerEvent:
 		tc = mapOf(cfg["eventTriggerConfig"])
 		if tc == nil {
 			return acaBad("configuration.eventTriggerConfig is required for Event jobs.")
+		}
+
+		if err := acaCheckJobScale(mapOf(tc[fieldScale])); err != nil {
+			return err
 		}
 	}
 
@@ -129,9 +146,50 @@ func acaCheckJobTrigger(cfg map[string]any, trigger string) error {
 	return nil
 }
 
+func acaCheckJobScale(sc map[string]any) error {
+	minE, hasMin := acaNum(sc, "minExecutions")
+	maxE, hasMax := acaNum(sc, "maxExecutions")
+	poll, hasPoll := acaNum(sc, "pollingInterval")
+
+	switch {
+	case hasMin && minE < 0:
+		return acaBad("eventTriggerConfig.scale.minExecutions cannot be negative.")
+	case hasMax && maxE < 1:
+		return acaBad("eventTriggerConfig.scale.maxExecutions must be at least 1.")
+	case hasMin && minE > acaJobMaxExecutions(sc):
+		return acaBad("eventTriggerConfig.scale.minExecutions cannot exceed maxExecutions.")
+	case hasPoll && poll < 1:
+		return acaBad("eventTriggerConfig.scale.pollingInterval must be at least 1 second.")
+	}
+
+	names := map[string]bool{}
+
+	for _, e := range acaList(sc["rules"]) {
+		r := mapOf(e)
+		name := strOf(r, fieldName)
+
+		if name == "" || names[name] || strOf(r, fieldType) == "" {
+			return acaBad("Event job scale rules need a unique name and a type.")
+		}
+
+		names[name] = true
+	}
+
+	return nil
+}
+
+func acaJobMaxExecutions(sc map[string]any) float64 {
+	if n, ok := acaNum(sc, "maxExecutions"); ok {
+		return n
+	}
+
+	return acaDefaultMaxExecutions
+}
+
 func (p *ContainerAppsProvider) putJob(id ResourceID, body map[string]any) (map[string]any, error) {
 	p.opMu.Lock("putJob")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	name := id.LeafName()
 	if !acaNameValid(name, acaMinNameLen, acaMaxAppNameLen) {
@@ -215,8 +273,14 @@ func (p *ContainerAppsProvider) buildJob(
 		rec.Location = loc
 	}
 
+	rec.LastFire = now
+
 	if prev != nil {
 		rec.Created, rec.Executions, rec.Location = prev.Created, prev.Executions, prev.Location
+
+		if reflect.DeepEqual(prev.Config[acaTriggerConfigKey(prev.Config)], cfg[acaTriggerConfigKey(cfg)]) {
+			rec.LastFire = prev.LastFire
+		}
 	}
 
 	delete(tmpl, fieldScale)
@@ -284,6 +348,7 @@ func (p *ContainerAppsProvider) listJobs(id ResourceID) []map[string]any {
 func (p *ContainerAppsProvider) deleteJob(id ResourceID, name string) error {
 	p.opMu.Lock("deleteJob")
 	defer p.opMu.Unlock()
+	defer p.armScheduler()
 
 	p.mu.Lock("deleteJob")
 
@@ -299,6 +364,7 @@ func (p *ContainerAppsProvider) deleteJob(id ResourceID, name string) error {
 	keys := p.executionKeys(j)
 
 	delete(p.jobs, key)
+	delete(p.lastPoll, key)
 	p.mu.Unlock()
 
 	p.rt.removeKeys(keys)
@@ -385,30 +451,48 @@ func acaApplyOverrides(base, override map[string]any) (map[string]any, error) {
 	return out, nil
 }
 
-// startJob creates an execution and runs its replicas; it answers once they have started or failed.
+// startJob creates a manual execution and answers once its replicas have started or failed.
 func (p *ContainerAppsProvider) startJob(id ResourceID, body map[string]any) (map[string]any, error) {
-	p.opMu.Lock("startJob")
-	defer p.opMu.Unlock()
-
-	p.mu.Lock("startJob")
-
-	j, ok := p.jobs[acaKey(id.ResourceGroup, id.LeafName())]
-	if !ok {
-		p.mu.Unlock()
-
-		return nil, ErrResourceNotFound
-	}
-
-	tmpl, err := acaApplyOverrides(j.Template, body)
+	name, err := p.startExecution(id.ResourceGroup, id.LeafName(), body, acaJobTriggerManual)
 	if err != nil {
-		p.mu.Unlock()
-
 		return nil, err
 	}
 
+	jid := acaResourceID(id.SubscriptionID, id.ResourceGroup, []string{acaJobType, acaExecutionType},
+		[]string{id.LeafName(), name})
+
+	return map[string]any{"id": jid.ARMID(), fieldName: name}, nil
+}
+
+// startExecution creates an execution of the job with the given override and deploys its replicas.
+func (p *ContainerAppsProvider) startExecution(rg, jobName string, override map[string]any, source string) (string, error) {
+	p.opMu.Lock("startExecution")
+	defer p.opMu.Unlock()
+
+	p.mu.Lock("startExecution")
+
+	j, ok := p.jobs[acaKey(rg, jobName)]
+	if !ok {
+		p.mu.Unlock()
+
+		return "", ErrResourceNotFound
+	}
+
+	tmpl, err := acaApplyOverrides(j.Template, override)
+	if err != nil {
+		p.mu.Unlock()
+
+		return "", err
+	}
+
+	tc := mapOf(j.Config[acaTriggerConfigKey(j.Config)])
+	replicas := max(acaIntOf(tc, "parallelism", 1), 1)
+
 	exec := &storedACAExecution{
-		Name: j.Name + "-" + awsid.NewN("", acaSuffixLen), Start: p.now().UTC(), Template: tmpl,
-		Replicas: max(acaIntOf(mapOf(j.Config[acaTriggerConfigKey(j.Config)]), "parallelism", 1), 1),
+		Name: j.Name + "-" + awsid.NewN("", acaSuffixLen), Start: p.now().UTC(), Template: tmpl, Source: source,
+		Replicas: replicas, Need: min(max(acaIntOf(tc, "replicaCompletionCount", 1), 1), replicas),
+		Attempts: make([]int, replicas), RetryLimit: acaIntOf(j.Config, "replicaRetryLimit", 0),
+		TimeoutSec: acaIntOf(j.Config, "replicaTimeout", 0),
 	}
 
 	props, perr := p.jobProps(j, tmpl)
@@ -419,27 +503,58 @@ func (p *ContainerAppsProvider) startJob(id ResourceID, body map[string]any) (ma
 	}
 
 	j.Executions = append(j.Executions, exec)
+	pruned := p.pruneExecutions(j)
 	jobCopy := *j
 	p.mu.Unlock()
 
-	for i := range exec.Replicas {
-		key := acaExecKey(&jobCopy, exec.Name, i)
+	p.rt.removeKeys(pruned)
 
+	for i := range exec.Replicas {
 		if perr != nil {
 			p.noteExecFailure(exec)
 
 			break
 		}
 
-		p.rt.engine.Deploy(
-			aciConfig{Key: key, Name: exec.Name, Props: jobReplicaProps(props, jobCopy.Name, exec.Name, domain)},
-		)
+		p.rt.engine.Deploy(aciConfig{
+			Key: acaExecKey(&jobCopy, exec.Name, i), Name: exec.Name,
+			Props: jobReplicaProps(props, jobCopy.Name, exec.Name, domain),
+		})
 	}
 
-	jid := acaResourceID(id.SubscriptionID, id.ResourceGroup, []string{acaJobType, acaExecutionType},
-		[]string{j.Name, exec.Name})
+	p.armScheduler()
 
-	return map[string]any{"id": jid.ARMID(), fieldName: exec.Name}, nil
+	return exec.Name, nil
+}
+
+// pruneExecutions drops the oldest finished executions of a scheduled or event job beyond the 100 the service keeps,
+// returning the engine keys of their replicas. The caller holds mu.
+func (p *ContainerAppsProvider) pruneExecutions(j *storedACAJob) []string {
+	if strOf(j.Config, "triggerType") == acaJobTriggerManual {
+		return nil
+	}
+
+	done := 0
+
+	for _, e := range j.Executions {
+		if e.Done || e.Stopped {
+			done++
+		}
+	}
+
+	var keys []string
+
+	for done > acaJobHistoryLimit {
+		i := slices.IndexFunc(j.Executions, func(e *storedACAExecution) bool { return e.Done || e.Stopped })
+		for r := range max(j.Executions[i].Replicas, 1) {
+			keys = append(keys, acaExecKey(j, j.Executions[i].Name, r))
+		}
+
+		j.Executions = slices.Delete(j.Executions, i, i+1)
+		done--
+	}
+
+	return keys
 }
 
 func acaTriggerConfigKey(cfg map[string]any) string {
@@ -458,7 +573,7 @@ func (p *ContainerAppsProvider) noteExecFailure(exec *storedACAExecution) {
 	defer p.mu.Unlock()
 
 	now := p.now().UTC()
-	exec.Status, exec.End = aciStateFailed, &now
+	exec.Status, exec.End, exec.Done = aciStateFailed, &now, true
 }
 
 func (p *ContainerAppsProvider) jobProps(j *storedACAJob, tmpl map[string]any) (aciPropsWire, error) {
@@ -513,37 +628,30 @@ func jobReplicaProps(props aciPropsWire, job, exec, domain string) aciPropsWire 
 	return out
 }
 
-// execStatus derives an execution's state from its replicas.
-func (p *ContainerAppsProvider) execStatus(j *storedACAJob, e *storedACAExecution) (string, *time.Time) {
+type acaVerdict struct {
+	end    *time.Time
+	status string
+	retry  []int
+	final  bool
+}
+
+// evaluate derives an execution's state from its replicas: failed replicas are retried up to replicaRetryLimit,
+// the execution succeeds once replicaCompletionCount replicas succeed, fails when a replica runs out of retries or
+// replicaTimeout passes, and is Running otherwise.
+func (p *ContainerAppsProvider) evaluate(j *storedACAJob, e *storedACAExecution, now time.Time) acaVerdict {
 	if e.Stopped {
-		return acaExecStopped, e.End
+		return acaVerdict{status: acaExecStopped, end: e.End, final: true}
 	}
 
-	r := p.replicaStates(j, e)
-
-	switch {
-	case r.seen == 0 && e.Status != "":
-		return e.Status, e.End
-	case r.seen == 0:
-		return acaExecUnknown, nil
-	case r.failed:
-		return aciStateFailed, r.end
-	case r.running:
-		return aciStateRunning, nil
+	if e.Done {
+		return acaVerdict{status: e.Status, end: e.End, final: true}
 	}
 
-	return aciStateSucceeded, r.end
-}
-
-type acaReplicaStates struct {
-	end     *time.Time
-	seen    int
-	running bool
-	failed  bool
-}
-
-func (p *ContainerAppsProvider) replicaStates(j *storedACAJob, e *storedACAExecution) acaReplicaStates {
-	var r acaReplicaStates
+	var (
+		v                          acaVerdict
+		seen, running, failed, win int
+		last                       *time.Time
+	)
 
 	for i := range max(e.Replicas, 1) {
 		view, live := p.rt.engine.View(acaExecKey(j, e.Name, i))
@@ -551,24 +659,66 @@ func (p *ContainerAppsProvider) replicaStates(j *storedACAJob, e *storedACAExecu
 			continue
 		}
 
-		r.seen++
+		seen++
 
 		switch view.State {
 		case aciStateFailed:
-			r.failed = true
+			if i < len(e.Attempts) && e.Attempts[i] < e.RetryLimit {
+				v.retry = append(v.retry, i)
+				running++
+			} else {
+				failed++
+			}
 		case aciStateSucceeded:
+			win++
 		default:
-			r.running = true
+			running++
 		}
 
 		for _, c := range view.Containers {
-			if c.Cur.FinishTime != nil && (r.end == nil || c.Cur.FinishTime.After(*r.end)) {
-				r.end = c.Cur.FinishTime
+			if c.Cur.FinishTime != nil && (last == nil || c.Cur.FinishTime.After(*last)) {
+				last = c.Cur.FinishTime
 			}
 		}
 	}
 
-	return r
+	finish := func(status string) acaVerdict {
+		end := last
+		if end == nil || status == aciStateFailed && running > 0 {
+			t := now
+			end = &t
+		}
+
+		return acaVerdict{status: status, end: end, final: true}
+	}
+
+	switch {
+	case seen == 0 && e.Status != "":
+		return acaVerdict{status: e.Status, end: e.End}
+	case seen == 0:
+		return acaVerdict{status: acaExecUnknown}
+	case running > 0 && e.TimeoutSec > 0 && now.Sub(e.Start) >= time.Duration(e.TimeoutSec)*time.Second:
+		return finish(aciStateFailed)
+	case failed > 0:
+		return finish(aciStateFailed)
+	case win >= max(e.Need, 1) || running == 0:
+		return finish(aciStateSucceeded)
+	}
+
+	v.status = aciStateRunning
+
+	return v
+}
+
+// execStatus is the state and end time evaluate reports.
+func (p *ContainerAppsProvider) execStatus(j *storedACAJob, e *storedACAExecution) (string, *time.Time) {
+	v := p.evaluate(j, e, p.now().UTC())
+
+	if v.status == aciStateRunning {
+		return v.status, nil
+	}
+
+	return v.status, v.end
 }
 
 func (p *ContainerAppsProvider) executionBody(id ResourceID, j *storedACAJob, e *storedACAExecution) map[string]any {
