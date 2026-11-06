@@ -14,6 +14,17 @@ var (
 	reTSText = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.(\d{3}|\d{9})$`)
 )
 
+const kwNull = "null"
+
+func isLiteralName(name string) bool {
+	switch strings.ToLower(name) {
+	case kwNull, "true", "false":
+		return true
+	}
+
+	return false
+}
+
 // resultSet is a fully materialised query result.
 type resultSet struct {
 	cols    []ColumnInfo
@@ -38,7 +49,7 @@ func (r *resultSet) outBytes() int64 {
 }
 
 func columnName(name string, i int) string {
-	if reIdent.MatchString(name) && !strings.EqualFold(name, "null") {
+	if reIdent.MatchString(name) && !isLiteralName(name) {
 		return name
 	}
 

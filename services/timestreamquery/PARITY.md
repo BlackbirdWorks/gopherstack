@@ -40,11 +40,11 @@ families:
 gaps: []
 items_still_open:
   - "Query engine: no geospatial functions -- the Timestream LiveAnalytics SQL reference (SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) documents none, so none are emulated; typeof and the interval-typed result of parse_duration (rendered correctly but ColumnInfo reports VARCHAR, not INTERVAL_DAY_TO_SECOND) are not implemented."
-  - "Time-series functions: the Developer Guide gives signatures and queries but no outputs for interpolate_*, derivative_*, integral_trapezoidal or correlate_*. Behaviour at the edges is unverified: interpolate_linear/spline_cubic omit target times outside the observed range, interpolate_locf omits times before the first sample, derivative_linear emits one point per sample after the first, non_negative_derivative_linear drops negative points. filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported."
-  - "Query engine: result ColumnInfo types for expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP); boolean-valued expressions (comparisons) report BIGINT, and an empty result reports VARCHAR for computed columns. Plain column references keep their declared type."
+  - "Time-series functions: the Developer Guide gives signatures and example queries (now tests, ts_interpolation_docs_test.go) but no outputs for interpolate_*, derivative_*, integral_trapezoidal or correlate_*. Behaviour at the edges is unverified: interpolate_linear/spline_cubic omit target times outside the observed range, interpolate_locf omits times before the first sample, derivative_linear emits one point per sample after the first, non_negative_derivative_linear drops negative points. filter/reduce lambdas are recognised only when the body reads the element as p.value/p.time, and an aggregate used directly as the timeseries argument (instead of a CTE column) is unsupported."
+  - "Query engine: result ColumnInfo types for non-boolean expressions are inferred from values (BIGINT/DOUBLE/VARCHAR/TIMESTAMP) and an empty result reports VARCHAR for computed non-boolean columns. Boolean typing (ts_boolean.go) is syntactic: a CASE/CAST wrapping booleans, or a boolean function outside the known list, still reports its engine type. Plain column references keep their declared type."
   - "Query engine: SELECT * column order (dimensions in first-seen order, measure_name, time, measure_value::T sorted by type, multi attributes in first-seen order) is unverified."
   - "Query paging: a NextToken is valid for 5 uses or 1 hour (Query API doc), but issuing a newer token does not invalidate older ones, and the 1 MB page-size cap is not applied (MaxRows only; default 1000)."
-  - "Query: the 60 s timeout, QueryExecutionException, EXPLAIN and parameterised (@name) queries other than @scheduled_runtime are not implemented. UNLOAD keeps SSE_S3/SSE_KMS as request metadata on the S3 PutObject only and UNLOAD of the TIME type is not rejected."
+  - "Query: EXPLAIN is not documented for Timestream LiveAnalytics (SQL support lists SELECT, subqueries, SHOW, DESCRIBE, UNLOAD) and is rejected with ValidationException. QueryInput has no parameter field, so @name queries other than ScheduledQuery @scheduled_runtime do not exist. UNLOAD keeps SSE_S3/SSE_KMS as request metadata on the S3 PutObject only and UNLOAD of the TIME type is not rejected."
   - "ScheduledQuery: the exact SNS notification JSON casing (lower camelCase keys, epoch-second times), the error-report object key layout ({prefix}/{name}/{invocation time}/{Auto|Manual}/{trigger time}, RFC 3339 times), the RecentlyFailedRuns depth (5) and the AUTO disable-on-non-recoverable-error rule follow the Developer Guide prose (scheduledqueries-notification, scheduledqueries-errorreport) but real captures are unavailable; run QueryInsightsResponse is omitted and ScheduledQueryExecutionRoleArn is never assumed."
 structural_gaps:
   - "CreateScheduledQuery KmsKeyId is stored and echoed, but there is no at-rest encryption layer to apply it to."
@@ -80,6 +80,16 @@ values + dimension names/values); CumulativeBytesMetered = max(scanned, 10 MB) w
 
 Tests: internal/app/timestream_query_sdk_test.go (SDK write + query, full app), test/integration/timestream_query_parity_test.go,
 services/timestreamquery/ts_rewrite_test.go, services/timestreamwrite/records_test.go (TestTableData_RetentionAndRestore).
+
+## Boolean typing, timeout, EXPLAIN, parameters (2026-11-05, gopherstack-49qct.94)
+
+Sources: aws-sdk-go-v2/service/timestreamquery@v1.44.3 (QueryInput has QueryString/ClientToken/MaxRows/NextToken/QueryInsights only;
+types.QueryExecutionException "Timestream was unable to run the query successfully"); Developer Guide Quotas ("Execution duration for
+queries in hours: 1; queries that take longer will timeout"); SQL support (no EXPLAIN).
+
+- Boolean expressions (comparisons, AND/OR/NOT, IS [NOT] NULL, LIKE, BETWEEN, IN, EXISTS, TRUE/FALSE, contains/regexp_like/... ) report
+  ColumnInfo BOOLEAN and ScalarValue "true"/"false" (ts_boolean.go; aliases of boolean expressions propagate through CTEs/subqueries).
+- Query timeout defaults to 1 hour (the earlier "60 s" note was wrong); `SetQueryTimeout` overrides it; expiry returns QueryExecutionException (HTTP 400).
 
 ## Notes
 

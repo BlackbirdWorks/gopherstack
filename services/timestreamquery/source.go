@@ -100,6 +100,27 @@ func (b *InMemoryBackend) SetClock(now func() time.Time) {
 	b.nowFn = now
 }
 
+// DefaultQueryTimeout is the documented maximum query execution duration (Timestream quotas: 1 hour).
+const DefaultQueryTimeout = time.Hour
+
+// SetQueryTimeout overrides the query execution time limit; d <= 0 restores DefaultQueryTimeout.
+func (b *InMemoryBackend) SetQueryTimeout(d time.Duration) {
+	if d <= 0 {
+		d = DefaultQueryTimeout
+	}
+
+	b.mu.Lock("SetQueryTimeout")
+	defer b.mu.Unlock()
+	b.queryTimeout = d
+}
+
+func (b *InMemoryBackend) timeout() time.Duration {
+	b.mu.RLock("timeout")
+	defer b.mu.RUnlock()
+
+	return b.queryTimeout
+}
+
 func (b *InMemoryBackend) clock() time.Time {
 	b.mu.RLock("clock")
 	fn := b.nowFn

@@ -285,6 +285,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusConflict, errorPayload("ConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ValidationException", err.Error()))
+	case errors.Is(err, ErrQueryExecution):
+		return c.JSONBlob(http.StatusBadRequest, errorPayload("QueryExecutionException", err.Error()))
 	case errors.Is(err, ErrUnknownOperation):
 		return c.JSONBlob(http.StatusBadRequest, errorPayload("ValidationException", err.Error()))
 	default:
