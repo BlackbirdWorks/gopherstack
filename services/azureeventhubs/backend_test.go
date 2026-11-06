@@ -109,6 +109,9 @@ func TestBackend_Resolve(t *testing.T) {
 		want int64
 	}{
 		{expr: "amqp.annotation.x-opt-offset > '-1'", want: 0},
+		{expr: "amqp.annotation.x-opt-offset > -1", want: 0},
+		{expr: "amqp.annotation.x-opt-offset > @latest", want: 4},
+		{expr: "amqp.annotation.x-opt-sequence-number >= 1", want: 1},
 		{expr: "amqp.annotation.x-opt-offset > '@latest'", want: 4},
 		{expr: "amqp.annotation.x-opt-offset >= '@latest'", want: 4},
 		{expr: "amqp.annotation.x-opt-offset > '" + strconv.FormatInt(info.LastOffset, 10) + "'", want: 4},
@@ -150,7 +153,7 @@ func TestParseSelector_Invalid(t *testing.T) {
 	t.Parallel()
 
 	for _, expr := range []string{
-		"", "x > 1", "amqp.annotation.x-opt-offset > ''", "amqp.annotation.x-opt-offset > 'abc'",
+		"", "x > 1", "amqp.annotation.x-opt-offset > ''", "amqp.annotation.x-opt-offset >", "amqp.annotation.x-opt-offset > 1 2", "amqp.annotation.x-opt-offset > 'abc'",
 		"amqp.annotation.x-opt-sequence-number < '1'", "amqp.annotation.x-opt-foo > '1'",
 	} {
 		t.Run(expr, func(t *testing.T) {

@@ -30,9 +30,9 @@ type Selector struct {
 }
 
 var selectorRe = regexp.MustCompile(
-	`^\s*amqp\.annotation\.x-opt-(offset|sequence-number|enqueued-time)\s*(>=|>)\s*'([^']{0,64})'\s*$`)
+	`^\s*amqp\.annotation\.x-opt-(offset|sequence-number|enqueued-time)\s*(>=|>)\s*(?:'([^']{0,64})'|([^\s']{1,64}))\s*$`)
 
-// ParseSelector parses an `amqp.annotation.x-opt-* > 'v'` filter expression.
+// ParseSelector parses an `amqp.annotation.x-opt-* > 'v'` filter expression; the .NET SDKs send the value unquoted.
 func ParseSelector(expr string) (Selector, error) {
 	m := selectorRe.FindStringSubmatch(expr)
 	if m == nil {
@@ -40,6 +40,9 @@ func ParseSelector(expr string) (Selector, error) {
 	}
 
 	sel := Selector{Inclusive: m[2] == ">="}
+	if m[3] == "" {
+		m[3] = m[4]
+	}
 
 	switch m[1] {
 	case "offset":
