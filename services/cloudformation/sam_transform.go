@@ -291,6 +291,8 @@ func (t *samTranslator) translateOne(id string, r map[string]any) error {
 		return t.translateApplication(id, r)
 	case samResPrefix + "WebSocketApi":
 		return t.translateWebSocketApi(id, r)
+	case samResPrefix + "GraphQLApi":
+		return t.translateGraphQLApi(id, r)
 	case samResPrefix + "Api", samResPrefix + "HttpApi", samTypeConnector:
 		return nil
 	}
@@ -328,6 +330,7 @@ var samReplacedTypes = map[string][]string{
 	samTypeBucket: {samTypeBucket}, resTypeSNSTopic: {resTypeSNSTopic},
 	resTypeDynamoDBTable: {samResPrefix + "SimpleTable"}, samTypeStack: {samResPrefix + "Application"},
 	samTypeUserPool: {samTypeUserPool}, samTypeV1Domain: {samTypeV1Domain},
+	samTypeAppSyncAPI: {samResPrefix + "GraphQLApi"},
 	samTypeV1Mapping:                   {samTypeV1Mapping},
 	"AWS::StepFunctions::StateMachine": {samResPrefix + "StateMachine"},
 }
