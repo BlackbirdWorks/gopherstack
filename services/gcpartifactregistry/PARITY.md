@@ -79,7 +79,6 @@ items_still_open:
   - "Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled)."
   - "Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served."
   - "The embedded distribution library leaves one go-events broadcaster goroutine running until process exit."
-  - "No dashboard page."
 leaks: {status: partial, note: "Shutdown stops the gRPC server and releases the registry; the distribution library's event broadcaster goroutine cannot be stopped and is ignored by the leak check."}
 ---
 
