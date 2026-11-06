@@ -126,6 +126,8 @@ func envMap(env []string) map[string]string {
 }
 
 func newEnvBackend(t *testing.T, api *envCapturingAPI) *lambda.InMemoryBackend {
+	t.Helper()
+
 	b, _ := newEnvBackendAt(t, api)
 
 	return b
