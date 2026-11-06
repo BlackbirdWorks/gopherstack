@@ -74,7 +74,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:    region,
 	}
 
-	b.outbound = newOutboundClient(b.externalAllowed)
+	b.outbound = newOutboundClient(b.externalAllowed, nil)
 
 	for _, k := range kindTable() {
 		b.kinds[k.Name] = k

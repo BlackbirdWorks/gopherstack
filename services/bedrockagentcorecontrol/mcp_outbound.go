@@ -3,6 +3,7 @@ package bedrockagentcorecontrol
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,36 +36,35 @@ var (
 	errBadStatus               = errors.New("unexpected status")
 )
 
-// hostSwitch skips certificate verification only for loopback IP literals (emulator-run targets).
-type hostSwitch struct {
-	verified, loopback http.RoundTripper
-}
-
-func (h hostSwitch) RoundTrip(r *http.Request) (*http.Response, error) {
-	next := h.verified
-	if httpclient.IsLoopbackHost(r.URL.Hostname()) {
-		next = h.loopback
-	}
-
-	return next.RoundTrip(r)
-}
-
-func newOutboundClient(allow func() bool) *http.Client {
+func newOutboundClient(allow func() bool, roots *x509.CertPool) *http.Client {
 	tr := httpclient.NewTransport()
 	tr.Proxy = nil
 	tr.DialContext = httpclient.LoopbackDialer(allow, errDestinationNotPermitted).DialContext
 
-	loop := tr.Clone()
-	loop.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec // loopback IP literals only
-		MinVersion:         tls.VersionTLS12,
+	if roots != nil {
+		tr.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
 
 	return &http.Client{
 		Timeout:       outboundTimeout,
-		Transport:     hostSwitch{verified: tr, loopback: loop},
+		Transport:     tr,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return errNoRedirects },
 	}
+}
+
+func (b *InMemoryBackend) outboundClient() *http.Client {
+	b.mu.RLock("outboundClient")
+	defer b.mu.RUnlock()
+
+	return b.outbound
+}
+
+// SetTrustedRoots adds CAs trusted (besides the system roots) by outbound gateway target, JWKS and OAuth requests.
+func (b *InMemoryBackend) SetTrustedRoots(extra *x509.CertPool) {
+	b.mu.Lock("SetTrustedRoots")
+	defer b.mu.Unlock()
+
+	b.outbound = newOutboundClient(b.externalAllowed, extra)
 }
 
 // authRT applies outbound credentials to every request of a client.
@@ -88,11 +88,12 @@ func (b *InMemoryBackend) targetClient(ctx context.Context, t targetView) (*http
 	}
 
 	if apply == nil {
-		return b.outbound, nil
+		return b.outboundClient(), nil
 	}
 
-	c := *b.outbound
-	c.Transport = authRT{next: b.outbound.Transport, apply: apply}
+	base := b.outboundClient()
+	c := *base
+	c.Transport = authRT{next: base.Transport, apply: apply}
 
 	return &c, nil
 }
@@ -303,7 +304,7 @@ func (b *InMemoryBackend) postForm(ctx context.Context, target string, form url.
 }
 
 func (b *InMemoryBackend) doJSON(req *http.Request, out any) error {
-	resp, err := b.outbound.Do(req)
+	resp, err := b.outboundClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
 	}

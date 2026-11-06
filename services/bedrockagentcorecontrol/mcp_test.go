@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -715,6 +716,9 @@ func TestGatewayMCPServerTargetAndSync(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	m := newMCPFixture(t)
+	pool := x509.NewCertPool()
+	pool.AddCert(upstream.Certificate())
+	m.backend.SetTrustedRoots(pool)
 	gw := createGateway(t, m.client, "Srv-Gw")
 	gid := aws.ToString(gw.GatewayId)
 

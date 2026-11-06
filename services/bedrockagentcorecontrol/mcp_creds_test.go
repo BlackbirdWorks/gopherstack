@@ -3,6 +3,7 @@ package bedrockagentcorecontrol_test
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -237,6 +238,9 @@ func TestGatewayMCPJWTDiscoveryOverHTTP(t *testing.T) {
 	t.Cleanup(idp.Close)
 
 	m := newMCPFixture(t)
+	pool := x509.NewCertPool()
+	pool.AddCert(idp.Certificate())
+	m.backend.SetTrustedRoots(pool)
 	gw, err := m.client.CreateGateway(t.Context(), &sdk.CreateGatewayInput{
 		Name: aws.String("Disc-Gw"), RoleArn: aws.String(testRole), AuthorizerType: types.AuthorizerTypeCustomJwt,
 		AuthorizerConfiguration: &types.AuthorizerConfigurationMemberCustomJWTAuthorizer{
@@ -280,4 +284,33 @@ func TestGatewayMCPJWTDiscoveryOverHTTP(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, status)
 		})
 	}
+}
+
+func TestGatewayMCPServerCertificateVerified(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+
+	m := newMCPFixture(t)
+	gw := createGateway(t, m.client, "Tls-Gw")
+	gid := aws.ToString(gw.GatewayId)
+	tid := m.createTarget(t, gid, "up", &types.TargetConfigurationMemberMcp{
+		Value: &types.McpTargetConfigurationMemberMcpServer{
+			Value: types.McpServerTargetConfiguration{Endpoint: aws.String(upstream.URL)},
+		},
+	})
+
+	_, err := m.client.SynchronizeGatewayTargets(t.Context(), &sdk.SynchronizeGatewayTargetsInput{
+		GatewayIdentifier: aws.String(gid), TargetIdList: []string{tid},
+	})
+	require.NoError(t, err)
+	m.clock.advance()
+
+	got, err := m.client.GetGatewayTarget(t.Context(),
+		&sdk.GetGatewayTargetInput{GatewayIdentifier: aws.String(gid), TargetId: aws.String(tid)})
+	require.NoError(t, err)
+	assert.Equal(t, types.TargetStatusSynchronizeUnsuccessful, got.Status)
+	require.NotEmpty(t, got.StatusReasons)
+	assert.Contains(t, got.StatusReasons[0], "certificate")
 }
