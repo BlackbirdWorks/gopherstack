@@ -250,14 +250,20 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				"The requested URI does not represent any resource on the server.")))
 		}
 
-		if aerr := h.authenticate(rc); aerr != nil {
-			return h.write(c, errResp(aerr))
+		if rc.r.Method == http.MethodOptions {
+			return h.write(c, h.preflight(rc))
 		}
 
-		_, fn := h.route(rc)
+		h.applyCORS(rc, hdr)
+
+		name, fn := h.route(rc)
 		if fn == nil {
 			return h.write(c, errResp(newErr(http.StatusBadRequest, "InvalidUri",
 				"The requested URI does not represent any resource on the server.")))
+		}
+
+		if aerr := h.authenticate(rc, name); aerr != nil {
+			return h.write(c, errResp(aerr))
 		}
 
 		rs, aerr := fn(rc)

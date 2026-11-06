@@ -380,7 +380,7 @@ func TestSDK_ShareACLStatsPermission(t *testing.T) {
 			t.Helper()
 
 			_, err := sc.GetPermission(ctx(t), "999*999", nil)
-			requireCode(t, err, fileerror.InvalidHeaderValue)
+			requireCode(t, err, fileerror.Code("FileInvalidPermissionKey"))
 		}},
 	}
 
@@ -418,10 +418,10 @@ func TestSDK_ShareLease(t *testing.T) {
 			assert.Equal(t, lease.StatusTypeLocked, *props.LeaseStatus)
 
 			_, err = sc.Delete(ctx(t), nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileShareOperation"))
 
 			_, err = sc.SetMetadata(ctx(t), nil)
-			requireCode(t, err, fileerror.Code("LeaseIdMissing"))
+			requireCode(t, err, fileerror.Code("LeaseIdMissingWithFileShareOperation"))
 		}},
 		{name: "delete with lease id", check: func(t *testing.T, sc *share.Client, lc *lease.ShareClient) {
 			t.Helper()
@@ -445,8 +445,7 @@ func TestSDK_ShareLease(t *testing.T) {
 				ctx(t),
 				&share.SetMetadataOptions{LeaseAccessConditions: &share.LeaseAccessConditions{LeaseID: new("nope")}},
 			)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "LeaseIdMismatch")
+			requireCode(t, err, fileerror.Code("LeaseIdMismatchWithFileShareOperation"))
 		}},
 		{name: "double acquire", check: func(t *testing.T, sc *share.Client, lc *lease.ShareClient) {
 			t.Helper()
@@ -503,7 +502,7 @@ func TestSDK_ShareLease(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = lc.Release(ctx(t), nil)
-			requireCode(t, err, fileerror.Code("LeaseNotPresentWithLeaseOperation"))
+			requireCode(t, err, fileerror.Code("LeaseNotPresentWithFileShareLeaseOperation"))
 		}},
 		{name: "break with period", check: func(t *testing.T, sc *share.Client, lc *lease.ShareClient) {
 			t.Helper()

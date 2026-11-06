@@ -240,6 +240,10 @@ func (h *Handler) createShare(rc *reqCtx) (*resp, *apiError) {
 		return nil, err
 	}
 
+	if aerr = sh.initNFS(sh.Root, nfsIn{}, true); aerr != nil {
+		return nil, aerr
+	}
+
 	a.Shares[strs.Fold(rc.share)] = sh
 
 	rs := newResp(http.StatusCreated)
@@ -628,6 +632,8 @@ func (h *Handler) setShareACL(rc *reqCtx) (*resp, *apiError) {
 	return rs, nil
 }
 
+const gibShift = 30
+
 type shareStatsXML struct {
 	XMLName xml.Name `xml:"ShareStats"`
 	Usage   int64    `xml:"ShareUsageBytes"`
@@ -644,6 +650,19 @@ func (n *node) usage() int64 {
 	}
 
 	return total
+}
+
+// checkQuota refuses a write that grows the share's usage past its quota.
+func (sh *share) checkQuota(delta int64) *apiError {
+	if delta <= 0 || sh.Quota <= 0 {
+		return nil
+	}
+
+	if sh.Root.usage()+delta > int64(sh.Quota)<<gibShift {
+		return errShareFull()
+	}
+
+	return nil
 }
 
 func (h *Handler) getShareStats(rc *reqCtx) (*resp, *apiError) {
@@ -789,7 +808,7 @@ func (h *Handler) getPermission(rc *reqCtx) (*resp, *apiError) {
 
 	sddl, ok := sh.Permissions[key]
 	if !ok {
-		return nil, errInvalidHeader("x-ms-file-permission-key")
+		return nil, errInvalidPermissionKey()
 	}
 
 	body, err := json.Marshal(permissionJSON{Permission: sddl, Format: "Sddl"})

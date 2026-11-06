@@ -274,7 +274,7 @@ func (sh *share) resolvePerm(perm, key, existing string) (string, *apiError) {
 	switch {
 	case key != "":
 		if _, ok := sh.Permissions[key]; !ok {
-			return "", errInvalidHeader("x-ms-file-permission-key")
+			return "", errInvalidPermissionKey()
 		}
 
 		return key, nil
