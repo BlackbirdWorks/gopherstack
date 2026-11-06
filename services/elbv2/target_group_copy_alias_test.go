@@ -15,8 +15,8 @@ func TestTargetGroupCopies_NotAliasedToBackend(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		transition func(t *testing.T, b *elbv2.InMemoryBackend, tgArn string)
+		name       string
 	}{
 		{
 			name: "health_state",

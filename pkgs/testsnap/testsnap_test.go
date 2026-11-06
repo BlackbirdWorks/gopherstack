@@ -1,7 +1,7 @@
 package testsnap_test
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +48,7 @@ func TestUnchanged(t *testing.T) {
 
 			testsnap.Unchanged(rec, held, func() { tt.mutate(held) })
 
-			assert.Equal(t, tt.wantErr, rec.errs > 0, fmt.Sprint(rec.errs))
+			assert.Equal(t, tt.wantErr, rec.errs > 0, strconv.Itoa(rec.errs))
 		})
 	}
 }

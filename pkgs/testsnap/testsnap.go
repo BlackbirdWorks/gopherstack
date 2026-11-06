@@ -20,7 +20,8 @@ type TB interface {
 func Unchanged[T any](t TB, held *T, transition func()) {
 	t.Helper()
 
-	snap := deepCopy(reflect.ValueOf(held)).Interface().(*T)
+	snap := new(T)
+	reflect.ValueOf(snap).Elem().Set(deepCopy(reflect.ValueOf(held)).Elem())
 
 	transition()
 
