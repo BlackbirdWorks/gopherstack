@@ -269,9 +269,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		return nil, err
 	} else if hit {
 		if prior, found := b.builds.Get(id); found {
-			out := *prior
-
-			return &out, nil
+			return cloneBuild(prior), nil
 		}
 	}
 
@@ -326,9 +324,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		b.launchBuildLocked(build)
 	}
 
-	out := *build
-
-	return &out, nil
+	return cloneBuild(build), nil
 }
 
 // BatchGetBuilds returns builds by ID or ARN. Missing IDs are returned separately.
@@ -348,8 +344,7 @@ func (b *InMemoryBackend) BatchGetBuilds(ids []string) ([]*Build, []string) {
 		}
 
 		if ok {
-			out := *build
-			found = append(found, &out)
+			found = append(found, cloneBuild(build))
 		} else {
 			notFound = append(notFound, id)
 		}
@@ -369,9 +364,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	}
 
 	if build.BuildComplete {
-		out := *build
-
-		return &out, nil
+		return cloneBuild(build), nil
 	}
 
 	b.stopRunLocked(build)
@@ -381,9 +374,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	build.CurrentPhase = phaseCompleted
 	build.BuildComplete = true
 
-	out := *build
-
-	return &out, nil
+	return cloneBuild(build), nil
 }
 
 // ListBuilds returns all build IDs in the backend in sorted order.
@@ -437,9 +428,7 @@ func (b *InMemoryBackend) RetryBuild(id, idempotencyToken string) (*Build, error
 		return nil, err
 	} else if hit {
 		if prior, found := b.builds.Get(priorID); found {
-			out := *prior
-
-			return &out, nil
+			return cloneBuild(prior), nil
 		}
 	}
 
@@ -500,9 +489,7 @@ func (b *InMemoryBackend) RetryBuild(id, idempotencyToken string) (*Build, error
 
 	existing.AutoRetryConfig.NextAutoRetry = buildArn
 
-	out := *build
-
-	return &out, nil
+	return cloneBuild(build), nil
 }
 
 // ListBuildsForProject returns all build IDs for a given project in sorted order.
@@ -585,4 +572,34 @@ func recordSuccessfulPhases(build *Build, now float64) {
 	}
 
 	build.Phases = append(build.Phases, BuildPhase{PhaseType: phaseCompleted, StartTime: now})
+}
+
+// cloneBuild returns a copy that shares no mutable state with the stored build:
+// the run goroutine rewrites Logs, AutoRetryConfig and Phases elements in place.
+func cloneBuild(src *Build) *Build {
+	out := *src
+
+	if src.Logs != nil {
+		logs := *src.Logs
+		if logs.CloudWatchLogs != nil {
+			cw := *logs.CloudWatchLogs
+			logs.CloudWatchLogs = &cw
+		}
+
+		if logs.S3Logs != nil {
+			s3 := *logs.S3Logs
+			logs.S3Logs = &s3
+		}
+
+		out.Logs = &logs
+	}
+
+	if src.AutoRetryConfig != nil {
+		cfg := *src.AutoRetryConfig
+		out.AutoRetryConfig = &cfg
+	}
+
+	out.Phases = append([]BuildPhase(nil), src.Phases...)
+
+	return &out
 }
