@@ -385,15 +385,9 @@ func TestStatefulPolicyKeepsDisks(t *testing.T) {
 			require.NoError(t, e.recreateMember(t, name))
 			assert.Equal(t, before, bootDiskID(t, e, name), "the boot disk survives a recreate")
 
-			op, err := e.migs(t).DeleteInstances(t.Context(), &computepb.DeleteInstancesInstanceGroupManagerRequest{
-				Project: project, Zone: zone, InstanceGroupManager: "web",
-				InstanceGroupManagersDeleteInstancesRequestResource: &computepb.InstanceGroupManagersDeleteInstancesRequest{
-					Instances: []string{e.instRef(name)},
-				},
-			})
-			require.NoError(t, e.migOp(t, op, err))
+			require.NoError(t, e.deleteMember(t, name))
 
-			_, err = e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: name})
+			_, err := e.disks(t).Get(t.Context(), &computepb.GetDiskRequest{Project: project, Zone: zone, Disk: name})
 			if tt.wantGone {
 				assertAPIError(t, err, http.StatusNotFound, "")
 
@@ -701,6 +695,20 @@ func (e *env) recreateMember(t *testing.T, name string) error {
 		Instances: []string{e.instRef(name)},
 	}
 	op, err := e.migs(t).RecreateInstances(t.Context(), req)
+
+	return e.migOp(t, op, err)
+}
+
+func (e *env) deleteMember(t *testing.T, name string) error {
+	t.Helper()
+
+	req := &computepb.DeleteInstancesInstanceGroupManagerRequest{
+		Project: project, Zone: zone, InstanceGroupManager: "web",
+	}
+	req.InstanceGroupManagersDeleteInstancesRequestResource = &computepb.InstanceGroupManagersDeleteInstancesRequest{
+		Instances: []string{e.instRef(name)},
+	}
+	op, err := e.migs(t).DeleteInstances(t.Context(), req)
 
 	return e.migOp(t, op, err)
 }
