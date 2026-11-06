@@ -732,7 +732,7 @@ func (b *InMemoryBackend) systemResource(sc scope, k *kindSpec, id string) (*Res
 		Created: systemTime(), Updated: systemTime(), SettleAt: systemTime(),
 		ARN: arn.Build(arnService, sc.region, "aws", typ+"/"+id),
 		Doc: map[string]any{
-			keyName: id, "type": "SYSTEM", keyDescription: "Service-provided " + typ,
+			keyName: id, keyType: "SYSTEM", keyDescription: "Service-provided " + typ,
 			"networkConfiguration": map[string]any{"networkMode": modePublic},
 		},
 	}, true
