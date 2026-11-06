@@ -19,6 +19,7 @@ const (
 	eventGridMaxSubject = 256
 	eventGridMaxType    = 128
 	eventGridTestSource = "/gopherstack/dashboard"
+	eventGridVersion    = "1.0"
 )
 
 // eventGridTestEvent holds the only fields the page may set; the event itself is rebuilt here.
@@ -53,6 +54,30 @@ func (e eventGridTestEvent) dataValue() any {
 	return e.Data
 }
 
+type eventGridSchemaEvent struct {
+	Data        any    `json:"data"`
+	ID          string `json:"id"`
+	Subject     string `json:"subject"`
+	EventType   string `json:"eventType"`
+	EventTime   string `json:"eventTime"`
+	DataVersion string `json:"dataVersion"`
+	Topic       string `json:"topic,omitempty"`
+}
+
+type eventGridCloudEvent struct {
+	Data        any    `json:"data"`
+	SpecVersion string `json:"specversion"`
+	ID          string `json:"id"`
+	Source      string `json:"source"`
+	Type        string `json:"type"`
+	Subject     string `json:"subject"`
+	Time        string `json:"time"`
+}
+
+type eventGridPublished struct {
+	Published int `json:"published"`
+}
+
 // build returns the event in the given input schema; domainTopic routes it inside a domain.
 func (e eventGridTestEvent) build(schema, domainTopic string, now time.Time) []byte {
 	id, ts := uuid.NewString(), now.UTC().Format(time.RFC3339Nano)
@@ -61,27 +86,26 @@ func (e eventGridTestEvent) build(schema, domainTopic string, now time.Time) []b
 		e.Subject = eventGridTestSource + "/test"
 	}
 
-	var fields map[string]any
+	var ev any
 
 	if schema == eventgridbackend.SchemaCloudEvent {
-		fields = map[string]any{
-			"specversion": "1.0", "id": id, "source": eventGridTestSource, "type": e.EventType,
-			"subject": e.Subject, "time": ts, "data": e.dataValue(),
-		}
+		source := eventGridTestSource
 		if domainTopic != "" {
-			fields["source"] = domainTopic
+			source = domainTopic
+		}
+
+		ev = eventGridCloudEvent{
+			SpecVersion: eventGridVersion, ID: id, Source: source, Type: e.EventType, Subject: e.Subject, Time: ts,
+			Data: e.dataValue(),
 		}
 	} else {
-		fields = map[string]any{
-			"id": id, "subject": e.Subject, "eventType": e.EventType, "eventTime": ts,
-			"dataVersion": "1.0", "data": e.dataValue(),
-		}
-		if domainTopic != "" {
-			fields["topic"] = domainTopic
+		ev = eventGridSchemaEvent{
+			ID: id, Subject: e.Subject, EventType: e.EventType, EventTime: ts, DataVersion: eventGridVersion,
+			Topic: domainTopic, Data: e.dataValue(),
 		}
 	}
 
-	raw, _ := json.Marshal(fields)
+	raw, _ := json.Marshal(ev)
 
 	return raw
 }
@@ -146,7 +170,7 @@ func (a *azureEventGridAPI) publishTopic(c *echo.Context) error {
 		return a.publishFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]int{"published": len(events)})
+	return c.JSON(http.StatusOK, eventGridPublished{Published: len(events)})
 }
 
 func (a *azureEventGridAPI) publishDomain(c *echo.Context) error {
@@ -173,7 +197,7 @@ func (a *azureEventGridAPI) publishDomain(c *echo.Context) error {
 		return a.publishFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]int{"published": len(events)})
+	return c.JSON(http.StatusOK, eventGridPublished{Published: len(events)})
 }
 
 func (a *azureEventGridAPI) publishNamespace(c *echo.Context) error {
@@ -201,5 +225,5 @@ func (a *azureEventGridAPI) publishNamespace(c *echo.Context) error {
 		return a.publishFail(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]int{"published": len(events)})
+	return c.JSON(http.StatusOK, eventGridPublished{Published: len(events)})
 }

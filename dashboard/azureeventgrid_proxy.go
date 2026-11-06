@@ -8,7 +8,12 @@ import (
 	eventgridbackend "github.com/blackbirdworks/gopherstack/services/azureeventgrid"
 )
 
-const azureEventGridProxyPrefix = "/dashboard/api/v1/azure/eventgrid"
+const (
+	azureEventGridProxyPrefix = "/dashboard/api/v1/azure/eventgrid"
+	eventGridKindTopics       = "topics"
+	eventGridKindDomains      = "domains"
+	eventGridKindNamespaces   = "namespaces"
+)
 
 // eventGridSubJSON is the secret-free view of an event subscription: the endpoint
 // type only, never its URL, headers or delivery attribute values.
@@ -21,13 +26,13 @@ type eventGridSubJSON struct {
 	SubjectEndsWith      string   `json:"subjectEndsWith,omitempty"`
 	DeadLetterType       string   `json:"deadLetterType,omitempty"`
 	DeadLetterContainer  string   `json:"deadLetterContainer,omitempty"`
+	QueueEventTimeToLive string   `json:"queueEventTimeToLive,omitempty"`
 	IncludedEventTypes   []string `json:"includedEventTypes"`
 	AdvancedFilterCount  int      `json:"advancedFilterCount"`
 	MaxDeliveryAttempts  int      `json:"maxDeliveryAttempts"`
 	EventTTLMinutes      int      `json:"eventTimeToLiveMinutes"`
 	QueueLockSeconds     int      `json:"queueLockSeconds,omitempty"`
 	QueueMaxDelivery     int      `json:"queueMaxDelivery,omitempty"`
-	QueueEventTimeToLive string   `json:"queueEventTimeToLive,omitempty"`
 }
 
 type eventGridTopicJSON struct {
@@ -71,11 +76,11 @@ func (h *DashboardHandler) registerAzureEventGridRoutes() {
 
 	r := h.SubRouter
 	p := azureEventGridProxyPrefix
-	r.Add(http.MethodGet, p+"/topics", api.guard(api.topics))
+	r.Add(http.MethodGet, p+"/"+eventGridKindTopics, api.guard(api.topics))
 	r.Add(http.MethodGet, p+"/overview", api.guard(api.overview))
-	r.Add(http.MethodPost, p+"/topics/:topic/events", api.guard(api.publishTopic))
-	r.Add(http.MethodPost, p+"/domains/:domain/events", api.guard(api.publishDomain))
-	r.Add(http.MethodPost, p+"/namespaces/:ns/topics/:topic/events", api.guard(api.publishNamespace))
+	r.Add(http.MethodPost, p+"/"+eventGridKindTopics+"/:topic/events", api.guard(api.publishTopic))
+	r.Add(http.MethodPost, p+"/"+eventGridKindDomains+"/:domain/events", api.guard(api.publishDomain))
+	r.Add(http.MethodPost, p+"/"+eventGridKindNamespaces+"/:ns/topics/:topic/events", api.guard(api.publishNamespace))
 	r.Add(http.MethodPost, p+"/:kind/:name/keys/reveal", api.guard(api.revealKeys))
 }
 
@@ -154,9 +159,10 @@ func (a *azureEventGridAPI) domainList() []eventGridDomainJSON {
 }
 
 func (a *azureEventGridAPI) namespaceList() []eventGridNamespaceJSON {
-	out := []eventGridNamespaceJSON{}
+	names := a.b.NamespaceNames()
+	out := make([]eventGridNamespaceJSON, 0, len(names))
 
-	for _, ns := range a.b.NamespaceNames() {
+	for _, ns := range names {
 		item := eventGridNamespaceJSON{Name: ns, Topics: []eventGridDomainTopicJSON{}}
 		topics, _ := a.b.NamespaceTopicNames(ns)
 
@@ -173,9 +179,10 @@ func (a *azureEventGridAPI) namespaceList() []eventGridNamespaceJSON {
 }
 
 func (a *azureEventGridAPI) scopeList() []eventGridScopeJSON {
-	out := []eventGridScopeJSON{}
+	scopes := a.b.ARMScopes()
+	out := make([]eventGridScopeJSON, 0, len(scopes))
 
-	for _, s := range a.b.ARMScopes() {
+	for _, s := range scopes {
 		out = append(out, eventGridScopeJSON{
 			ID: s.ID, Subscriptions: a.subscriptions(eventgridbackend.Scope{Resource: s.ID}),
 		})
@@ -294,11 +301,11 @@ func (a *azureEventGridAPI) revealKeys(c *echo.Context) error {
 	)
 
 	switch name := c.Param("name"); c.Param("kind") {
-	case "topics":
+	case eventGridKindTopics:
 		keys, err = a.b.TopicKeys(name)
-	case "domains":
+	case eventGridKindDomains:
 		keys, err = a.b.DomainKeys(name)
-	case "namespaces":
+	case eventGridKindNamespaces:
 		keys, err = a.b.NamespaceKeys(name)
 	default:
 		return cloudJSONFail(c, http.StatusNotFound, cloudStatusNotFnd, "unknown resource kind")

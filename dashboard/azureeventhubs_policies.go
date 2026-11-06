@@ -15,6 +15,10 @@ type eventHubsPolicyJSON struct {
 	Rights []string `json:"rights"`
 }
 
+type eventHubsPoliciesJSON struct {
+	Policies []eventHubsPolicyJSON `json:"policies"`
+}
+
 type eventHubsRevealJSON struct {
 	Hub  string `json:"hub"`
 	Name string `json:"name"`
@@ -32,7 +36,7 @@ func (a *azureEventHubsAPI) policies(c *echo.Context) error {
 		out = append(out, eventHubsPolicyJSON{Hub: r.Hub, Name: r.Rule.Name, Rights: r.Rule.Rights})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"policies": out})
+	return c.JSON(http.StatusOK, eventHubsPoliciesJSON{Policies: out})
 }
 
 // revealPolicy returns one policy's key pair; it is the only route that sends keys out.

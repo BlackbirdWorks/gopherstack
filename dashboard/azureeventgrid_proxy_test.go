@@ -45,7 +45,9 @@ func newEventGridBackend(t *testing.T) *azureeventgrid.InMemoryBackend {
 func eventGridHandler(t *testing.T, b *azureeventgrid.InMemoryBackend) *dashboard.DashboardHandler {
 	t.Helper()
 
-	return dashboard.NewHandler(dashboard.Config{AzureEventGridOps: azureeventgrid.NewHandler(b, azureeventgrid.Settings{})})
+	return dashboard.NewHandler(
+		dashboard.Config{AzureEventGridOps: azureeventgrid.NewHandler(b, azureeventgrid.Settings{})},
+	)
 }
 
 func doProxy(t *testing.T, h *dashboard.DashboardHandler, method, path, body string) *httptest.ResponseRecorder {
@@ -69,10 +71,15 @@ func TestAzureEventGridOverview(t *testing.T) {
 		},
 		"filter": map[string]any{
 			"subjectBeginsWith": "/a", "includedEventTypes": []any{"T1"},
-			"advancedFilters": []any{map[string]any{"operatorType": "StringIn", "key": "subject", "values": []any{"x"}}},
+			"advancedFilters": []any{
+				map[string]any{"operatorType": "StringIn", "key": "subject", "values": []any{"x"}},
+			},
 		},
-		"retryPolicy":           map[string]any{"maxDeliveryAttempts": 7, "eventTimeToLiveInMinutes": 90},
-		"deadLetterDestination": map[string]any{"endpointType": "StorageBlob", "properties": map[string]any{"resourceId": egStore, "blobContainerName": "dead"}},
+		"retryPolicy": map[string]any{"maxDeliveryAttempts": 7, "eventTimeToLiveInMinutes": 90},
+		"deadLetterDestination": map[string]any{
+			"endpointType": "StorageBlob",
+			"properties":   map[string]any{"resourceId": egStore, "blobContainerName": "dead"},
+		},
 	})
 	require.NoError(t, err)
 
@@ -125,7 +132,13 @@ func TestAzureEventGridRevealKeys(t *testing.T) {
 	t.Run("get is not routed", func(t *testing.T) {
 		t.Parallel()
 
-		rec := doProxy(t, eventGridHandler(t, newEventGridBackend(t)), http.MethodGet, egBase+"/topics/topic1/keys/reveal", "")
+		rec := doProxy(
+			t,
+			eventGridHandler(t, newEventGridBackend(t)),
+			http.MethodGet,
+			egBase+"/topics/topic1/keys/reveal",
+			"",
+		)
 		assert.NotEqual(t, http.StatusOK, rec.Code)
 		assert.NotContains(t, rec.Body.String(), "key1")
 	})
@@ -141,17 +154,82 @@ func TestAzureEventGridPublishRebuild(t *testing.T) {
 		wantBody string
 		wantCode int
 	}{
-		{name: "topic", path: "/topics/topic1/events", body: `{"eventType":"T","subject":"/s","data":"{\"a\":1}"}`, wantCode: 200, wantBody: `"published":1`},
-		{name: "cloud topic", path: "/topics/ce1/events", body: `{"eventType":"T","data":"plain"}`, wantCode: 200, wantBody: `"published":1`},
-		{name: "domain", path: "/domains/dom1/events", body: `{"eventType":"T","domainTopic":"orders"}`, wantCode: 200, wantBody: `"published":1`},
-		{name: "domain needs topic", path: "/domains/dom1/events", body: `{"eventType":"T"}`, wantCode: 400, wantBody: "domainTopic is required"},
-		{name: "namespace", path: "/namespaces/ns1/topics/nt1/events", body: `{"eventType":"T"}`, wantCode: 200, wantBody: `"published":1`},
-		{name: "missing ns topic", path: "/namespaces/ns1/topics/nope/events", body: `{"eventType":"T"}`, wantCode: 404, wantBody: "NOT_FOUND"},
-		{name: "missing topic", path: "/topics/nope/events", body: `{"eventType":"T"}`, wantCode: 404, wantBody: "NOT_FOUND"},
-		{name: "no event type", path: "/topics/topic1/events", body: `{"subject":"/s"}`, wantCode: 400, wantBody: "eventType is required"},
-		{name: "long subject", path: "/topics/topic1/events", body: `{"eventType":"T","subject":"` + strings.Repeat("a", 300) + `"}`, wantCode: 400, wantBody: "subject"},
-		{name: "oversized data", path: "/topics/topic1/events", body: `{"eventType":"T","data":"` + strings.Repeat("a", 70<<10) + `"}`, wantCode: 400, wantBody: "data is at most"},
-		{name: "oversized body", path: "/topics/topic1/events", body: `{"eventType":"T","data":"` + strings.Repeat("a", 200<<10) + `"}`, wantCode: 400},
+		{
+			name:     "topic",
+			path:     "/topics/topic1/events",
+			body:     `{"eventType":"T","subject":"/s","data":"{\"a\":1}"}`,
+			wantCode: 200,
+			wantBody: `"published":1`,
+		},
+		{
+			name:     "cloud topic",
+			path:     "/topics/ce1/events",
+			body:     `{"eventType":"T","data":"plain"}`,
+			wantCode: 200,
+			wantBody: `"published":1`,
+		},
+		{
+			name:     "domain",
+			path:     "/domains/dom1/events",
+			body:     `{"eventType":"T","domainTopic":"orders"}`,
+			wantCode: 200,
+			wantBody: `"published":1`,
+		},
+		{
+			name:     "domain needs topic",
+			path:     "/domains/dom1/events",
+			body:     `{"eventType":"T"}`,
+			wantCode: 400,
+			wantBody: "domainTopic is required",
+		},
+		{
+			name:     "namespace",
+			path:     "/namespaces/ns1/topics/nt1/events",
+			body:     `{"eventType":"T"}`,
+			wantCode: 200,
+			wantBody: `"published":1`,
+		},
+		{
+			name:     "missing ns topic",
+			path:     "/namespaces/ns1/topics/nope/events",
+			body:     `{"eventType":"T"}`,
+			wantCode: 404,
+			wantBody: "NOT_FOUND",
+		},
+		{
+			name:     "missing topic",
+			path:     "/topics/nope/events",
+			body:     `{"eventType":"T"}`,
+			wantCode: 404,
+			wantBody: "NOT_FOUND",
+		},
+		{
+			name:     "no event type",
+			path:     "/topics/topic1/events",
+			body:     `{"subject":"/s"}`,
+			wantCode: 400,
+			wantBody: "eventType is required",
+		},
+		{
+			name:     "long subject",
+			path:     "/topics/topic1/events",
+			body:     `{"eventType":"T","subject":"` + strings.Repeat("a", 300) + `"}`,
+			wantCode: 400,
+			wantBody: "subject",
+		},
+		{
+			name:     "oversized data",
+			path:     "/topics/topic1/events",
+			body:     `{"eventType":"T","data":"` + strings.Repeat("a", 70<<10) + `"}`,
+			wantCode: 400,
+			wantBody: "data is at most",
+		},
+		{
+			name:     "oversized body",
+			path:     "/topics/topic1/events",
+			body:     `{"eventType":"T","data":"` + strings.Repeat("a", 200<<10) + `"}`,
+			wantCode: 400,
+		},
 		{name: "bad json", path: "/topics/topic1/events", body: `{`, wantCode: 400, wantBody: "INVALID_ARGUMENT"},
 	}
 
@@ -235,8 +313,18 @@ func TestAzureEventHubsPolicies(t *testing.T) {
 		body     string
 		wantCode int
 	}{
-		{name: "hub rule", path: "/namespaces/ns1/policies/reveal", body: `{"hub":"hub1","name":"sender"}`, wantCode: 200},
-		{name: "root rule", path: "/namespaces/ns1/policies/reveal", body: `{"name":"` + azureeventhubs.DefaultKeyName + `"}`, wantCode: 200},
+		{
+			name:     "hub rule",
+			path:     "/namespaces/ns1/policies/reveal",
+			body:     `{"hub":"hub1","name":"sender"}`,
+			wantCode: 200,
+		},
+		{
+			name:     "root rule",
+			path:     "/namespaces/ns1/policies/reveal",
+			body:     `{"name":"` + azureeventhubs.DefaultKeyName + `"}`,
+			wantCode: 200,
+		},
 		{name: "missing rule", path: "/namespaces/ns1/policies/reveal", body: `{"name":"nope"}`, wantCode: 404},
 		{name: "missing ns", path: "/namespaces/zz/policies/reveal", body: `{"name":"x"}`, wantCode: 404},
 		{name: "bad json", path: "/namespaces/ns1/policies/reveal", body: `{`, wantCode: 400},
