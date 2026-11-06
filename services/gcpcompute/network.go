@@ -150,6 +150,17 @@ func (b *InMemoryBackend) insertNetwork(
 	}
 
 	n.SelfLinkWithId = globalLink(project, "networks", strconv.FormatUint(n.Id, 10))
+
+	if in.EnableUlaInternalIpv6 {
+		n.EnableUlaInternalIpv6 = true
+
+		if err := b.assignULALocked(n, in.InternalIpv6Range); err != nil {
+			return nil, err
+		}
+	} else if in.InternalIpv6Range != "" {
+		return nil, errField("resource.internalIpv6Range", in.InternalIpv6Range, "Requires enableUlaInternalIpv6.")
+	}
+
 	b.networks[key(project, n.Name)] = n
 
 	if n.AutoCreateSubnetworks {

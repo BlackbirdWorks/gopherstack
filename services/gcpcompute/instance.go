@@ -378,6 +378,7 @@ func (b *InMemoryBackend) buildDisksLocked(
 	out := make([]*computeapi.AttachedDisk, 0, len(in.Disks))
 	devices := map[string]bool{}
 	sources := map[string]bool{}
+	scratch := 0
 
 	for i, ad := range in.Disks {
 		if i > 0 && ad.Boot {
@@ -387,13 +388,31 @@ func (b *InMemoryBackend) buildDisksLocked(
 			)
 		}
 
-		att, err := b.resolveAttachedLocked(project, zone, in.Name, i, ad, created)
+		var (
+			att *computeapi.AttachedDisk
+			err *APIError
+		)
+
+		if ad.Type == diskScratch {
+			att, err = scratchDisk(i, scratch, ad)
+			scratch++
+		} else {
+			att, err = b.resolveAttachedLocked(project, zone, in.Name, i, ad, created)
+		}
+
 		if err != nil {
 			return nil, err
 		}
 
-		if devices[att.DeviceName] || sources[att.Source] {
+		if devices[att.DeviceName] || att.Source != "" && sources[att.Source] {
 			return nil, errInvalid("Invalid value for field 'resource.disks[%d]': duplicate device name or source.", i)
+		}
+
+		if att.Source == "" {
+			devices[att.DeviceName] = true
+			out = append(out, att)
+
+			continue
 		}
 
 		if by := b.diskWriterLocked(att, ""); by != "" {
@@ -402,6 +421,10 @@ func (b *InMemoryBackend) buildDisksLocked(
 
 		devices[att.DeviceName], sources[att.Source] = true, true
 		out = append(out, att)
+	}
+
+	if err := checkLocalSSDCount(in.MachineType, scratch); err != nil {
+		return nil, err
 	}
 
 	return out, nil
@@ -551,49 +574,33 @@ func (b *InMemoryBackend) buildNICLocked(
 		return nil, err
 	}
 
-	p := netip.MustParsePrefix(s.IpCidrRange)
-	used := b.usedInternalLocked(s.SelfLink)
+	nic := &computeapi.NetworkInterface{
+		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
+		Fingerprint: newFingerprint(), NicType: in.NicType,
+	}
 
-	var ip netip.Addr
+	if err = b.buildNICIPv6Locked(s, in, nic, idx); err != nil {
+		return nil, err
+	}
 
-	if in.NetworkIP == "" {
-		for a := range taken {
-			used[a] = true
+	if nic.StackType == stackIPv6Only {
+		if in.NetworkIP != "" || len(in.AccessConfigs) > 0 || len(in.AliasIpRanges) > 0 {
+			return nil, errInvalid("Invalid value for field '%s': an IPV6_ONLY interface takes no IPv4 settings.", nicField(idx))
 		}
 
-		var ok bool
-		if ip, ok = nextFree(p, used); !ok {
-			return nil, errInvalid("No free IP addresses are available in subnetwork '%s'.", s.Name)
-		}
-	} else {
-		parsed, perr := netip.ParseAddr(in.NetworkIP)
-		first, last := usableRange(p)
+		return nic, nil
+	}
 
-		if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
-			return nil, errField(
-				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
-				in.NetworkIP,
-				"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
-			)
-		}
-
-		if used[parsed] && !b.reservedFreeLocked(s.SelfLink, in.NetworkIP) {
-			return nil, errField(
-				"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
-				in.NetworkIP,
-				"The IP address is already in use.",
-			)
-		}
-
-		ip = parsed
+	ip, err := b.pickNICIPv4Locked(s, idx, in, taken)
+	if err != nil {
+		return nil, err
 	}
 
 	taken[ip] = true
+	nic.NetworkIP = ip.String()
 
-	nic := &computeapi.NetworkInterface{
-		Kind: "compute#networkInterface", Name: "nic" + strconv.Itoa(idx), Network: s.Network, Subnetwork: s.SelfLink,
-		NetworkIP: ip.String(), StackType: stackIPv4Only, Fingerprint: newFingerprint(), NicType: in.NicType,
-		AliasIpRanges: in.AliasIpRanges,
+	if nic.AliasIpRanges, err = b.resolveAliasRangesLocked(s, nic, in.AliasIpRanges, in.AliasIpv6Ranges); err != nil {
+		return nil, err
 	}
 
 	for _, ac := range in.AccessConfigs {
@@ -610,6 +617,47 @@ func (b *InMemoryBackend) buildNICLocked(
 	}
 
 	return nic, nil
+}
+
+func (b *InMemoryBackend) pickNICIPv4Locked(
+	s *computeapi.Subnetwork, idx int, in *computeapi.NetworkInterface, taken map[netip.Addr]bool,
+) (netip.Addr, *APIError) {
+	p := netip.MustParsePrefix(s.IpCidrRange)
+	used := b.usedInternalLocked(s.SelfLink)
+
+	if in.NetworkIP == "" {
+		for a := range taken {
+			used[a] = true
+		}
+
+		ip, ok := nextFree(p, used)
+		if !ok {
+			return netip.Addr{}, errInvalid("No free IP addresses are available in subnetwork '%s'.", s.Name)
+		}
+
+		return ip, nil
+	}
+
+	parsed, perr := netip.ParseAddr(in.NetworkIP)
+	first, last := usableRange(p)
+
+	if perr != nil || parsed.Compare(first) < 0 || parsed.Compare(last) > 0 {
+		return netip.Addr{}, errField(
+			"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+			in.NetworkIP,
+			"The IP address is not in the usable range of subnetwork '"+s.Name+"'.",
+		)
+	}
+
+	if used[parsed] && !b.reservedFreeLocked(s.SelfLink, in.NetworkIP) {
+		return netip.Addr{}, errField(
+			"resource.networkInterfaces["+strconv.Itoa(idx)+"].networkIP",
+			in.NetworkIP,
+			"The IP address is already in use.",
+		)
+	}
+
+	return parsed, nil
 }
 
 // reservedFreeLocked reports whether ip is held only by a reserved internal address object (usable by an instance).

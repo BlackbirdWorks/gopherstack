@@ -39,8 +39,13 @@ func (b *InMemoryBackend) peeringRangesLocked(network string) []netip.Prefix {
 }
 
 func (b *InMemoryBackend) buildGlobalInternalLocked(project string, in, a *computeapi.Address) *APIError {
+	if in.Purpose == purposePSC {
+		return b.buildPSCLocked(project, in, a)
+	}
+
 	if in.Purpose != purposePeering {
-		return errField("resource.purpose", in.Purpose, "Global INTERNAL addresses require purpose VPC_PEERING.")
+		return errField("resource.purpose", in.Purpose,
+			"Global INTERNAL addresses require purpose VPC_PEERING or PRIVATE_SERVICE_CONNECT.")
 	}
 
 	if in.Network == "" {
@@ -135,12 +140,10 @@ func nextBlock(p netip.Prefix) netip.Prefix {
 	return netip.PrefixFrom(next, p.Bits())
 }
 
-// buildIPv6Locked reserves a global external IPv6 /96 from the emulator pool. Regional IPv6 addresses need a
-// dual-stack subnetwork, which the emulator does not model.
-func (b *InMemoryBackend) buildIPv6Locked(region string, in, a *computeapi.Address) *APIError {
+// buildIPv6Locked reserves a global external IPv6 /96 from the emulator pool, or a regional one from a subnetwork.
+func (b *InMemoryBackend) buildIPv6Locked(project, region string, in, a *computeapi.Address) *APIError {
 	if region != "" {
-		return errField("resource.ipVersion", in.IpVersion,
-			"Regional IPV6 addresses need a dual-stack subnetwork, which this emulator does not model.")
+		return b.buildRegionalIPv6Locked(project, region, in, a)
 	}
 
 	if a.AddressType != addrExternal {

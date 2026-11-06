@@ -206,7 +206,7 @@ func TestIPv6Addresses(t *testing.T) {
 	_, err = e.addresses(t).Insert(t.Context(), &computepb.InsertAddressRequest{
 		Project: project, Region: region, AddressResource: &computepb.Address{Name: s("r6"), IpVersion: s("IPV6")},
 	})
-	assertAPIError(t, err, http.StatusBadRequest, "invalid")
+	assertAPIError(t, err, http.StatusBadRequest, "required")
 
 	_, err = e.addresses(t).Insert(t.Context(), &computepb.InsertAddressRequest{
 		Project:         project,
