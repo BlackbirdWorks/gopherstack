@@ -2,11 +2,12 @@ package gcplogging
 
 import (
 	"math"
-	"time"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"google.golang.org/genproto/googleapis/api/distribution"
@@ -285,7 +286,7 @@ func (s *seriesRec) windows() []MetricWindow {
 		keys = append(keys, k)
 	}
 
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	slices.Sort(keys)
 
 	out := make([]MetricWindow, 0, len(keys))
 

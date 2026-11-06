@@ -1,9 +1,9 @@
 package gcplogging_test
 
 import (
-	"time"
 	"errors"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
 	"cloud.google.com/go/logging/logadmin"
@@ -236,7 +236,7 @@ func TestCounterMetricPerMinuteWindows(t *testing.T) {
 		require.Len(t, pts, 1)
 		require.Len(t, pts[0].Windows, 3)
 
-		var counts []int64
+		counts := make([]int64, 0, len(pts[0].Windows))
 
 		for i, w := range pts[0].Windows {
 			counts = append(counts, w.Count)

@@ -11,9 +11,9 @@ import (
 var errJSONPath = errors.New("invalid JSONPath")
 
 type pathStep struct {
-	name     string
-	index    int
-	kind     byte
+	name  string
+	index int
+	kind  byte
 }
 
 const (
@@ -93,36 +93,45 @@ func evalJSONPath(doc any, steps []pathStep) []any {
 	cur := []any{doc}
 
 	for _, st := range steps {
-		var next []any
+		next := make([]any, 0, len(cur))
 
 		for _, v := range cur {
-			switch st.kind {
-			case stepName:
-				if m, ok := v.(map[string]any); ok {
-					if x, has := m[st.name]; has {
-						next = append(next, x)
-					}
-				}
-			case stepIndex:
-				if a, ok := v.([]any); ok && st.index < len(a) {
-					next = append(next, a[st.index])
-				}
-			case stepAny:
-				switch c := v.(type) {
-				case map[string]any:
-					for _, x := range c {
-						next = append(next, x)
-					}
-				case []any:
-					next = append(next, c...)
-				}
-			}
+			next = append(next, applyStep(v, st)...)
 		}
 
 		cur = next
 	}
 
 	return cur
+}
+
+func applyStep(v any, st pathStep) []any {
+	switch st.kind {
+	case stepName:
+		if m, ok := v.(map[string]any); ok {
+			if x, has := m[st.name]; has {
+				return []any{x}
+			}
+		}
+	case stepIndex:
+		if a, ok := v.([]any); ok && st.index < len(a) {
+			return []any{a[st.index]}
+		}
+	case stepAny:
+		switch c := v.(type) {
+		case map[string]any:
+			out := make([]any, 0, len(c))
+			for _, x := range c {
+				out = append(out, x)
+			}
+
+			return out
+		case []any:
+			return c
+		}
+	}
+
+	return nil
 }
 
 // jsonPathMatches reports whether any value at the path equals content (exact) or matches it (regex).

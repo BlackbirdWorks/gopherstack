@@ -160,16 +160,40 @@ func TestExplicitDescriptorRejectsUnknownLabels(t *testing.T) {
 	const typ = "custom.googleapis.com/app/explicit"
 
 	tests := []struct {
+		labels   map[string]string
 		name     string
+		wantCode codes.Code
 		explicit bool
 		restore  bool
-		labels   map[string]string
-		wantCode codes.Code
 	}{
-		{"declared label", true, false, map[string]string{"route": "/a"}, codes.OK},
-		{"unknown label", true, false, map[string]string{"route": "/a", "extra": "x"}, codes.InvalidArgument},
-		{"unknown label after restore", true, true, map[string]string{"extra": "x"}, codes.InvalidArgument},
-		{"auto-created descriptor grows", false, false, map[string]string{"route": "/a", "extra": "x"}, codes.OK},
+		{
+			name:     "declared label",
+			explicit: true,
+			restore:  false,
+			labels:   map[string]string{"route": "/a"},
+			wantCode: codes.OK,
+		},
+		{
+			name:     "unknown label",
+			explicit: true,
+			restore:  false,
+			labels:   map[string]string{"route": "/a", "extra": "x"},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "unknown label after restore",
+			explicit: true,
+			restore:  true,
+			labels:   map[string]string{"extra": "x"},
+			wantCode: codes.InvalidArgument,
+		},
+		{
+			name:     "auto-created descriptor grows",
+			explicit: false,
+			restore:  false,
+			labels:   map[string]string{"route": "/a", "extra": "x"},
+			wantCode: codes.OK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -182,8 +206,9 @@ func TestExplicitDescriptorRejectsUnknownLabels(t *testing.T) {
 			if tt.explicit {
 				_, err := c.CreateMetricDescriptor(t.Context(), &monitoringpb.CreateMetricDescriptorRequest{
 					Name: proj, MetricDescriptor: &metricpb.MetricDescriptor{
-						Type: typ, MetricKind: metricpb.MetricDescriptor_GAUGE, ValueType: metricpb.MetricDescriptor_DOUBLE,
-						Labels: []*label.LabelDescriptor{{Key: "route"}},
+						Type: typ, MetricKind: metricpb.MetricDescriptor_GAUGE,
+						ValueType: metricpb.MetricDescriptor_DOUBLE,
+						Labels:    []*label.LabelDescriptor{{Key: "route"}},
 					},
 				})
 				require.NoError(t, err)

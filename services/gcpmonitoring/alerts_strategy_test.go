@@ -23,18 +23,18 @@ func TestEvaluationMissingData(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		mode     monitoringpb.AlertPolicy_Condition_EvaluationMissingData
 		value    float64
+		mode     monitoringpb.AlertPolicy_Condition_EvaluationMissingData
 		wantOpen bool
 	}{
-		{"unspecified keeps open incident", unspec, 9, true},
-		{"no-op keeps open incident", noop, 9, true},
-		{"inactive closes open incident", inact, 9, false},
-		{"active keeps open incident", active, 9, true},
-		{"unspecified does not open", unspec, 0, false},
-		{"no-op does not open", noop, 0, false},
-		{"inactive does not open", inact, 0, false},
-		{"active opens without data", active, 0, true},
+		{"unspecified keeps open incident", 9, unspec, true},
+		{"no-op keeps open incident", 9, noop, true},
+		{"inactive closes open incident", 9, inact, false},
+		{"active keeps open incident", 9, active, true},
+		{"unspecified does not open", 0, unspec, false},
+		{"no-op does not open", 0, noop, false},
+		{"inactive does not open", 0, inact, false},
+		{"active opens without data", 0, active, true},
 	}
 
 	for _, tt := range tests {
@@ -115,14 +115,18 @@ func TestChannelStrategyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		names func(ch string) []string
+		name  string
 		every time.Duration
 	}{
-		{"interval too short", func(ch string) []string { return []string{ch} }, time.Minute},
-		{"interval too long", func(ch string) []string { return []string{ch} }, 25 * time.Hour},
-		{"unknown channel", func(string) []string { return []string{proj + "/notificationChannels/nope"} }, time.Hour},
-		{"no channels", func(string) []string { return nil }, time.Hour},
+		{name: "interval too short", names: func(ch string) []string { return []string{ch} }, every: time.Minute},
+		{name: "interval too long", names: func(ch string) []string { return []string{ch} }, every: 25 * time.Hour},
+		{
+			name:  "unknown channel",
+			names: func(string) []string { return []string{proj + "/notificationChannels/nope"} },
+			every: time.Hour,
+		},
+		{name: "no channels", names: func(string) []string { return nil }, every: time.Hour},
 	}
 
 	for _, tt := range tests {

@@ -1,8 +1,8 @@
 package gcpmonitoring_test
 
 import (
-	"math"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 

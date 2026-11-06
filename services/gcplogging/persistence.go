@@ -1,11 +1,11 @@
 package gcplogging
 
 import (
-	"sort"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/logging/apiv2/loggingpb"
@@ -30,11 +30,11 @@ type bucketSnap struct {
 type seriesSnap struct {
 	Labels  map[string]string `json:"labels,omitempty"`
 	Buckets []int64           `json:"buckets,omitempty"`
+	Minutes []minuteSnap      `json:"minutes,omitempty"`
 	Count   int64             `json:"count"`
 	Sum     float64           `json:"sum"`
 	Mean    float64           `json:"mean"`
 	SSD     float64           `json:"ssd"`
-	Minutes []minuteSnap      `json:"minutes,omitempty"`
 }
 
 type minuteSnap struct {
@@ -152,7 +152,10 @@ func snapMinutes(s *seriesRec) []minuteSnap {
 	out := make([]minuteSnap, 0, len(s.minutes))
 
 	for k, m := range s.minutes {
-		out = append(out, minuteSnap{Start: k, Count: m.count, Sum: m.sum, Mean: m.mean, SSD: m.ssd, Buckets: m.buckets})
+		out = append(
+			out,
+			minuteSnap{Start: k, Count: m.count, Sum: m.sum, Mean: m.mean, SSD: m.ssd, Buckets: m.buckets},
+		)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Start < out[j].Start })

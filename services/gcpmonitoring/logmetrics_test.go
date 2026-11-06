@@ -231,7 +231,11 @@ func TestLogBasedMetricPerMinuteDeltas(t *testing.T) {
 			assert.Equal(t, metricpb.MetricDescriptor_DELTA, got[0].GetMetricKind())
 
 			p := got[0].GetPoints()[0]
-			assert.LessOrEqual(t, p.GetInterval().GetEndTime().AsTime().Sub(p.GetInterval().GetStartTime().AsTime()), time.Minute)
+			assert.LessOrEqual(
+				t,
+				p.GetInterval().GetEndTime().AsTime().Sub(p.GetInterval().GetStartTime().AsTime()),
+				time.Minute,
+			)
 		})
 	}
 }

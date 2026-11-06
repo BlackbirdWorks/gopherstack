@@ -473,23 +473,23 @@ func TestUptimeJSONPathMatchers(t *testing.T) {
 	)
 
 	tests := []struct {
-		name string
 		m    *monitoringpb.UptimeCheckConfig_ContentMatcher
+		name string
 		pass bool
 	}{
-		{"exact string", jsonMatcher(matches, "$.status", "ok", exact), true},
-		{"exact mismatch", jsonMatcher(matches, "$.status", "bad", exact), false},
-		{"exact number", jsonMatcher(matches, "$.n", "3", exact), true},
-		{"exact bool", jsonMatcher(matches, "$.ok", "true", exact), true},
-		{"exact null", jsonMatcher(matches, "$.nested.k", "null", exact), true},
-		{"index", jsonMatcher(matches, "$.items[1].id", "b", exact), true},
-		{"wildcard any", jsonMatcher(matches, "$.items[*].id", "b", exact), true},
-		{"bracket name", jsonMatcher(matches, "$['status']", "ok", exact), true},
-		{"regex", jsonMatcher(matches, "$.status", "^o.$", regex), true},
-		{"regex mismatch", jsonMatcher(matches, "$.status", "^x", regex), false},
-		{"missing path", jsonMatcher(matches, "$.nope", "ok", exact), false},
-		{"negated passes", jsonMatcher(absent, "$.status", "bad", exact), true},
-		{"negated fails", jsonMatcher(absent, "$.status", "ok", exact), false},
+		{name: "exact string", m: jsonMatcher(matches, "$.status", "ok", exact), pass: true},
+		{name: "exact mismatch", m: jsonMatcher(matches, "$.status", "bad", exact), pass: false},
+		{name: "exact number", m: jsonMatcher(matches, "$.n", "3", exact), pass: true},
+		{name: "exact bool", m: jsonMatcher(matches, "$.ok", "true", exact), pass: true},
+		{name: "exact null", m: jsonMatcher(matches, "$.nested.k", "null", exact), pass: true},
+		{name: "index", m: jsonMatcher(matches, "$.items[1].id", "b", exact), pass: true},
+		{name: "wildcard any", m: jsonMatcher(matches, "$.items[*].id", "b", exact), pass: true},
+		{name: "bracket name", m: jsonMatcher(matches, "$['status']", "ok", exact), pass: true},
+		{name: "regex", m: jsonMatcher(matches, "$.status", "^o.$", regex), pass: true},
+		{name: "regex mismatch", m: jsonMatcher(matches, "$.status", "^x", regex), pass: false},
+		{name: "missing path", m: jsonMatcher(matches, "$.nope", "ok", exact), pass: false},
+		{name: "negated passes", m: jsonMatcher(absent, "$.status", "bad", exact), pass: true},
+		{name: "negated fails", m: jsonMatcher(absent, "$.status", "ok", exact), pass: false},
 	}
 
 	for _, tt := range tests {
@@ -524,14 +524,14 @@ func TestUptimeJSONPathMatcherValidation(t *testing.T) {
 	)
 
 	tests := []struct {
-		name string
 		m    *monitoringpb.UptimeCheckConfig_ContentMatcher
+		name string
 	}{
-		{"no matcher info", &monitoringpb.UptimeCheckConfig_ContentMatcher{Content: "x", Matcher: matches}},
-		{"bad path", jsonMatcher(matches, "status", "x", exact)},
-		{"empty step", jsonMatcher(matches, "$..", "x", exact)},
-		{"no json matcher", jsonMatcher(matches, "$.a", "x", unset)},
-		{"bad regex", jsonMatcher(matches, "$.a", "(", regex)},
+		{name: "no matcher info", m: &monitoringpb.UptimeCheckConfig_ContentMatcher{Content: "x", Matcher: matches}},
+		{name: "bad path", m: jsonMatcher(matches, "status", "x", exact)},
+		{name: "empty step", m: jsonMatcher(matches, "$..", "x", exact)},
+		{name: "no json matcher", m: jsonMatcher(matches, "$.a", "x", unset)},
+		{name: "bad regex", m: jsonMatcher(matches, "$.a", "(", regex)},
 	}
 
 	for _, tt := range tests {

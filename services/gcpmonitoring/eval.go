@@ -183,7 +183,7 @@ func observeThreshold(s *aSeries, t *monitoringpb.AlertPolicy_Condition_MetricTh
 		if horizon > 0 {
 			pred, has := forecastValue(s.pts, at, horizon)
 			if has && compare(t.GetComparison(), pred, t.GetThresholdValue()) {
-				v, ok, violates = pred, true, true
+				v, violates = pred, true
 			}
 		}
 
@@ -515,42 +515,7 @@ func (b *InMemoryBackend) reconcileLocked(
 		}
 	}
 
-	for _, inc := range b.incidents {
-		if inc.State != stateOpen || inc.Policy != p.GetName() || isLogIncident(p, inc) {
-			continue
-		}
-
-		key := strings.TrimPrefix(inc.Key, p.GetName()+"|")
-		_, still := v.met[key]
-		_, fresh := v.evidence[key]
-
-		if fresh {
-			inc.LastSeen = now
-		}
-
-		if still {
-			out = append(out, b.renotifyLocked(p, inc, now)...)
-
-			continue
-		}
-
-		if !fresh {
-			if autoCloseDue(p, inc, now) {
-				inc.State, inc.EndedAt = stateClosed, now
-			}
-
-			continue
-		}
-
-		inc.State, inc.EndedAt = stateClosed, now
-		snoozed := b.snoozedLocked(p.GetName(), observation{
-			metricLabels: inc.MetricLabels, resourceLabels: inc.ResourceLabels,
-		}, now)
-
-		if closes && !snoozed {
-			out = append(out, b.notificationLocked(p, *inc, false))
-		}
-	}
+	out = append(out, b.settleIncidentsLocked(p, v, closes, now)...)
 
 	return out
 }
@@ -695,4 +660,50 @@ func (b *InMemoryBackend) pruneRuntimeLocked() {
 			delete(b.condRT, name)
 		}
 	}
+}
+
+// settleIncidentsLocked renotifies, closes and auto-closes the policy's open metric incidents.
+func (b *InMemoryBackend) settleIncidentsLocked(
+	p *monitoringpb.AlertPolicy, v verdict, closes bool, now time.Time,
+) []notification {
+	var out []notification
+
+	for _, inc := range b.incidents {
+		if inc.State != stateOpen || inc.Policy != p.GetName() || isLogIncident(p, inc) {
+			continue
+		}
+
+		key := strings.TrimPrefix(inc.Key, p.GetName()+"|")
+		_, still := v.met[key]
+		_, fresh := v.evidence[key]
+
+		if fresh {
+			inc.LastSeen = now
+		}
+
+		if still {
+			out = append(out, b.renotifyLocked(p, inc, now)...)
+
+			continue
+		}
+
+		if !fresh {
+			if autoCloseDue(p, inc, now) {
+				inc.State, inc.EndedAt = stateClosed, now
+			}
+
+			continue
+		}
+
+		inc.State, inc.EndedAt = stateClosed, now
+		snoozed := b.snoozedLocked(p.GetName(), observation{
+			metricLabels: inc.MetricLabels, resourceLabels: inc.ResourceLabels,
+		}, now)
+
+		if closes && !snoozed {
+			out = append(out, b.notificationLocked(p, *inc, false))
+		}
+	}
+
+	return out
 }

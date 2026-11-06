@@ -1,8 +1,8 @@
 package gcpmonitoring
 
 import (
-	"strconv"
 	"slices"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/monitoring/apiv3/v2/monitoringpb"
