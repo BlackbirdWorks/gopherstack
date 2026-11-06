@@ -76,6 +76,7 @@ type samHTTPAPI struct {
 	stageName string
 	stageRaw  any
 	routes    []samHTTPRoute
+	added     map[string]bool
 	managed   bool
 	plainRef  bool
 }
@@ -247,8 +248,11 @@ func httpAPISourceArn(apiID any, rt samHTTPRoute) map[string]any {
 		path = permissionPath(rt.path)
 	}
 	method := permissionMethod(rt.method)
-	if rt.path == "" {
+	switch rt.path {
+	case "":
 		method = "*"
+	case "/" + samDefaultStage:
+		method, path = "", samDefaultStage
 	}
 
 	return executeAPISourceArn(apiID, "*", method, path)
@@ -267,7 +271,10 @@ func (t *samTranslator) finalizeHTTPAPIs() error {
 func (t *samTranslator) emitHTTPAPI(a *samHTTPAPI) error {
 	t.pass = passAttrs(a.raw)
 	defer func() { t.pass = nil }()
-	api, err := a.apiProps()
+	if a.raw == nil {
+		maps.Copy(t.pass, t.implicitHTTPAttrs(a))
+	}
+	api, err := a.apiProps(t)
 	if err != nil {
 		return err
 	}
@@ -306,7 +313,7 @@ func samHTTPStageID(apiID, stage string) string {
 
 // apiProps builds the AWS::ApiGatewayV2::Api properties: the OpenAPI Body SAM
 // generates (or BodyS3Location) plus FailOnWarnings.
-func (a *samHTTPAPI) apiProps() (map[string]any, error) {
+func (a *samHTTPAPI) apiProps(t *samTranslator) (map[string]any, error) {
 	out := map[string]any{}
 	if v, ok := a.props["FailOnWarnings"]; ok && v != false {
 		out["FailOnWarnings"] = v
@@ -324,7 +331,7 @@ func (a *samHTTPAPI) apiProps() (map[string]any, error) {
 
 		return out, nil
 	}
-	doc, err := a.openAPI()
+	doc, err := a.openAPI(t)
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +392,11 @@ func (a *samHTTPAPI) stageProps() map[string]any {
 		if settings == nil {
 			settings = map[string]any{}
 		}
-		settings[rt.key()] = mergeSAMGlobals(asMap(settings[rt.key()]), rt.settings)
+		merged := any(mergeSAMGlobals(asMap(settings[rt.key()]), rt.settings))
+		if cond := asString(rt.pass[samKeyCondition]); cond != samCondUnconditional {
+			merged = samIf(cond, merged)
+		}
+		settings[rt.key()] = merged
 	}
 	if settings != nil {
 		stage[samKeyRouteSetting] = settings
@@ -397,7 +408,7 @@ func (a *samHTTPAPI) stageProps() map[string]any {
 // openAPI builds the HTTP API OpenAPI document: the user's DefinitionBody or a
 // fresh skeleton, with event integrations, Auth, Cors, Tags, Name and
 // Description merged in.
-func (a *samHTTPAPI) openAPI() (map[string]any, error) {
+func (a *samHTTPAPI) openAPI(t *samTranslator) (map[string]any, error) {
 	doc, err := a.baseDocument()
 	if err != nil {
 		return nil, err
@@ -408,6 +419,7 @@ func (a *samHTTPAPI) openAPI() (map[string]any, error) {
 			return nil, err
 		}
 	}
+	a.applyConditions(t, ed)
 	if err = a.applyAPIProperties(ed); err != nil {
 		return nil, err
 	}
@@ -456,7 +468,18 @@ func (a *samHTTPAPI) addRoute(ed *samOpenAPI, rt samHTTPRoute) error {
 	if a.managed && ed.hasIntegration(path, method) {
 		return samErr(rt.event, "API method '%s' defined multiple times for path '%s'.", rt.method, rt.path)
 	}
+	had := ed.hasIntegration(path, method)
 	ed.addLambdaIntegration(path, method, rt)
+	if !had {
+		if a.added == nil {
+			a.added = map[string]bool{}
+		}
+		a.added[path+" "+method] = true
+	}
+	if cond := asString(rt.pass[samKeyCondition]); cond != "" && !had {
+		integ := asMap(asMap(asMap(ed.paths()[path])[method])[samIntegrationKey])
+		integ[samKeyURI] = samIf(cond, integ[samKeyURI])
+	}
 	if rt.auth != nil {
 		if err := a.addRouteAuth(ed, rt, path, method); err != nil {
 			return err
@@ -508,4 +531,76 @@ func (a *samHTTPAPI) applyAPIProperties(ed *samOpenAPI) error {
 	}
 
 	return nil
+}
+
+func (a *samHTTPAPI) routeConditions() ([]string, bool) {
+	set := map[string]bool{}
+	all := len(a.routes) > 0
+	for _, rt := range a.routes {
+		if cond := asString(rt.pass[samKeyCondition]); cond != samCondUnconditional {
+			set[cond] = true
+		} else {
+			all = false
+		}
+	}
+
+	return slices.Sorted(maps.Keys(set)), all
+}
+
+// implicitHTTPAttrs are the resource attributes SAM derives for the implicit HTTP API from its functions.
+func (t *samTranslator) implicitHTTPAttrs(a *samHTTPAPI) map[string]any {
+	out := map[string]any{}
+	if conds, all := a.routeConditions(); all {
+		out[samKeyCondition] = t.combinedOrSingle(conds, samImplicitHTTPAPICond)
+	}
+	var del, upd []string
+	for _, rt := range a.routes {
+		del = append(del, asString(rt.pass[samKeyDelPolicy]))
+		upd = append(upd, asString(rt.pass[samKeyUpdPolicy]))
+	}
+	if p := strongestPolicy(del, samDeletionRetain, samDeletionDelete); p != "" {
+		out[samKeyDelPolicy] = p
+	}
+	if p := strongestPolicy(upd, samDeletionRetain, samDeletionSnapshot, samDeletionDelete); p != "" {
+		out[samKeyUpdPolicy] = p
+	}
+
+	return out
+}
+
+// applyConditions wraps conditional functions' methods, and the paths whose methods are all conditional.
+func (a *samHTTPAPI) applyConditions(t *samTranslator, ed *samOpenAPI) {
+	paths := ed.paths()
+	for _, rt := range a.routes {
+		cond := asString(rt.pass[samKeyCondition])
+		if cond == samCondUnconditional {
+			continue
+		}
+		item := asMap(paths[rt.docPath()])
+		if op, ok := item[rt.docMethod()]; ok && a.added[rt.docPath()+" "+rt.docMethod()] {
+			item[rt.docMethod()] = samIf(cond, op)
+		}
+	}
+	if !a.managed {
+		return
+	}
+	byPath := map[string][]samHTTPRoute{}
+	for _, rt := range a.routes {
+		byPath[rt.docPath()] = append(byPath[rt.docPath()], rt)
+	}
+	for _, path := range slices.Sorted(maps.Keys(byPath)) {
+		set := map[string]bool{}
+		all := true
+		for _, rt := range byPath[path] {
+			if cond := asString(rt.pass[samKeyCondition]); cond != samCondUnconditional {
+				set[cond] = true
+			} else {
+				all = false
+			}
+		}
+		if all {
+			conds := slices.Sorted(maps.Keys(set))
+			paths[path] = samIf(t.combinedOrSingle(conds, samPathConditionName(a.id, path)), paths[path])
+		}
+	}
 }

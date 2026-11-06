@@ -57,7 +57,6 @@ type samAPI struct {
 	delPolicies []string
 	updPolicies []string
 	explicit    bool
-	plainRef    bool
 }
 
 func (rt samRoute) invokeRef() string {
@@ -77,9 +76,9 @@ func (a *samAPI) permSuffix() string {
 	return a.stageName
 }
 
-// idValue is the API id as a permission refers to it: the literal logical id when events named it as a string.
-func (a *samAPI) idValue() any {
-	if a.plainRef {
+// eventIDValue is the API id as one event's permission names it: a literal when that event gave a plain string.
+func (a *samAPI) eventIDValue(restAPIID any) any {
+	if _, plain := restAPIID.(string); plain {
 		return a.id
 	}
 
@@ -141,9 +140,6 @@ func (t *samTranslator) apiFor(fnID string, restAPIID any) (*samAPI, error) {
 		ref, _ = asMap(restAPIID)[samKeyRef].(string)
 	}
 	api := t.apis[ref]
-	if api != nil && plain {
-		api.plainRef = true
-	}
 	if api == nil {
 		return nil, samErr(fnID, "RestApiId must reference an AWS::Serverless::Api in this template.")
 	}

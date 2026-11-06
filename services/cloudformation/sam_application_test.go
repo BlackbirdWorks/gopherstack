@@ -65,7 +65,7 @@ func TestSAMTransform_Application(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, err := cloudformation.ProcessedTemplateBody(tc.body)
+			out, err := cloudformation.ProcessedTemplateBody(tc.body, "")
 			if tc.wantErr {
 				require.ErrorIs(t, err, cloudformation.ErrSAMTransform)
 

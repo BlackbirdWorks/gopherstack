@@ -10,6 +10,7 @@ import (
 const (
 	samMaxOrConditions   = 10
 	samImplicitAPICond   = "ServerlessRestApiCondition"
+	samImplicitHTTPAPICond = "ServerlessHttpApiCondition"
 	samPathCondSuffix    = "PathCondition"
 	samDeletionRetain    = "Retain"
 	samDeletionDelete    = "Delete"

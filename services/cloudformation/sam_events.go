@@ -177,7 +177,7 @@ func (t *samTranslator) apiEvent(ev *samEventCtx, name string, props map[string]
 	perm := lambdaPermission(
 		ev.target(),
 		"apigateway.amazonaws.com",
-		executeAPISourceArn(api.idValue(), "*", permissionMethod(method),
+		executeAPISourceArn(api.eventIDValue(props[samKRestAPIID]), "*", permissionMethod(method),
 			permissionPath(path)),
 	)
 

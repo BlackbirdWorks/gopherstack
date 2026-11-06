@@ -11,6 +11,10 @@ const (
 	samTypeV2Mapping     = "AWS::ApiGatewayV2::ApiMapping"
 	samTypeV1Domain      = "AWS::ApiGateway::DomainName"
 	samTypeV1Mapping     = "AWS::ApiGateway::BasePathMapping"
+	samTypeV1DomainV2    = "AWS::ApiGateway::DomainNameV2"
+	samTypeV1MappingV2   = "AWS::ApiGateway::BasePathMappingV2"
+	samTypeDomainAssoc   = "AWS::ApiGateway::DomainNameAccessAssociation"
+	samEndpointPrivate   = "PRIVATE"
 	samTypeRecordGroup   = "AWS::Route53::RecordSetGroup"
 	samKeyEndpointConfig = "EndpointConfiguration"
 	samEndpointRegional  = "REGIONAL"
@@ -246,8 +250,8 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 	}
 	switch endpoint {
 	case samEndpointRegional, samEndpointEdge:
-	case "PRIVATE":
-		return samErr(a.id, "PRIVATE custom domains are not supported by this emulator's SAM transform.")
+	case samEndpointPrivate:
+		return t.emitPrivateRESTDomain(a, domain)
 	default:
 		return samErr(a.id, "EndpointConfiguration for Custom Domains must be one of [EDGE REGIONAL PRIVATE].")
 	}
@@ -281,15 +285,64 @@ func (t *samTranslator) emitRESTDomain(a *samAPI) error {
 	return t.putRecordSets(a.id, domain, domainID, endpoint)
 }
 
+func (t *samTranslator) emitPrivateRESTDomain(a *samAPI, domain map[string]any) error {
+	assoc := domain["AccessAssociation"]
+	if assoc != nil && asMap(assoc) == nil {
+		return samErr(a.id, "Property 'Domain.AccessAssociation' should be a map.")
+	}
+	domainID := "ApiGatewayDomainNameV2" + samLogicalID("", domain[samKeyDomainName])
+	cfg := map[string]any{samKTypes: []any{samEndpointPrivate}}
+	if v := domain["IpAddressType"]; v != nil {
+		cfg["IpAddressType"] = v
+	}
+	props := map[string]any{
+		samKeyDomainName: domain[samKeyDomainName], samKeyEndpointConfig: cfg,
+		"CertificateArn": domain["CertificateArn"],
+	}
+	for _, k := range []string{samKSecurityPolicy, "EndpointAccessMode", samKPolicy} {
+		if domain[k] != nil {
+			props[k] = domain[k]
+		}
+	}
+	if err := t.put(domainID, map[string]any{samKeyType: samTypeV1DomainV2, samKeyProps: props}); err != nil {
+		return err
+	}
+	t.refs[a.id+".DomainNameV2"] = domainID
+	if assoc != nil {
+		source := asMap(assoc)["VpcEndpointId"]
+		if source == nil {
+			return samErr(a.id, "Property 'Domain.AccessAssociation.VpcEndpointId' is required.")
+		}
+		assocID := samLogicalID("DomainNameAccessAssociation", []any{domain[samKeyDomainName], source})
+		if err := t.put(assocID, map[string]any{samKeyType: samTypeDomainAssoc, samKeyProps: map[string]any{
+			"AccessAssociationSource": source, "AccessAssociationSourceType": "VPCE",
+			"DomainNameArn": samRef(domainID),
+		}}); err != nil {
+			return err
+		}
+	}
+	if err := t.putRESTMappings(a, domain, domainID); err != nil {
+		return err
+	}
+
+	return t.putRecordSets(a.id, domain, domainID, samEndpointPrivate)
+}
+
 func (t *samTranslator) putRESTMappings(a *samAPI, domain map[string]any, domainID string) error {
 	mapping := func(id string, base *string) error {
 		props := map[string]any{samKeyDomainName: samRef(domainID), samKRestAPIID: samRef(a.id),
 			samDeploymentStub: samRef(a.id + ".Stage")}
+		typ := samTypeV1Mapping
+		if strings.HasPrefix(domainID, "ApiGatewayDomainNameV2") {
+			typ = samTypeV1MappingV2
+			props["DomainNameArn"] = props[samKeyDomainName]
+			delete(props, samKeyDomainName)
+		}
 		if base != nil {
 			props["BasePath"] = *base
 		}
 
-		return t.put(id, map[string]any{samKeyType: samTypeV1Mapping, samKeyProps: props})
+		return t.put(id, map[string]any{samKeyType: typ, samKeyProps: props})
 	}
 	paths := samDomainBasePaths(domain)
 	if paths == nil {

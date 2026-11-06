@@ -416,7 +416,13 @@ func normalizeYAMLNodeValue(node *yaml.Node) (any, error) {
 			if err := node.Content[i].Decode(&key); err != nil {
 				return nil, err
 			}
-			val, err := normalizeYAMLNode(node.Content[i+1])
+			child := node.Content[i+1]
+			if key == "OpenApiVersion" && child.Kind == yaml.ScalarNode && child.Tag == "!!float" {
+				m[key] = child.Value
+
+				continue
+			}
+			val, err := normalizeYAMLNode(child)
 			if err != nil {
 				return nil, err
 			}

@@ -145,7 +145,7 @@ func isSAMTransform(doc map[string]any) bool {
 
 // expandSAMDocument expands a decoded SAM template in place of Resources and
 // drops Globals; Transform is left for the caller to keep or strip.
-func expandSAMDocument(doc map[string]any) (err error) {
+func expandSAMDocument(doc map[string]any, region string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("%w. Unexpected template shape: %v", ErrSAMTransform, r)
@@ -171,6 +171,9 @@ func expandSAMDocument(doc map[string]any) (err error) {
 		mappings:   asMap(doc["Mappings"]),
 		bucketTags: map[string]map[string]any{},
 		owner:      map[string]string{},
+	}
+	if region != "" {
+		t.params["AWS::Region"] = region
 	}
 	for name, p := range asMap(doc["Parameters"]) {
 		if def, ok := asMap(p)["Default"]; ok {
@@ -392,6 +395,9 @@ func (t *samTranslator) resolveParamRefs(v any) any {
 	case map[string]any:
 		if r := t.paramDefault(val); len(val) == 1 && val[samKeyRef] != nil {
 			return r
+		}
+		if _, isSub := val[samKeyFnSub].(string); isSub && len(val) == 1 {
+			return t.resolveStringParam(val)
 		}
 		out := make(map[string]any, len(val))
 		for k, e := range val {
@@ -628,8 +634,9 @@ func rewriteRefValue(v any, refs map[string]string) any {
 }
 
 // ProcessedTemplateBody returns the template as CloudFormation reports it for
-// GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed.
-func ProcessedTemplateBody(body string) (string, error) {
+// GetTemplate TemplateStage=Processed: SAM expanded and its Transform removed. A non-empty region is
+// substituted for AWS::Region where the transform resolves parameters.
+func ProcessedTemplateBody(body, region string) (string, error) {
 	if !strings.Contains(body, samTransformName) {
 		return body, nil
 	}
@@ -637,7 +644,7 @@ func ProcessedTemplateBody(body string) (string, error) {
 	if err != nil || !isSAMTransform(doc) {
 		return body, err
 	}
-	if err = expandSAMDocument(doc); err != nil {
+	if err = expandSAMDocument(doc, region); err != nil {
 		return "", err
 	}
 	if rest := slices.DeleteFunc(parseTransform(doc["Transform"]), func(s string) bool {
@@ -662,7 +669,7 @@ func expandSAMBody(body string) (string, error) {
 	if err != nil || !isSAMTransform(doc) {
 		return body, err
 	}
-	if err = expandSAMDocument(doc); err != nil {
+	if err = expandSAMDocument(doc, ""); err != nil {
 		return "", err
 	}
 	out, err := json.Marshal(doc)

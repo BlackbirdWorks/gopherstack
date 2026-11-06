@@ -52,7 +52,7 @@ Resources:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			processed, err := cloudformation.ProcessedTemplateBody(tt.template)
+			processed, err := cloudformation.ProcessedTemplateBody(tt.template, "")
 			require.NoError(t, err)
 
 			var doc struct {
