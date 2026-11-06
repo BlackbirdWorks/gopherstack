@@ -265,7 +265,7 @@ func (p *WebProvider) putSlot(ctx context.Context, id ResourceID, body map[strin
 		return nil, err
 	}
 
-	info, err := p.dataPlane.PutApp(rec.dpName(), siteAppConfig(rec.Kind, rec.Configs[webConfigWeb]))
+	info, err := p.dataPlane.PutApp(rec.dpName(), siteAppConfig(rec.Kind, rec.Configs[webConfigWeb], nil))
 	if err != nil {
 		return nil, badWebRequest(err)
 	}
@@ -677,9 +677,9 @@ func (p *WebProvider) completeSwap(sd *slotSides) error {
 	}{{tgt, tgtWeb, tgtState.web}, {src, srcWeb, srcState.web}}
 
 	for i, st := range steps {
-		if _, err = p.dataPlane.PutApp(st.rec.dpName(), siteAppConfig(st.rec.Kind, st.cfg)); err != nil {
+		if _, err = p.dataPlane.PutApp(st.rec.dpName(), siteAppConfig(st.rec.Kind, st.cfg, nil)); err != nil {
 			for _, done := range steps[:i] {
-				_, _ = p.dataPlane.PutApp(done.rec.dpName(), siteAppConfig(done.rec.Kind, done.old))
+				_, _ = p.dataPlane.PutApp(done.rec.dpName(), siteAppConfig(done.rec.Kind, done.old, nil))
 			}
 
 			_ = p.revertSource(src)

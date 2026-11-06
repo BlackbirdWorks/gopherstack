@@ -910,6 +910,12 @@ func (h *Handler) writeXML(c *echo.Context, status int, v any) error {
 
 // writeError writes a standard Azure Storage REST error body.
 func (h *Handler) writeError(c *echo.Context, status int, code, message string) error {
+	c.Response().Header().Set("X-Ms-Error-Code", code)
+
+	if c.Request().Method == http.MethodHead {
+		return c.NoContent(status)
+	}
+
 	return h.writeXML(c, status, azureError{Code: code, Message: message})
 }
 

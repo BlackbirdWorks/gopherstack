@@ -163,7 +163,9 @@ func TestWebApp_NotServable(t *testing.T) {
 	}{
 		{"no content shows the hosting start page", "NODE|20-lts", nil, "waiting for your content", http.StatusOK},
 		{
-			"no startup command", "NODE|20-lts", map[string]string{"readme.txt": "x"}, "no startup command",
+			"no startup command", "NODE|20-lts",
+			map[string]string{"readme.txt": "x"},
+			"no startup command",
 			http.StatusBadGateway,
 		},
 		{
@@ -287,20 +289,20 @@ func TestWebApp_ValidateConfig(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		cfg     azurefunctions.AppConfig
 		wantErr string
+		cfg     azurefunctions.AppConfig
 	}{
-		{"node", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts"}, ""},
-		{"docker", azurefunctions.AppConfig{Kind: "app,linux,container", LinuxFx: "DOCKER|nginx"}, ""},
-		{"function app is not checked here", azurefunctions.AppConfig{Kind: "functionapp,linux", LinuxFx: "x"}, ""},
-		{"empty stack", azurefunctions.AppConfig{Kind: webKind}, "linuxFxVersion"},
-		{"unknown stack", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "RUBY|3.2"}, "RUBY"},
-		{"tomcat", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "TOMCAT|10.0-java17"}, "TOMCAT"},
-		{"old node", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|10-lts"}, "supported: 18"},
+		{"node", "", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts"}},
+		{"docker", "", azurefunctions.AppConfig{Kind: "app,linux,container", LinuxFx: "DOCKER|nginx"}},
+		{"function app is not checked here", "", azurefunctions.AppConfig{Kind: "functionapp,linux", LinuxFx: "x"}},
+		{"empty stack", "linuxFxVersion", azurefunctions.AppConfig{Kind: webKind}},
+		{"unknown stack", "RUBY", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "RUBY|3.2"}},
+		{"tomcat", "TOMCAT", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "TOMCAT|10.0-java17"}},
+		{"old node", "supported: 18", azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|10-lts"}},
 		{
 			"health path",
-			azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts", HealthCheckPath: "up"},
 			"healthCheckPath",
+			azurefunctions.AppConfig{Kind: webKind, LinuxFx: "NODE|20-lts", HealthCheckPath: "up"},
 		},
 	}
 

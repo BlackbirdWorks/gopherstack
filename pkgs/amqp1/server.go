@@ -164,7 +164,7 @@ func (c *conn) authenticateSASL(r *bufio.Reader) error {
 		return err
 	}
 
-	mechs := &SASLMechanisms{Mechanisms: []Symbol{"ANONYMOUS", "PLAIN"}}
+	mechs := &SASLMechanisms{Mechanisms: []Symbol{"ANONYMOUS", "PLAIN", "MSSBCBS"}}
 	if err := c.writePerformative(FrameSASL, 0, mechs); err != nil {
 		return err
 	}

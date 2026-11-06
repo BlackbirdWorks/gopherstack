@@ -155,7 +155,7 @@ type amqpHandler struct {
 }
 
 func (a *amqpHandler) Authenticate(mech amqp1.Symbol, _, password string) bool {
-	if mech == "ANONYMOUS" {
+	if mech == "ANONYMOUS" || mech == "MSSBCBS" {
 		return true
 	}
 

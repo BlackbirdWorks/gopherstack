@@ -4113,6 +4113,7 @@
       "appState.AppCommandLine string `json:\"appCommandLine,omitempty\"`",
       "appState.Created time.Time `json:\"created\"`",
       "appState.Deployments []Deployment `json:\"deployments\"`",
+      "appState.Flex bool `json:\"flex,omitempty\"`",
       "appState.FunctionKeys map[string]map[string]string `json:\"functionKeys\"`",
       "appState.HealthCheckPath string `json:\"healthCheckPath,omitempty\"`",
       "appState.HostKeys map[string]string `json:\"hostKeys\"`",

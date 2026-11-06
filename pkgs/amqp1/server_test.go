@@ -16,7 +16,7 @@ import (
 type fakeHandler struct{ got chan []byte }
 
 func (h *fakeHandler) Authenticate(mech amqp1.Symbol, _, pass string) bool {
-	return mech == "ANONYMOUS" || pass == "ok"
+	return mech == "ANONYMOUS" || mech == "MSSBCBS" || pass == "ok"
 }
 
 func (h *fakeHandler) NewConn() amqp1.ConnHandler { return &fakeConn{got: h.got} }
@@ -180,11 +180,13 @@ func TestServer_SASLPlain(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		mech     amqp1.Symbol
 		pass     string
 		wantCode uint8
 	}{
-		{name: "good credentials", pass: "ok", wantCode: amqp1.SASLOK},
-		{name: "bad credentials", pass: "nope", wantCode: amqp1.SASLAuth},
+		{name: "good credentials", mech: "PLAIN", pass: "ok", wantCode: amqp1.SASLOK},
+		{name: "bad credentials", mech: "PLAIN", pass: "nope", wantCode: amqp1.SASLAuth},
+		{name: "claims based security", mech: "MSSBCBS", wantCode: amqp1.SASLOK},
 	}
 
 	for _, tt := range tests {
@@ -204,8 +206,14 @@ func TestServer_SASLPlain(t *testing.T) {
 			mechs, ok := c.recvSASL().(*amqp1.SASLMechanisms)
 			require.True(t, ok)
 			assert.Contains(t, mechs.Mechanisms, amqp1.Symbol("PLAIN"))
+			assert.Contains(t, mechs.Mechanisms, amqp1.Symbol("MSSBCBS"), "the .NET SDKs only speak MSSBCBS")
 
-			c.sendSASL(&amqp1.SASLInit{Mechanism: "PLAIN", InitialResponse: []byte("\x00user\x00" + tt.pass)})
+			init := &amqp1.SASLInit{Mechanism: tt.mech}
+			if tt.mech == "PLAIN" {
+				init.InitialResponse = []byte("\x00user\x00" + tt.pass)
+			}
+
+			c.sendSASL(init)
 
 			out, ok := c.recvSASL().(*amqp1.SASLOutcome)
 			require.True(t, ok)
