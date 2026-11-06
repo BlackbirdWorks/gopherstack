@@ -101,7 +101,7 @@ func TestEngine_PrestoFunctions(t *testing.T) {
 		{
 			"array literal contains",
 			"SELECT contains(ARRAY['x', 'y'], 'y') AS c FROM events WHERE id = 1",
-			[][]string{{"1"}},
+			[][]string{{"true"}},
 		},
 		{"array_join", "SELECT array_join(ARRAY[1, 2, 3], '-') AS j FROM events WHERE id = 1", [][]string{{"1-2-3"}}},
 		{"array_agg", "SELECT cardinality(array_agg(id)) AS n FROM events", [][]string{{"2"}}},
@@ -137,7 +137,7 @@ func TestEngine_PrestoFunctions(t *testing.T) {
 		{"approx_percentile", "SELECT approx_percentile(id, 0.5) AS p FROM events", [][]string{{"1.0"}}},
 		{"arbitrary", "SELECT arbitrary(id) AS a FROM events WHERE id = 2", [][]string{{"2"}}},
 		{"stddev_pop", "SELECT stddev_pop(id) AS s FROM events", [][]string{{"0.5"}}},
-		{"bool_or", "SELECT bool_or(id > 1) AS b FROM events", [][]string{{"1"}}},
+		{"bool_or", "SELECT bool_or(id > 1) AS b FROM events", [][]string{{"true"}}},
 		{"lpad", "SELECT lpad('7', 3, '0') AS p FROM events WHERE id = 1", [][]string{{"007"}}},
 		{"reverse", "SELECT reverse('abc') AS r FROM events WHERE id = 1", [][]string{{"cba"}}},
 		{"split_part", "SELECT split_part('a-b-c', '-', 2) AS s FROM events WHERE id = 1", [][]string{{"b"}}},

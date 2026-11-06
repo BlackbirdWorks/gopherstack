@@ -20,12 +20,14 @@ var (
 
 type planTable struct {
 	def       *GlueTableDef
+	travel    travelSpec
 	schema    string
 	name      string
 	display   string
 	metaTable string
-	travel    travelSpec
+	loadedAt  string
 	parts     []GluePartitionDef
+	rowIDs    bool
 }
 
 type enginePlan struct {
@@ -33,6 +35,7 @@ type enginePlan struct {
 	list   S3Lister
 	write  *writePlan
 	sql    string
+	bools  []bool
 	tables []*planTable
 }
 
@@ -77,6 +80,16 @@ func normalizeCatalog(c string) string {
 	return c
 }
 
+func isWriteLeader(upper string) bool {
+	for _, k := range []string{"CREATE", "INSERT", "UNLOAD", "DELETE", "UPDATE", "MERGE", "OPTIMIZE"} {
+		if hasKeyword(upper, k) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // planEngineQuery translates a SELECT over Glue tables with S3 locations, or
 // a CTAS/INSERT/UNLOAD whose source is such a SELECT. It returns planned=false
 // when the statement should take the legacy in-memory path.
@@ -86,7 +99,7 @@ func (b *InMemoryBackend) planEngineQuery(
 	upper := strings.ToUpper(strings.TrimSpace(query))
 	isRead := hasKeyword(upper, "SELECT") || hasKeyword(upper, "WITH")
 
-	if !isRead && !hasKeyword(upper, "CREATE") && !hasKeyword(upper, "INSERT") && !hasKeyword(upper, "UNLOAD") {
+	if !isRead && !isWriteLeader(upper) {
 		return nil, stmtOK(), false
 	}
 
@@ -191,6 +204,7 @@ func (b *InMemoryBackend) buildPlan(
 	}
 
 	plan.sql = sqlText
+	plan.bools = boolOutputs(query)
 
 	if err = applyProjection(plan, query, b.now().UTC()); err != nil {
 		return nil, nil, err
@@ -254,7 +268,7 @@ func (p *enginePlan) run(ctx context.Context, limits EngineLimits) (*sqlResult, 
 		return nil, loader.scanned, engineFailure(err)
 	}
 
-	res, err := readResult(ctx, conn, p.sql, limits, p.write == nil)
+	res, err := readResult(ctx, conn, p.sql, limits, p.write == nil, p.bools)
 	if err != nil {
 		return nil, loader.scanned, engineFailure(err)
 	}
@@ -554,6 +568,10 @@ func formatCell(v any, decl string) string {
 			return strconv.FormatBool(t != 0)
 		}
 
+		if strings.HasPrefix(d, "DECIMAL") {
+			return strconv.FormatFloat(float64(t), 'f', decimalScale(d), 64)
+		}
+
 		return strconv.FormatInt(t, 10)
 	case float64:
 		if strings.HasPrefix(d, "DECIMAL") {
@@ -613,7 +631,7 @@ func (rb *resultBuilder) cellText(i int, v any) string {
 	return strings.TrimPrefix(s, containerMark)
 }
 
-func newResultBuilder(rows *sql.Rows, limits EngineLimits, display bool) (*resultBuilder, error) {
+func newResultBuilder(rows *sql.Rows, limits EngineLimits, display bool, bools []bool) (*resultBuilder, error) {
 	names, err := rows.Columns()
 	if err != nil {
 		return nil, err
@@ -638,9 +656,14 @@ func newResultBuilder(rows *sql.Rows, limits EngineLimits, display bool) (*resul
 			rb.decls[i] = declVarchar
 		}
 
+		name := resultColName(names[i], rb.decls[i], i)
+
+		if rb.decls[i] == "" && i < len(bools) && bools[i] {
+			rb.decls[i] = strings.ToUpper(typeBoolean)
+		}
+
 		rb.res.columns[i] = sqlColumn{
-			name: resultColName(names[i], rb.decls[i], i), typ: athenaTypeOfDecl(rb.decls[i]),
-			glue: glueTypeOfDecl(rb.decls[i]),
+			name: name, typ: athenaTypeOfDecl(rb.decls[i]), glue: glueTypeOfDecl(rb.decls[i]),
 		}
 		rb.inferred[i] = rb.decls[i] == ""
 	}
@@ -698,7 +721,7 @@ func (rb *resultBuilder) finish() *sqlResult {
 }
 
 func readResult(
-	ctx context.Context, conn *sql.Conn, query string, limits EngineLimits, display bool,
+	ctx context.Context, conn *sql.Conn, query string, limits EngineLimits, display bool, bools []bool,
 ) (*sqlResult, error) {
 	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
@@ -706,7 +729,7 @@ func readResult(
 	}
 	defer func() { _ = rows.Close() }()
 
-	rb, err := newResultBuilder(rows, limits, display)
+	rb, err := newResultBuilder(rows, limits, display, bools)
 	if err != nil {
 		return nil, err
 	}
