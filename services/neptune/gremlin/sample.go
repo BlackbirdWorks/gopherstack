@@ -48,9 +48,9 @@ func stepSample(x *exec, s *Step, in []*trav) ([]*trav, error) {
 	weights := make([]float64, len(in))
 
 	for i, t := range in {
-		w, err := x.sampleWeight(by, t)
-		if err != nil {
-			return nil, err
+		w, werr := x.sampleWeight(by, t)
+		if werr != nil {
+			return nil, werr
 		}
 
 		weights[i] = w

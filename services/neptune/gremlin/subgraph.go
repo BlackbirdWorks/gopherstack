@@ -1,6 +1,8 @@
 package gremlin
 
 import (
+	"slices"
+
 	"github.com/blackbirdworks/gopherstack/services/neptune/opencypher"
 )
 
@@ -124,11 +126,7 @@ func containsGraph(v any) bool {
 	case *SubGraph:
 		return true
 	case []any:
-		for _, e := range t {
-			if containsGraph(e) {
-				return true
-			}
-		}
+		return slices.ContainsFunc(t, containsGraph)
 	case Set:
 		return containsGraph([]any(t))
 	case *Map:

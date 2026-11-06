@@ -62,7 +62,8 @@ func TestGremlinGoStepFamilies(t *testing.T) {
 			require.NoError(t, err)
 
 			got := renderAll(rs)
-			if tt.name == "sample_local" || strings.HasPrefix(tt.name, "math") || strings.HasPrefix(tt.name, "sack_sum") {
+			if tt.name == "sample_local" || strings.HasPrefix(tt.name, "math") ||
+				strings.HasPrefix(tt.name, "sack_sum") {
 				assert.ElementsMatch(t, tt.want, got)
 
 				return

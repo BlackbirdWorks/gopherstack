@@ -363,7 +363,7 @@ func stepGroup(x *exec, s *Step, in []*trav) ([]*trav, error) {
 
 func isReducing(name string) bool {
 	switch name {
-	case "count", stepSum, "min", "max", "mean", "fold", "groupCount", "group":
+	case "count", stepSum, opMin, opMax, "mean", "fold", "groupCount", "group":
 		return true
 	}
 

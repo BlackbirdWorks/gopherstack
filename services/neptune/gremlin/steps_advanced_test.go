@@ -377,7 +377,7 @@ func TestSubgraphStep(t *testing.T) {
 	assert.Equal(t, "marko", sg.Edges[0].Edge.OutID)
 	assert.Equal(t, "vadas", sg.Edges[0].Edge.InID)
 	assert.Equal(t, "weight", sg.Edges[0].Props[0].Key)
-	assert.Equal(t, 0.5, sg.Edges[0].Props[0].Vals[0])
+	assert.InDelta(t, 0.5, sg.Edges[0].Props[0].Vals[0], 1e-9)
 }
 
 func TestSubgraphTraversals(t *testing.T) {
@@ -429,8 +429,11 @@ func TestIndexStep(t *testing.T) {
 		{"list_default", `g.V().hasLabel('software').values('name').fold().index()`, []string{"[[lop,0]]"}},
 		{"unfold_pairs", `g.V().hasLabel('person').values('name').fold().index().unfold()`,
 			[]string{"[marko,0]", "[vadas,1]", "[josh,2]"}},
-		{"map_mode", `g.V().hasLabel('person').values('name').fold().index().with(WithOptions.indexer, WithOptions.map)`,
-			[]string{"{0:marko,1:vadas,2:josh}"}},
+		{
+			"map_mode",
+			`g.V().hasLabel('person').values('name').fold().index().with(WithOptions.indexer, WithOptions.map)`,
+			[]string{"{0:marko,1:vadas,2:josh}"},
+		},
 		{"list_mode_explicit",
 			`g.inject([5,6]).index().with(WithOptions.indexer, WithOptions.list)`, []string{"[[5,0],[6,1]]"}},
 		{"wire_form", `g.inject([5,6]).index().with('~tinkerpop.index.indexer', 1)`, []string{"{0:5,1:6}"}},

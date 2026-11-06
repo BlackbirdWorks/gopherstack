@@ -313,9 +313,9 @@ func stepMath(x *exec, s *Step, in []*trav) ([]*trav, error) {
 		vars := make(map[string]float64, len(names))
 
 		for i, name := range names {
-			raw, err := x.mathVariable(name, t)
-			if err != nil {
-				return nil, err
+			raw, verr := x.mathVariable(name, t)
+			if verr != nil {
+				return nil, verr
 			}
 
 			if len(by) > 0 {

@@ -11,7 +11,7 @@ func indexAsMap(s *Step) (bool, error) {
 	asMap := false
 
 	for _, w := range modsNamed(s, "with") {
-		if len(w.Args) != 2 || !isIndexerKey(w.Args[0]) { //nolint:mnd // key and value
+		if len(w.Args) != 2 || !isIndexerKey(w.Args[0]) {
 			continue
 		}
 

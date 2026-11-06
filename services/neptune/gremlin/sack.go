@@ -23,16 +23,16 @@ func sackConfigOf(srcs []Step) (sackConfig, error) {
 		}
 
 		args := srcs[i].Args
-		if len(args) == 0 || len(args) > 2 { //nolint:mnd // initial value and optional merge operator
+		if len(args) == 0 || len(args) > 2 {
 			return c, invalidArg("withSack() takes an initial value and an optional merge Operator")
 		}
 
 		c = sackConfig{on: true, initial: normalizeValue(args[0])}
 
-		if len(args) == 2 { //nolint:mnd // initial value and merge operator
+		if len(args) > 1 {
 			op, ok := args[1].(Token)
 			if !ok || op.Kind != kindOperator {
-				return c, unsupported("withSack() split and merge functions must be Operator values; lambdas are not supported")
+				return c, unsupported("withSack() merge function must be an Operator; lambdas are not supported")
 			}
 
 			c.merge = op.Name
@@ -102,7 +102,7 @@ func applyOperator(op string, a, b any) (any, error) {
 		return boolOperator(op, a, b)
 	case "addAll":
 		return addAll(a, b)
-	case "min", "max":
+	case opMin, opMax:
 		return minMax(op, a, b)
 	case "sumLong":
 		if isNumber(a) && isNumber(b) {
@@ -127,11 +127,11 @@ func arith(op string, a, b any) (any, error) {
 	switch op {
 	case stepSum:
 		return x + y, nil
-	case "minus":
+	case opMinus:
 		return x - y, nil
-	case "mult":
+	case opMult:
 		return x * y, nil
-	case "div":
+	case opDiv:
 		return x / y, nil
 	}
 
@@ -142,11 +142,11 @@ func intArith(op string, x, y int64) (any, error) {
 	switch op {
 	case stepSum:
 		return x + y, nil
-	case "minus":
+	case opMinus:
 		return x - y, nil
-	case "mult":
+	case opMult:
 		return x * y, nil
-	case "div":
+	case opDiv:
 		if y == 0 {
 			return nil, malformed("/ by zero")
 		}
@@ -178,7 +178,7 @@ func minMax(op string, a, b any) (any, error) {
 		return nil, malformed("The Operator %s requires comparable operands", op)
 	}
 
-	if (op == "min") == (c <= 0) {
+	if (op == opMin) == (c <= 0) {
 		return a, nil
 	}
 
