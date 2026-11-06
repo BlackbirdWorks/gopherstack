@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
@@ -19,10 +20,18 @@ type RCPProvider interface {
 	OrgIDForAccount(accountID string) string
 }
 
-// ResourceOwnerResolver names the account owning a resource whose ARN carries no account ID (S3 buckets).
+// ResourceOwnerResolver names the owning account of resources whose ARN lacks it (S3) or carries a default (SQS).
 type ResourceOwnerResolver interface {
 	ResourceOwnerAccount(ctx context.Context, resourceARN string) (accountID string, ok bool)
 }
+
+// RCPExemptionResolver names resources RCPs never apply to (AWS managed KMS keys).
+type RCPExemptionResolver interface {
+	RCPExempt(ctx context.Context, resourceARN string) bool
+}
+
+// rcpExemptAction: RCPs never govern kms:RetireGrant (Organizations User Guide, "not restricted by RCPs").
+func rcpExemptAction(action string) bool { return strings.EqualFold(action, "kms:RetireGrant") }
 
 const ctxKeyPrincipalOrgID = "aws:principalorgid"
 
@@ -47,20 +56,26 @@ func (cfg EnforcementConfig) rcpProvider() RCPProvider {
 	return p
 }
 
-// resourceOwnerAccount is the account owning resourceARN: the ARN's own account
-// segment, else the first resolver that knows the resource.
+// resourceOwnerAccount is the account owning resourceARN: the first resolver that
+// knows the resource, else the ARN's own account segment.
 func (cfg EnforcementConfig) resourceOwnerAccount(ctx context.Context, resourceARN string) (string, bool) {
-	if acct, ok := arnAccountID(resourceARN); ok {
-		return acct, true
-	}
-
 	for _, r := range cfg.ResourceOwners {
 		if acct, ok := r.ResourceOwnerAccount(ctx, resourceARN); ok && acct != "" {
 			return acct, true
 		}
 	}
 
-	return "", false
+	return arnAccountID(resourceARN)
+}
+
+func (cfg EnforcementConfig) rcpExemptResource(ctx context.Context, resourceARN string) bool {
+	for _, r := range cfg.RCPExemptions {
+		if r.RCPExempt(ctx, resourceARN) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // withPrincipalOrg exposes aws:PrincipalOrgID for principals of an organization account.
@@ -87,7 +102,8 @@ func (cfg EnforcementConfig) rcpVerdict(
 	p := cfg.rcpProvider()
 	svc, _, _ := strings.Cut(action, ":")
 
-	if p == nil || scpExemptPrincipal(condCtx.PrincipalARN) || !RCPSupportsService(svc) {
+	if p == nil || scpExemptPrincipal(condCtx.PrincipalARN) || !RCPSupportsService(svc) ||
+		rcpExemptAction(action) || cfg.rcpExemptResource(ctx, resourceARN) {
 		return scpVerdict{}, false
 	}
 
@@ -135,4 +151,58 @@ func (v scpVerdict) rcpDecision() requestDecision {
 	}
 
 	return d
+}
+
+// RoleGetter looks a role up by ARN.
+type RoleGetter interface {
+	GetRoleByArn(roleArn string) (*Role, error)
+}
+
+// RoleTrustPolicyProvider serves a role's trust policy as its resource-based policy, so
+// cross-account sts:AssumeRole needs both the caller's identity policy and the trust policy.
+type RoleTrustPolicyProvider struct{ Roles RoleGetter }
+
+// GetResourcePolicy returns the trust policy of the role resourceARN names, or "". Trust
+// statements carry no Resource element, so they are scoped to the role ("*") for evaluation.
+func (p RoleTrustPolicyProvider) GetResourcePolicy(_ context.Context, resourceARN string) (string, error) {
+	if !strings.Contains(resourceARN, ":role/") {
+		return "", nil
+	}
+
+	role, err := p.Roles.GetRoleByArn(resourceARN)
+	if err == nil {
+		return scopeTrustPolicy(role.AssumeRolePolicyDocument), nil
+	}
+
+	return "", nil
+}
+
+func scopeTrustPolicy(doc string) string {
+	var raw map[string]any
+	if json.Unmarshal([]byte(doc), &raw) != nil {
+		return doc
+	}
+
+	stmts := statementList(raw["Statement"])
+	for _, st := range stmts {
+		m, ok := st.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if _, has := m["Resource"]; !has {
+			if _, not := m["NotResource"]; !not {
+				m["Resource"] = "*"
+			}
+		}
+	}
+
+	raw["Statement"] = stmts
+
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return doc
+	}
+
+	return string(out)
 }

@@ -10,7 +10,7 @@
 | PARITY entries audited | 38 (38 ok) |
 | Feature families | 7 (7 ok) |
 | Known gaps | 5 |
-| Structural gaps (can't be emulated) | 4 |
+| Structural gaps (can't be emulated) | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,15 +18,14 @@
 
 - AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07).
 - SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType ("Resource Policy" vs the SDK enum "resource") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'.
-- RCP resource-owner resolution: only ARNs carrying an account ID and S3 buckets (bucket creator account) resolve an owner. Non-S3 resource ARNs are built from the default account by extractResourceARN, so RCPs for other member-account resources (e.g. SQS queues created via X-Amz-Account) are not evaluated until their owner is resolvable (ResourceOwnerResolver).
+- RCP owner for single-account backends: KMS and Secrets Manager hold one account's resources (backend accountID), so a key or secret named by ID/name belongs to the default (management) account and RCPs do not apply to it; RCPs apply when the request names a member-account ARN. SQS (per-account queue scopes), S3 (bucket creator) and STS (role ARN account) resolve real owners. SimulateCustomPolicy does not report OrganizationsDecisionDetail: it takes no principal, so there is no account whose SCPs apply (docs only describe SCP evaluation for principal simulations; unverified for CallerArn).
 - Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created.
-- RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess, not documented (unverified).
+- RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess; re-checked 2026-11-06 against "RCP evaluation"/"RCP syntax", which name the policy but give no id or ARN (unverified).
 
 ### Structural gaps
 
 These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
 
-- OrganizationsDecisionDetail (2026-10-07): needs the SCP hierarchy of the caller's account; services/iam holds no Organizations model and the simulate ops take no SCP wiring.
 - aws_iam_security_token_service_preferences: terraform provider v5.100.0 Put-then-Read singleton trips a Terraform Core state-consistency check (external tooling, gopherstack-101r); the op itself is wire-verified.
 - Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped.
 - Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data.

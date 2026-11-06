@@ -146,16 +146,15 @@ invented_ops_removed:
 gaps: []
 leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classes found+fixed sweep 5 — see DeleteUser/DeleteRole/DeleteGroup/DeleteInstanceProfile ghost-row entries and the Handler-level tag leak entry above. go test -race passes."}
 structural_gaps:
-  - "OrganizationsDecisionDetail (2026-10-07): needs the SCP hierarchy of the caller's account; services/iam holds no Organizations model and the simulate ops take no SCP wiring."
   - "aws_iam_security_token_service_preferences: terraform provider v5.100.0 Put-then-Read singleton trips a Terraform Core state-consistency check (external tooling, gopherstack-101r); the op itself is wire-verified."
   - "Role templates: the pinned SDK has no Create/Put/List op, so AddRoleTemplateVersionInternal is the only seam; AWS publishes no per-property value registry, so property values are untyped."
   - "Access advisor Granularity=ACTION_LEVEL: needs real per-action usage tracking; emulating it would fabricate data."
 items_still_open:
   - "AcquireRole ReplacementValues with several Values: neither api_op_AcquireRole.go, API_ReplacementValueEntry.html nor the role-template user guide says how a multi-value parameter is substituted into the template (checked 2026-10-07)."
   - "SimulateCustomPolicy/SimulatePrincipalPolicy MatchedStatements are not emitted: the API reference examples contradict each other on SourcePolicyType (\"Resource Policy\" vs the SDK enum \"resource\") and report Line 1 positions for multi-line input, so the Start/EndPosition and SourcePolicyType conventions cannot be derived. Top-level EvalResourceName stays '*'."
-  - "RCP resource-owner resolution: only ARNs carrying an account ID and S3 buckets (bucket creator account) resolve an owner. Non-S3 resource ARNs are built from the default account by extractResourceARN, so RCPs for other member-account resources (e.g. SQS queues created via X-Amz-Account) are not evaluated until their owner is resolvable (ResourceOwnerResolver)."
+  - "RCP owner for single-account backends: KMS and Secrets Manager hold one account's resources (backend accountID), so a key or secret named by ID/name belongs to the default (management) account and RCPs do not apply to it; RCPs apply when the request names a member-account ARN. SQS (per-account queue scopes), S3 (bucket creator) and STS (role ARN account) resolve real owners. SimulateCustomPolicy does not report OrganizationsDecisionDetail: it takes no principal, so there is no account whose SCPs apply (docs only describe SCP evaluation for principal simulations; unverified for CallerArn)."
   - "Member-account root: SCP/RCP restriction is proven at the middleware level; the emulator's STS GetSessionToken mints root sessions only for the default (management) account, so an SDK-driven member-root session cannot be created."
-  - "RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess, not documented (unverified)."
+  - "RCP implicit-deny AccessDenied text ('because no resource control policy allows the <action> action') is inferred from the SCP/identity patterns; the IAM troubleshooting page documents only the explicit-deny RCP wording. RCPFullAWSAccess policy id p-RCPFullAWSAccess is recalled by analogy with p-FullAWSAccess; re-checked 2026-11-06 against \"RCP evaluation\"/\"RCP syntax\", which name the policy but give no id or ARN (unverified)."
 ---
 
 ## Notes
@@ -964,7 +963,7 @@ Authority: IAM User Guide "Policy evaluation logic" / "How AWS enforcement code 
 - `aws:PrincipalOrgID` is populated for principals of organization accounts (including management) so data-perimeter RCPs work.
 - Member-account root users are now evaluated (allow-all identity, still subject to resource-policy denies, SCPs and RCPs) instead of skipped; the management account stays exempt from SCPs.
 - Policy stream: `reason=resource-control-policy`, `policy.type=resource-control-policy`.
-- Not modelled: simulator `OrganizationsDecisionDetail` (iam@v1.64.4 has no RCP field), so SimulatePrincipalPolicy still ignores SCPs/RCPs. AWS-service-principal calls do not traverse this middleware.
+- AWS-service-principal calls do not traverse this middleware.
 - Tests: `services/iam/rcp_test.go`, `internal/app/iam_rcp_test.go` (SDK-driven: outside account denied, in-org allowed, management exempt).
 
 ## 2026-10-31 SCP evaluation in IAM enforcement
@@ -976,3 +975,13 @@ With `--enforce-iam` (or audit mode) on, an otherwise-allowed request from a mem
 - Denial text follows the IAM User Guide "Troubleshoot access denied error messages": `User: <arn> is not authorized to perform: <action> with an explicit deny in a service control policy[: <policy arn>]` / `... because no service control policy allows the <action> action`. Policy stream events carry `reason=service-control-policy`, `policy.type=service-control-policy`.
 - Tests: `internal/app/iam_scp_test.go` (SDK-driven full app), `services/iam/scp_whitebox_test.go`.
 - Not verified: whether S3 and other non-IAM-format services embed this exact message verbatim; the docs state some services do not support the format.
+
+## 2026-11-06 RCP owners for SQS/KMS/Secrets Manager/STS, exemptions, simulator SCPs
+
+Authority: Organizations User Guide "Resource control policies (RCPs)" (fetched 2026-11-06: supported-service list unchanged from `rcpSupportedServices`; "Resources and entities not restricted by RCPs"; "RCP effects on permissions": the RCPs of the resource owner's account apply), "RCP evaluation", "RCP syntax"; IAM User Guide "IAM policy testing with the IAM policy simulator" and API_OrganizationsDecisionDetail.
+
+- Owner resolution: resolvers (`ResourceOwnerResolver`) win over the ARN account. SQS: `sqsOwnerResolver` (internal/app) asks `sqs.InMemoryBackend.QueueOwner`, which finds the queue in the caller's scope first (requests resolve there), else the ARN account. STS: `RoleArn` of `AssumeRole*` is now the request resource, so the owner is the role's account; `RoleTrustPolicyProvider` serves the role trust policy as its resource policy so cross-account AssumeRole needs identity and trust allows. KMS/Secrets Manager: ARN account (backends are single-account, see items_still_open).
+- Name-only references (QueueName, key ID, secret name) now use the caller's account when building the resource ARN (AWS resolves them in the caller's account); previously the default account made every member-account CreateQueue a cross-account request. SQS queue URLs of any account now yield an ARN with that account. The SQS resource-policy adapter looks the queue up in the ARN account's scope.
+- Exemptions per the docs: service-linked roles (existing), AWS managed KMS keys (`RCPExemptionResolver`, `kms.IsAWSManagedKey`), `kms:RetireGrant`. The docs list no blanket exemption for AWS service principals (they are governed via `aws:PrincipalIsAWSService` conditions), so none is implemented.
+- Simulator: SimulatePrincipalPolicy returns `OrganizationsDecisionDetail.AllowedByOrganizations` from the principal account's SCPs (member accounts only; absent for the management account, service-linked roles, accounts without SCPs) and downgrades an otherwise-allowed Decision to implicitDeny/explicitDeny. The docs state the simulator "does not support resource control policies (RCPs)", so RCPs are deliberately not evaluated. Wired by `wireSimulatorSCPs` (honours `--iam-enforce-scps`).
+- Tests: `services/iam/rcp_services_test.go`, `rcp_trust_test.go`, `internal/app/iam_rcp_services_test.go` (SDK-driven SQS/STS/simulator), `services/sqs/queue_owner_test.go`, `services/kms/aws_managed_key_test.go`.

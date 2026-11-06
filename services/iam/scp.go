@@ -158,3 +158,26 @@ func (v scpVerdict) toDecision() requestDecision {
 
 	return d
 }
+
+// SetSCPProvider gives the policy simulator the SCPs of an account's organization.
+func (b *InMemoryBackend) SetSCPProvider(p SCPProvider) {
+	root := b
+	if b.parent != nil {
+		root = b.parent
+	}
+
+	root.orgPolicies.Store(&p)
+}
+
+func (b *InMemoryBackend) scpProvider() SCPProvider {
+	root := b
+	if b.parent != nil {
+		root = b.parent
+	}
+
+	if p := root.orgPolicies.Load(); p != nil {
+		return *p
+	}
+
+	return nil
+}

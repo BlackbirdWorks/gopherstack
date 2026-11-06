@@ -182,3 +182,13 @@ func errAWSManagedKeyUnsupported(arn string) error {
 		"%w: the key policy of AWS managed key %s cannot be changed", ErrUnsupportedParameter, arn,
 	)
 }
+
+// IsAWSManagedKey reports whether keyID (ID, ARN or alias) names an existing AWS managed key.
+func (b *InMemoryBackend) IsAWSManagedKey(ctx context.Context, keyID string) bool {
+	b.mu.RLock("IsAWSManagedKey")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(ctx, keyID, ErrInvalidArn)
+
+	return err == nil && isAWSManagedKey(key)
+}

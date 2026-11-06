@@ -60,6 +60,8 @@ type EnforcementConfig struct {
 	SCPs SCPProvider `json:"-"`
 	// ResourceOwners resolve the owning account of resources whose ARN has no account ID, for RCP evaluation.
 	ResourceOwners []ResourceOwnerResolver `json:"-"`
+	// RCPExemptions name resources RCPs never apply to.
+	RCPExemptions []RCPExemptionResolver `json:"-"`
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider `json:"resourceProviders,omitempty"`
@@ -450,6 +452,10 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 	if cfg.Global != nil {
 		accountID = cfg.Global.GetAccountID()
 		region = cfg.Global.GetRegion()
+	}
+
+	if condCtx.PrincipalAccount != "" {
+		accountID = condCtx.PrincipalAccount
 	}
 
 	resourceARN := extractResourceARN(r, accountID, region)
