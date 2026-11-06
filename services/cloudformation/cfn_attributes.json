@@ -20,6 +20,9 @@
   "AWS::ApiGateway::ApiKey": [
     "APIKeyId"
   ],
+  "AWS::ApiGateway::BasePathMappingV2": [
+    "BasePathMappingArn"
+  ],
   "AWS::ApiGateway::Deployment": [
     "DeploymentId"
   ],
@@ -29,6 +32,13 @@
     "DomainNameArn",
     "RegionalDomainName",
     "RegionalHostedZoneId"
+  ],
+  "AWS::ApiGateway::DomainNameAccessAssociation": [
+    "DomainNameAccessAssociationArn"
+  ],
+  "AWS::ApiGateway::DomainNameV2": [
+    "DomainNameArn",
+    "DomainNameId"
   ],
   "AWS::ApiGateway::RestApi": [
     "RestApiId",
@@ -47,6 +57,9 @@
   ],
   "AWS::ApiGatewayV2::ApiMapping": [
     "ApiMappingId"
+  ],
+  "AWS::ApiGatewayV2::Authorizer": [
+    "AuthorizerId"
   ],
   "AWS::ApiGatewayV2::DomainName": [
     "DomainNameArn",
@@ -86,14 +99,46 @@
   "AWS::AppIntegrations::EventIntegration": [
     "EventIntegrationArn"
   ],
+  "AWS::AppSync::ApiKey": [
+    "ApiKey",
+    "ApiKeyId",
+    "Arn"
+  ],
   "AWS::AppSync::ChannelNamespace": [
     "ChannelNamespaceArn"
+  ],
+  "AWS::AppSync::DataSource": [
+    "DataSourceArn",
+    "Name"
   ],
   "AWS::AppSync::DomainName": [
     "AppSyncDomainName",
     "DomainName",
     "DomainNameArn",
     "HostedZoneId"
+  ],
+  "AWS::AppSync::DomainNameApiAssociation": [
+    "ApiAssociationIdentifier"
+  ],
+  "AWS::AppSync::FunctionConfiguration": [
+    "DataSourceName",
+    "FunctionArn",
+    "FunctionId",
+    "Name"
+  ],
+  "AWS::AppSync::GraphQLApi": [
+    "ApiId",
+    "Arn",
+    "GraphQLDns",
+    "GraphQLEndpointArn",
+    "GraphQLUrl",
+    "RealtimeDns",
+    "RealtimeUrl"
+  ],
+  "AWS::AppSync::Resolver": [
+    "FieldName",
+    "ResolverArn",
+    "TypeName"
   ],
   "AWS::Athena::CapacityReservation": [
     "AllocatedDpus",
