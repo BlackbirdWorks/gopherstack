@@ -20,6 +20,8 @@
 #   scripts/lint-changed.sh --wip          # only uncommitted + last commit (HEAD~1) changes (fast on huge branches)
 #   scripts/lint-changed.sh --base <ref>   # diff against <ref> instead of origin/main
 #   scripts/lint-changed.sh FILE...        # lint only these files' packages
+#   scripts/lint-changed.sh --list         # print the changed package patterns and exit (no linting)
+#   scripts/lint-changed.sh --only FILE    # restrict to the patterns listed in FILE (CI shards)
 #
 # Env: LINT_BATCH (15) max packages per golangci-lint/go vet invocation,
 #      LINT_TIMEOUT (30m) per-batch limit, LINT_CONCURRENCY (from GOFLAGS -p, else nproc/2),
@@ -34,6 +36,8 @@ LINT_TIMEOUT="${LINT_TIMEOUT:-30m}"
 LOCK_RETRIES="${LINT_LOCK_RETRIES:-20}"
 BASE_REF="${LINT_BASE:-}"
 WIP_ONLY=0
+LIST_ONLY=0
+ONLY_FILE=""
 
 args=()
 while [[ $# -gt 0 ]]; do
@@ -46,6 +50,14 @@ while [[ $# -gt 0 ]]; do
       BASE_REF="$2"
       shift 2
       ;;
+    --list)
+      LIST_ONLY=1
+      shift
+      ;;
+    --only)
+      ONLY_FILE="$2"
+      shift 2
+      ;;
     *)
       args+=("$1")
       shift
@@ -53,7 +65,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-bash "$(dirname -- "${BASH_SOURCE[0]}")/gocache-trim.sh" --if-low || true
+# --list: all chatter goes to stderr, only the pattern list reaches stdout (fd 3).
+exec 3>&1
+[[ "$LIST_ONLY" -eq 1 ]] && exec 1>&2
+[[ "$LIST_ONLY" -eq 1 ]] || bash "$(dirname -- "${BASH_SOURCE[0]}")/gocache-trim.sh" --if-low || true
 
 lint_conc="${LINT_CONCURRENCY:-}"
 if [[ -z "$lint_conc" ]]; then
@@ -75,7 +90,9 @@ timeout_secs() {
 }
 hard_timeout=$(( $(timeout_secs "$LINT_TIMEOUT") + 120 ))
 
-for bin in golangci-lint go; do
+bins=(golangci-lint go)
+[[ "$LIST_ONLY" -eq 1 ]] && bins=(go)
+for bin in "${bins[@]}"; do
   command -v "$bin" >/dev/null 2>&1 || {
     echo "lint-changed: $bin not found on PATH" >&2
     exit 1
@@ -148,6 +165,19 @@ for d in "${pkgs[@]}"; do
   [[ "$d" == "." ]] && patterns+=(".") || patterns+=("./$d")
 done
 IFS=$'\n' sorted_patterns=($(sort <<<"${patterns[*]}")); unset IFS
+
+if [[ -n "$ONLY_FILE" ]]; then
+  mapfile -t sorted_patterns < <(comm -12 <(printf '%s\n' "${sorted_patterns[@]}" | LC_ALL=C sort -u) <(LC_ALL=C sort -u "$ONLY_FILE"))
+  if [[ ${#sorted_patterns[@]} -eq 0 ]]; then
+    [[ "$LIST_ONLY" -eq 1 ]] || echo "lint-changed: no changed package falls in --only set -- nothing to check."
+    exit 0
+  fi
+fi
+
+if [[ "$LIST_ONLY" -eq 1 ]]; then
+  printf '%s\n' "${sorted_patterns[@]}" >&3
+  exit 0
+fi
 
 echo "lint-changed: checking ${#sorted_patterns[@]} package(s):"
 printf '  %s\n' "${sorted_patterns[@]}"
