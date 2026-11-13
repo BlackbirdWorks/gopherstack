@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -721,6 +722,57 @@ func TestLogicEngineResponseSemantics(t *testing.T) {
 			out := s.invoke(t, "resp", "{}")
 			assert.Equal(t, tc.want, out.status)
 			assert.Equal(t, tc.wantBody, string(out.body))
+		})
+	}
+}
+
+func TestLogicEngineQuotesInMessages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		actions la
+		name    string
+		want    string
+	}{
+		{
+			name:    "undeclared variable",
+			actions: la{"Set": varOp("SetVariable", "it's", 5, la{})},
+			want:    "The variable 'it''s' has not been declared.",
+		},
+		{
+			name: "duplicate variable",
+			actions: la{
+				"Init": la{
+					"type": "InitializeVariable", "runAfter": la{},
+					"inputs": la{"variables": []any{
+						la{"name": "a'b", "type": "Integer", "value": 1},
+						la{"name": "a'b", "type": "Integer", "value": 2},
+					}},
+				},
+			},
+			want: "The variable 'a''b' has already been declared.",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := newLogicStack(t)
+			s.create(t, "quotes", logicDef(requestTrigger(nil), tc.actions))
+
+			out := s.invoke(t, "quotes", "{}")
+
+			msgs := make([]string, 0, len(out.actions))
+
+			for _, a := range out.actions {
+				raw, err := json.Marshal(a.Properties.Error)
+				require.NoError(t, err)
+
+				msgs = append(msgs, string(raw))
+			}
+
+			assert.Contains(t, strings.Join(msgs, "\n"), tc.want)
 		})
 	}
 }

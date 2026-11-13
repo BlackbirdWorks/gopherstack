@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -265,7 +267,7 @@ func (ix *Index) applyAction(a indexAction, version string) actionResult {
 			Key:  key,
 			Code: http.StatusBadRequest,
 			Err: fmt.Sprintf("Invalid document key: '%s'. Keys can only contain letters, "+
-				"digits, underscore (_), dash (-), or equal sign (=).", key),
+				"digits, underscore (_), dash (-), or equal sign (=).", strs.EscapeSingleQuotes(key)),
 		}
 	}
 
@@ -314,8 +316,10 @@ func (ix *Index) applyAction(a indexAction, version string) actionResult {
 }
 
 func mergeFields(old, patch map[string]any) map[string]any {
-	out := make(map[string]any, len(old)+len(patch))
-	maps.Copy(out, old)
+	out := maps.Clone(old)
+	if out == nil {
+		out = map[string]any{}
+	}
 
 	maps.Copy(out, patch)
 

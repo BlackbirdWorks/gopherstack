@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -155,7 +157,9 @@ func (rs *logicRunState) runResponse(env *logicEnv, name string, def map[string]
 	if s, has := in["statusCode"]; has {
 		n, ok := logicInt(normLogic(s))
 		if !ok || n < 200 || n > 599 || n >= 300 && n < 400 {
-			return failOutcome(logicCodeInvalidTmpl, fmt.Sprintf("The response status code '%v' is not valid.", s))
+			msg := fmt.Sprintf("The response status code '%s' is not valid.", strs.EscapeSingleQuotes(fmt.Sprint(s)))
+
+			return failOutcome(logicCodeInvalidTmpl, msg)
 		}
 
 		status = n
@@ -324,6 +328,10 @@ func foreachConcurrency(def map[string]any) int {
 	cc, _ := objectOf(rt["concurrency"])
 
 	if n, ok := logicInt(normLogic(cc["repetitions"])); ok && n >= 1 {
+		if n > logicMaxConcurrency {
+			return logicMaxConcurrency
+		}
+
 		return int(n)
 	}
 
@@ -668,7 +676,7 @@ func (rs *logicRunState) initVariables(in map[string]any) string {
 		}
 
 		if _, exists := rs.vars[vname]; exists {
-			return "The variable '" + vname + "' has already been declared."
+			return "The variable '" + strs.EscapeSingleQuotes(vname) + "' has already been declared."
 		}
 
 		val := logicZero(vtyp)
@@ -676,7 +684,7 @@ func (rs *logicRunState) initVariables(in map[string]any) string {
 		if given, has := v["value"]; has {
 			c, err := logicCoerceVar(vtyp, given)
 			if err != nil {
-				return "The variable '" + vname + "' cannot be initialized: " + err.Error()
+				return "The variable '" + strs.EscapeSingleQuotes(vname) + "' cannot be initialized: " + err.Error()
 			}
 
 			val = c
@@ -696,7 +704,7 @@ func (rs *logicRunState) updateVariable(typ string, in map[string]any) string {
 
 	v, ok := rs.vars[vname]
 	if !ok {
-		return "The variable '" + vname + "' has not been declared."
+		return "The variable '" + strs.EscapeSingleQuotes(vname) + "' has not been declared."
 	}
 
 	val := in["value"]
@@ -705,7 +713,7 @@ func (rs *logicRunState) updateVariable(typ string, in map[string]any) string {
 	case "setvariable":
 		c, err := logicCoerceVar(v.typ, val)
 		if err != nil {
-			return "The variable '" + vname + "' cannot be set: " + err.Error()
+			return "The variable '" + strs.EscapeSingleQuotes(vname) + "' cannot be set: " + err.Error()
 		}
 
 		v.value = c
@@ -714,14 +722,14 @@ func (rs *logicRunState) updateVariable(typ string, in map[string]any) string {
 	case "appendtoarrayvariable":
 		arr, isArr := v.value.([]any)
 		if !isArr {
-			return "The variable '" + vname + "' is not an array."
+			return "The variable '" + strs.EscapeSingleQuotes(vname) + "' is not an array."
 		}
 
 		v.value = append(slices.Clone(arr), val)
 	case "appendtostringvariable":
 		s, isStr := v.value.(string)
 		if !isStr {
-			return "The variable '" + vname + "' is not a string."
+			return "The variable '" + strs.EscapeSingleQuotes(vname) + "' is not a string."
 		}
 
 		v.value = s + logicString(val)
@@ -737,7 +745,7 @@ func stepVariable(v *logicVar, name string, by any, dec bool) string {
 
 	delta, isInt, ok := logicNum(by)
 	if !ok || v.typ != logicVarInteger && v.typ != logicVarFloat {
-		return "The variable '" + name + "' cannot be incremented or decremented."
+		return "The variable '" + strs.EscapeSingleQuotes(name) + "' cannot be incremented or decremented."
 	}
 
 	if dec {
@@ -747,7 +755,7 @@ func stepVariable(v *logicVar, name string, by any, dec bool) string {
 	switch cur := v.value.(type) {
 	case int64:
 		if !isInt {
-			return "The variable '" + name + "' is an integer; the step must be an integer."
+			return "The variable '" + strs.EscapeSingleQuotes(name) + "' is an integer; the step must be an integer."
 		}
 
 		v.value = cur + int64(delta)

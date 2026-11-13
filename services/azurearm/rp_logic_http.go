@@ -28,6 +28,18 @@ type logicRetryPolicy struct {
 	expo     bool
 }
 
+func clampRetryCount(n int64) int {
+	if n > logicRetryMax {
+		return logicRetryMax
+	}
+
+	if n < 0 {
+		return 0
+	}
+
+	return int(n)
+}
+
 func parseRetryPolicy(in map[string]any) (logicRetryPolicy, error) {
 	rp := logicRetryPolicy{count: logicRetryDefault, interval: logicRetryInterval, expo: true}
 
@@ -47,7 +59,7 @@ func parseRetryPolicy(in map[string]any) (logicRetryPolicy, error) {
 	}
 
 	if n, has := logicInt(normLogic(pol["count"])); has {
-		rp.count = int(min(n, logicRetryMax))
+		rp.count = clampRetryCount(n)
 	}
 
 	if iv := stringOf(pol["interval"]); iv != "" {

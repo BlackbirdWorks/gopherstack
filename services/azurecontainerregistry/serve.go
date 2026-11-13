@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/ociregistry"
+	"github.com/blackbirdworks/gopherstack/pkgs/strs"
 )
 
 const (
@@ -174,14 +175,14 @@ const unauthorizedMessage = "authentication required, visit https://aka.ms/acr/a
 
 func setChallengeHeader(w http.ResponseWriter, r *http.Request, scope, errCode string) {
 	realm := scheme(r) + "://" + r.Host + "/oauth2/token"
-	value := `Bearer realm="` + realm + `",service="` + r.Host + `"`
+	value := `Bearer realm="` + strs.EscapeDoubleQuotes(realm) + `",service="` + strs.EscapeDoubleQuotes(r.Host) + `"`
 
 	if scope != "" {
-		value += `,scope="` + scope + `"`
+		value += `,scope="` + strs.EscapeDoubleQuotes(scope) + `"`
 	}
 
 	if errCode != "" {
-		value += `,error="` + errCode + `"`
+		value += `,error="` + strs.EscapeDoubleQuotes(errCode) + `"`
 	}
 
 	w.Header().Set("WWW-Authenticate", value)

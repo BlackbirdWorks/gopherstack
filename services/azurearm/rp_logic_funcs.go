@@ -92,7 +92,7 @@ func (c *logicEvalCtx) evalIndex(n *logicExpr) (any, error) {
 			return nil, exprErr("array index must be an integer, got %s", logicString(idx))
 		}
 
-		if i < 0 || int(i) >= len(arr) {
+		if i < 0 || i >= int64(len(arr)) {
 			if n.safe {
 				return nil, nil //nolint:nilnil // a null-safe access of a missing element is null
 			}
