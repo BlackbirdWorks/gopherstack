@@ -109,7 +109,7 @@ recursive locks, copied locks — relevant given the coarse-lock convention in
 
 ## What CI runs (predict failures before opening a PR)
 
-`.github/workflows/ci.yml`: `ui-lint` → `lint` → `modernize` (`go fix -diff
+`.github/workflows/ci.yml`: `ui-lint` → `lint` (8 `lint-shard` matrix jobs, LOC-balanced by `scripts/lint-shard.sh`, each restricted to changed packages unless config/lint infra changed; `lint` aggregates) → `modernize` (`go fix -diff
 ./...`) → `govulncheck` → `codeql` → `unit-tests` (4-way sharded:
 `-race -shuffle on -short -timeout 5m`, split by `awk "NR % 4 == chunk"` over
 `go list ./...`) → `build` (static linux binary, tags `netgo osusergo
