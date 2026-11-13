@@ -55,6 +55,13 @@ var containerAppsRoutes = []armRoute{
 	},
 	{
 		match: func(segs []string, r *http.Request) bool {
+			return r.Method == http.MethodPost && isACAScope(segs, acaEnvType, acaRevActSegs) &&
+				segAt(segs, acaRevSegIdx, acaDaprType) && acaLast(segs) == acaActSecrets
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACADaprSecrets(c, segs) },
+	},
+	{
+		match: func(segs []string, r *http.Request) bool {
 			if r.Method != http.MethodPost || !isACAScope(segs, acaAppType, acaRevActSegs) ||
 				!segAt(segs, acaRevSegIdx, acaRevisionType) {
 				return false
@@ -210,4 +217,18 @@ func (h *Handler) writeACAResult(c *echo.Context, f func() (map[string]any, erro
 	}
 
 	return h.writeJSON(c, http.StatusOK, out)
+}
+
+func (h *Handler) handleACADaprSecrets(c *echo.Context, segs []string) error {
+	p, ok := h.containerAppsProvider()
+	if !ok {
+		return h.writeNotFound(c)
+	}
+
+	id, err := ParseGenericResourcePath("/" + joinSegs(segs[:len(segs)-1]))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	return h.writeACAResult(c, func() (map[string]any, error) { return p.listDaprSecrets(id) })
 }

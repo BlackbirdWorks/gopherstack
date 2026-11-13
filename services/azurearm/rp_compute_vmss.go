@@ -62,6 +62,10 @@ func (p *ComputeProvider) putVMSS(id ResourceID, body map[string]any) (*cmpRes, 
 
 	r.Extra = extraFields(body, "plan", "extendedLocation")
 
+	if err = p.checkPlacementRefs(propsOf(body)); err != nil {
+		return nil, err
+	}
+
 	mode, err := vmssModeOf(body, old)
 	if err != nil {
 		return nil, err

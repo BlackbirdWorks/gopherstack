@@ -38,6 +38,9 @@ const (
 	acaKindReplica
 	acaKindJob
 	acaKindExecution
+	acaKindDapr
+	acaKindCert
+	acaKindJava
 )
 
 // acaTarget is what a ResourceID addresses: its kind, its names and whether it lists a collection.
@@ -67,6 +70,12 @@ func acaTargetOf(id ResourceID) acaTarget {
 		t.kind = acaKindRevision
 	case acaTypesAre(types, acaAppType, acaRevisionType, acaReplicaType):
 		t.kind = acaKindReplica
+	case acaTypesAre(types, acaEnvType, acaDaprType):
+		t.kind = acaKindDapr
+	case acaTypesAre(types, acaEnvType, acaCertType):
+		t.kind = acaKindCert
+	case acaTypesAre(types, acaEnvType, acaJavaType):
+		t.kind = acaKindJava
 	case acaTypesAre(types, acaJobType):
 		t.kind = acaKindJob
 	case acaTypesAre(types, acaJobType, acaExecutionType):
@@ -143,6 +152,9 @@ func (p *ContainerAppsProvider) ResourceTypes() []ResourceTypeDef {
 
 	return []ResourceTypeDef{
 		{Type: acaEnvType, APIVersions: v, HasChildren: true},
+		{Type: acaEnvType + "/" + acaDaprType, APIVersions: v},
+		{Type: acaEnvType + "/" + acaCertType, APIVersions: v},
+		{Type: acaEnvType + "/" + acaJavaType, APIVersions: v},
 		{Type: acaAppType, APIVersions: v, HasChildren: true},
 		{Type: acaJobType, APIVersions: v, HasChildren: true},
 	}
@@ -181,6 +193,8 @@ func (p *ContainerAppsProvider) Put(ctx context.Context, id ResourceID, body map
 		return p.putEnv(id, body)
 	case t.kind == acaKindStorage:
 		return p.putStorage(id, body)
+	case isACASubKind(t.kind):
+		return p.putSub(id, body)
 	case t.kind == acaKindApp:
 		return p.putApp(ctx, id, body)
 	case t.kind == acaKindJob:
@@ -220,6 +234,8 @@ func (p *ContainerAppsProvider) getLocked(id ResourceID, t acaTarget) (map[strin
 		}
 	case acaKindStorage:
 		return p.storageGet(id, t)
+	case acaKindDapr, acaKindCert, acaKindJava:
+		return p.subGet(id, t)
 	case acaKindApp:
 		if a, ok := p.apps[acaKey(id.ResourceGroup, t.names[0])]; ok {
 			return p.appBody(id, a), nil
@@ -249,6 +265,8 @@ func (p *ContainerAppsProvider) Delete(_ context.Context, id ResourceID) error {
 		return p.deleteEnv(id, t.names[0])
 	case t.kind == acaKindStorage:
 		return p.deleteStorage(id, t)
+	case isACASubKind(t.kind):
+		return p.deleteSub(id, t)
 	case t.kind == acaKindApp:
 		return p.deleteApp(id, t.names[0])
 	case t.kind == acaKindJob:
@@ -280,6 +298,8 @@ func (p *ContainerAppsProvider) List(_ context.Context, id ResourceID) ([]map[st
 		return p.listJobs(id), nil
 	case acaKindStorage:
 		return p.listStorages(id)
+	case acaKindDapr, acaKindCert, acaKindJava:
+		return p.listSubs(id, t)
 	case acaKindRevision, acaKindReplica:
 		return p.listRevisions(id, t)
 	case acaKindExecution:
@@ -399,7 +419,8 @@ func (p *ContainerAppsProvider) etagOf(id ResourceID) (string, bool) {
 		if j, ok := p.jobs[key]; ok {
 			return acaEtag(j.Modified), true
 		}
-	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution:
+	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution, acaKindDapr, acaKindCert,
+		acaKindJava:
 	}
 
 	return "", false

@@ -7,14 +7,15 @@ import (
 )
 
 type containerServiceSnapshot struct {
-	Clusters map[string]*storedAKSCluster `json:"clusters"`
+	Clusters  map[string]*storedAKSCluster  `json:"clusters"`
+	Snapshots map[string]*storedAKSSnapshot `json:"snapshots,omitempty"`
 }
 
 func (p *ContainerServiceProvider) snapshot() *containerServiceSnapshot {
 	p.mu.RLock("snapshot")
 	defer p.mu.RUnlock()
 
-	buf, err := json.Marshal(&containerServiceSnapshot{Clusters: p.clusters}, jsonx.V1())
+	buf, err := json.Marshal(&containerServiceSnapshot{Clusters: p.clusters, Snapshots: p.snapshots}, jsonx.V1())
 	if err != nil {
 		return &containerServiceSnapshot{}
 	}
@@ -36,8 +37,15 @@ func (p *ContainerServiceProvider) restore(snap *containerServiceSnapshot) {
 
 	p.mu.Lock("restore")
 	p.clusters = map[string]*storedAKSCluster{}
+	p.snapshots = map[string]*storedAKSSnapshot{}
 
 	if snap != nil {
+		for k, s := range snap.Snapshots {
+			if s != nil {
+				p.snapshots[k] = s
+			}
+		}
+
 		for k, c := range snap.Clusters {
 			if c == nil {
 				continue

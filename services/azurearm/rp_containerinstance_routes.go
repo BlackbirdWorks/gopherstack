@@ -59,6 +59,10 @@ func isACIContainerOp(segs []string, r *http.Request, method string, ops ...stri
 //nolint:gochecknoglobals // static route table, read-only after init
 var containerInstanceRoutes = []armRoute{
 	{
+		match:  isACILocationRead,
+		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACILocationRead(c, segs) },
+	},
+	{
 		match:  isACIAction,
 		handle: func(h *Handler, c *echo.Context, segs []string) error { return h.handleACIAction(c, segs) },
 	},

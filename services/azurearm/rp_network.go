@@ -176,7 +176,7 @@ func (p *NetworkProvider) ResourceTypes() []ResourceTypeDef {
 		netZones, netZones + "/" + netLinks,
 		netLBs, netLBs + "/" + lbFrontends, netLBs + "/" + lbPools, netLBs + "/" + lbProbes, netLBs + "/" + lbRules,
 		netLBs + "/" + lbNATRules, netLBs + "/" + lbNATPools, netLBs + "/" + lbOutbound, netLBs + "/" + lbNICs,
-		netNATs, netPrefixes, netASGs, netPEs, netPEs + "/" + peZoneGroups, netNICs + "/" + nicLBs,
+		netNATs, netPrefixes, netASGs, netPEs, netPEs + "/" + peZoneGroups, netNICs + "/" + nicLBs, netDDoS,
 		netAGWs, netWAFs, netFWs, netFWPols, netFWPols + "/" + fpRCGs, netIPGroups,
 	} {
 		defs = append(defs, ResourceTypeDef{Type: t, APIVersions: v, HasChildren: !strings.Contains(t, "/")})
@@ -390,7 +390,8 @@ func (p *NetworkProvider) modeled(typ string) bool {
 	case strings.ToLower(netVNets), strings.ToLower(netNSGs), strings.ToLower(netPIPs), strings.ToLower(netNICs),
 		strings.ToLower(netRTs), strings.ToLower(netZones), strings.ToLower(netLBs), strings.ToLower(netNATs),
 		strings.ToLower(netPrefixes), strings.ToLower(netASGs), strings.ToLower(netPEs), strings.ToLower(netAGWs),
-		strings.ToLower(netWAFs), strings.ToLower(netFWs), strings.ToLower(netFWPols), strings.ToLower(netIPGroups):
+		strings.ToLower(netWAFs), strings.ToLower(netFWs), strings.ToLower(netFWPols), strings.ToLower(netIPGroups),
+		strings.ToLower(netDDoS):
 		return true
 	}
 
@@ -400,7 +401,7 @@ func (p *NetworkProvider) modeled(typ string) bool {
 func canonicalTop(typ string) string {
 	for _, t := range []string{
 		netVNets, netNSGs, netPIPs, netNICs, netRTs, netZones, netLBs, netNATs, netPrefixes, netASGs, netPEs,
-		netAGWs, netWAFs, netFWs, netFWPols, netIPGroups,
+		netAGWs, netWAFs, netFWs, netFWPols, netIPGroups, netDDoS,
 	} {
 		if strings.EqualFold(t, typ) {
 			return t
@@ -568,7 +569,7 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 	case netNSGs:
 		return p.putNSG(id, body)
 	case netPIPs:
-		return p.putPIP(id, body)
+		return p.putPIPChecked(id, body)
 	case netNICs:
 		return p.putNIC(id, body)
 	case netRTs:
@@ -579,8 +580,8 @@ func (p *NetworkProvider) putTop(top string, id ResourceID, body map[string]any)
 		return p.putNAT(id, body)
 	case netPrefixes:
 		return p.putPrefix(id, body)
-	case netASGs:
-		return p.putASG(id, body)
+	case netASGs, netDDoS:
+		return p.putPlainTop(top, id, body)
 	case netPEs:
 		return p.putPE(id, body)
 	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:
@@ -674,6 +675,8 @@ func (p *NetworkProvider) bodyTop(id ResourceID, it *netParent) map[string]any {
 		return p.bodyPrefix(id, it)
 	case netASGs:
 		return p.bodyASG(id, it)
+	case netDDoS:
+		return p.bodyDDoS(id, it)
 	case netPEs:
 		return p.bodyPE(id, it)
 	case netAGWs, netWAFs, netFWs, netFWPols, netIPGroups:

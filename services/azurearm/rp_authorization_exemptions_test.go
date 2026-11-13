@@ -19,8 +19,13 @@ func (s *authStack) putAssignmentAt(t *testing.T, scope, name, defID string) str
 	t.Helper()
 
 	path := scope + "/providers/Microsoft.Authorization/policyAssignments/" + name
+	params := ""
+	if defID == exBuiltinID {
+		params = `,"parameters":{"listOfAllowedLocations":{"value":["westus"]}}`
+	}
+
 	status, out := s.raw(t, http.MethodPut, path+"?api-version=2022-06-01",
-		`{"properties":{"policyDefinitionId":"`+defID+`"}}`)
+		`{"properties":{"policyDefinitionId":"`+defID+`"`+params+`}}`)
 	require.Less(t, status, http.StatusMultipleChoices, out)
 
 	return path

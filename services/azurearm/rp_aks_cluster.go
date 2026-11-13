@@ -470,6 +470,10 @@ func (p *ContainerServiceProvider) deleteCluster(ctx context.Context, id Resourc
 // PatchResource implements resourcePatcher: the Update Tags operation.
 func (p *ContainerServiceProvider) PatchResource(id ResourceID, body map[string]any) (map[string]any, error) {
 	t := aksTargetOf(id)
+	if t.kind == aksKindSnapshot && !t.listing {
+		return p.patchSnapshot(id, body)
+	}
+
 	if t.kind != aksKindCluster || t.listing {
 		return nil, netErr(http.StatusMethodNotAllowed, "MethodNotAllowed", "Method not allowed.")
 	}

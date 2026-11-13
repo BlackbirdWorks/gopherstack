@@ -1226,6 +1226,12 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 			props.PolicyDefinitionID = &tt.defID
 		}
 
+		if tt.defID == builtinID {
+			props.Parameters = map[string]*armpolicy.ParameterValuesValue{
+				"listOfAllowedLocations": {Value: []any{"westus"}},
+			}
+		}
+
 		got, aerr := s.pAssign.Create(ctx, tt.scope, tt.aname, armpolicy.Assignment{Properties: props}, nil)
 		if tt.wantCode != "" {
 			require.Error(t, aerr, tt.name)
@@ -1319,6 +1325,17 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = s.sets.Delete(ctx, "set1", nil)
+	require.Error(t, err)
+	assert.Equal(t, "PolicySetDefinitionInUse", sdkErrCode(err), "an assigned initiative cannot be deleted")
+
+	_, err = s.defs.Delete(ctx, "audit-storage", nil)
+	require.Error(t, err)
+	assert.Equal(t, "PolicyDefinitionInUse", sdkErrCode(err), "a definition used by an assignment or initiative")
+
+	_, err = s.pAssign.Delete(ctx, authAcctScope, "a3", nil)
+	require.NoError(t, err)
+
+	_, err = s.sets.Delete(ctx, "set1", nil)
 	require.NoError(t, err)
 
 	_, err = s.sets.Get(ctx, "set1", nil)
@@ -1328,6 +1345,80 @@ func TestAuthorizationSDK_PolicySetsAndAssignments(t *testing.T) {
 
 	_, err = s.pAssign.Get(ctx, authAcctScope, "a3", nil)
 	assert.Equal(t, "PolicyAssignmentNotFound", sdkErrCode(err), "assignments go with their resource")
+}
+
+func TestAuthorizationSDK_PolicyAssignmentParameters(t *testing.T) {
+	t.Parallel()
+
+	s := newAuthStack(t)
+	ctx := t.Context()
+
+	rule := map[string]any{
+		"if":   map[string]any{"field": "location", "notIn": "[parameters('locs')]"},
+		"then": map[string]any{"effect": "[parameters('effect')]"},
+	}
+	params := map[string]*armpolicy.ParameterDefinitionsValue{
+		"locs": {Type: new(armpolicy.ParameterTypeArray)},
+		"effect": {
+			Type:          new(armpolicy.ParameterTypeString),
+			DefaultValue:  "audit",
+			AllowedValues: []any{"audit", "deny"},
+		},
+		"limit": {Type: new(armpolicy.ParameterTypeInteger), DefaultValue: float64(1)},
+	}
+
+	_, err := s.defs.CreateOrUpdate(ctx, "needs-params", armpolicy.Definition{
+		Properties: &armpolicy.DefinitionProperties{PolicyRule: rule, Parameters: params},
+	}, nil)
+	require.NoError(t, err)
+
+	defID := authSubScope + "/providers/Microsoft.Authorization/policyDefinitions/needs-params"
+
+	tests := []struct {
+		vals     map[string]*armpolicy.ParameterValuesValue
+		name     string
+		wantCode string
+	}{
+		{name: "ok", vals: map[string]*armpolicy.ParameterValuesValue{"locs": {Value: []any{"westus"}}}},
+		{name: "missing required", vals: nil, wantCode: "MissingPolicyParameter"},
+		{
+			name: "wrong type", wantCode: "InvalidRequestContent",
+			vals: map[string]*armpolicy.ParameterValuesValue{"locs": {Value: "westus"}},
+		},
+		{
+			name: "not allowed", wantCode: "InvalidRequestContent",
+			vals: map[string]*armpolicy.ParameterValuesValue{
+				"locs": {Value: []any{"westus"}}, "effect": {Value: "disabled"},
+			},
+		},
+		{
+			name: "unknown", wantCode: "InvalidRequestContent",
+			vals: map[string]*armpolicy.ParameterValuesValue{"locs": {Value: []any{}}, "ghost": {Value: "x"}},
+		},
+		{
+			name: "integer type", wantCode: "InvalidRequestContent",
+			vals: map[string]*armpolicy.ParameterValuesValue{"locs": {Value: []any{}}, "limit": {Value: "two"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, aerr := s.pAssign.Create(ctx, authSubScope, "p-"+strings.ReplaceAll(tt.name, " ", "-"),
+				armpolicy.Assignment{Properties: &armpolicy.AssignmentProperties{
+					PolicyDefinitionID: &defID, Parameters: tt.vals,
+				}}, nil)
+			if tt.wantCode == "" {
+				require.NoError(t, aerr)
+
+				return
+			}
+
+			require.Error(t, aerr)
+			assert.Equal(t, tt.wantCode, sdkErrCode(aerr))
+		})
+	}
 }
 
 func TestAuthorizationSDK_ProviderRegistered(t *testing.T) {

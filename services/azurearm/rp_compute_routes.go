@@ -214,6 +214,10 @@ func (h *Handler) computeAction(c *echo.Context, cp *ComputeProvider, segs []str
 
 	action := segs[cmpRGActionIdx]
 
+	if strings.EqualFold(firstType(id), cmpSSHKeys) && strings.EqualFold(action, sshActionGenerate) {
+		return h.computeSSHAction(c, cp, id)
+	}
+
 	var actErr error
 
 	switch strings.ToLower(firstType(id)) {

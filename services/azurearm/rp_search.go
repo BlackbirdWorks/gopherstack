@@ -44,6 +44,8 @@ const (
 	srchMaxNameLen           = 60
 	srchFieldAuthOptions     = "authOptions"
 	srchFieldDisableLocal    = "disableLocalAuth"
+	srchFieldSemantic        = "semanticSearch"
+	srchFieldCMK             = "encryptionWithCmk"
 	srchFieldReplicas        = "replicaCount"
 	srchFieldPartitions      = "partitionCount"
 	srchFieldHosting         = "hostingMode"
@@ -385,6 +387,10 @@ func (r *storedSearch) applyProps(props map[string]any) error {
 		return err
 	}
 
+	if err := validateSearchEnums(props); err != nil {
+		return err
+	}
+
 	if v, has := props[srchFieldDisableLocal].(bool); has {
 		r.disableLocal = v
 	}
@@ -442,6 +448,14 @@ func (p *SearchProvider) body(id ResourceID, rec *storedSearch) map[string]any {
 
 	if rec.authOptions != nil {
 		props[srchFieldAuthOptions] = rec.authOptions
+	}
+
+	props[srchFieldCMK] = map[string]any{
+		"enforcement": firstNonEmpty(
+			strOf(mapOf(rec.extra[srchFieldCMK]), "enforcement"),
+			"Unspecified",
+		),
+		"encryptionComplianceStatus": "Compliant",
 	}
 
 	out := map[string]any{
@@ -626,6 +640,28 @@ func searchErrorDetails(err error) (errorEntry, bool) {
 	}
 
 	return errorEntry{}, false
+}
+
+// validateSearchEnums checks semanticSearch and encryptionWithCmk.enforcement against the armsearch enums.
+func validateSearchEnums(props map[string]any) error {
+	if v, has := props[srchFieldSemantic]; has {
+		if s, _ := v.(string); !containsFold([]string{"disabled", "free", srchSKUStandard}, s) || s == "" {
+			return badSearchRequest("semanticSearch %v is not valid; allowed values are disabled, free and standard", v)
+		}
+	}
+
+	if enc := mapOf(props[srchFieldCMK]); enc != nil {
+		if e := strOf(
+			enc,
+			"enforcement",
+		); e != "" &&
+			!slices.Contains([]string{apimDisabled, flexEnabled, "Unspecified"}, e) {
+			return badSearchRequest("encryptionWithCmk.enforcement %q is not valid; allowed values are Disabled, "+
+				"Enabled and Unspecified", e)
+		}
+	}
+
+	return nil
 }
 
 func (r *storedSearch) applyModes(props map[string]any) error {

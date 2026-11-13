@@ -34,6 +34,8 @@ func (p *NetworkProvider) checkNewTopDelete(it *netParent) error {
 		}
 	case netFWPols:
 		return p.checkFWPolDelete(it)
+	case netDDoS, netZones:
+		return p.checkDDoSZoneDelete(it)
 	case netIPGroups:
 		fws, pols := p.ipGroupUsers(it.armID())
 		if users := slices.Concat(fws, pols); len(users) > 0 {

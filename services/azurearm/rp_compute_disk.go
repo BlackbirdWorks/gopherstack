@@ -92,6 +92,10 @@ func (p *ComputeProvider) putDisk(id ResourceID, body map[string]any, snapshot b
 	r.Extra = extraFields(body, "extendedLocation")
 	props := cloneProps(propsOf(body))
 
+	if err = p.checkDiskRefs(props); err != nil {
+		return nil, err
+	}
+
 	for _, k := range diskReadOnlyProps {
 		delete(props, k)
 	}

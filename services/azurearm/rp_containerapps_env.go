@@ -29,6 +29,7 @@ type storedACAEnv struct {
 	Tags          map[string]string            `json:"tags,omitempty"`
 	Props         map[string]any               `json:"props"`
 	Storages      map[string]*storedACAStorage `json:"storages,omitempty"`
+	Subs          map[string]*storedACASub     `json:"subs,omitempty"`
 	Sub           string                       `json:"sub"`
 	Name          string                       `json:"name"`
 	ResourceGroup string                       `json:"resourceGroup"`
@@ -377,7 +378,9 @@ func (p *ContainerAppsProvider) PatchResource(id ResourceID, body map[string]any
 		return p.patchApp(id, body)
 	case acaKindJob:
 		return p.patchJob(id, body)
-	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution:
+	case acaKindCert, acaKindJava:
+		return p.patchSub(id, t, body)
+	case acaKindOther, acaKindStorage, acaKindRevision, acaKindReplica, acaKindExecution, acaKindDapr:
 	}
 
 	return nil, acaBad("%s does not support PATCH.", id.LeafType())

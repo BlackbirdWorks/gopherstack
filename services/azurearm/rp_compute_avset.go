@@ -52,6 +52,10 @@ func (p *ComputeProvider) putAvSet(id ResourceID, body map[string]any) (*cmpRes,
 	r.SKU = map[string]any{fieldName: canon}
 	props := cloneProps(propsOf(body))
 
+	if err = p.checkPlacementRefs(props); err != nil {
+		return nil, err
+	}
+
 	delete(props, "virtualMachines")
 	delete(props, cmpKeyStatuses)
 

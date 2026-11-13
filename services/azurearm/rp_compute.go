@@ -152,6 +152,14 @@ func (p *ComputeProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: cmpGalleries, APIVersions: v, HasChildren: true},
 		{Type: cmpGalleries + "/" + kidImages, APIVersions: v, HasChildren: true},
 		{Type: cmpGalleries + "/" + kidVersions, APIVersions: v},
+		{Type: cmpPPGs, APIVersions: v},
+		{Type: cmpSSHKeys, APIVersions: v},
+		{Type: cmpCapGroups, APIVersions: v, HasChildren: true},
+		{Type: cmpCapGroups + "/" + kidCapReservations, APIVersions: v},
+		{Type: cmpHostGroups, APIVersions: v, HasChildren: true},
+		{Type: cmpHostGroups + "/" + kidHosts, APIVersions: v},
+		{Type: cmpDiskEncSets, APIVersions: v},
+		{Type: cmpDiskAccess, APIVersions: v},
 	}
 }
 
@@ -231,7 +239,8 @@ func isVMSSInstanceID(id ResourceID) bool {
 }
 
 func canonicalCmpType(typ string) string {
-	for _, t := range []string{cmpVMs, cmpDisks, cmpSnaps, cmpAvSets, cmpVMSS, cmpImages, cmpGalleries} {
+	for _, t := range []string{cmpVMs, cmpDisks, cmpSnaps, cmpAvSets, cmpVMSS, cmpImages, cmpGalleries,
+		cmpPPGs, cmpSSHKeys, cmpCapGroups, cmpHostGroups, cmpDiskEncSets, cmpDiskAccess} {
 		if strings.EqualFold(t, typ) {
 			return t
 		}
@@ -306,7 +315,7 @@ func (p *ComputeProvider) render(r *cmpRes, expand bool) map[string]any {
 	case cmpGalleries:
 		props = p.galleryProps(r)
 	default:
-		props = p.vmssProps(r)
+		props = p.placementProps(r)
 	}
 
 	out := map[string]any{
@@ -432,7 +441,7 @@ func (p *ComputeProvider) Put(_ context.Context, id ResourceID, body map[string]
 	case cmpGalleries:
 		res, err = p.putGallery(id, body)
 	default:
-		res, err = p.putVMSS(id, body)
+		res, err = p.putPlacement(typ, id, body)
 	}
 
 	if err != nil {
@@ -470,18 +479,10 @@ func (p *ComputeProvider) Delete(_ context.Context, id ResourceID) error {
 		p.deleteVM(r)
 	case cmpVMSS:
 		p.deleteVMSSMembers(r)
-	case cmpGalleries:
-		if len(r.Kids) > 0 {
-			return cannotDeleteNested()
-		}
-	case cmpDisks:
-		if err := p.checkDiskDelete(r); err != nil {
-			return err
-		}
-	case cmpAvSets:
-		if err := p.checkAvSetDelete(r); err != nil {
-			return err
-		}
+	}
+
+	if err := p.checkTypeDelete(typ, r); err != nil {
+		return err
 	}
 
 	delete(p.items, cmpKey(typ, id.ResourceGroup, id.Names[0]))
