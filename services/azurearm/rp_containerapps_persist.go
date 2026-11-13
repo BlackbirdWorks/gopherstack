@@ -1,6 +1,9 @@
 package azurearm
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 type containerAppsSnapshot struct {
 	Envs map[string]*storedACAEnv `json:"envs"`
@@ -38,14 +41,62 @@ func (p *ContainerAppsProvider) snapshot() *containerAppsSnapshot {
 	return &out
 }
 
-// restore replaces the stored state. Restored revisions have no replicas; the first request starts them.
+// restore replaces the stored state. Revisions with minReplicas above zero start them again; the rest start on the
+// first request.
 func (p *ContainerAppsProvider) restore(snap *containerAppsSnapshot) {
 	p.opMu.Lock("restore")
 	defer p.opMu.Unlock()
 	defer p.armScheduler()
 
 	p.rt.closeAll()
+	p.replaceState(snap)
+	p.startMinReplicas()
+}
 
+func (p *ContainerAppsProvider) startMinReplicas() {
+	type job struct {
+		spec *acaRevSpec
+		key  string
+	}
+
+	var jobs []job
+
+	p.mu.RLock("startMinReplicas")
+
+	for _, a := range p.apps {
+		if a.Stopped {
+			continue
+		}
+
+		for _, r := range a.Revisions {
+			if !r.Active {
+				continue
+			}
+
+			rk := acaRevKey(a, r.Name)
+
+			spec, err := p.buildSpec(a, r)
+			if err != nil {
+				p.rt.setFailure(rk, err.Error())
+
+				continue
+			}
+
+			if spec.Min > 0 {
+				jobs = append(jobs, job{spec: spec, key: rk})
+			}
+		}
+	}
+	p.mu.RUnlock()
+
+	for _, j := range jobs {
+		if err := p.rt.ensure(context.Background(), j.spec, j.spec.Min); err != nil {
+			p.rt.setFailure(j.key, err.Error())
+		}
+	}
+}
+
+func (p *ContainerAppsProvider) replaceState(snap *containerAppsSnapshot) {
 	p.mu.Lock("restore")
 	defer p.mu.Unlock()
 
