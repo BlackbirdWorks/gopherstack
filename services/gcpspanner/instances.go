@@ -132,8 +132,12 @@ func (b *InMemoryBackend) ListInstances(
 		return nil, err
 	}
 
+	keep := instPred(func(*instancepb.Instance) bool { return true })
+
 	if in.GetFilter() != "" {
-		return nil, errUnimplemented("ListInstances filter is not supported by this emulator.")
+		if keep, err = parseInstanceFilter(in.GetFilter()); err != nil {
+			return nil, err
+		}
 	}
 
 	if in.GetPageSize() < 0 {
@@ -159,7 +163,9 @@ func (b *InMemoryBackend) ListInstances(
 
 	all := make([]*instancepb.Instance, 0, len(names))
 	for _, n := range names {
-		all = append(all, cloneInstance(b.instances[n].pb))
+		if keep(b.instances[n].pb) {
+			all = append(all, cloneInstance(b.instances[n].pb))
+		}
 	}
 	b.mu.RUnlock()
 

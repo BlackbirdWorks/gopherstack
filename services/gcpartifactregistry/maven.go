@@ -278,5 +278,5 @@ func (b *InMemoryBackend) getMaven(w http.ResponseWriter, r *http.Request, rc re
 	}
 
 	w.Header().Set("Content-Type", mavenContentType(t.filename))
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // #nosec G705 -- stored artifact bytes served with a non-HTML Maven content type
 }

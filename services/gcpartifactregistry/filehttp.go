@@ -122,7 +122,7 @@ func (b *InMemoryBackend) fileContent(ctx context.Context, name string) ([]byte,
 		return nil, errInternal(err)
 	}
 
-	if b.downloadDenied(ctx, fr.repo.project, fr.repo.id, b.fileResource(pkg.image, f.GetOwner())) {
+	if b.downloadDenied(ctx, fr.repo, b.fileResource(pkg.image, f.GetOwner())) {
 		return nil, status.Error(codes.PermissionDenied, "A download rule denies access to this package.")
 	}
 

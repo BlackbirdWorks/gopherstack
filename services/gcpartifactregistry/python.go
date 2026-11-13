@@ -179,7 +179,12 @@ func (b *InMemoryBackend) pyProject(w http.ResponseWriter, r *http.Request, rc r
 	if norm != name {
 		prefix := repoPrefix(isPkgHost(r), pythonRoute, rc)
 
-		http.Redirect(w, r, prefix+"/simple/"+url.PathEscape(norm)+"/", http.StatusMovedPermanently)
+		http.Redirect(
+			w,
+			r,
+			prefix+"/simple/"+url.PathEscape(norm)+"/",
+			http.StatusMovedPermanently,
+		) // #nosec G710 -- same-origin path built from a stored repository
 
 		return
 	}

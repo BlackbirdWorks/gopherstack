@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcpaudit"
 	"github.com/blackbirdworks/gopherstack/pkgs/gcplro"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -164,13 +165,25 @@ func cloneRepo(pb *artifactregistrypb.Repository) *artifactregistrypb.Repository
 	return out
 }
 
-// repoByKey finds the repository owning a docker registry path (project/repository/...). Must hold b.mu.
-func (b *InMemoryBackend) repoByKey(project, id string) (string, *repoRec, bool) {
-	for name, rec := range b.repos {
+// repoByKey finds the repository of a project/repository pair. An empty location accepts any (the first by name
+// when several locations hold the id); a format of 0 accepts any format. Must hold b.mu.
+func (b *InMemoryBackend) repoByKey(
+	project, id, location string,
+	format artifactregistrypb.Repository_Format,
+) (string, *repoRec, bool) {
+	for _, name := range collections.SortedKeys(b.repos) {
+		rec := b.repos[name]
+
 		ref, err := parseRepo(name)
-		if err == nil && ref.project == project && ref.id == id {
-			return name, rec, true
+		if err != nil || ref.project != project || ref.id != id || (location != "" && ref.location != location) {
+			continue
 		}
+
+		if format != artifactregistrypb.Repository_FORMAT_UNSPECIFIED && rec.pb.GetFormat() != format {
+			continue
+		}
+
+		return name, rec, true
 	}
 
 	return "", nil, false
@@ -189,7 +202,7 @@ func (b *InMemoryBackend) LookupDockerRepo(project, id string) (DockerRepoInfo, 
 	b.mu.RLock("LookupDockerRepo")
 	defer b.mu.RUnlock()
 
-	name, rec, ok := b.repoByKey(project, id)
+	name, rec, ok := b.repoByKey(project, id, "", artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		return DockerRepoInfo{}, false
 	}

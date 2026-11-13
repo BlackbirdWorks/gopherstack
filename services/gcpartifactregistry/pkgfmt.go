@@ -148,8 +148,13 @@ func (b *InMemoryBackend) servePackageRoute(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	rc, ok := b.repoOfFormat(addr.project, addr.id, format)
-	if !ok || hosted && rc.ref.location != location {
+	want := ""
+	if hosted {
+		want = location
+	}
+
+	rc, ok := b.repoOfFormat(addr.project, addr.id, want, format)
+	if !ok {
 		writePlain(w, http.StatusNotFound, "No "+strings.ToLower(format.String())+" repository "+addr.id+".")
 
 		return
@@ -216,13 +221,13 @@ func repoPrefix(hosted bool, route string, rc repoCtx) string {
 }
 
 func (b *InMemoryBackend) repoOfFormat(
-	project, id string, format artifactregistrypb.Repository_Format,
+	project, id, location string, format artifactregistrypb.Repository_Format,
 ) (repoCtx, bool) {
 	b.mu.RLock("repoOfFormat")
 	defer b.mu.RUnlock()
 
-	name, rec, ok := b.repoByKey(project, id)
-	if !ok || rec.pb.GetFormat() != format {
+	name, rec, ok := b.repoByKey(project, id, location, format)
+	if !ok {
 		return repoCtx{}, false
 	}
 
@@ -453,5 +458,5 @@ func (b *InMemoryBackend) packageIDs(ref repoRef) []string {
 }
 
 func (b *InMemoryBackend) packageDenied(ctx context.Context, rc repoCtx, pkgID string) bool {
-	return b.downloadDenied(ctx, rc.ref.project, rc.ref.id, ruleResource{pkg: pkgID})
+	return b.downloadDenied(ctx, rc.ref, ruleResource{pkg: pkgID})
 }

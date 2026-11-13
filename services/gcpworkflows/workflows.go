@@ -223,8 +223,9 @@ func (b *InMemoryBackend) ListWorkflows(
 		return nil, err
 	}
 
-	if in.GetFilter() != "" {
-		return nil, errInvalid("filter is not supported for workflows.")
+	keep, err := parseWorkflowFilter(in.GetFilter())
+	if err != nil {
+		return nil, err
 	}
 
 	if in.GetPageSize() < 0 {
@@ -236,7 +237,7 @@ func (b *InMemoryBackend) ListWorkflows(
 	var all []*workflowspb.Workflow
 
 	for name, rec := range b.workflows {
-		if inScope(name, project, location) {
+		if inScope(name, project, location) && keep(rec.latest()) {
 			all = append(all, clone(rec.latest()))
 		}
 	}
@@ -254,7 +255,7 @@ func (b *InMemoryBackend) ListWorkflows(
 }
 
 func orderWorkflows(all []*workflowspb.Workflow, orderBy string) error {
-	field, desc := "name", false
+	field, desc := fieldWfName, false
 
 	if strings.TrimSpace(orderBy) != "" {
 		parts := strings.Fields(orderBy)

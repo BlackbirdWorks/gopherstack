@@ -98,7 +98,7 @@ func (b *InMemoryBackend) CreateRepository(
 
 	b.mu.Lock("CreateRepository")
 
-	if _, _, exists := b.repoByKey(parent.project, parent.id); exists {
+	if b.repoExistsLocked(parent, pb.GetFormat()) {
 		b.mu.Unlock()
 
 		return nil, errExists("Repository %q already exists.", parent.full())
@@ -115,6 +115,22 @@ func (b *InMemoryBackend) CreateRepository(
 	b.mu.Unlock()
 
 	return b.done(parent.parent(), out)
+}
+
+// repoExistsLocked reports whether ref is taken. Docker repositories are also unique per project across
+// locations: the registry path carries no location.
+func (b *InMemoryBackend) repoExistsLocked(ref repoRef, format artifactregistrypb.Repository_Format) bool {
+	if _, taken := b.repos[ref.full()]; taken {
+		return true
+	}
+
+	if format != artifactregistrypb.Repository_DOCKER {
+		return false
+	}
+
+	_, _, taken := b.repoByKey(ref.project, ref.id, "", artifactregistrypb.Repository_DOCKER)
+
+	return taken
 }
 
 func (b *InMemoryBackend) buildRepository(

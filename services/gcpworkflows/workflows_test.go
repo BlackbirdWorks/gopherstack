@@ -388,7 +388,7 @@ func TestListWorkflows(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, names)
 
-	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, Filter: "state=ACTIVE"})
+	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, Filter: "bogus=ACTIVE"})
 	assert.Equal(t, codes.InvalidArgument, code(err))
 
 	_, err = list(&workflowspb.ListWorkflowsRequest{Parent: parent, OrderBy: "bogus"})

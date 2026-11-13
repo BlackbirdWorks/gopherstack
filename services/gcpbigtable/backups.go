@@ -15,6 +15,7 @@ import (
 
 const (
 	minBackupExpiry   = 6 * time.Hour
+	minHotToStandard  = 24 * time.Hour
 	maxBackupExpiry   = 90 * 24 * time.Hour
 	defaultBackupPage = 100
 )
@@ -51,6 +52,32 @@ func (b *InMemoryBackend) validateExpiry(ts *timestamppb.Timestamp) error {
 	return nil
 }
 
+// convertHotLocked turns a hot backup into a standard one once hot_to_standard_time has passed.
+func (b *InMemoryBackend) convertHotLocked(pb *adminpb.Backup) {
+	if pb.GetBackupType() == adminpb.Backup_HOT && pb.GetHotToStandardTime() != nil &&
+		!pb.GetHotToStandardTime().AsTime().After(b.now()) {
+		pb.BackupType = adminpb.Backup_STANDARD
+		pb.HotToStandardTime = nil
+	}
+}
+
+func (b *InMemoryBackend) validateHotToStandard(in *adminpb.Backup) error {
+	hot := in.GetHotToStandardTime()
+	if hot == nil {
+		return nil
+	}
+
+	if in.GetBackupType() != adminpb.Backup_HOT {
+		return errInvalid("backup.hot_to_standard_time can only be set on a HOT backup.")
+	}
+
+	if hot.AsTime().Sub(b.now()) < minHotToStandard {
+		return errInvalid("backup.hot_to_standard_time must be at least 24 hours from now.")
+	}
+
+	return nil
+}
+
 // CreateBackup snapshots a table into a backup stored in a cluster.
 func (b *InMemoryBackend) CreateBackup(in *adminpb.CreateBackupRequest) (*longrunningpb.Operation, error) {
 	if !tableIDRe.MatchString(in.GetBackupId()) || len(in.GetBackupId()) > maxTableIDLen {
@@ -58,6 +85,10 @@ func (b *InMemoryBackend) CreateBackup(in *adminpb.CreateBackupRequest) (*longru
 	}
 
 	if err := b.validateExpiry(in.GetBackup().GetExpireTime()); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateHotToStandard(in.GetBackup()); err != nil {
 		return nil, err
 	}
 
@@ -93,8 +124,9 @@ func (b *InMemoryBackend) CreateBackup(in *adminpb.CreateBackupRequest) (*longru
 	snap := cloneTable(t)
 	pb := &adminpb.Backup{
 		Name: name, SourceTable: t.pb.GetName(), ExpireTime: in.GetBackup().GetExpireTime(),
-		StartTime: start, EndTime: b.ts(), State: adminpb.Backup_READY, BackupType: adminpb.Backup_STANDARD,
-		EncryptionInfo: encryptionInfo(rec.clusters[cid]),
+		StartTime: start, EndTime: b.ts(), State: adminpb.Backup_READY, BackupType: backupTypeOf(in.GetBackup()),
+		HotToStandardTime: in.GetBackup().GetHotToStandardTime(),
+		EncryptionInfo:    encryptionInfo(rec.clusters[cid]),
 	}
 
 	for _, r := range snap.rows {
@@ -110,13 +142,15 @@ func (b *InMemoryBackend) CreateBackup(in *adminpb.CreateBackupRequest) (*longru
 
 // GetBackup returns a backup.
 func (b *InMemoryBackend) GetBackup(name string) (*adminpb.Backup, error) {
-	b.mu.RLock("GetBackup")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetBackup")
+	defer b.mu.Unlock()
 
 	_, bk, err := b.backupLocked(name)
 	if err != nil {
 		return nil, err
 	}
+
+	b.convertHotLocked(bk.pb)
 
 	return clone(bk.pb), nil
 }
@@ -137,7 +171,7 @@ func (b *InMemoryBackend) UpdateBackup(in *adminpb.UpdateBackupRequest) (*adminp
 	}
 
 	for _, p := range paths {
-		if p != "expire_time" {
+		if p != fieldExpire {
 			return nil, errInvalid("Unsupported update_mask path %q for Backup.", p)
 		}
 
@@ -168,12 +202,17 @@ func (b *InMemoryBackend) DeleteBackup(name string) (*emptypb.Empty, error) {
 
 // ListBackups lists the backups of a cluster, or of every cluster of an instance when the cluster is "-".
 func (b *InMemoryBackend) ListBackups(in *adminpb.ListBackupsRequest) (*adminpb.ListBackupsResponse, error) {
-	if in.GetFilter() != "" {
-		return nil, errUnimplemented("ListBackups filter is not supported by this emulator.")
+	order, err := parseBackupOrder(in.GetOrderBy())
+	if err != nil {
+		return nil, err
 	}
 
-	if in.GetOrderBy() != "" {
-		return nil, errUnimplemented("ListBackups order_by is not supported by this emulator.")
+	keep := bkPred(func(*adminpb.Backup) bool { return true })
+
+	if in.GetFilter() != "" {
+		if keep, err = parseBackupFilter(in.GetFilter()); err != nil {
+			return nil, err
+		}
 	}
 
 	if in.GetPageSize() < 0 {
@@ -185,8 +224,8 @@ func (b *InMemoryBackend) ListBackups(in *adminpb.ListBackupsRequest) (*adminpb.
 		return nil, errInvalid("Invalid parent %q: want projects/{p}/instances/{i}/clusters/{c}.", in.GetParent())
 	}
 
-	b.mu.RLock("ListBackups")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListBackups")
+	defer b.mu.Unlock()
 
 	rec, err := b.instanceLocked(instanceName(ids[0], ids[1]))
 	if err != nil {
@@ -202,10 +241,18 @@ func (b *InMemoryBackend) ListBackups(in *adminpb.ListBackupsRequest) (*adminpb.
 	all := []*adminpb.Backup{}
 
 	for _, n := range collections.SortedKeys(rec.backups) {
-		if ids[2] == wildcard || strings.HasPrefix(n, in.GetParent()+"/backups/") {
+		if ids[2] != wildcard && !strings.HasPrefix(n, in.GetParent()+"/backups/") {
+			continue
+		}
+
+		b.convertHotLocked(rec.backups[n].pb)
+
+		if keep(rec.backups[n].pb) {
 			all = append(all, clone(rec.backups[n].pb))
 		}
 	}
+
+	sortBackups(all, order)
 
 	pg := page.New(all, in.GetPageToken(), int(in.GetPageSize()), defaultBackupPage)
 
@@ -257,4 +304,12 @@ func (b *InMemoryBackend) RestoreTable(in *adminpb.RestoreTableRequest) (*longru
 		Name: t.pb.GetName(), SourceType: adminpb.RestoreSourceType_BACKUP,
 		SourceInfo: &adminpb.RestoreTableMetadata_BackupInfo{BackupInfo: info},
 	}, tableView(rec, t, adminpb.Table_SCHEMA_VIEW, adminpb.Table_SCHEMA_VIEW))
+}
+
+func backupTypeOf(in *adminpb.Backup) adminpb.Backup_BackupType {
+	if in.GetBackupType() == adminpb.Backup_HOT {
+		return adminpb.Backup_HOT
+	}
+
+	return adminpb.Backup_STANDARD
 }

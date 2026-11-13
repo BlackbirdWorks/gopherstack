@@ -5,7 +5,7 @@ last_audit_commit: 364908f83
 last_audit_date: 2026-10-22
 overall: B
 ops:
-  CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns an operation that is already done (pkgs/gcplro); the Repository is its response. repository_id is 1-63 lowercase letters, digits or hyphens; format is required (DOCKER, MAVEN, NPM, PYTHON, APT, YUM, KFP, GO, GENERIC). The id is unique per project across locations. docker_config is only valid for DOCKER; VIRTUAL and REMOTE modes need their config message. Default mode STANDARD_REPOSITORY."}
+  CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: "Returns an operation that is already done (pkgs/gcplro); the Repository is its response. repository_id is 1-63 lowercase letters, digits or hyphens; format is required (DOCKER, MAVEN, NPM, PYTHON, APT, YUM, KFP, GO, GENERIC). The id is unique per location; DOCKER ids are also unique per project across locations. docker_config is only valid for DOCKER; VIRTUAL and REMOTE modes need their config message. Default mode STANDARD_REPOSITORY."}
   GetRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: "DOCKER repositories carry registry_uri (<host>:<port>/<project>/<repository>, from --gcp-artifacts-registry-host) and size_bytes summed from the stored manifests."}
   ListRepositories: {wire: ok, errors: ok, state: ok, persist: n/a, note: "Per location or all locations with '-', sorted by name, paged through pkgs/page. filter is rejected with INVALID_ARGUMENT."}
   UpdateRepository: {wire: ok, errors: ok, state: ok, persist: ok, note: "update_mask over description, labels, cleanup_policies, cleanup_policy_dry_run, docker_config and vulnerability_scanning_config; an empty mask copies every set mutable field; anything else is INVALID_ARGUMENT."}
@@ -81,7 +81,7 @@ items_still_open:
   - "Cleanup policies write no audit log entries, so the dry-run audit trail the cleanup-policy page describes is absent."
   - "Rule condition variables are the emulator's choice (see rule_conditions); download rules are enforced on Docker manifest and blob reads, file downloads, and npm, Python, Maven, apt, yum and Go downloads only."
   - "Project settings and the VPC-SC policy are stored; nothing consults them."
-  - "A repository id is unique per project across locations, and image data is not separated by location."
+  - "Docker repository ids are unique per project across locations because the registry path (project/repository/image) carries no location and image data is stored by that path; other formats may reuse an id in several locations (pkg.dev hosts select the location, other routes take the first by name)."
   - "Authentication is not checked and IAM is not enforced; every credential is accepted."
   - "Docker pushes to a path whose repository does not exist are refused instead of creating it (gcr.io-style auto-creation is not modelled)."
   - "Vulnerability scanning, signed attestations and docker image build_time are not modelled; Artifact Registry's own location catalogue is not served."

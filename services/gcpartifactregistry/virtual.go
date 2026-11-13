@@ -79,7 +79,7 @@ func (b *InMemoryBackend) upstreamsOf(rc repoCtx) []repoCtx {
 			continue
 		}
 
-		up, ok := b.repoOfFormat(ref.project, ref.id, rc.pb.GetFormat())
+		up, ok := b.repoOfFormat(ref.project, ref.id, ref.location, rc.pb.GetFormat())
 		if !ok || up.pb.GetMode() == artifactregistrypb.Repository_VIRTUAL_REPOSITORY {
 			continue
 		}

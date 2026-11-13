@@ -19,7 +19,7 @@ func (b *InMemoryBackend) publishRepo(
 	project, id string,
 	format artifactregistrypb.Repository_Format,
 ) (repoCtx, error) {
-	rc, ok := b.repoOfFormat(project, id, format)
+	rc, ok := b.repoOfFormat(project, id, "", format)
 	if !ok {
 		return repoCtx{}, errNotFound(
 			"No %s repository %q in project %q.",

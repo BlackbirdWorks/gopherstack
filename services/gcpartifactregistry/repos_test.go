@@ -212,3 +212,41 @@ func TestInvalidNames(t *testing.T) {
 		})
 	}
 }
+
+func TestRepositoryIDPerLocation(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, "")
+	other := "projects/" + project + "/locations/europe-west1"
+	mavenRepo := func() *artifactregistrypb.Repository {
+		return &artifactregistrypb.Repository{Format: artifactregistrypb.Repository_MAVEN}
+	}
+
+	create := func(parent, id string, repo *artifactregistrypb.Repository) error {
+		_, err := e.client.CreateRepository(t.Context(), &artifactregistrypb.CreateRepositoryRequest{
+			Parent: parent, RepositoryId: id, Repository: repo,
+		})
+
+		return err
+	}
+
+	require.NoError(t, create(loc, "shared", mavenRepo()))
+	require.NoError(t, create(other, "shared", mavenRepo()), "same id in another location")
+	assert.Equal(t, codes.AlreadyExists, status.Code(create(other, "shared", mavenRepo())))
+
+	require.NoError(t, create(other, "shared-docker", dockerRepo()))
+	assert.Equal(t, codes.AlreadyExists, status.Code(create(loc, "shared-docker", dockerRepo())),
+		"docker registry paths carry no location")
+	require.NoError(t, create("projects/"+project+"/locations/asia-east1", "shared", dockerRepo()),
+		"docker may share an id with maven repositories")
+
+	_, err := e.client.DeleteRepository(t.Context(), &artifactregistrypb.DeleteRepositoryRequest{
+		Name: other + "/repositories/shared",
+	})
+	require.NoError(t, err)
+
+	_, err = e.client.GetRepository(t.Context(), &artifactregistrypb.GetRepositoryRequest{
+		Name: loc + "/repositories/shared",
+	})
+	require.NoError(t, err)
+}

@@ -245,21 +245,15 @@ func (b *InMemoryBackend) DeleteRule(name string) (*emptypb.Empty, error) {
 
 // downloadDenied reports whether a DENY download rule applies to res. A rule with a condition applies only when
 // the condition holds; the rule of the package wins over the repository rule.
-func (b *InMemoryBackend) downloadDenied(_ context.Context, project, repoID string, res ruleResource) bool {
+func (b *InMemoryBackend) downloadDenied(_ context.Context, ref repoRef, res ruleResource) bool {
 	b.mu.RLock("downloadDenied")
 	defer b.mu.RUnlock()
 
-	name, _, ok := b.repoByKey(project, repoID)
-	if !ok {
+	if _, ok := b.repos[ref.full()]; !ok {
 		return false
 	}
 
-	ref, err := parseRepo(name)
-	if err != nil {
-		return false
-	}
-
-	res.repository = repoID
+	res.repository = ref.id
 	pkg := res.pkg
 	now := b.now()
 

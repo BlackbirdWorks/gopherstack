@@ -31,7 +31,7 @@ families:
   observability: {status: partial, note: "One lockmetrics.RWMutex guards all state; RPC failures are logged at debug. No dashboard page."}
 items_still_open:
   - "ExportEntities and ImportEntities are not served (they need a Cloud Storage bucket target); the admin service answers UNIMPLEMENTED for them."
-  - "Query explain (explain_options), vector search (find_nearest), __property__ metadata queries are not supported; explain and find_nearest return UNIMPLEMENTED, and a property_mask is applied to full entities only."
+  - "Vector search (find_nearest) returns UNIMPLEMENTED, and a property_mask is applied to full entities only."
   - "Pessimistic concurrency, point-in-time recovery beyond one hour, multiple named databases' lifecycle API and TTL policies are not modelled; the database_id field only partitions data."
   - "Composite index rules cover only the cases the documentation states; the index build is instantaneous (no CREATING state) and the exact wording of FAILED_PRECONDITION and ABORTED messages was chosen without a production reference."
   - "There is no dashboard page."
@@ -39,3 +39,5 @@ leaks: {status: clean, note: "Background resources are the grpc.Server and its s
 ---
 
 Initial implementation (2026-10-26): google.datastore.v1 Datastore and google.datastore.admin.v1 index management verified against cloud.google.com/go/datastore v1.25.0 through the official client and raw datastorepb clients in the package tests, including REST/JSON through the shared transcoder.
+
+Explain (RunQuery, RunAggregationQuery): ExplainMetrics follow query_profile.proto (plan_summary.indexes_used entries shaped like the proto example; analyze=false skips execution and returns only the plan; analyze=true adds results_returned, execution_duration, read_operations and debug_stats). The index text itself is the emulator's rendering. __property__ queries list each indexed property of each kind with property_representation index types.

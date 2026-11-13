@@ -56,7 +56,7 @@ func (b *InMemoryBackend) serveDockerVirtual(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rc, ok := b.repoOfFormat(dp.project, dp.id, artifactregistrypb.Repository_DOCKER)
+	rc, ok := b.repoOfFormat(dp.project, dp.id, "", artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		writeRegError(w, http.StatusNotFound, "NAME_UNKNOWN", "Repository not found")
 
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) fillDockerRemote(w http.ResponseWriter, r *http.Reques
 		return false
 	}
 
-	rc, ok := b.repoOfFormat(dp.project, dp.id, artifactregistrypb.Repository_DOCKER)
+	rc, ok := b.repoOfFormat(dp.project, dp.id, "", artifactregistrypb.Repository_DOCKER)
 	if !ok {
 		return false
 	}

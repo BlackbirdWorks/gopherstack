@@ -115,7 +115,9 @@ func (b *InMemoryBackend) dockerPullDenied(r *http.Request, dp dockerPath) bool 
 				}
 			}
 
-			return b.downloadDenied(r.Context(), dp.project, dp.id, res)
+			info, _ := b.LookupDockerRepo(dp.project, dp.id)
+
+			return b.downloadDenied(r.Context(), repoRef{project: dp.project, location: info.Location, id: dp.id}, res)
 		}
 	}
 
