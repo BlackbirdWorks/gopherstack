@@ -37,7 +37,7 @@ type Fake struct {
 }
 
 // New returns a Fake and an Engine wired to it.
-func New(t *testing.T, base portRange) (*Fake, *redisdocker.Engine) {
+func New(t *testing.T, base PortRange) (*Fake, *redisdocker.Engine) {
 	t.Helper()
 
 	alloc, err := portalloc.New(base.Start, base.End)
@@ -58,10 +58,11 @@ func New(t *testing.T, base portRange) (*Fake, *redisdocker.Engine) {
 	return f, eng
 }
 
-type portRange struct{ Start, End int }
+// PortRange is an inclusive host port range for the fake.
+type PortRange struct{ Start, End int }
 
 // Ports returns a port range for the fake's allocator.
-func Ports(start, end int) portRange { return portRange{Start: start, End: end} }
+func Ports(start, end int) PortRange { return PortRange{Start: start, End: end} }
 
 // CreateAndStart implements redisdocker.Runtime.
 func (f *Fake) CreateAndStart(_ context.Context, spec container.Spec) (string, error) {
